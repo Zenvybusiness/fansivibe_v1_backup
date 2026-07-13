@@ -1,4 +1,4 @@
-// import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 /// Mock data for Discover look cards.
 class DiscoverLookData {
@@ -14,6 +14,10 @@ class DiscoverLookData {
     required this.matchScore,
     this.isTrending = false,
     this.wardrobeMatchCount = 0,
+    this.matchScoreDetails,
+    this.recommendationReasons,
+    this.ensembleComponents,
+    this.wardrobeAlternatives,
   });
 
   /// Unique identifier.
@@ -45,6 +49,18 @@ class DiscoverLookData {
 
   /// Number of wardrobe items that match.
   final int wardrobeMatchCount;
+
+  /// Detailed match score breakdown by category.
+  final MatchScoreDetails? matchScoreDetails;
+
+  /// Personalized recommendation reasons.
+  final List<RecommendationReason>? recommendationReasons;
+
+  /// Ensemble components (outfit pieces).
+  final List<EnsembleComponent>? ensembleComponents;
+
+  /// Wardrobe alternatives for each component.
+  final List<WardrobeAlternative>? wardrobeAlternatives;
 
   /// Mock data for "For You" personalized looks.
   static const List<DiscoverLookData> forYouMock = [
@@ -248,21 +264,9 @@ class FilterOption {
 class OccasionFilters {
   /// All occasion filter options.
   static const List<FilterOption> options = [
-    FilterOption(
-      id: 'all',
-      label: 'All Occasions',
-      icon: Icons.event_outlined,
-    ),
-    FilterOption(
-      id: 'work',
-      label: 'Work',
-      icon: Icons.work_outline_rounded,
-    ),
-    FilterOption(
-      id: 'casual',
-      label: 'Casual',
-      icon: Icons.weekend_rounded,
-    ),
+    FilterOption(id: 'all', label: 'All Occasions', icon: Icons.event_outlined),
+    FilterOption(id: 'work', label: 'Work', icon: Icons.work_outline_rounded),
+    FilterOption(id: 'casual', label: 'Casual', icon: Icons.weekend_rounded),
     FilterOption(
       id: 'evening',
       label: 'Evening',
@@ -290,31 +294,19 @@ class OccasionFilters {
 class StyleFilters {
   /// All style filter options.
   static const List<FilterOption> options = [
-    FilterOption(
-      id: 'all',
-      label: 'All Styles',
-      icon: Icons.style_outlined,
-    ),
+    FilterOption(id: 'all', label: 'All Styles', icon: Icons.style_outlined),
     FilterOption(
       id: 'minimalist',
       label: 'Minimalist',
       icon: Icons.remove_rounded,
     ),
-    FilterOption(
-      id: 'classic',
-      label: 'Classic',
-      icon: Icons.diamond_outlined,
-    ),
+    FilterOption(id: 'classic', label: 'Classic', icon: Icons.diamond_outlined),
     FilterOption(
       id: 'contemporary',
       label: 'Contemporary',
       icon: Icons.auto_awesome_outlined,
     ),
-    FilterOption(
-      id: 'rugged',
-      label: 'Rugged',
-      icon: Icons.terrain_outlined,
-    ),
+    FilterOption(id: 'rugged', label: 'Rugged', icon: Icons.terrain_outlined),
     FilterOption(
       id: 'artistic',
       label: 'Artistic',
@@ -325,16 +317,8 @@ class StyleFilters {
       label: 'Techwear',
       icon: Icons.memory_outlined,
     ),
-    FilterOption(
-      id: 'preppy',
-      label: 'Preppy',
-      icon: Icons.school_outlined,
-    ),
-    FilterOption(
-      id: 'bohemian',
-      label: 'Bohemian',
-      icon: Icons.spa_outlined,
-    ),
+    FilterOption(id: 'preppy', label: 'Preppy', icon: Icons.school_outlined),
+    FilterOption(id: 'bohemian', label: 'Bohemian', icon: Icons.spa_outlined),
   ];
 }
 
@@ -342,11 +326,7 @@ class StyleFilters {
 class FitFilters {
   /// All fit filter options.
   static const List<FilterOption> options = [
-    FilterOption(
-      id: 'all',
-      label: 'All Fits',
-      icon: Icons.straighten_outlined,
-    ),
+    FilterOption(id: 'all', label: 'All Fits', icon: Icons.straighten_outlined),
     FilterOption(
       id: 'slim',
       label: 'Slim Fit',

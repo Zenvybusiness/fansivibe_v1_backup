@@ -34,7 +34,9 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Discover screen is shown.
-    expect(find.text('Temporary Discover Screen'), findsOneWidget);
+    expect(find.text('Find looks tailored to your style'), findsOneWidget);
+    expect(find.text('For You'), findsOneWidget);
+    expect(find.text('OCCASION'), findsOneWidget);
 
     // Tap Stylist tab.
     await tester.tap(
@@ -118,6 +120,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Discover screen is still showing (state preserved via IndexedStack).
-    expect(find.text('Temporary Discover Screen'), findsOneWidget);
+    expect(find.text('Find looks tailored to your style'), findsOneWidget);
+    expect(find.text('For You'), findsOneWidget);
+    expect(find.text('OCCASION'), findsOneWidget);
   });
 }
