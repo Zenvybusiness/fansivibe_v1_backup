@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../shared/theme/fansivibe_theme.dart';
-import 'foundation_screen.dart';
+import 'main_shell.dart';
 
 /// The root widget of the Fansivibe application.
 class FansivibeApp extends StatelessWidget {
@@ -13,7 +13,7 @@ class FansivibeApp extends StatelessWidget {
       title: 'Fansivibe',
       debugShowCheckedModeBanner: false,
       theme: FansivibeTheme.darkTheme,
-      home: const FoundationScreen(),
+      home: const MainShell(),
     );
   }
 }
