@@ -154,6 +154,40 @@ void main() {
     expect(find.text('Hairstyle'), findsAtLeast(1));
   });
 
+  testWidgets('Beard / Glasses card navigates to GroomingInputScreen', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const FansivibeApp());
+
+    // Navigate to Stylist tab.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Stylist'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Tap the Beard / Glasses card.
+    await tester.tap(find.text('Beard / Glasses'));
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    // Verify GroomingInputScreen is shown.
+    expect(find.text('Grooming Profile'), findsOneWidget);
+    expect(find.text('Face Shape'), findsOneWidget);
+
+    // Go back.
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    // Verify we are back on the Stylist screen.
+    expect(find.text('Beard / Glasses'), findsAtLeast(1));
+  });
+
   testWidgets('Tab state is preserved when switching tabs', (
     WidgetTester tester,
   ) async {

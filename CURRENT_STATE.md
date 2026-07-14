@@ -154,6 +154,51 @@ Build core feature screens incrementally within the established navigation shell
 - **Widget tests** for FaceProcessingScreen (4 tests: rendering, stages, progress, back)
 - **Widget tests** for HairstyleResultScreen (10 tests: rendering, sections, recommendations, navigation, details)
 - **Widget tests** for HairstyleDetailsScreen (9 tests: rendering, score, description, reasons, info cards, actions)
+- **Grooming Recommendation UI flow (GROOM-001, GROOM-002, GROOM-003, GROOM-004)** implemented:
+  - `features/grooming/data/grooming_mock_data.dart` with structured data models: `GroomingOption`, `GroomingProcessingStage`, `GroomingRecommendation`, `GroomingAnalysisResult`
+  - Data-driven option groups: face shape (6), beard style (6), beard density (3), beard color (6)
+  - **GroomingInputScreen (GROOM-001)** at `features/grooming/presentation/grooming_input_screen.dart`:
+    - Four selection sections rendered from structured option data
+    - "Analyze Features" button disabled until all selections made
+    - Animated selected state with gold accent
+    - Navigates to GROOM-002 on Analyze
+  - **GroomingProcessingScreen (GROOM-002)** at `features/grooming/presentation/grooming_processing_screen.dart`:
+    - Selection summary passed through from input screen
+    - Staged mock progress with 5 steps (analyzing face shape, evaluating facial features, matching beard styles, selecting eyewear options, ranking grooming recommendations)
+    - Timer-driven auto-progression through stages
+    - Circular progress indicator during processing
+    - Check mark animation on completion
+    - "View Recommendations" button after all stages complete
+    - Auto-navigates to GROOM-003 via pushReplacement
+  - **GroomingResultScreen (GROOM-003)** at `features/grooming/presentation/grooming_result_screen.dart`:
+    - Feature Profile section with face shape, beard style, density, color
+    - Match Score section with circular percentage indicator
+    - Primary Beard Recommendation section with recommendation card
+    - Eyewear Suggestion section with frame recommendation and details
+    - Why It Works section with numbered reasons
+    - Grooming Specifications section (beard length, cheek line, eyewear frame)
+    - Alternatives section with 3 curated options
+    - Start Over and Save Recommendation action buttons
+    - Tapping top or alternative recommendation opens GROOM-004
+  - **GroomingDetailsScreen (GROOM-004)** at `features/grooming/presentation/grooming_details_screen.dart`:
+    - Header with recommendation name, match score badge, best-for context
+    - Visual placeholder with style visualization
+    - Description card with detailed explanation
+    - Reasons section: "Why This Works For You"
+    - Spec cards: Beard Length, Cheek Line, Eyewear Frame, Eyewear Recommendation
+    - Info cards: Styling Tips, Maintenance, Best For
+    - Save Recommendation action button
+  - Shared widgets in `features/grooming/presentation/widgets/grooming_widgets.dart`:
+    - `GroomingOptionChip`, `GroomingOptionSection`, `GroomingStageIndicator`, `GroomingRecommendationCard`
+  - Stylist screen "Beard / Glasses" action now navigates to GROOM-001
+  - Premium dark/gold design system compliance
+  - Responsive LayoutBuilder pattern matching existing screens
+  - No backend, no real AI, no new packages, no routing or state-management migration
+- **Widget tests** for GroomingInputScreen (7 tests: rendering, sections, button, back, chips)
+- **Widget tests** for GroomingProcessingScreen (4 tests: rendering, stages, progress, back)
+- **Widget tests** for GroomingResultScreen (13 tests: rendering, sections, recommendations, navigation, details, back)
+- **Widget tests** for GroomingDetailsScreen (13 tests: rendering, score, description, reasons, specs, info cards, actions)
+- **Widget tests** for Stylist Beard/Glasses navigation integrated into main navigation tests
 
 ## In Progress
 
@@ -161,8 +206,9 @@ Build core feature screens incrementally within the established navigation shell
 
 ## Next
 
-1. Implement Profile screen (PROFILE-001) with settings navigation.
-2. Establish routing and state management libraries (decision to be recorded in `DECISIONS.md`).
+1. Implement Event Planning flow.
+2. Implement Profile screen (PROFILE-001) with settings navigation.
+3. Establish routing and state management libraries (decision to be recorded in `DECISIONS.md`).
 
 ## Known Issues
 
@@ -172,7 +218,7 @@ None documented.
 
 Format: Passed (ran `dart format lib test`).
 Analysis: Passed (ran `flutter analyze` with 0 issues).
-Tests: Passed (ran `flutter test` with 183/183 passing).
+Tests: Passed (ran `flutter test` with 221/221 passing).
 
 ## Handoff
 
