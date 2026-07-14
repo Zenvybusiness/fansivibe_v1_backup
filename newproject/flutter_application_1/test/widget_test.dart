@@ -90,6 +90,70 @@ void main() {
     expect(find.text('Good morning, Alex'), findsOneWidget);
   });
 
+  testWidgets('Build Outfit card navigates to BuildOutfitScreen', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const FansivibeApp());
+
+    // Navigate to Stylist tab.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Stylist'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Tap the Build Outfit card.
+    await tester.tap(find.text('Build Outfit'));
+    await tester.pumpAndSettle();
+
+    // Verify BuildOutfitScreen is shown.
+    expect(find.text('Create Your Look'), findsOneWidget);
+    expect(find.text('Occasion'), findsOneWidget);
+
+    // Go back.
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pumpAndSettle();
+
+    // Verify we are back on the Stylist screen.
+    expect(find.text('Build Outfit'), findsAtLeast(1));
+  });
+
+  testWidgets('Hairstyle card navigates to FaceScanScreen', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const FansivibeApp());
+
+    // Navigate to Stylist tab.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Stylist'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Tap the Hairstyle card.
+    await tester.tap(find.text('Hairstyle'));
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    // Verify FaceScanScreen is shown.
+    expect(find.text('Face Scan'), findsOneWidget);
+    expect(find.text('Start Scan'), findsOneWidget);
+
+    // Go back.
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    // Verify we are back on the Stylist screen.
+    expect(find.text('Hairstyle'), findsAtLeast(1));
+  });
+
   testWidgets('Tab state is preserved when switching tabs', (
     WidgetTester tester,
   ) async {

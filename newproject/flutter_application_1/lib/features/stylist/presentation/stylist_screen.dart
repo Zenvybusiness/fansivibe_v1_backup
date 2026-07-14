@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/features/hairstyle/presentation/face_scan_screen.dart';
+import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_scan_screen.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -203,7 +205,13 @@ class StylistScreen extends StatelessWidget {
           MaterialPageRoute<void>(builder: (_) => const OutfitScanScreen()),
         );
       case 'build_outfit':
+        Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(builder: (_) => const BuildOutfitScreen()),
+        );
       case 'hairstyle':
+        Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(builder: (_) => const FaceScanScreen()),
+        );
       case 'grooming':
       case 'event':
         ScaffoldMessenger.of(context).showSnackBar(

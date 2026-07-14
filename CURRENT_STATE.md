@@ -78,6 +78,82 @@ Build core feature screens incrementally within the established navigation shell
 - **Widget tests** for OutfitScanScreen (9 tests: rendering, indicators, checks, buttons, navigation, back)
 - **Widget tests** for OutfitProcessingScreen (4 tests: rendering, stages, progress, back)
 - **Widget tests** for OutfitAnalysisScreen (7 tests: rendering, sections, items, actions)
+- **Widget tests** for OutfitBuilder screens (23 tests: rendering, options, selection, navigation, generation, recommendation)
+- **Widget tests** for Build Outfit navigation integrated into main navigation tests
+- **Outfit Builder UI flow (OUTFIT-001, OUTFIT-002, OUTFIT-003)** implemented:
+  - `features/outfit_builder/data/outfit_builder_mock_data.dart` with structured data models: `BuilderOption`, `GenerationStage`, `OutfitComponent`, `OutfitRecommendation`
+  - Data-driven option groups: occasion (5), mood (4), fit (3), color palette (3)
+  - **BuildOutfitScreen (OUTFIT-001)** at `features/outfit_builder/presentation/build_outfit_screen.dart`:
+    - Four selection sections rendered from structured option data
+    - "Build My Outfit" button disabled until all selections made
+    - Animated selected state with gold accent
+    - Navigates to OUTFIT-002 on Build
+  - **OutfitGenerationScreen (OUTFIT-002)** at `features/outfit_builder/presentation/outfit_generation_screen.dart`:
+    - Selection summary showing chosen preferences
+    - Staged mock progress with 5 steps (analyzing wardrobe, matching occasion, applying Style DNA, selecting pieces, generating recommendations)
+    - Timer-driven auto-progression through stages
+    - Circular progress indicator during processing
+    - Check mark animation on completion
+    - "View Recommendation" button after all stages complete
+    - Auto-navigates to OUTFIT-003 via pushReplacement
+  - **OutfitRecommendationScreen (OUTFIT-003)** at `features/outfit_builder/presentation/outfit_recommendation_screen.dart`:
+    - Title with occasion/mood/palette summary
+    - Match score (91%) with circular indicator
+    - 5 curated outfit components with Replace buttons
+    - 4 recommendation reasons
+    - 3 metric cards: Color Harmony, Body Fit, Occasion Match
+    - Style Score Impact card
+    - Improvement Suggestion card
+    - Wear This Look and Save Look action buttons
+  - Shared widgets in `features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart`:
+    - `OptionChip`, `OptionSection`, `ScoreCircle`, `MetricCard`, `OutfitComponentCard`
+  - Stylist screen "Build Outfit" action now navigates to OUTFIT-001
+  - Premium dark/gold design system compliance
+  - Responsive LayoutBuilder pattern matching existing screens
+  - No backend, no real AI, no new packages, no routing or state-management migration
+- **Hairstyle Recommendation UI flow (HAIR-001, HAIR-002, HAIR-003, HAIR-004)** implemented:
+  - `features/hairstyle/data/hairstyle_mock_data.dart` with structured data models: `FaceScanCheck`, `HairstyleProcessingStage`, `HairstyleRecommendation`, `HairstyleAnalysisResult`
+  - Data-driven recommendation with face shape (Oval), skin tone (Warm Medium), Style DNA
+  - Top recommendation (Textured Quiff, 94% match) with 4 reasons, styling tips, maintenance, best-for
+  - 3 alternative hairstyles with individual match scores and reasons
+  - **FaceScanScreen (HAIR-001)** at `features/hairstyle/presentation/face_scan_screen.dart`:
+    - Face camera-style preview placeholder with oval alignment guide
+    - "Face Detection Active" live indicator
+    - Lighting, distance, and alignment check indicators
+    - "Center your face in the frame" guidance message
+    - Start Scan action (navigates to HAIR-002)
+  - **FaceProcessingScreen (HAIR-002)** at `features/hairstyle/presentation/face_processing_screen.dart`:
+    - Staged mock progress with 5 steps (detecting face features, analyzing face shape, analyzing skin tone, applying Style DNA, ranking recommendations)
+    - Timer-driven auto-progression through stages
+    - Circular progress indicator during processing
+    - Check mark animation on completion
+    - "View Recommendations" button after all stages complete
+    - Auto-navigates to HAIR-003 via pushReplacement
+  - **HairstyleResultScreen (HAIR-003)** at `features/hairstyle/presentation/hairstyle_result_screen.dart`:
+    - Style Profile section with face shape, skin tone, Style DNA
+    - Top recommendation with match percentage and "Why it works" reasons
+    - Alternative hairstyles section with 3 curated options
+    - Each hairstyle card shows name, description, match score, reasons, maintenance
+    - Save to Profile and Scan Again action buttons
+    - Tapping top or alternative hairstyle opens HAIR-004
+  - **HairstyleDetailsScreen (HAIR-004)** at `features/hairstyle/presentation/hairstyle_details_screen.dart`:
+    - Header with hairstyle name, match score badge, best-for context
+    - Visual placeholder with style visualization
+    - Description card with detailed explanation
+    - Reasons section: "Why This Works For You"
+    - Info cards: Styling Tips, Maintenance, Best For
+    - Save to Profile action button
+  - Shared widgets in `features/hairstyle/presentation/widgets/hairstyle_widgets.dart`:
+    - `FacePreviewPlaceholder`, `HairstyleCheckIndicator`, `HairstyleStageIndicator`, `HairstyleCard`
+  - Stylist screen "Hairstyle" action now navigates to HAIR-001
+  - Premium dark/gold design system compliance
+  - Responsive LayoutBuilder pattern matching existing screens
+  - No real camera, no image picker, no backend, no AI, no new packages
+- **Widget tests** for Stylist Hairstyle navigation integrated into main navigation tests
+- **Widget tests** for FaceScanScreen (8 tests: rendering, indicators, checks, buttons, navigation, back)
+- **Widget tests** for FaceProcessingScreen (4 tests: rendering, stages, progress, back)
+- **Widget tests** for HairstyleResultScreen (10 tests: rendering, sections, recommendations, navigation, details)
+- **Widget tests** for HairstyleDetailsScreen (9 tests: rendering, score, description, reasons, info cards, actions)
 
 ## In Progress
 
@@ -96,7 +172,7 @@ None documented.
 
 Format: Passed (ran `dart format lib test`).
 Analysis: Passed (ran `flutter analyze` with 0 issues).
-Tests: Passed (ran `flutter test` with 127/127 passing).
+Tests: Passed (ran `flutter test` with 183/183 passing).
 
 ## Handoff
 
