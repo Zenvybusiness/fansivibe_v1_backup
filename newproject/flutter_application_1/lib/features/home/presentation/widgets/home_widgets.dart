@@ -1,148 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
+import 'package:fansivibe/shared/components/fansivibe_card.dart';
+import 'package:fansivibe/shared/components/section_title.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/icon_utils.dart';
 
-/// A premium card widget for the Home feature.
-class HomeCard extends StatelessWidget {
-  /// Creates a [HomeCard].
-  const HomeCard({
-    required this.child,
-    this.padding = const EdgeInsets.all(20),
-    this.margin = EdgeInsets.zero,
-    this.onTap,
-    this.borderColor,
-    super.key,
-  });
-
-  /// The child widget.
-  final Widget child;
-
-  /// Internal padding.
-  final EdgeInsetsGeometry padding;
-
-  /// External margin.
-  final EdgeInsetsGeometry margin;
-
-  /// Optional tap callback.
-  final VoidCallback? onTap;
-
-  /// Optional border color.
-  final Color? borderColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final effectiveBorderColor =
-        borderColor ?? FansivibeColors.accentGold.withValues(alpha: 0.2);
-
-    Widget card = Container(
-      margin: margin,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: effectiveBorderColor, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: child,
-    );
-
-    if (onTap != null) {
-      return InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: card,
-      );
-    }
-
-    return card;
-  }
-}
-
-/// A section title widget for the Home feature.
-class HomeSectionTitle extends StatelessWidget {
-  /// Creates a [HomeSectionTitle].
-  const HomeSectionTitle({
-    required this.title,
-    this.subtitle,
-    this.actionLabel,
-    this.onActionPressed,
-    super.key,
-  });
-
-  /// Section title.
-  final String title;
-
-  /// Optional subtitle.
-  final String? subtitle;
-
-  /// Optional action label.
-  final String? actionLabel;
-
-  /// Optional action callback.
-  final VoidCallback? onActionPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: FansivibeColors.textPrimary,
-                  ),
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle!,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: FansivibeColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          if (actionLabel != null && onActionPressed != null)
-            TextButton(
-              onPressed: onActionPressed,
-              style: TextButton.styleFrom(
-                foregroundColor: FansivibeColors.accentGold,
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 32),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Text(
-                actionLabel!,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: FansivibeColors.accentGold,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
+typedef HomeCard = FansivibeCard;
+typedef HomeSectionTitle = SectionTitle;
 
 /// A premium button widget for the Home feature.
 class HomeActionButton extends StatelessWidget {
@@ -502,39 +366,42 @@ class OutfitItemChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-            width: 1,
+    return Semantics(
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: FansivibeColors.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: FansivibeColors.accentGold.withValues(alpha: 0.15),
+              width: 1,
+            ),
           ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              _getCategoryIcon(item.category),
-              size: 16,
-              color: FansivibeColors.accentGold,
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                item.name,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: FansivibeColors.textPrimary,
-                  fontWeight: FontWeight.w500,
-                ),
-                overflow: TextOverflow.ellipsis,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _getCategoryIcon(item.category),
+                size: 16,
+                color: FansivibeColors.accentGold,
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  item.name,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: FansivibeColors.textPrimary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -574,7 +441,7 @@ class AIInsightCard extends StatelessWidget {
     final theme = Theme.of(context);
     final accentColor = Color(data.accentColor);
 
-    return HomeCard(
+    return FansivibeCard(
       borderColor: accentColor.withValues(alpha: 0.3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -642,22 +509,7 @@ class AIInsightCard extends StatelessWidget {
     );
   }
 
-  IconData _getIconData(String iconName) {
-    switch (iconName) {
-      case 'lightbulb_outline_rounded':
-        return Icons.lightbulb_outline_rounded;
-      case 'trending_up_rounded':
-        return Icons.trending_up_rounded;
-      case 'insights_rounded':
-        return Icons.insights_rounded;
-      case 'psychology_rounded':
-        return Icons.psychology_rounded;
-      case 'auto_awesome_rounded':
-        return Icons.auto_awesome_rounded;
-      default:
-        return Icons.lightbulb_outline_rounded;
-    }
-  }
+  IconData _getIconData(String iconName) => iconFromName(iconName);
 }
 
 /// Quick action card widget.
@@ -676,54 +528,57 @@ class QuickActionCard extends StatelessWidget {
     final theme = Theme.of(context);
     final accentColor = Color(data.accentColor);
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: HomeCard(
-        padding: const EdgeInsets.all(20),
-        borderColor: accentColor.withValues(alpha: 0.2),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: accentColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(14),
+    return Semantics(
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: FansivibeCard(
+          padding: const EdgeInsets.all(20),
+          borderColor: accentColor.withValues(alpha: 0.2),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  _getIconData(data.iconName),
+                  color: accentColor,
+                  size: 24,
+                ),
               ),
-              child: Icon(
-                _getIconData(data.iconName),
-                color: accentColor,
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      data.title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: FansivibeColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      data.subtitle,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: FansivibeColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: FansivibeColors.textSecondary,
                 size: 24,
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    data.title,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: FansivibeColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    data.subtitle,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: FansivibeColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: FansivibeColors.textSecondary,
-              size: 24,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -805,7 +660,7 @@ class TodaysLookCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return HomeCard(
+    return FansivibeCard(
       padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -885,11 +740,15 @@ class TodaysLookCard extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.checkroom_rounded,
-                        size: 64,
-                        color: FansivibeColors.accentGold.withValues(
-                          alpha: 0.4,
+                      Semantics(
+                        image: true,
+                        label: 'Outfit image placeholder',
+                        child: Icon(
+                          Icons.checkroom_rounded,
+                          size: 64,
+                          color: FansivibeColors.accentGold.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -1078,7 +937,7 @@ class StyleScoreCard extends StatelessWidget {
         ? Icons.trending_down_rounded
         : Icons.trending_flat_rounded;
 
-    return HomeCard(
+    return FansivibeCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1232,7 +1091,7 @@ class StyleStreakCard extends StatelessWidget {
     final theme = Theme.of(context);
     final progress = data.thisWeekCount / data.weeklyGoal;
 
-    return HomeCard(
+    return FansivibeCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
-import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/profile_widgets.dart';
+import 'package:fansivibe/shared/components/fansivibe_card.dart';
+import 'package:fansivibe/shared/components/section_title.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -45,7 +46,7 @@ class ProfileScreen extends StatelessWidget {
                         const SizedBox(height: 24),
 
                         // Style Score & Global Rank
-                        HomeCard(
+                        FansivibeCard(
                           child: ProfileStatRow(
                             score: profile.styleScore,
                             rank: profile.globalRank,
@@ -54,7 +55,7 @@ class ProfileScreen extends StatelessWidget {
                         const SizedBox(height: 20),
 
                         // Style Progress
-                        HomeCard(
+                        FansivibeCard(
                           child: StyleProgressIndicator(
                             data: profile.styleProgress,
                           ),
@@ -62,13 +63,13 @@ class ProfileScreen extends StatelessWidget {
                         const SizedBox(height: 24),
 
                         // Achievements
-                        HomeSectionTitle(
+                        SectionTitle(
                           title: 'Achievements',
                           subtitle:
                               '${profile.achievements.where((a) => a.unlocked).length} of ${profile.achievements.length} unlocked',
                         ),
                         const SizedBox(height: 16),
-                        HomeCard(
+                        FansivibeCard(
                           child: AchievementGrid(
                             achievements: profile.achievements,
                           ),
@@ -76,7 +77,7 @@ class ProfileScreen extends StatelessWidget {
                         const SizedBox(height: 24),
 
                         // Saved Looks Preview
-                        HomeSectionTitle(
+                        SectionTitle(
                           title: 'Saved Looks',
                           actionLabel: 'View All',
                           onActionPressed: () =>
@@ -87,15 +88,17 @@ class ProfileScreen extends StatelessWidget {
                         const SizedBox(height: 24),
 
                         // Style DNA
-                        HomeSectionTitle(title: 'Style DNA'),
+                        SectionTitle(title: 'Style DNA'),
                         const SizedBox(height: 16),
-                        HomeCard(child: StyleDnaCard(data: profile.styleDna)),
+                        FansivibeCard(
+                          child: StyleDnaCard(data: profile.styleDna),
+                        ),
                         const SizedBox(height: 24),
 
                         // Menu Actions
-                        HomeSectionTitle(title: 'Account'),
+                        SectionTitle(title: 'Account'),
                         const SizedBox(height: 16),
-                        HomeCard(
+                        FansivibeCard(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 4,

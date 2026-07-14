@@ -4,10 +4,8 @@ import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
 
 void _emptyCallback() {}
-void _emptyTabCallback(DiscoverTab tab) {}
 void _emptyFilterCallback(FilterOption option) {}
 
-/// Helper to wrap a widget with the Fansivibe theme for testing.
 Widget wrapWithTheme(Widget widget) {
   return MaterialApp(
     theme: ThemeData.dark(),
@@ -43,25 +41,6 @@ void main() {
       await tester.pump();
 
       expect(tapped, true);
-    });
-
-    testWidgets('DiscoverSectionTitle renders correctly', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        wrapWithTheme(
-          DiscoverSectionTitle(
-            title: 'Test Title',
-            subtitle: 'Test Subtitle',
-            actionLabel: 'View All',
-            onActionPressed: _emptyCallback,
-          ),
-        ),
-      );
-
-      expect(find.text('Test Title'), findsOneWidget);
-      expect(find.text('Test Subtitle'), findsOneWidget);
-      expect(find.text('View All'), findsOneWidget);
     });
 
     testWidgets('DiscoverTabButton renders selected and unselected states', (
@@ -176,67 +155,6 @@ void main() {
 
       expect(find.text('Trending'), findsOneWidget);
       expect(find.byIcon(Icons.trending_up_rounded), findsOneWidget);
-    });
-
-    testWidgets('DiscoverSearchField renders correctly', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        wrapWithTheme(const DiscoverSearchField(onTap: _emptyCallback)),
-      );
-
-      expect(find.byType(TextField), findsOneWidget);
-      expect(find.text('Search looks, styles, occasions...'), findsOneWidget);
-      expect(find.byIcon(Icons.search_rounded), findsOneWidget);
-      expect(find.byIcon(Icons.tune_rounded), findsOneWidget);
-    });
-
-    testWidgets('DiscoverHeader renders correctly', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        wrapWithTheme(
-          const DiscoverHeader(
-            onSearchTap: _emptyCallback,
-            activeFilterCount: 0,
-          ),
-        ),
-      );
-
-      expect(find.text('Discover'), findsOneWidget);
-      expect(find.text('Find your next signature look'), findsOneWidget);
-      expect(find.byType(TextField), findsOneWidget);
-    });
-
-    testWidgets('DiscoverTabs renders correctly', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        wrapWithTheme(
-          const DiscoverTabs(
-            selectedTab: DiscoverTab.forYou,
-            onTabChanged: _emptyTabCallback,
-          ),
-        ),
-      );
-
-      expect(find.text('For You'), findsOneWidget);
-      expect(find.text('Trending'), findsOneWidget);
-    });
-
-    testWidgets('DiscoverEmptyState renders correctly', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        wrapWithTheme(
-          const DiscoverEmptyState(
-            message: 'No looks found',
-            subtitle: 'Try adjusting your filters',
-          ),
-        ),
-      );
-
-      expect(find.text('No looks found'), findsOneWidget);
-      expect(find.text('Try adjusting your filters'), findsOneWidget);
-      expect(find.byIcon(Icons.search_off_rounded), findsOneWidget);
     });
 
     testWidgets('LookCard renders with constraints', (

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/icon_utils.dart';
 
 /// A premium card widget for the Wardrobe feature.
 class WardrobeCard extends StatelessWidget {
@@ -201,20 +202,7 @@ class WardrobeInsightCard extends StatelessWidget {
   }
 
   IconData _getIconData(String iconName) {
-    switch (iconName) {
-      case 'lightbulb_outline_rounded':
-        return Icons.lightbulb_outline_rounded;
-      case 'trending_up_rounded':
-        return Icons.trending_up_rounded;
-      case 'insights_rounded':
-        return Icons.insights_rounded;
-      case 'psychology_rounded':
-        return Icons.psychology_rounded;
-      case 'auto_awesome_rounded':
-        return Icons.auto_awesome_rounded;
-      default:
-        return Icons.lightbulb_outline_rounded;
-    }
+    return iconFromName(iconName);
   }
 }
 
@@ -321,20 +309,7 @@ class CategoryFilterChip extends StatelessWidget {
   }
 
   IconData _getIconData(String iconName) {
-    switch (iconName) {
-      case 'checkroom_rounded':
-        return Icons.checkroom_rounded;
-      case 'person_rounded':
-        return Icons.person_rounded;
-      case 'accessibility_rounded':
-        return Icons.accessibility_rounded;
-      case 'directions_walk_rounded':
-        return Icons.directions_walk_rounded;
-      case 'diamond_rounded':
-        return Icons.diamond_rounded;
-      default:
-        return Icons.category_rounded;
-    }
+    return iconFromName(iconName);
   }
 }
 

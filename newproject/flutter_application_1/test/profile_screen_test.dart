@@ -326,9 +326,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: ThemeData.dark(),
-          home: Scaffold(
-            body: StyleDnaCard(data: ProfileData.mock.styleDna),
-          ),
+          home: Scaffold(body: StyleDnaCard(data: ProfileData.mock.styleDna)),
         ),
       );
 

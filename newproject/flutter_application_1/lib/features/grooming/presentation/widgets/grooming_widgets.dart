@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/score_colors.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
 
 class GroomingOptionChip extends StatelessWidget {
@@ -374,10 +375,5 @@ class GroomingRecommendationCard extends StatelessWidget {
     );
   }
 
-  Color _scoreColor(double s) {
-    if (s >= 0.9) return const Color(0xFF4CAF50);
-    if (s >= 0.7) return FansivibeColors.accentGold;
-    if (s >= 0.5) return const Color(0xFFFF9800);
-    return const Color(0xFFF44336);
-  }
+  Color _scoreColor(double s) => scoreColorFromDouble(s);
 }

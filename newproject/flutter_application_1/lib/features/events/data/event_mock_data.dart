@@ -98,4 +98,8 @@ class UserEvent {
       hasOutfitRecommendation: true,
     ),
   ];
+
+  /// Returns the [EventType] from [EventType.mockTypes] matching the given [id].
+  static EventType typeById(String id) =>
+      EventType.mockTypes.firstWhere((EventType t) => t.id == id);
 }

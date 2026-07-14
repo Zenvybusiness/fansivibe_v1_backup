@@ -54,10 +54,13 @@ class DiscoverCard extends StatelessWidget {
     );
 
     if (onTap != null) {
-      return InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: card,
+      return Semantics(
+        button: true,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: card,
+        ),
       );
     }
 
@@ -167,46 +170,50 @@ class DiscoverTabButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? FansivibeColors.accentGold.withValues(alpha: 0.15)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
+    return Semantics(
+      button: true,
+      label: data.label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          decoration: BoxDecoration(
             color: isSelected
-                ? FansivibeColors.accentGold.withValues(alpha: 0.4)
-                : FansivibeColors.accentGold.withValues(alpha: 0.08),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              data.icon,
-              size: 18,
+                ? FansivibeColors.accentGold.withValues(alpha: 0.15)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
               color: isSelected
-                  ? FansivibeColors.accentGold
-                  : FansivibeColors.textSecondary,
+                  ? FansivibeColors.accentGold.withValues(alpha: 0.4)
+                  : FansivibeColors.accentGold.withValues(alpha: 0.08),
+              width: 1,
             ),
-            const SizedBox(width: 8),
-            Text(
-              data.label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                data.icon,
+                size: 18,
                 color: isSelected
                     ? FansivibeColors.accentGold
                     : FansivibeColors.textSecondary,
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              Text(
+                data.label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: isSelected
+                      ? FansivibeColors.accentGold
+                      : FansivibeColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -233,45 +240,49 @@ class DiscoverFilterChip extends StatelessWidget {
     final theme = Theme.of(context);
     final isSelected = option.isSelected;
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? FansivibeColors.accentGold.withValues(alpha: 0.15)
-              : FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
+    return Semantics(
+      button: true,
+      label: option.label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
             color: isSelected
-                ? FansivibeColors.accentGold
-                : FansivibeColors.accentGold.withValues(alpha: 0.1),
-            width: isSelected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              option.icon,
-              size: 16,
+                ? FansivibeColors.accentGold.withValues(alpha: 0.15)
+                : FansivibeColors.surface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
               color: isSelected
                   ? FansivibeColors.accentGold
-                  : FansivibeColors.textSecondary,
+                  : FansivibeColors.accentGold.withValues(alpha: 0.1),
+              width: isSelected ? 1.5 : 1,
             ),
-            const SizedBox(width: 6),
-            Text(
-              option.label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                option.icon,
+                size: 16,
                 color: isSelected
                     ? FansivibeColors.accentGold
                     : FansivibeColors.textSecondary,
               ),
-            ),
-          ],
+              const SizedBox(width: 6),
+              Text(
+                option.label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: isSelected
+                      ? FansivibeColors.accentGold
+                      : FansivibeColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -368,47 +379,50 @@ class MatchPercentageBadge extends StatelessWidget {
       scoreColor = const Color(0xFFF44336);
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: size,
-          height: size,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              CircularProgressIndicator(
-                value: percentage / 100,
-                strokeWidth: 4,
-                backgroundColor: scoreColor.withValues(alpha: 0.15),
-                valueColor: AlwaysStoppedAnimation<Color>(scoreColor),
-                strokeCap: StrokeCap.round,
-              ),
-              Center(
-                child: Text(
-                  '$percentage%',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: FansivibeColors.textPrimary,
-                    fontFamily: 'sans-serif',
-                    fontSize: size * 0.22,
+    return Semantics(
+      label: 'Match $percentage%',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: size,
+            height: size,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CircularProgressIndicator(
+                  value: percentage / 100,
+                  strokeWidth: 4,
+                  backgroundColor: scoreColor.withValues(alpha: 0.15),
+                  valueColor: AlwaysStoppedAnimation<Color>(scoreColor),
+                  strokeCap: StrokeCap.round,
+                ),
+                Center(
+                  child: Text(
+                    '$percentage%',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: FansivibeColors.textPrimary,
+                      fontFamily: 'sans-serif',
+                      fontSize: size * 0.22,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-        if (showLabel) ...[
-          const SizedBox(height: 4),
-          Text(
-            'Match',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: FansivibeColors.textSecondary,
-              fontSize: 10,
+              ],
             ),
           ),
+          if (showLabel) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Match',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: FansivibeColors.textSecondary,
+                fontSize: 10,
+              ),
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }
@@ -520,11 +534,14 @@ class LookCard extends StatelessWidget {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(
-                                  Icons.checkroom_rounded,
-                                  size: 40,
-                                  color: FansivibeColors.accentGold.withValues(
-                                    alpha: 0.3,
+                                Semantics(
+                                  image: true,
+                                  label: 'Look image placeholder',
+                                  child: Icon(
+                                    Icons.checkroom_rounded,
+                                    size: 40,
+                                    color: FansivibeColors.accentGold
+                                        .withValues(alpha: 0.3),
                                   ),
                                 ),
                                 const SizedBox(height: 6),
@@ -697,400 +714,6 @@ class LookCard extends StatelessWidget {
           fontWeight: FontWeight.w500,
           fontSize: 10,
         ),
-      ),
-    );
-  }
-}
-
-/// Search field widget for Discover header.
-class DiscoverSearchField extends StatelessWidget {
-  /// Creates a [DiscoverSearchField].
-  const DiscoverSearchField({
-    this.onTap,
-    this.onChanged,
-    this.controller,
-    super.key,
-  });
-
-  /// Tap callback.
-  final VoidCallback? onTap;
-
-  /// Text changed callback.
-  final ValueChanged<String>? onChanged;
-
-  /// Text controller.
-  final TextEditingController? controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          color: FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.search_rounded,
-              size: 22,
-              color: FansivibeColors.textSecondary,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextField(
-                controller: controller,
-                onChanged: onChanged,
-                onTap: onTap,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: FansivibeColors.textPrimary,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'Search looks, styles, occasions...',
-                  hintStyle: theme.textTheme.bodyMedium?.copyWith(
-                    color: FansivibeColors.textSecondary.withValues(alpha: 0.6),
-                  ),
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-            ),
-            Icon(
-              Icons.tune_rounded,
-              size: 22,
-              color: FansivibeColors.textSecondary,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Discover header widget with search and filter summary.
-class DiscoverHeader extends StatelessWidget {
-  /// Creates a [DiscoverHeader].
-  const DiscoverHeader({
-    required this.onSearchTap,
-    this.onFilterTap,
-    this.activeFilterCount = 0,
-    super.key,
-  });
-
-  /// Search tap callback.
-  final VoidCallback onSearchTap;
-
-  /// Filter tap callback.
-  final VoidCallback? onFilterTap;
-
-  /// Number of active filters.
-  final int activeFilterCount;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Title
-        Text(
-          'Discover',
-          style: theme.textTheme.displayLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: FansivibeColors.textPrimary,
-            fontSize: 28,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Find your next signature look',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: FansivibeColors.textSecondary,
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        // Search field
-        DiscoverSearchField(onTap: onSearchTap),
-        const SizedBox(height: 16),
-
-        // Filter summary
-        if (activeFilterCount > 0)
-          Row(
-            children: [
-              Icon(
-                Icons.filter_list_rounded,
-                size: 16,
-                color: FansivibeColors.accentGold,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '$activeFilterCount active filter${activeFilterCount > 1 ? 's' : ''}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: FansivibeColors.accentGold,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: onFilterTap,
-                style: TextButton.styleFrom(
-                  foregroundColor: FansivibeColors.accentGold,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                child: Text(
-                  'Clear all',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: FansivibeColors.accentGold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-      ],
-    );
-  }
-}
-
-/// Discover tabs widget (For You / Trending).
-class DiscoverTabs extends StatelessWidget {
-  /// Creates a [DiscoverTabs].
-  const DiscoverTabs({
-    required this.selectedTab,
-    required this.onTabChanged,
-    super.key,
-  });
-
-  /// Currently selected tab.
-  final DiscoverTab selectedTab;
-
-  /// Tab changed callback.
-  final void Function(DiscoverTab) onTabChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: DiscoverTabData.all.map((tabData) {
-        final isSelected = tabData.tab == selectedTab;
-        return Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(
-              right: tabData == DiscoverTabData.all.last ? 0 : 8,
-            ),
-            child: DiscoverTabButton(
-              data: tabData,
-              isSelected: isSelected,
-              onTap: () => onTabChanged(tabData.tab),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-/// Empty state widget for Discover.
-class DiscoverEmptyState extends StatelessWidget {
-  /// Creates a [DiscoverEmptyState].
-  const DiscoverEmptyState({
-    this.message = 'No looks found',
-    this.subtitle = 'Try adjusting your filters or search terms',
-    this.icon = Icons.search_off_rounded,
-    super.key,
-  });
-
-  /// Message to display.
-  final String message;
-
-  /// Subtitle message.
-  final String subtitle;
-
-  /// Icon to display.
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                icon,
-                size: 48,
-                color: FansivibeColors.accentGold.withValues(alpha: 0.6),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              message,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: FansivibeColors.textPrimary,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: FansivibeColors.textSecondary,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Loading shimmer for Discover grid items.
-class DiscoverLookCardSkeleton extends StatelessWidget {
-  /// Creates a [DiscoverLookCardSkeleton].
-  const DiscoverLookCardSkeleton({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return DiscoverCard(
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Image skeleton
-          AspectRatio(
-            aspectRatio: 3 / 4,
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: FansivibeColors.surface,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(16),
-                ),
-              ),
-              child: const _ShimmerEffect(),
-            ),
-          ),
-          // Content skeleton
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _ShimmerLine(width: 0.6, height: 18),
-                const SizedBox(height: 8),
-                _ShimmerLine(width: 0.4, height: 14),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _ShimmerLine(width: 0.25, height: 24),
-                    const SizedBox(width: 8),
-                    _ShimmerLine(width: 0.2, height: 24),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _ShimmerLine(width: 0.5, height: 14),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ShimmerEffect extends StatefulWidget {
-  const _ShimmerEffect({this.child});
-
-  final Widget? child;
-
-  @override
-  State<_ShimmerEffect> createState() => _ShimmerEffectState();
-}
-
-class _ShimmerEffectState extends State<_ShimmerEffect>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment(-1.0 + _controller.value * 2, 0),
-              end: Alignment(1.0 + _controller.value * 2, 0),
-              colors: [
-                FansivibeColors.surface,
-                FansivibeColors.surface.withValues(alpha: 0.5),
-                FansivibeColors.surface,
-              ],
-              stops: const [0.0, 0.5, 1.0],
-            ),
-          ),
-          child: widget.child,
-        );
-      },
-    );
-  }
-}
-
-class _ShimmerLine extends StatelessWidget {
-  const _ShimmerLine({required this.width, required this.height});
-
-  final double width;
-  final double height;
-
-  @override
-  Widget build(BuildContext context) {
-    return _ShimmerEffect(
-      child: SizedBox(
-        width: MediaQuery.of(context).size.width * width,
-        height: height,
       ),
     );
   }

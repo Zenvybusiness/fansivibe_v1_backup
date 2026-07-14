@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/score_colors.dart';
 
 class OptionChip extends StatelessWidget {
   const OptionChip({
@@ -195,12 +196,7 @@ class ScoreCircle extends StatelessWidget {
     );
   }
 
-  Color _scoreColor(double s) {
-    if (s >= 0.9) return const Color(0xFF4CAF50);
-    if (s >= 0.7) return FansivibeColors.accentGold;
-    if (s >= 0.5) return const Color(0xFFFF9800);
-    return const Color(0xFFF44336);
-  }
+  Color _scoreColor(double s) => scoreColorFromDouble(s);
 }
 
 class MetricCard extends StatelessWidget {
