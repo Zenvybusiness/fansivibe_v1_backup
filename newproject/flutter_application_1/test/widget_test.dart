@@ -75,7 +75,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Profile screen is shown.
-    expect(find.text('Temporary Profile Screen'), findsOneWidget);
+    expect(find.text('Alex'), findsOneWidget);
+    expect(find.text('@alex_styles'), findsOneWidget);
 
     // Tap Home tab to return.
     await tester.tap(
@@ -152,6 +153,51 @@ void main() {
 
     // Verify we are back on the Stylist screen.
     expect(find.text('Hairstyle'), findsAtLeast(1));
+  });
+
+  testWidgets('Event Planning card navigates to EventListScreen', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const FansivibeApp());
+
+    // Navigate to Stylist tab.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Stylist'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Scroll to make Event Planning card visible.
+    await tester.drag(
+      find.byType(SingleChildScrollView),
+      const Offset(0, -200),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    // Tap the Event Planning card.
+    await tester.tap(find.text('Event Planning'));
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    // Verify EventListScreen is shown.
+    expect(find.text('My Events'), findsOneWidget);
+    expect(find.text('Upcoming Events'), findsOneWidget);
+
+    // Go back.
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    // Verify we are back on the Stylist screen.
+    await tester.drag(find.byType(SingleChildScrollView), const Offset(0, 200));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Event Planning'), findsAtLeast(1));
   });
 
   testWidgets('Beard / Glasses card navigates to GroomingInputScreen', (

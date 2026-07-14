@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/features/events/presentation/event_list_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_input_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/face_scan_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
@@ -218,15 +219,8 @@ class StylistScreen extends StatelessWidget {
           MaterialPageRoute<void>(builder: (_) => const GroomingInputScreen()),
         );
       case 'event':
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${action.title} coming soon'),
-            backgroundColor: FansivibeColors.accentGold,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
+        Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(builder: (_) => const EventListScreen()),
         );
     }
   }
