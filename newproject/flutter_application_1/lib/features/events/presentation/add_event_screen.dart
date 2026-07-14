@@ -110,7 +110,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
       eventType: _selectedType!,
     );
 
-    Navigator.of(context).pop(event);
+    Navigator.of(context).pop<UserEvent>(event);
   }
 
   @override

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
-import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_item_screen.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 /// Screen for selecting a clothing category when adding a new wardrobe item.
@@ -17,7 +18,7 @@ class AddWardrobeCategoryScreen extends StatelessWidget {
         title: const Text('Add Item'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.of(context).pop(),
         ),
       ),
       body: SafeArea(
@@ -85,14 +86,12 @@ class AddWardrobeCategoryScreen extends StatelessWidget {
     BuildContext context,
     AddItemCategoryConfig category,
   ) async {
-    final result = await Navigator.push<WardrobeItemData>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AddWardrobeItemScreen(category: category),
-      ),
+    final result = await context.pushNamed<WardrobeItemData>(
+      RouteNames.wardrobeAddItem,
+      extra: category,
     );
     if (result != null && context.mounted) {
-      Navigator.pop(context, result);
+      Navigator.pop<WardrobeItemData>(context, result);
     }
   }
 }

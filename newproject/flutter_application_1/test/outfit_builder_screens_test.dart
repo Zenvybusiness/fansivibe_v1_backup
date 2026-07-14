@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fansivibe/app/app.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/outfit_generation_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/outfit_recommendation_screen.dart';
@@ -105,22 +106,22 @@ void main() {
   });
 
   group('BuildOutfitScreen Navigation', () {
-    testWidgets('tapping build button navigates to generation screen', (
+    testWidgets('build button navigates to generation screen via go_router', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: const BuildOutfitScreen(),
-          routes: {
-            '/generation': (_) => const OutfitGenerationScreen(
-              occasion: 'casual',
-              mood: 'classic',
-              fit: 'tailored',
-              colorPalette: 'warm',
-            ),
-          },
+      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Stylist'),
         ),
       );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Build Outfit'));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('Casual'));
       await tester.pump();

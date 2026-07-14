@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
-import 'package:fansivibe/features/grooming/presentation/grooming_processing_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -29,24 +30,23 @@ class _GroomingInputScreenState extends State<GroomingInputScreen> {
 
   void _analyze() {
     if (!_allSelected) return;
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => GroomingProcessingScreen(
-          faceShape: _labelForId(
-            _selectedFaceShape!,
-            GroomingOption.faceShapeOptions,
-          ),
-          beardStyle: _labelForId(
-            _selectedBeardStyle!,
-            GroomingOption.beardStyleOptions,
-          ),
-          beardDensity: _labelForId(
-            _selectedDensity!,
-            GroomingOption.densityOptions,
-          ),
-          beardColor: _labelForId(_selectedColor!, GroomingOption.colorOptions),
+    context.pushNamed(
+      RouteNames.groomingProcessing,
+      extra: <String, String>{
+        'faceShape': _labelForId(
+          _selectedFaceShape!,
+          GroomingOption.faceShapeOptions,
         ),
-      ),
+        'beardStyle': _labelForId(
+          _selectedBeardStyle!,
+          GroomingOption.beardStyleOptions,
+        ),
+        'beardDensity': _labelForId(
+          _selectedDensity!,
+          GroomingOption.densityOptions,
+        ),
+        'beardColor': _labelForId(_selectedColor!, GroomingOption.colorOptions),
+      },
     );
   }
 

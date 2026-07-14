@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_scan/data/outfit_scan_mock_data.dart';
-import 'package:fansivibe/features/outfit_scan/presentation/outfit_analysis_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -55,9 +56,7 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
 
   void _navigateToAnalysis() {
     if (!mounted) return;
-    Navigator.of(context).pushReplacement<void, void>(
-      MaterialPageRoute<void>(builder: (_) => const OutfitAnalysisScreen()),
-    );
+    context.replaceNamed(RouteNames.scanAnalysis);
   }
 
   @override

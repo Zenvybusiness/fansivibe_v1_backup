@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
-import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class EventDetailsScreen extends StatelessWidget {
@@ -353,9 +354,7 @@ class EventDetailsScreen extends StatelessWidget {
   }
 
   void _generateOutfit(BuildContext context) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => const BuildOutfitScreen()),
-    );
+    context.pushNamed(RouteNames.buildOutfit);
   }
 
   void _editEvent(BuildContext context) {

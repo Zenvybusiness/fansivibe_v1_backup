@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
-import 'package:fansivibe/features/discover/presentation/look_details_screen.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -475,8 +476,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   void _handleLookTap(BuildContext context, DiscoverLookData look) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => LookDetailsScreen(look: look)),
-    );
+    context.pushNamed(RouteNames.lookDetails, extra: look);
   }
 }

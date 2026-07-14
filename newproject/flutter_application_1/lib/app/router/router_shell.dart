@@ -1,44 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:fansivibe/app/router/route_names.dart';
-import 'package:fansivibe/features/home/presentation/home_screen.dart';
-import 'package:fansivibe/features/discover/presentation/discover_screen.dart';
-import 'package:fansivibe/features/stylist/presentation/stylist_screen.dart';
-import 'package:fansivibe/features/wardrobe/presentation/wardrobe_screen.dart';
-import 'package:fansivibe/features/profile/presentation/profile_screen.dart';
 
-class MainShell extends StatefulWidget {
-  const MainShell({super.key});
+class RouterShell extends StatelessWidget {
+  const RouterShell({required this.navigationShell, super.key});
 
-  @override
-  State<MainShell> createState() => _MainShellState();
-}
-
-class _MainShellState extends State<MainShell> {
-  int _selectedIndex = 0;
-
-  static final List<Widget> _screens = [
-    const HomeScreen(),
-    const DiscoverScreen(),
-    const StylistScreen(),
-    const WardrobeScreen(),
-    const ProfileScreen(),
-  ];
+  final StatefulNavigationShell navigationShell;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Scaffold(
-      body: IndexedStack(index: _selectedIndex, children: _screens),
+      body: navigationShell,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
+        selectedIndex: navigationShell.currentIndex,
         onDestinationSelected: (index) {
-          if (index == _selectedIndex) {
-            context.goNamed(_branchRoute(index));
-          } else {
-            setState(() => _selectedIndex = index);
-          }
+          navigationShell.goBranch(
+            index,
+            initialLocation: index == navigationShell.currentIndex,
+          );
         },
         indicatorColor: theme.colorScheme.primaryContainer,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
@@ -73,16 +53,5 @@ class _MainShellState extends State<MainShell> {
         ],
       ),
     );
-  }
-
-  String _branchRoute(int index) {
-    return switch (index) {
-      0 => RouteNames.home,
-      1 => RouteNames.discover,
-      2 => RouteNames.stylist,
-      3 => RouteNames.wardrobe,
-      4 => RouteNames.profile,
-      _ => RouteNames.home,
-    };
   }
 }

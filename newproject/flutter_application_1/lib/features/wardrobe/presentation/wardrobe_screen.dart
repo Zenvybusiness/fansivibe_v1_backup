@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
-import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_category_screen.dart';
-import 'package:fansivibe/features/wardrobe/presentation/wardrobe_item_details_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -213,9 +213,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   }
 
   void _handleAddItem(BuildContext context) async {
-    final result = await Navigator.push<WardrobeItemData>(
-      context,
-      MaterialPageRoute(builder: (_) => const AddWardrobeCategoryScreen()),
+    final result = await context.pushNamed<WardrobeItemData>(
+      RouteNames.wardrobeAddCategory,
     );
     if (result != null && context.mounted) {
       setState(() {
@@ -235,9 +234,6 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   }
 
   void _handleItemTap(BuildContext context, WardrobeItemData item) {
-    Navigator.push<void>(
-      context,
-      MaterialPageRoute(builder: (_) => WardrobeItemDetailsScreen(item: item)),
-    );
+    context.pushNamed(RouteNames.wardrobeItemDetails, extra: item);
   }
 }

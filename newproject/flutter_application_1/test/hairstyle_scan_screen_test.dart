@@ -1,7 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/hairstyle/presentation/face_processing_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/face_scan_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
+
+final GoRouter _hairstyleScanRouter = GoRouter(
+  initialLocation: '/',
+  routes: [
+    GoRoute(
+      path: '/',
+      name: RouteNames.hairstyle,
+      builder: (_, __) => const FaceScanScreen(),
+      routes: [
+        GoRoute(
+          path: 'processing',
+          name: RouteNames.hairstyleProcessing,
+          builder: (_, __) => const FaceProcessingScreen(),
+        ),
+      ],
+    ),
+  ],
+);
 
 void main() {
   group('FaceScanScreen Widget Tests', () {
@@ -59,7 +80,9 @@ void main() {
     testWidgets('start scan navigates to processing screen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(MaterialApp(home: const FaceScanScreen()));
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _hairstyleScanRouter),
+      );
 
       await tester.tap(find.text('Start Scan'));
       for (var i = 0; i < 30; i++) {

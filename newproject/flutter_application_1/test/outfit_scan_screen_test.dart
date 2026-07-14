@@ -1,7 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/outfit_scan/presentation/outfit_processing_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_scan_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
+
+final GoRouter _scanRouter = GoRouter(
+  initialLocation: '/',
+  routes: [
+    GoRoute(
+      path: '/',
+      name: RouteNames.scanOutfit,
+      builder: (_, __) => const OutfitScanScreen(),
+      routes: [
+        GoRoute(
+          path: 'processing',
+          name: RouteNames.scanProcessing,
+          builder: (_, __) => const OutfitProcessingScreen(),
+        ),
+      ],
+    ),
+  ],
+);
 
 void main() {
   group('OutfitScanScreen Widget Tests', () {
@@ -65,7 +86,7 @@ void main() {
     testWidgets('capture look navigates to processing screen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
+      await tester.pumpWidget(MaterialApp.router(routerConfig: _scanRouter));
 
       await tester.tap(find.text('Capture Look'));
       for (var i = 0; i < 30; i++) {

@@ -1,13 +1,51 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
 import 'package:fansivibe/features/events/presentation/add_event_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_details_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_list_screen.dart';
 import 'package:fansivibe/features/events/presentation/widgets/events_widgets.dart';
+import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
 
 Widget wrapApp(Widget child) {
   return MaterialApp(home: child);
+}
+
+GoRouter _eventRouter(Widget child) {
+  return GoRouter(
+    initialLocation: '/',
+    routes: [
+      GoRoute(
+        path: '/',
+        name: RouteNames.events,
+        builder: (_, __) => child,
+        routes: [
+          GoRoute(
+            path: 'add',
+            name: RouteNames.eventAdd,
+            builder: (_, __) => const AddEventScreen(),
+          ),
+          GoRoute(
+            path: 'details',
+            name: RouteNames.eventDetails,
+            builder: (_, state) {
+              final event = state.extra as UserEvent?;
+              return event != null
+                  ? EventDetailsScreen(event: event)
+                  : const SizedBox();
+            },
+          ),
+        ],
+      ),
+      GoRoute(
+        path: '/build-outfit',
+        name: RouteNames.buildOutfit,
+        builder: (_, __) => const BuildOutfitScreen(),
+      ),
+    ],
+  );
 }
 
 void main() {
@@ -65,7 +103,9 @@ void main() {
     testWidgets('tapping add opens AddEventScreen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(wrapApp(const EventListScreen()));
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _eventRouter(const EventListScreen())),
+      );
 
       await tester.tap(find.byIcon(Icons.add_rounded));
       await tester.pump();
@@ -77,7 +117,9 @@ void main() {
     testWidgets('tapping event card opens EventDetailsScreen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(wrapApp(const EventListScreen()));
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _eventRouter(const EventListScreen())),
+      );
 
       await tester.tap(find.text('Company Gala'));
       await tester.pump();
@@ -293,7 +335,11 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        wrapApp(EventDetailsScreen(event: UserEvent.mockEvents[0])),
+        MaterialApp.router(
+          routerConfig: _eventRouter(
+            EventDetailsScreen(event: UserEvent.mockEvents[0]),
+          ),
+        ),
       );
 
       await tester.tap(find.text('Generate Outfit'));

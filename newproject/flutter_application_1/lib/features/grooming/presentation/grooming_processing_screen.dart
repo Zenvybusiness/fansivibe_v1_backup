@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
-import 'package:fansivibe/features/grooming/presentation/grooming_result_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -67,15 +68,14 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
 
   void _navigateToResult() {
     if (!mounted) return;
-    Navigator.of(context).pushReplacement<void, void>(
-      MaterialPageRoute<void>(
-        builder: (_) => GroomingResultScreen(
-          faceShape: widget.faceShape,
-          beardStyle: widget.beardStyle,
-          beardDensity: widget.beardDensity,
-          beardColor: widget.beardColor,
-        ),
-      ),
+    context.replaceNamed(
+      RouteNames.groomingResult,
+      extra: <String, String>{
+        'faceShape': widget.faceShape,
+        'beardStyle': widget.beardStyle,
+        'beardDensity': widget.beardDensity,
+        'beardColor': widget.beardColor,
+      },
     );
   }
 

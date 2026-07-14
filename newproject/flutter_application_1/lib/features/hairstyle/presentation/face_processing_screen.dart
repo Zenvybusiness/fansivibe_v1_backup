@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
-import 'package:fansivibe/features/hairstyle/presentation/hairstyle_result_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -55,9 +56,7 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
 
   void _navigateToResult() {
     if (!mounted) return;
-    Navigator.of(context).pushReplacement<void, void>(
-      MaterialPageRoute<void>(builder: (_) => const HairstyleResultScreen()),
-    );
+    context.replaceNamed(RouteNames.hairstyleResult);
   }
 
   @override

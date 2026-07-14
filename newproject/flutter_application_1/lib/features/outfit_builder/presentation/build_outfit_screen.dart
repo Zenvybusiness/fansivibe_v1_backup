@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart';
-import 'package:fansivibe/features/outfit_builder/presentation/outfit_generation_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -25,15 +26,14 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
 
   void _buildOutfit() {
     if (!_allSelected) return;
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => OutfitGenerationScreen(
-          occasion: _selectedOccasion!,
-          mood: _selectedMood!,
-          fit: _selectedFit!,
-          colorPalette: _selectedColorPalette!,
-        ),
-      ),
+    context.pushNamed(
+      RouteNames.outfitGeneration,
+      extra: <String, String>{
+        'occasion': _selectedOccasion!,
+        'mood': _selectedMood!,
+        'fit': _selectedFit!,
+        'colorPalette': _selectedColorPalette!,
+      },
     );
   }
 

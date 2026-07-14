@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
+import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class HairstyleDetailsScreen extends StatelessWidget {

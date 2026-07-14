@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_category_screen.dart';
+import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_item_screen.dart';
 import 'package:fansivibe/shared/theme/fansivibe_theme.dart';
 
 Widget createTestApp() {
@@ -10,6 +13,29 @@ Widget createTestApp() {
     home: const AddWardrobeCategoryScreen(),
   );
 }
+
+final GoRouter _addCategoryRouter = GoRouter(
+  initialLocation: '/',
+  routes: [
+    GoRoute(
+      path: '/',
+      name: RouteNames.wardrobeAddCategory,
+      builder: (_, __) => const AddWardrobeCategoryScreen(),
+      routes: [
+        GoRoute(
+          path: 'add-item',
+          name: RouteNames.wardrobeAddItem,
+          builder: (_, state) {
+            final category = state.extra as AddItemCategoryConfig?;
+            return category != null
+                ? AddWardrobeItemScreen(category: category)
+                : const SizedBox();
+          },
+        ),
+      ],
+    ),
+  ],
+);
 
 void main() {
   group('AddWardrobeCategoryScreen Widget Tests', () {
@@ -37,7 +63,9 @@ void main() {
     testWidgets('tapping a category navigates to AddWardrobeItemScreen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(createTestApp());
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _addCategoryRouter),
+      );
 
       await tester.tap(find.text('Tops'));
       await tester.pumpAndSettle();

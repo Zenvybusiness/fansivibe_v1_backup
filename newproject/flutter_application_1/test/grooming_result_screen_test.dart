@@ -1,6 +1,51 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
+import 'package:fansivibe/features/grooming/presentation/grooming_details_screen.dart';
+import 'package:fansivibe/features/grooming/presentation/grooming_input_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_result_screen.dart';
+
+GoRouter _groomingResultRouter({
+  String faceShape = 'Oval',
+  String beardStyle = 'Full Beard',
+  String beardDensity = 'Medium',
+  String beardColor = 'Dark Brown',
+}) {
+  return GoRouter(
+    initialLocation: '/',
+    routes: [
+      GoRoute(
+        path: '/',
+        name: RouteNames.groomingResult,
+        builder: (_, __) => GroomingResultScreen(
+          faceShape: faceShape,
+          beardStyle: beardStyle,
+          beardDensity: beardDensity,
+          beardColor: beardColor,
+        ),
+        routes: [
+          GoRoute(
+            path: 'details',
+            name: RouteNames.groomingDetails,
+            builder: (_, state) {
+              final rec = state.extra as GroomingRecommendation?;
+              return rec != null
+                  ? GroomingDetailsScreen(recommendation: rec)
+                  : const SizedBox();
+            },
+          ),
+        ],
+      ),
+      GoRoute(
+        path: '/input',
+        name: RouteNames.grooming,
+        builder: (_, __) => const GroomingInputScreen(),
+      ),
+    ],
+  );
+}
 
 void main() {
   testWidgets('renders app bar with title', (WidgetTester tester) async {
@@ -177,14 +222,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: const GroomingResultScreen(
-          faceShape: 'Oval',
-          beardStyle: 'Full Beard',
-          beardDensity: 'Medium',
-          beardColor: 'Dark Brown',
-        ),
-      ),
+      MaterialApp.router(routerConfig: _groomingResultRouter()),
     );
 
     await tester.ensureVisible(find.text('Structured Goatee'));
@@ -201,14 +239,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: const GroomingResultScreen(
-          faceShape: 'Oval',
-          beardStyle: 'Full Beard',
-          beardDensity: 'Medium',
-          beardColor: 'Dark Brown',
-        ),
-      ),
+      MaterialApp.router(routerConfig: _groomingResultRouter()),
     );
 
     await tester.ensureVisible(find.text('Classic Stubble'));
@@ -225,14 +256,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: const GroomingResultScreen(
-          faceShape: 'Oval',
-          beardStyle: 'Full Beard',
-          beardDensity: 'Medium',
-          beardColor: 'Dark Brown',
-        ),
-      ),
+      MaterialApp.router(routerConfig: _groomingResultRouter()),
     );
 
     await tester.ensureVisible(find.text('Start Over'));

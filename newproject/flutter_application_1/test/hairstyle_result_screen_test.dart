@@ -1,6 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
+import 'package:fansivibe/features/hairstyle/presentation/face_scan_screen.dart';
+import 'package:fansivibe/features/hairstyle/presentation/hairstyle_details_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/hairstyle_result_screen.dart';
+
+GoRouter _freshHairstyleRouter() => GoRouter(
+  initialLocation: '/',
+  routes: [
+    GoRoute(
+      path: '/',
+      name: RouteNames.hairstyleResult,
+      builder: (_, __) => const HairstyleResultScreen(),
+      routes: [
+        GoRoute(
+          path: 'details',
+          name: RouteNames.hairstyleDetails,
+          builder: (_, state) {
+            final rec = state.extra as HairstyleRecommendation?;
+            return rec != null
+                ? HairstyleDetailsScreen(recommendation: rec)
+                : const SizedBox();
+          },
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/scan',
+      name: RouteNames.hairstyle,
+      builder: (_, __) => const FaceScanScreen(),
+    ),
+  ],
+);
 
 void main() {
   group('HairstyleResultScreen Widget Tests', () {
@@ -59,7 +92,9 @@ void main() {
     testWidgets('tapping top recommendation navigates to details', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen()));
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _freshHairstyleRouter()),
+      );
 
       await tester.tap(find.text('Textured Quiff'));
       await tester.pumpAndSettle();
@@ -72,12 +107,12 @@ void main() {
     testWidgets('tapping alternative navigates to details', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen()));
-
-      await tester.drag(
-        find.byType(SingleChildScrollView).first,
-        const Offset(0, -800),
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _freshHairstyleRouter()),
       );
+
+      final scrollable = find.byType(Scrollable).first;
+      await tester.drag(scrollable, const Offset(0, -800));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Classic Pompadour'));
       await tester.pumpAndSettle();
@@ -88,12 +123,11 @@ void main() {
     testWidgets('Scan Again navigates back to scan screen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen()));
-
-      await tester.drag(
-        find.byType(SingleChildScrollView),
-        const Offset(0, -1000),
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _freshHairstyleRouter()),
       );
+
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -1000));
       await tester.pump();
       await tester.tap(find.text('Scan Again'));
       for (var i = 0; i < 30; i++) {

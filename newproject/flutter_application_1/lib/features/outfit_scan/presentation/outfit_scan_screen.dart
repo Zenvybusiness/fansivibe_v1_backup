@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:fansivibe/features/outfit_scan/presentation/outfit_processing_screen.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -225,8 +226,6 @@ class OutfitScanScreen extends StatelessWidget {
   }
 
   void _handleCapture(BuildContext context) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => const OutfitProcessingScreen()),
-    );
+    context.pushNamed(RouteNames.scanProcessing);
   }
 }

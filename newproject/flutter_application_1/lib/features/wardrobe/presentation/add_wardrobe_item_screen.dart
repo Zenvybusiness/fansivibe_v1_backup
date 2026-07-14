@@ -36,7 +36,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       material: _selectedTexture?.name,
     );
 
-    Navigator.pop(context, newItem);
+    Navigator.pop<WardrobeItemData>(context, newItem);
   }
 
   String _buildItemName() {
@@ -57,7 +57,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
         title: Text('Add ${widget.category.name}'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.of(context).pop(),
         ),
       ),
       body: SafeArea(

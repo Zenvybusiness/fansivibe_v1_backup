@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
-import 'package:fansivibe/features/grooming/presentation/grooming_input_screen.dart';
-import 'package:fansivibe/features/grooming/presentation/grooming_details_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -551,11 +551,7 @@ class GroomingResultScreen extends StatelessWidget {
         Expanded(
           child: OutlinedButton.icon(
             onPressed: () {
-              Navigator.of(context).pushReplacement<void, void>(
-                MaterialPageRoute<void>(
-                  builder: (_) => const GroomingInputScreen(),
-                ),
-              );
+              context.replaceNamed(RouteNames.grooming);
             },
             icon: const Icon(Icons.refresh_rounded, size: 18),
             label: const Text('Start Over'),
@@ -605,10 +601,6 @@ class GroomingResultScreen extends StatelessWidget {
   }
 
   void _openDetails(BuildContext context, GroomingRecommendation rec) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => GroomingDetailsScreen(recommendation: rec),
-      ),
-    );
+    context.pushNamed(RouteNames.groomingDetails, extra: rec);
   }
 }

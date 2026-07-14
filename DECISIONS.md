@@ -84,3 +84,21 @@ Status: Accepted
 Fansivibe is built feature by feature.
 
 Ordinary feature tasks must not perform unrelated architecture migrations.
+
+---
+
+## DEC-008 — Declarative Routing with go_router
+
+Status: Accepted
+
+Routes are declared centrally using `package:go_router` with
+`StatefulShellRoute.indexedStack` for persistent tab navigation.
+
+- All route name strings are centralized in `lib/app/router/route_names.dart`.
+- The single `GoRouter` config lives in `lib/app/router/app_router.dart`.
+- Cross-feature screen imports are eliminated — screens navigate by name only.
+- Screen data is passed through `state.extra` as typed objects or `Map<String, String>`.
+- Route builders null-check `state.extra` to handle GoRouter 17 eager evaluation.
+
+This replaces raw `Navigator.push(MaterialPageRoute(...))` calls spread across
+all screen files.

@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart';
-import 'package:fansivibe/features/outfit_builder/presentation/outfit_recommendation_screen.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class OutfitGenerationScreen extends StatefulWidget {
@@ -65,11 +66,7 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
 
   void _navigateToRecommendation() {
     if (!mounted) return;
-    Navigator.of(context).pushReplacement<void, void>(
-      MaterialPageRoute<void>(
-        builder: (_) => const OutfitRecommendationScreen(),
-      ),
-    );
+    context.replaceNamed(RouteNames.outfitRecommendation);
   }
 
   @override

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
+import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class GroomingDetailsScreen extends StatelessWidget {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:fansivibe/features/hairstyle/presentation/face_processing_screen.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -146,8 +147,6 @@ class FaceScanScreen extends StatelessWidget {
   }
 
   void _handleScan(BuildContext context) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => const FaceProcessingScreen()),
-    );
+    context.pushNamed(RouteNames.hairstyleProcessing);
   }
 }

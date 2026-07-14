@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
-import 'package:fansivibe/features/hairstyle/presentation/face_scan_screen.dart';
-import 'package:fansivibe/features/hairstyle/presentation/hairstyle_details_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -272,9 +272,7 @@ class HairstyleResultScreen extends StatelessWidget {
         Expanded(
           child: OutlinedButton.icon(
             onPressed: () {
-              Navigator.of(context).pushReplacement<void, void>(
-                MaterialPageRoute<void>(builder: (_) => const FaceScanScreen()),
-              );
+              context.replaceNamed(RouteNames.hairstyle);
             },
             icon: const Icon(Icons.refresh_rounded, size: 18),
             label: const Text('Scan Again'),
@@ -324,10 +322,6 @@ class HairstyleResultScreen extends StatelessWidget {
   }
 
   void _openDetails(BuildContext context, HairstyleRecommendation rec) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => HairstyleDetailsScreen(recommendation: rec),
-      ),
-    );
+    context.pushNamed(RouteNames.hairstyleDetails, extra: rec);
   }
 }

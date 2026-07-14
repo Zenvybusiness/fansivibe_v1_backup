@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
-import 'package:fansivibe/features/events/presentation/add_event_screen.dart';
-import 'package:fansivibe/features/events/presentation/event_details_screen.dart';
 import 'package:fansivibe/features/events/presentation/widgets/events_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -16,18 +16,14 @@ class _EventListScreenState extends State<EventListScreen> {
   final List<UserEvent> _events = List<UserEvent>.from(UserEvent.mockEvents);
 
   Future<void> _addEvent() async {
-    final newEvent = await Navigator.of(context).push<UserEvent>(
-      MaterialPageRoute<UserEvent>(builder: (_) => const AddEventScreen()),
-    );
+    final newEvent = await context.pushNamed<UserEvent>(RouteNames.eventAdd);
     if (newEvent != null && mounted) {
       setState(() => _events.add(newEvent));
     }
   }
 
   void _openEvent(UserEvent event) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => EventDetailsScreen(event: event)),
-    );
+    context.pushNamed(RouteNames.eventDetails, extra: event);
   }
 
   @override

@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:fansivibe/features/events/presentation/event_list_screen.dart';
-import 'package:fansivibe/features/grooming/presentation/grooming_input_screen.dart';
-import 'package:fansivibe/features/hairstyle/presentation/face_scan_screen.dart';
-import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
-import 'package:fansivibe/features/outfit_scan/presentation/outfit_scan_screen.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class StylistActionData {
@@ -203,25 +200,15 @@ class StylistScreen extends StatelessWidget {
   void _handleAction(BuildContext context, StylistActionData action) {
     switch (action.id) {
       case 'scan_outfit':
-        Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(builder: (_) => const OutfitScanScreen()),
-        );
+        context.pushNamed(RouteNames.scanOutfit);
       case 'build_outfit':
-        Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(builder: (_) => const BuildOutfitScreen()),
-        );
+        context.pushNamed(RouteNames.buildOutfit);
       case 'hairstyle':
-        Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(builder: (_) => const FaceScanScreen()),
-        );
+        context.pushNamed(RouteNames.hairstyle);
       case 'grooming':
-        Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(builder: (_) => const GroomingInputScreen()),
-        );
+        context.pushNamed(RouteNames.grooming);
       case 'event':
-        Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(builder: (_) => const EventListScreen()),
-        );
+        context.pushNamed(RouteNames.events);
     }
   }
 }
