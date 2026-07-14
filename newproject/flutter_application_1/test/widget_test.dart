@@ -47,8 +47,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Verify Stylist screen is shown.
-    expect(find.text('Temporary Stylist Screen'), findsOneWidget);
+    // Verify Stylist screen is shown with actions.
+    expect(find.text('Stylist'), findsAtLeast(1));
+    expect(find.text('Scan My Outfit'), findsOneWidget);
+    expect(find.text('Build Outfit'), findsOneWidget);
 
     // Tap Wardrobe tab.
     await tester.tap(
