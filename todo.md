@@ -1,0 +1,20 @@
+- [x] Read AGENTS.md and CURRENT_STATE.md
+- [x] Read relevant sections of PRODUCT_BLUEPRINT.md, SCREEN_MAP.md, DESIGN_SYSTEM.md
+- [x] Discover relevant Flutter UI/navigation skills
+- [ ] Inspect existing Discover feature, mock data, widgets, navigation, theme, tests
+- [ ] Implement LookDetailsScreen
+- [ ] Implement navigation from Discover look card to Look Details
+- [ ] Implement hero look content
+- [ ] Implement match score
+- [ ] Implement style tags
+- [ ] Implement personalized recommendation reasons
+- [ ] Implement ensemble components
+- [ ] Implement wardrobe alternatives
+- [ ] Implement Save and Share UI actions
+- [ ] Extend Discover models/mock data
+- [ ] Add/update widget and navigation tests
+- [ ] Run: dart format lib test
+- [ ] Run: flutter analyze
+- [ ] Run: flutter test
+- [ ] Review diff
+- [ ] Update CURRENT_STATE.md

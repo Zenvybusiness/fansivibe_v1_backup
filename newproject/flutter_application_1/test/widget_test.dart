@@ -60,7 +60,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Wardrobe screen is shown.
-    expect(find.text('Temporary Wardrobe Screen'), findsOneWidget);
+    expect(find.text('My Wardrobe'), findsOneWidget);
+    expect(find.text('24 items'), findsWidgets);
 
     // Tap Profile tab.
     await tester.tap(

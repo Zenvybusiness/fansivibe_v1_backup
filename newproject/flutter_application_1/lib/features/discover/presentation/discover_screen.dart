@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
+import 'package:fansivibe/features/discover/presentation/look_details_screen.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -474,14 +475,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   void _handleLookTap(BuildContext context, DiscoverLookData look) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Opening ${look.title} details...'),
-        backgroundColor: FansivibeColors.accentGold,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => LookDetailsScreen(look: look)),
     );
-    // TODO: Navigate to DISCOVER-002 LookDetailsScreen
   }
 }
