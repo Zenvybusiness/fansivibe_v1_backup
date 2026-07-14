@@ -5,7 +5,7 @@ Updated By: opencode agent
 
 ## Phase
 
-Core feature screens implementation in progress. Home, Discover, Wardrobe, and Outfit Scan screens complete.
+Core feature screens implementation in progress. Home, Discover, Wardrobe, Outfit Scan, and Event Planning screens complete.
 
 ## Current Goal
 
@@ -199,16 +199,43 @@ Build core feature screens incrementally within the established navigation shell
 - **Widget tests** for GroomingResultScreen (13 tests: rendering, sections, recommendations, navigation, details, back)
 - **Widget tests** for GroomingDetailsScreen (13 tests: rendering, score, description, reasons, specs, info cards, actions)
 - **Widget tests** for Stylist Beard/Glasses navigation integrated into main navigation tests
+- **Event Planning UI flow (EVENT-001, EVENT-002, EVENT-003)** implemented:
+  - `features/events/data/event_mock_data.dart` with structured data models: `EventType`, `UserEvent`
+  - Data-driven event types: casual, formal, business, date night, party, travel, workout, other
+  - **EventListScreen (EVENT-001)** at `features/events/presentation/event_list_screen.dart`:
+    - Mutable list initialized from `UserEvent.mockEvents`
+    - Renders `EventCard` widgets for each event with name, date, time, type, and status badge
+    - "Ready" badge for events with outfit recommendation, "Pending" otherwise
+    - Empty state with icon and guidance text
+    - Add button navigates to AddEventScreen
+    - Tap event card opens EventDetailsScreen
+    - Responsive LayoutBuilder pattern matching existing screens
+  - **AddEventScreen (EVENT-002)** at `features/events/presentation/add_event_screen.dart`:
+    - Event name text field with dark-themed input decoration
+    - Date picker tile using `showDatePicker` with gold-accented theme
+    - Time picker tile using `showTimePicker` with gold-accented theme
+    - Event type selection grid with 8 data-driven types in 2-column layout
+    - Animated selected state with gold accent and check icon
+    - Add button disabled until all 4 fields are valid
+    - Returns created `UserEvent` via `Navigator.pop`
+  - **EventDetailsScreen (EVENT-003)** at `features/events/presentation/event_details_screen.dart`:
+    - Header with event type icon, name, and type label
+    - Info card displaying date, time, and event type
+    - Outfit recommendation status card with Ready/Pending indicator
+    - "Generate Outfit" action navigating to `BuildOutfitScreen` (OUTFIT-001)
+    - "Edit Event" temporary button with SnackBar placeholder
+  - Shared widgets in `features/events/presentation/widgets/events_widgets.dart`:
+    - `EventCard` with type icon, name, date/time, type label, status badge
+  - Stylist screen "Event Planning" action now navigates to EventListScreen
+  - Premium dark/gold design system compliance
+  - Responsive LayoutBuilder pattern matching existing screens
+  - No backend, no AI, no new packages, no routing or state-management migration
+- **Widget tests** for Event Planning screens (31 tests passing: 8 EventListScreen, 11 AddEventScreen, 11 EventDetailsScreen)
+- **Widget tests** for Event Planning navigation integrated into main navigation tests
 
 ## In Progress
 
 - None.
-
-## Next
-
-1. Implement Event Planning flow.
-2. Implement Profile screen (PROFILE-001) with settings navigation.
-3. Establish routing and state management libraries (decision to be recorded in `DECISIONS.md`).
 
 ## Known Issues
 
@@ -218,7 +245,7 @@ None documented.
 
 Format: Passed (ran `dart format lib test`).
 Analysis: Passed (ran `flutter analyze` with 0 issues).
-Tests: Passed (ran `flutter test` with 221/221 passing).
+Tests: Passed (ran `flutter test` with 252/252 passing).
 
 ## Handoff
 
