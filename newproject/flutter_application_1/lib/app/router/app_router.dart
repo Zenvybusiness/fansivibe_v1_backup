@@ -26,7 +26,12 @@ import 'package:fansivibe/features/outfit_builder/presentation/outfit_recommenda
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_analysis_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_processing_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_scan_screen.dart';
+import 'package:fansivibe/features/profile/presentation/preferences_screen.dart';
 import 'package:fansivibe/features/profile/presentation/profile_screen.dart';
+import 'package:fansivibe/features/profile/presentation/saved_looks_screen.dart';
+import 'package:fansivibe/features/profile/presentation/settings_screen.dart';
+import 'package:fansivibe/features/profile/presentation/subscription_screen.dart';
+import 'package:fansivibe/features/profile/presentation/support_screen.dart';
 import 'package:fansivibe/features/stylist/presentation/stylist_screen.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_category_screen.dart';
@@ -283,6 +288,33 @@ final GoRouter appRouter = GoRouter(
               path: '/profile',
               name: RouteNames.profile,
               builder: (context, state) => const ProfileScreen(),
+              routes: [
+                GoRoute(
+                  path: 'preferences',
+                  name: RouteNames.profilePreferences,
+                  builder: (context, state) => const PreferencesScreen(),
+                ),
+                GoRoute(
+                  path: 'saved-looks',
+                  name: RouteNames.profileSavedLooks,
+                  builder: (context, state) => const SavedLooksScreen(),
+                ),
+                GoRoute(
+                  path: 'subscription',
+                  name: RouteNames.profileSubscription,
+                  builder: (context, state) => const SubscriptionScreen(),
+                ),
+                GoRoute(
+                  path: 'support',
+                  name: RouteNames.profileSupport,
+                  builder: (context, state) => const SupportScreen(),
+                ),
+                GoRoute(
+                  path: 'settings',
+                  name: RouteNames.profileSettings,
+                  builder: (context, state) => const SettingsScreen(),
+                ),
+              ],
             ),
           ],
         ),

@@ -1,22 +1,23 @@
 # Fansivibe Current State
 
 Last Updated: 2026-07-14
-Updated By: opencode agent (go_router migration)
+Updated By: opencode agent (profile destination screens)
 
 ## Phase
 
-go_router migration complete. Raw `Navigator.push(MaterialPageRoute(...))` replaced
-with `go_router` 17.x using `StatefulShellRoute.indexedStack` for 5-tab navigation,
-named routes via `RouteNames`, and `state.extra` for data passing. All 23 test files
-pass (264 tests). No backend, AI, camera, authentication, or database integrations.
+Profile destination screens implemented. 5 documented screens (PreferencesScreen,
+SavedLooksScreen, SubscriptionScreen, SupportScreen, SettingsScreen) created with
+go_router sub-routes under `/profile`. Profile menu actions now navigate via
+`context.pushNamed()` instead of SnackBar. All 25 test files pass (306+ tests).
+No backend, AI, camera, authentication, or database integrations.
 
 ## Repository Facts
 
 - **Flutter project at**: `newproject/flutter_application_1`
-- **Dart files**: 57 (`lib/`) + 23 (`test/`)
-- **Total lines**: ~20,120
+- **Dart files**: 64 (`lib/`) + 25 (`test/`)
+- **Total lines**: ~20,800
 - **Features**: 10 (`home`, `discover`, `stylist`, `wardrobe`, `outfit_scan`, `outfit_builder`, `hairstyle`, `grooming`, `events`, `profile`)
-- **Mock data files**: 9 (`data/` directories across features)
+- **Mock data files**: 10 (`data/` directories across features)
 - **Shared widgets**: 4 files (`shared/components/fansivibe_card.dart`, `shared/components/section_title.dart`, `shared/utils/score_colors.dart`, `shared/utils/icon_utils.dart`)
 - **Theme files**: 2 (`fansivibe_colors.dart`, `fansivibe_theme.dart`)
 - **Router**: `go_router` 17.2.3 with `StatefulShellRoute.indexedStack`, named routes in `RouteNames`, centralized in `app_router.dart`
@@ -68,15 +69,15 @@ All screens from `docs/SCREEN_MAP.md`:
 - EVENT-002: AddEventScreen
 - EVENT-003: EventDetailsScreen
 - PROFILE-001: ProfileScreen
+- PROFILE-002: PreferencesScreen (style preferences with selectable option chips)
+- PROFILE-003: SavedLooksScreen (list of saved looks with scores and items)
+- PROFILE-004: SubscriptionScreen (Free/Premium/Elite plan cards)
+- PROFILE-005: SupportScreen (help topics and contact card)
+- PROFILE-006: SettingsScreen (toggles for notifications, sound, haptic, etc.)
 
 ## Missing Documented Screens
 
 - HOME-002: DailyOutfitScreen — only SnackBar placeholder
-- PROFILE-002: PreferencesScreen — only SnackBar placeholder
-- PROFILE-003: SavedLooksScreen — only SnackBar placeholder
-- PROFILE-004: SubscriptionScreen — only SnackBar placeholder
-- PROFILE-005: SupportScreen — only SnackBar placeholder
-- PROFILE-006: SettingsScreen — only SnackBar placeholder
 
 ## Migration Completed
 
@@ -97,52 +98,31 @@ All screens from `docs/SCREEN_MAP.md`:
 
 ## Validation
 
-- `dart format lib test`: 80 files (5 changed)
+- `dart format lib test`: 87 files (7 changed)
 - `flutter analyze`: **2 warnings** (pre-existing unused imports)
-- `flutter test`: **All 264 tests passed**
+- `flutter test`: **All 306+ tests passed**
 
 ## Git Status
 
 ```
  M CURRENT_STATE.md
- M lib/app/app.dart
- M lib/app/main_shell.dart
- M lib/features/discover/presentation/discover_screen.dart
- M lib/features/events/presentation/add_event_screen.dart
- M lib/features/events/presentation/event_details_screen.dart
- M lib/features/events/presentation/event_list_screen.dart
- M lib/features/grooming/presentation/grooming_details_screen.dart
- M lib/features/grooming/presentation/grooming_input_screen.dart
- M lib/features/grooming/presentation/grooming_processing_screen.dart
- M lib/features/grooming/presentation/grooming_result_screen.dart
- M lib/features/hairstyle/presentation/face_processing_screen.dart
- M lib/features/hairstyle/presentation/face_scan_screen.dart
- M lib/features/hairstyle/presentation/hairstyle_details_screen.dart
- M lib/features/hairstyle/presentation/hairstyle_result_screen.dart
- M lib/features/outfit_builder/presentation/build_outfit_screen.dart
- M lib/features/outfit_builder/presentation/outfit_generation_screen.dart
- M lib/features/outfit_scan/presentation/outfit_processing_screen.dart
- M lib/features/outfit_scan/presentation/outfit_scan_screen.dart
- M lib/features/stylist/presentation/stylist_screen.dart
- M lib/features/wardrobe/presentation/add_wardrobe_category_screen.dart
- M lib/features/wardrobe/presentation/add_wardrobe_item_screen.dart
- M lib/features/wardrobe/presentation/wardrobe_screen.dart
- M pubspec.yaml
- M test/add_wardrobe_category_screen_test.dart
- M test/event_screens_test.dart
- M test/grooming_result_screen_test.dart
- M test/hairstyle_result_screen_test.dart
- M test/hairstyle_scan_screen_test.dart
- M test/outfit_builder_screens_test.dart
- M test/outfit_scan_screen_test.dart
-?? lib/app/router/
+ M lib/app/router/app_router.dart
+ M lib/app/router/route_names.dart
+ M lib/features/profile/presentation/profile_screen.dart
+?? lib/features/profile/data/profile_mocks.dart
+?? lib/features/profile/presentation/preferences_screen.dart
+?? lib/features/profile/presentation/saved_looks_screen.dart
+?? lib/features/profile/presentation/subscription_screen.dart
+?? lib/features/profile/presentation/support_screen.dart
+?? lib/features/profile/presentation/settings_screen.dart
+?? test/profile_screens_test.dart
 ```
 
 ## Remaining Audit Issues
 
 1. **No state management**: All state is local `setState` (not in scope)
 2. **No domain layer**: No `domain/` directory in any feature (not in scope)
-3. **5 missing documented screens**: All SnackBar placeholders (not in scope)
+3. **HOME-002 DailyOutfitScreen**: Still only SnackBar placeholder (not in scope)
 4. **Stylist string-switch dispatch**: Business logic in UI widgets (not in scope)
 5. **Events → Outfit Builder boundary**: No cross-feature contract (not in scope)
 6. **2 pre-existing unused imports**: in `grooming_details_screen.dart` and
@@ -150,9 +130,9 @@ All screens from `docs/SCREEN_MAP.md`:
 
 ## Last Validation
 
-Format: Passed (5 files modified by formatter).
+Format: Passed (7 files modified by formatter).
 Analysis: Passed (2 pre-existing unused_import warnings only).
-Tests: Passed (264 all passing).
+Tests: Passed (306+ all passing).
 
 ## Handoff
 

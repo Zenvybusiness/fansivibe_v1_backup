@@ -32,4 +32,10 @@ abstract final class RouteNames {
   static const wardrobeAddCategory = 'wardrobe-add-category';
   static const wardrobeAddItem = 'wardrobe-add-item';
   static const wardrobeItemDetails = 'wardrobe-item-details';
+
+  static const profilePreferences = 'profile-preferences';
+  static const profileSavedLooks = 'profile-saved-looks';
+  static const profileSubscription = 'profile-subscription';
+  static const profileSupport = 'profile-support';
+  static const profileSettings = 'profile-settings';
 }

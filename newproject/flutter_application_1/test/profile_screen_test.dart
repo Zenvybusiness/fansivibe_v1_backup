@@ -156,11 +156,10 @@ void main() {
       expect(find.text('Sign Out'), findsOneWidget);
     });
 
-    testWidgets('menu actions show snackbar on tap', (
+    testWidgets('menu actions navigate to PreferencesScreen', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(const FansivibeApp());
-
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationBar),
@@ -169,13 +168,61 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final scrollable = find.byType(SingleChildScrollView);
-      await tester.drag(scrollable, const Offset(0, -1000));
+      final preferencesFinder = find.text('Preferences');
+      await tester.scrollUntilVisible(
+        preferencesFinder,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(preferencesFinder);
+      await tester.pumpAndSettle();
+      expect(find.text('Style Preferences'), findsOneWidget);
+    });
+
+    testWidgets('menu actions navigate to SavedLooksScreen', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const FansivibeApp());
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Profile'),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Preferences'));
+      final savedLooksFinder = find.text('Saved Looks').last;
+      await tester.scrollUntilVisible(
+        savedLooksFinder,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(savedLooksFinder);
       await tester.pumpAndSettle();
-      expect(find.text('Opening Preferences...'), findsOneWidget);
+      expect(find.text('6 Saved Looks'), findsOneWidget);
+    });
+
+    testWidgets('menu actions navigate to SubscriptionScreen', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const FansivibeApp());
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Profile'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final subscriptionFinder = find.text('Subscription');
+      await tester.scrollUntilVisible(
+        subscriptionFinder,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(subscriptionFinder);
+      await tester.pumpAndSettle();
+      expect(find.text('Choose Your Plan'), findsOneWidget);
     });
 
     testWidgets('ProfileScreen is scrollable with all sections', (

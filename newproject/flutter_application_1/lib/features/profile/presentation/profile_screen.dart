@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/profile_widgets.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
@@ -138,32 +140,28 @@ class ProfileScreen extends StatelessWidget {
   }
 
   void _handleMenuAction(BuildContext context, String id) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_getSnackbarLabel(id)),
-        backgroundColor: FansivibeColors.accentGold,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
-
-  String _getSnackbarLabel(String id) {
     switch (id) {
       case 'preferences':
-        return 'Opening Preferences...';
+        context.pushNamed(RouteNames.profilePreferences);
       case 'saved_looks':
-        return 'Opening Saved Looks...';
+        context.pushNamed(RouteNames.profileSavedLooks);
       case 'subscription':
-        return 'Opening Subscription...';
+        context.pushNamed(RouteNames.profileSubscription);
       case 'support':
-        return 'Opening Support...';
+        context.pushNamed(RouteNames.profileSupport);
       case 'settings':
-        return 'Opening Settings...';
+        context.pushNamed(RouteNames.profileSettings);
       case 'sign_out':
-        return 'Signing out...';
-      default:
-        return 'Opening...';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Signing out...'),
+            backgroundColor: FansivibeColors.accentGold,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
     }
   }
 }
