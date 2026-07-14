@@ -1,5 +1,6 @@
 abstract final class RouteNames {
   static const home = 'home';
+  static const dailyOutfit = 'daily-outfit';
   static const discover = 'discover';
   static const stylist = 'stylist';
   static const wardrobe = 'wardrobe';

@@ -77,7 +77,7 @@ All screens from `docs/SCREEN_MAP.md`:
 
 ## Missing Documented Screens
 
-- HOME-002: DailyOutfitScreen — only SnackBar placeholder
+- HOME-002: DailyOutfitScreen — implemented (`DailyOutfitScreen` + `RouteNames.dailyOutfit`)
 
 ## Migration Completed
 
@@ -105,24 +105,21 @@ All screens from `docs/SCREEN_MAP.md`:
 ## Git Status
 
 ```
- M CURRENT_STATE.md
- M lib/app/router/app_router.dart
- M lib/app/router/route_names.dart
- M lib/features/profile/presentation/profile_screen.dart
-?? lib/features/profile/data/profile_mocks.dart
-?? lib/features/profile/presentation/preferences_screen.dart
-?? lib/features/profile/presentation/saved_looks_screen.dart
-?? lib/features/profile/presentation/subscription_screen.dart
-?? lib/features/profile/presentation/support_screen.dart
-?? lib/features/profile/presentation/settings_screen.dart
-?? test/profile_screens_test.dart
+ M newproject/flutter_application_1/lib/app/router/app_router.dart
+ M newproject/flutter_application_1/lib/app/router/route_names.dart
+ M newproject/flutter_application_1/lib/features/home/presentation/home_screen.dart
+ M newproject/flutter_application_1/lib/features/profile/presentation/settings_screen.dart
+ M newproject/flutter_application_1/test/home_screen_test.dart
+?? newproject/flutter_application_1/lib/features/home/presentation/daily_outfit_screen.dart
+?? newproject/flutter_application_1/test/daily_outfit_screen_test.dart
 ```
+
 
 ## Remaining Audit Issues
 
 1. **No state management**: All state is local `setState` (not in scope)
 2. **No domain layer**: No `domain/` directory in any feature (not in scope)
-3. **HOME-002 DailyOutfitScreen**: Still only SnackBar placeholder (not in scope)
+3. **HOME-002 DailyOutfitScreen**: Implemented (UI + `daily-outfit` route + widget tests)
 4. **Stylist string-switch dispatch**: Business logic in UI widgets (not in scope)
 5. **Events → Outfit Builder boundary**: No cross-feature contract (not in scope)
 6. **2 pre-existing unused imports**: in `grooming_details_screen.dart` and

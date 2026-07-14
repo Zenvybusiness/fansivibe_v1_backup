@@ -128,90 +128,17 @@ void main() {
       expect(find.text('View Recommendations'), findsOneWidget);
     });
 
-    testWidgets('Try This Look button shows snackbar on tap', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(const FansivibeApp());
-
-      // Find and tap the Try This Look button (need to scroll to it first)
-      await tester.scrollUntilVisible(find.text('Try This Look'), 500.0);
-      await tester.pumpAndSettle();
-      await tester.tap(find.byType(HomeActionButton).first);
-      await tester.pumpAndSettle();
-
-      // Verify snackbar appears
-      expect(find.text('Navigating to Daily Outfit Detail...'), findsOneWidget);
-    });
-
-    testWidgets('Change Style button in Today\'s Look shows snackbar on tap', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(const FansivibeApp());
-
-      // Scroll to Today's Look section first
-      await tester.scrollUntilVisible(find.text("TODAY'S LOOK"), 500.0);
-      await tester.pumpAndSettle();
-
-      // Find the Change Style button in Today's Look (it's the second HomeActionButton)
-      final changeStyleButton = find.byType(HomeActionButton).at(1);
-      expect(changeStyleButton, findsOneWidget);
-
-      // Scroll to the button and tap
-      await tester.scrollUntilVisible(changeStyleButton, 500.0);
-      await tester.pumpAndSettle();
-      await tester.tap(changeStyleButton);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Opening Style Adjustment...'), findsOneWidget);
-    });
-
-    testWidgets('Quick action cards show snackbar on tap', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(const FansivibeApp());
-
-      await tester.scrollUntilVisible(
-        find.byType(QuickActionCard).first,
-        500.0,
-      );
-
-      // Tap the first quick action card
-      await tester.tap(find.byType(QuickActionCard).first);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Opening Scan My Outfit...'), findsOneWidget);
-    });
-
-    testWidgets('View Recommendations button on AI Insight shows snackbar', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(const FansivibeApp());
-
-      await tester.scrollUntilVisible(
-        find.byType(HomeActionButton).last,
-        500.0,
-      );
-
-      // Tap the last HomeActionButton (View Recommendations in AI Insight)
-      await tester.tap(find.byType(HomeActionButton).last);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Opening Wardrobe Recommendations...'), findsOneWidget);
-    });
-
     testWidgets('HomeScreen is scrollable with all sections', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(const FansivibeApp());
 
-      // Verify we can scroll through the entire content
       await tester.drag(
         find.byType(SingleChildScrollView),
         const Offset(0, -1000),
       );
       await tester.pumpAndSettle();
 
-      // All major sections should be rendered
       expect(find.text('Good morning, Alex'), findsOneWidget);
       expect(find.text("TODAY'S LOOK"), findsOneWidget);
       expect(find.text('Style Score'), findsOneWidget);
@@ -228,13 +155,77 @@ void main() {
       final homeScreen = find.byType(HomeScreen);
       expect(homeScreen, findsOneWidget);
 
-      // Verify the app uses the dark theme
       final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       expect(materialApp.theme?.brightness, Brightness.dark);
       expect(
         materialApp.theme?.primaryColor,
         const Color(0xFFC5A059),
-      ); // Fansivibe gold
+      );
+    });
+
+    testWidgets('Try This Look navigates to Daily Outfit screen', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const FansivibeApp());
+
+      await tester.scrollUntilVisible(find.text('Try This Look'), 500.0);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(HomeActionButton).first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Daily Outfit'), findsOneWidget);
+    });
+
+    testWidgets(
+      'Change Style button in Today\'s Look navigates to Build Outfit',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(const FansivibeApp());
+
+        await tester.scrollUntilVisible(find.text("TODAY'S LOOK"), 500.0);
+        await tester.pumpAndSettle();
+
+        final changeStyleButton = find.byType(HomeActionButton).at(1);
+        expect(changeStyleButton, findsOneWidget);
+
+        await tester.scrollUntilVisible(changeStyleButton, 500.0);
+        await tester.pumpAndSettle();
+        await tester.tap(changeStyleButton);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Build Outfit'), findsOneWidget);
+      },
+    );
+
+    testWidgets('Quick action cards navigate to respective screens', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const FansivibeApp());
+
+      await tester.scrollUntilVisible(
+        find.byType(QuickActionCard).first,
+        500.0,
+      );
+
+      await tester.tap(find.byType(QuickActionCard).first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Scan My Outfit'), findsOneWidget);
+    });
+
+    testWidgets('View Recommendations button on AI Insight shows snackbar', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const FansivibeApp());
+
+      await tester.scrollUntilVisible(
+        find.byType(HomeActionButton).last,
+        500.0,
+      );
+
+      await tester.tap(find.byType(HomeActionButton).last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Opening Wardrobe Recommendations...'), findsOneWidget);
     });
   });
 

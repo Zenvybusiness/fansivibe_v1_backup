@@ -154,7 +154,9 @@ class _SettingsTile extends StatelessWidget {
             Switch(
               value: item.switchValue,
               onChanged: onToggle,
-              activeTrackColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
+              activeTrackColor: FansivibeColors.accentGold.withValues(
+                alpha: 0.3,
+              ),
             )
           else
             Row(

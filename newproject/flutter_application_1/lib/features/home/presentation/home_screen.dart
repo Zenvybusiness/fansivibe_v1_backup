@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -97,39 +99,36 @@ class HomeScreen extends StatelessWidget {
   }
 
   void _handleTryThisLook(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Navigating to Daily Outfit Detail...'),
-        backgroundColor: FansivibeColors.accentGold,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-    // TODO: Navigate to HOME-002 DailyOutfitScreen
+    context.pushNamed(RouteNames.dailyOutfit);
   }
 
   void _handleChangeStyle(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Opening Style Adjustment...'),
-        backgroundColor: FansivibeColors.accentGold,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-    // TODO: Navigate to OUTFIT-001 BuildOutfitScreen
+    context.pushNamed(RouteNames.buildOutfit);
   }
 
   void _handleQuickAction(BuildContext context, QuickActionData action) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Opening ${action.title}...'),
-        backgroundColor: Color(action.accentColor),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-    // TODO: Navigate to action.route
+    switch (action.id) {
+      case 'scan_outfit':
+        context.pushNamed(RouteNames.scanOutfit);
+        break;
+      case 'build_outfit':
+        context.pushNamed(RouteNames.buildOutfit);
+        break;
+      case 'change_style':
+        context.pushNamed(RouteNames.buildOutfit);
+        break;
+      default:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Opening ${action.title}...'),
+            backgroundColor: Color(action.accentColor),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+    }
   }
 
   void _handleViewRecommendations(BuildContext context) {

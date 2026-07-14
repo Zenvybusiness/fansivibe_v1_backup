@@ -19,6 +19,7 @@ import 'package:fansivibe/features/hairstyle/presentation/face_processing_screen
 import 'package:fansivibe/features/hairstyle/presentation/face_scan_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/hairstyle_details_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/hairstyle_result_screen.dart';
+import 'package:fansivibe/features/home/presentation/daily_outfit_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/outfit_generation_screen.dart';
@@ -53,6 +54,13 @@ final GoRouter appRouter = GoRouter(
               path: '/home',
               name: RouteNames.home,
               builder: (context, state) => const HomeScreen(),
+              routes: [
+                GoRoute(
+                  path: 'daily-outfit',
+                  name: RouteNames.dailyOutfit,
+                  builder: (context, state) => const DailyOutfitScreen(),
+                ),
+              ],
             ),
           ],
         ),
