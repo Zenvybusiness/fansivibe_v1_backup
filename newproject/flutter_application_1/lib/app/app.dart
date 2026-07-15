@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/shared/theme/fansivibe_theme.dart';
 
 class FansivibeApp extends StatelessWidget {
-  const FansivibeApp({super.key});
+  const FansivibeApp({super.key, this.router});
+
+  final GoRouter? router;
 
   @override
   Widget build(BuildContext context) {
@@ -11,7 +14,7 @@ class FansivibeApp extends StatelessWidget {
       title: 'Fansivibe',
       debugShowCheckedModeBanner: false,
       theme: FansivibeTheme.darkTheme,
-      routerConfig: appRouter,
+      routerConfig: router ?? appRouter,
     );
   }
 }

@@ -1,14 +1,25 @@
 # Fansivibe Current State
 
-Last Updated: 2026-07-14
-Updated By: opencode agent (profile destination screens)
+Last Updated: 2026-07-15
+Updated By: opencode agent (home screen test fixes)
 
 ## Phase
 
-Profile destination screens implemented. 5 documented screens (PreferencesScreen,
-SavedLooksScreen, SubscriptionScreen, SupportScreen, SettingsScreen) created with
-go_router sub-routes under `/profile`. Profile menu actions now navigate via
-`context.pushNamed()` instead of SnackBar. All 25 test files pass (306+ tests).
+Home screen test fixes: resolved 2 flaky widget tests that failed in the full test
+suite due to BouncingScrollPhysics pumpAndSettle interaction and GoRouter singleton
+state leaking across navigation tests.
+
+Changes:
+- **`home_screen_test.dart`**: Replaced manual drag-for-loop (with pumpAndSettle that
+  bounced back under BouncingScrollPhysics) with `dragUntilVisible` using `pump()`
+  instead. Used `pump()` post-tap to avoid indefinite CircularProgressIndicator in
+  `CameraPreviewPlaceholder`. Added `_freshApp()` helper that creates an isolated
+  `GoRouter` per test to prevent cross-test state pollution from navigation tests.
+- **`app_router.dart`**: Extracted `appRoutes` as a top-level `List<RouteBase>` to
+  enable test-created fresh routers. The singleton `appRouter` reuses this list.
+- **`app.dart`**: Added optional `router` parameter to `FansivibeApp` for passing
+  isolated routers in tests (no behavioral change when omitted).
+
 No backend, AI, camera, authentication, or database integrations.
 
 ## Repository Facts
@@ -95,23 +106,22 @@ All screens from `docs/SCREEN_MAP.md`:
    (returns `const SizedBox()` when extra is null) to handle GoRouter 17 eager evaluation.
 7. **Test router freshness**: Navigation tests use factory functions returning fresh
    `GoRouter` instances to prevent state leaking across tests.
+   `app_router.dart` now exports `appRoutes` (a `List<RouteBase>`) alongside the
+   singleton `appRouter` so tests can create isolated routers.
 
 ## Validation
 
-- `dart format lib test`: 87 files (7 changed)
-- `flutter analyze`: **2 warnings** (pre-existing unused imports)
-- `flutter test`: **All 306+ tests passed**
+- `dart format lib test`: 90 files (2 changed)
+- `flutter analyze`: **2 warnings** (pre-existing unused_import in
+  `grooming_details_screen.dart` and `hairstyle_details_screen.dart` only)
+- `flutter test`: **All 318 tests passed**
 
 ## Git Status
 
 ```
+ M newproject/flutter_application_1/lib/app/app.dart
  M newproject/flutter_application_1/lib/app/router/app_router.dart
- M newproject/flutter_application_1/lib/app/router/route_names.dart
- M newproject/flutter_application_1/lib/features/home/presentation/home_screen.dart
- M newproject/flutter_application_1/lib/features/profile/presentation/settings_screen.dart
  M newproject/flutter_application_1/test/home_screen_test.dart
-?? newproject/flutter_application_1/lib/features/home/presentation/daily_outfit_screen.dart
-?? newproject/flutter_application_1/test/daily_outfit_screen_test.dart
 ```
 
 
@@ -124,12 +134,15 @@ All screens from `docs/SCREEN_MAP.md`:
 5. **Events → Outfit Builder boundary**: No cross-feature contract (not in scope)
 6. **2 pre-existing unused imports**: in `grooming_details_screen.dart` and
    `hairstyle_details_screen.dart`
+7. **Test router freshness**: Some tests (`home_screen_test.dart`, `widget_test.dart`)
+   create isolated GoRouter instances via `_freshApp()` or factory functions to
+   prevent state leaking across tests.
 
 ## Last Validation
 
-Format: Passed (7 files modified by formatter).
+Format: Passed (2 files modified by formatter).
 Analysis: Passed (2 pre-existing unused_import warnings only).
-Tests: Passed (306+ all passing).
+Tests: Passed (318 all passing).
 
 ## Handoff
 

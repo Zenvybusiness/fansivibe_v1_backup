@@ -7,7 +7,9 @@ import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class OutfitProcessingScreen extends StatefulWidget {
-  const OutfitProcessingScreen({super.key});
+  const OutfitProcessingScreen({super.key, this.capturedImagePath});
+
+  final String? capturedImagePath;
 
   @override
   State<OutfitProcessingScreen> createState() => _OutfitProcessingScreenState();
@@ -56,7 +58,10 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
 
   void _navigateToAnalysis() {
     if (!mounted) return;
-    context.replaceNamed(RouteNames.scanAnalysis);
+    context.replaceNamed(
+      RouteNames.scanAnalysis,
+      extra: widget.capturedImagePath,
+    );
   }
 
   @override

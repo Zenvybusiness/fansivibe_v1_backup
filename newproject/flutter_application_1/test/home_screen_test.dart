@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
+import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
+/// Creates a [FansivibeApp] with an isolated router to prevent state
+/// leaking across navigation tests.
+Widget _freshApp() {
+  return FansivibeApp(
+    router: GoRouter(initialLocation: '/home', routes: appRoutes),
+  );
+}
 
 void main() {
   group('HomeScreen Widget Tests', () {
@@ -157,10 +166,7 @@ void main() {
 
       final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       expect(materialApp.theme?.brightness, Brightness.dark);
-      expect(
-        materialApp.theme?.primaryColor,
-        const Color(0xFFC5A059),
-      );
+      expect(materialApp.theme?.primaryColor, const Color(0xFFC5A059));
     });
 
     testWidgets('Try This Look navigates to Daily Outfit screen', (
@@ -181,15 +187,16 @@ void main() {
       (WidgetTester tester) async {
         await tester.pumpWidget(const FansivibeApp());
 
-        await tester.scrollUntilVisible(find.text("TODAY'S LOOK"), 500.0);
         await tester.pumpAndSettle();
 
-        final changeStyleButton = find.byType(HomeActionButton).at(1);
-        expect(changeStyleButton, findsOneWidget);
+        // Tap the on-screen "Change Style" inside the scroll view.
+        final changeStyleFinder = find.text('Change Style').first;
+        expect(changeStyleFinder, findsOneWidget);
 
-        await tester.scrollUntilVisible(changeStyleButton, 500.0);
+        await tester.scrollUntilVisible(changeStyleFinder, 1000.0);
         await tester.pumpAndSettle();
-        await tester.tap(changeStyleButton);
+
+        await tester.tap(changeStyleFinder);
         await tester.pumpAndSettle();
 
         expect(find.text('Build Outfit'), findsOneWidget);
@@ -199,31 +206,47 @@ void main() {
     testWidgets('Quick action cards navigate to respective screens', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
-      await tester.scrollUntilVisible(
-        find.byType(QuickActionCard).first,
-        500.0,
+      final scrollable = find.byType(SingleChildScrollView);
+      await tester.dragUntilVisible(
+        find.text('Scan My Outfit'),
+        scrollable,
+        const Offset(0, -300),
+        maxIteration: 30,
       );
 
-      await tester.tap(find.byType(QuickActionCard).first);
-      await tester.pumpAndSettle();
+      final scanTitle = find.text('Scan My Outfit');
+      expect(scanTitle, findsOneWidget);
 
-      expect(find.text('Scan My Outfit'), findsOneWidget);
+      await tester.tap(scanTitle);
+      // Use pump() instead of pumpAndSettle() because the scan screen has
+      // an indeterminate CircularProgressIndicator that never settles.
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Capture Look'), findsOneWidget);
     });
 
     testWidgets('View Recommendations button on AI Insight shows snackbar', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
-      await tester.scrollUntilVisible(
-        find.byType(HomeActionButton).last,
-        500.0,
+      final scrollable = find.byType(SingleChildScrollView);
+      await tester.dragUntilVisible(
+        find.text('View Recommendations'),
+        scrollable,
+        const Offset(0, -300),
+        maxIteration: 30,
       );
 
-      await tester.tap(find.byType(HomeActionButton).last);
-      await tester.pumpAndSettle();
+      final viewRecButton = find.text('View Recommendations');
+      expect(viewRecButton, findsOneWidget);
+
+      await tester.tap(viewRecButton);
+      await tester.pump();
+      await tester.pump();
 
       expect(find.text('Opening Wardrobe Recommendations...'), findsOneWidget);
     });

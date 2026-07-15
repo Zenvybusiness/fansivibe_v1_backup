@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/outfit_scan/presentation/outfit_analysis_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_processing_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_scan_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
@@ -17,7 +18,20 @@ final GoRouter _scanRouter = GoRouter(
         GoRoute(
           path: 'processing',
           name: RouteNames.scanProcessing,
-          builder: (_, __) => const OutfitProcessingScreen(),
+          builder: (context, state) {
+            final localPath = state.extra as String?;
+            return OutfitProcessingScreen(capturedImagePath: localPath);
+          },
+          routes: [
+            GoRoute(
+              path: 'analysis',
+              name: RouteNames.scanAnalysis,
+              builder: (context, state) {
+                final localPath = state.extra as String?;
+                return OutfitAnalysisScreen(capturedImagePath: localPath);
+              },
+            ),
+          ],
         ),
       ],
     ),

@@ -4,7 +4,9 @@ import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class OutfitAnalysisScreen extends StatelessWidget {
-  const OutfitAnalysisScreen({super.key});
+  const OutfitAnalysisScreen({super.key, this.capturedImagePath});
+
+  final String? capturedImagePath;
 
   @override
   Widget build(BuildContext context) {
@@ -126,6 +128,10 @@ class OutfitAnalysisScreen extends StatelessWidget {
   Widget _buildOutfitVisual(BuildContext context) {
     final theme = Theme.of(context);
 
+    final capturedLabel = capturedImagePath == null
+        ? null
+        : capturedImagePath!.split('/').last;
+
     return Container(
       height: 200,
       width: double.infinity,
@@ -157,7 +163,9 @@ class OutfitAnalysisScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Captured look preview',
+                  capturedLabel == null
+                      ? 'Captured look preview'
+                      : 'Captured: $capturedLabel',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: FansivibeColors.textSecondary.withValues(alpha: 0.7),
                   ),

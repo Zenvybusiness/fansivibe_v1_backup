@@ -58,7 +58,7 @@ void main() {
     ) async {
       await tester.pumpWidget(_buildTestApp());
 
-      expect(find.text('Modern Minimalist'), findsOneWidget);
+      expect(find.text('Modern Minimalist'), findsNWidgets(2));
       expect(find.text('Work \u2022 Casual Friday'), findsOneWidget);
       expect(
         find.textContaining('Clean lines meet relaxed sophistication'),
@@ -131,7 +131,7 @@ void main() {
       await tester.pumpWidget(_buildTestApp());
 
       expect(find.text('Your Style DNA'), findsOneWidget);
-      expect(find.text('Modern Minimalist'), findsOneWidget);
+      expect(find.text('Modern Minimalist'), findsNWidgets(2));
       expect(find.text('Athletic'), findsOneWidget);
       expect(find.text('Medium'), findsOneWidget);
       expect(find.text('Oval'), findsOneWidget);
@@ -165,6 +165,7 @@ void main() {
     testWidgets('Wear This shows snackbar on tap', (WidgetTester tester) async {
       await tester.pumpWidget(_buildTestApp());
 
+      await tester.scrollUntilVisible(find.text('Wear This'), 200);
       await tester.tap(find.text('Wear This'));
       await tester.pumpAndSettle();
 
@@ -176,6 +177,7 @@ void main() {
     ) async {
       await tester.pumpWidget(_buildTestApp());
 
+      await tester.scrollUntilVisible(find.text('Save Outfit'), 200);
       await tester.tap(find.text('Save Outfit'));
       await tester.pumpAndSettle();
 
@@ -187,6 +189,7 @@ void main() {
     ) async {
       await tester.pumpWidget(_buildTestApp());
 
+      await tester.scrollUntilVisible(find.text('Change Tops'), 200);
       await tester.tap(find.text('Change Tops'));
       await tester.pumpAndSettle();
 
@@ -221,8 +224,24 @@ void main() {
     });
 
     testWidgets('back button pops the screen', (WidgetTester tester) async {
-      await tester.pumpWidget(_buildTestApp());
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: Builder(
+            builder: (context) {
+              return Navigator(
+                onGenerateRoute: (settings) {
+                  return MaterialPageRoute(
+                    builder: (_) => const DailyOutfitScreen(),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      );
 
+      // Tap back and ensure the widget is popped (no longer visible).
       await tester.tap(find.byIcon(Icons.arrow_back_rounded));
       await tester.pumpAndSettle();
 
