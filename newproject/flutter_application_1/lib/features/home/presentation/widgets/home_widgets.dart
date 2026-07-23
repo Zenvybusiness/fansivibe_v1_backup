@@ -6,6 +6,7 @@ import 'package:fansivibe/shared/components/fansi_chip.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/components/section_title.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/utils/icon_utils.dart';
 import 'package:fansivibe/shared/utils/score_colors.dart';
 
@@ -390,13 +391,9 @@ class AIInsightCard extends StatelessWidget {
 
 /// Quick action card widget.
 class QuickActionCard extends StatelessWidget {
-  /// Creates a [QuickActionCard].
   const QuickActionCard({required this.data, this.onTap, super.key});
 
-  /// Action data.
   final QuickActionData data;
-
-  /// Tap callback.
   final VoidCallback? onTap;
 
   @override
@@ -408,52 +405,70 @@ class QuickActionCard extends StatelessWidget {
       button: true,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: FansivibeRadius.mdBorder,
         child: FansivibeCard(
-          padding: const EdgeInsets.all(20),
-          borderColor: accentColor.withValues(alpha: 0.2),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(
-                  _getIconData(data.iconName),
-                  color: accentColor,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      data.title,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: FansivibeColors.textPrimary,
-                      ),
+          padding: EdgeInsets.zero,
+          child: SizedBox(
+            height: 76,
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  decoration: BoxDecoration(
+                    color: accentColor,
+                    borderRadius: const BorderRadius.horizontal(
+                      left: Radius.circular(24),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      data.subtitle,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: FansivibeColors.textSecondary,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: FansivibeColors.textSecondary,
-                size: 24,
-              ),
-            ],
+                const SizedBox(width: 16),
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: accentColor.withValues(alpha: 0.12),
+                    borderRadius: FansivibeRadius.smBorder,
+                  ),
+                  child: Icon(
+                    _getIconData(data.iconName),
+                    color: accentColor,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        data.title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: FansivibeColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        data.subtitle,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: FansivibeColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 14,
+                    color: FansivibeColors.textSecondary.withValues(alpha: 0.4),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -757,20 +772,20 @@ class TodaysLookCard extends StatelessWidget {
 
 /// Style Score card widget.
 class StyleScoreCard extends StatelessWidget {
-  /// Creates a [StyleScoreCard].
   const StyleScoreCard({required this.data, super.key});
 
-  /// Style score data.
   final StyleScoreData data;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final score = data.currentScore;
+    final scoreColor = scoreColorFromDouble(score / 100);
 
     final trendColor = data.weeklyTrend == StyleTrend.up
-        ? const Color(0xFF4CAF50)
+        ? FansivibeColors.success
         : data.weeklyTrend == StyleTrend.down
-        ? const Color(0xFFF44336)
+        ? FansivibeColors.error
         : FansivibeColors.textSecondary;
     final trendIcon = data.weeklyTrend == StyleTrend.up
         ? Icons.trending_up_rounded
@@ -784,6 +799,8 @@ class StyleScoreCard extends StatelessWidget {
         children: [
           Row(
             children: [
+              _buildScoreRing(score, scoreColor, theme),
+              const SizedBox(width: 20),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -795,68 +812,135 @@ class StyleScoreCard extends StatelessWidget {
                         color: FansivibeColors.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     Text(
                       'Your weekly style performance',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: FansivibeColors.textSecondary,
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: trendColor.withValues(alpha: 0.12),
+                        borderRadius: FansivibeRadius.smBorder,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(trendIcon, size: 16, color: trendColor),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${data.weeklyChange >= 0 ? '+' : ''}${data.weeklyChange} pts',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: trendColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'this week',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: trendColor.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '${data.currentScore}',
-                    style: theme.textTheme.displayLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: FansivibeColors.textPrimary,
-                      fontFamily: 'sans-serif',
-                      fontSize: 36,
-                    ),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(trendIcon, size: 16, color: trendColor),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${data.weeklyChange >= 0 ? '+' : ''}${data.weeklyChange} vs last week',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: trendColor,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
               ),
             ],
           ),
           const SizedBox(height: 24),
-          Row(
-            children: data.breakdown
-                .map(
-                  (item) => Expanded(child: _buildBreakdownItem(context, item)),
-                )
-                .toList(),
+          _buildBreakdownGrid(context),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScoreRing(int score, Color color, ThemeData theme) {
+    return SizedBox(
+      width: 88,
+      height: 88,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 88,
+            height: 88,
+            child: CircularProgressIndicator(
+              value: score / 100,
+              strokeWidth: 7,
+              backgroundColor: color.withValues(alpha: 0.1),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+              strokeCap: StrokeCap.round,
+            ),
+          ),
+          Container(
+            width: 62,
+            height: 62,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              '$score',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: color,
+                fontSize: 26,
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBreakdownItem(
+  Widget _buildBreakdownGrid(BuildContext context) {
+    final theme = Theme.of(context);
+    final items = data.breakdown;
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(child: _buildCategoryTile(context, theme, items[0])),
+            const SizedBox(width: 12),
+            Expanded(child: _buildCategoryTile(context, theme, items[1])),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildCategoryTile(context, theme, items[2])),
+            const SizedBox(width: 12),
+            Expanded(child: _buildCategoryTile(context, theme, items[3])),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCategoryTile(
     BuildContext context,
+    ThemeData theme,
     StyleScoreBreakdownItem item,
   ) {
-    final theme = Theme.of(context);
-    final scoreColor = scoreColorFromDouble(item.score / 100);
+    final color = scoreColorFromDouble(item.score / 100);
 
-    return Padding(
-      padding: const EdgeInsets.only(right: 12),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.smBorder,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -867,32 +951,29 @@ class StyleScoreCard extends StatelessWidget {
                   item.category,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: FansivibeColors.textSecondary,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
                   ),
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               Text(
-                '${item.score}',
+                '${item.score}%',
                 style: theme.textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: scoreColor,
+                  color: color,
                   fontFamily: 'sans-serif',
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           ClipRRect(
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: FansivibeRadius.smBorder,
             child: LinearProgressIndicator(
               value: item.score / 100,
-              minHeight: 6,
-              backgroundColor: FansivibeColors.accentGold.withValues(
-                alpha: 0.1,
-              ),
-              valueColor: AlwaysStoppedAnimation<Color>(scoreColor),
-              borderRadius: BorderRadius.circular(4),
+              minHeight: 5,
+              backgroundColor: FansivibeColors.surfaceContainerHighest,
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+              borderRadius: FansivibeRadius.smBorder,
             ),
           ),
           const SizedBox(height: 4),
@@ -902,6 +983,8 @@ class StyleScoreCard extends StatelessWidget {
               color: FansivibeColors.textSecondary,
               fontSize: 11,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -911,16 +994,17 @@ class StyleScoreCard extends StatelessWidget {
 
 /// Style Streak card widget.
 class StyleStreakCard extends StatelessWidget {
-  /// Creates a [StyleStreakCard].
   const StyleStreakCard({required this.data, super.key});
 
-  /// Streak data.
   final StyleStreakData data;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final progress = data.thisWeekCount / data.weeklyGoal;
+    final streak = data.currentStreak;
+    final fireColor = streak >= 7
+        ? const Color(0xFFFF6B35)
+        : FansivibeColors.accentGold;
 
     return FansivibeCard(
       child: Column(
@@ -949,85 +1033,224 @@ class StyleStreakCard extends StatelessWidget {
                   ],
                 ),
               ),
-              HomeProgressRing(
-                progress: progress.clamp(0.0, 1.0),
-                label: '${data.thisWeekCount}/${data.weeklyGoal}',
-                size: 70,
-                strokeWidth: 6,
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: fireColor.withValues(alpha: 0.12),
+                  borderRadius: FansivibeRadius.fullBorder,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.local_fire_department_rounded,
+                      size: 18,
+                      color: fireColor,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$streak-day streak',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: fireColor,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildStatColumn(
-                context,
-                'Current',
-                '${data.currentStreak}d',
-                Icons.local_fire_department_rounded,
-              ),
-              _buildStatColumn(
-                context,
-                'Longest',
-                '${data.longestStreak}d',
-                Icons.emoji_events_rounded,
-              ),
-              _buildStatColumn(
-                context,
-                'Total',
-                '${data.totalDaysStyled}d',
-                Icons.calendar_today_rounded,
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: data.recentActivity
-                .map(
-                  (day) => StreakDayIndicator(
-                    day: day.day,
-                    styled: day.styled,
-                    score: day.styled ? day.score : null,
-                    isToday: day.day == _getTodayLabel(),
-                  ),
-                )
-                .toList(),
-          ),
+          const SizedBox(height: 20),
+          _buildWeekPath(context),
+          const SizedBox(height: 20),
+          _buildStatBar(context),
         ],
       ),
     );
   }
 
-  Widget _buildStatColumn(
-    BuildContext context,
-    String label,
-    String value,
-    IconData icon,
-  ) {
+  Widget _buildWeekPath(BuildContext context) {
     final theme = Theme.of(context);
+    final items = data.recentActivity;
 
     return Column(
       children: [
-        Icon(icon, color: FansivibeColors.accentGold, size: 22),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: FansivibeColors.textPrimary,
-            fontFamily: 'sans-serif',
+        SizedBox(
+          height: 18,
+          child: Row(
+            children: items
+                .map(
+                  (d) => Expanded(
+                    child: Text(
+                      d.styled ? '${d.score ?? ''}' : '',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 10,
+                        color: FansivibeColors.textSecondary,
+                        fontFamily: 'sans-serif',
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+                .toList(),
           ),
         ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: FansivibeColors.textSecondary,
+        const SizedBox(height: 6),
+        SizedBox(
+          height: 34,
+          child: Row(
+            children: [
+              for (int i = 0; i < items.length; i++) ...[
+                if (i > 0)
+                  Expanded(
+                    child: Container(
+                      height: 2,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      color: items[i - 1].styled
+                          ? FansivibeColors.accentGold.withValues(alpha: 0.35)
+                          : FansivibeColors.surfaceContainerHighest,
+                    ),
+                  ),
+                _buildDayDot(items[i], theme),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        SizedBox(
+          height: 16,
+          child: Row(
+            children: items
+                .map(
+                  (d) => Expanded(
+                    child: Text(
+                      d.day,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 10,
+                        color: FansivibeColors.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+                .toList(),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildDayDot(StreakDayData day, ThemeData theme) {
+    final isStyled = day.styled;
+    final isToday = day.day == _getTodayLabel();
+
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: isStyled
+            ? FansivibeColors.accentGold.withValues(alpha: 0.18)
+            : FansivibeColors.surface,
+        border: Border.all(
+          color: isToday
+              ? FansivibeColors.accentGold
+              : isStyled
+              ? FansivibeColors.accentGold.withValues(alpha: 0.45)
+              : FansivibeColors.accentGold.withValues(alpha: 0.1),
+          width: isToday ? 2.5 : 1.5,
+        ),
+      ),
+      child: Center(
+        child: isStyled
+            ? Icon(
+                Icons.check_rounded,
+                size: 18,
+                color: FansivibeColors.accentGold,
+              )
+            : const SizedBox.shrink(),
+      ),
+    );
+  }
+
+  Widget _buildStatBar(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildStatBadge(
+            context,
+            Icons.local_fire_department_rounded,
+            '${data.currentStreak}d',
+            'Current',
+            const Color(0xFFFF6B35),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildStatBadge(
+            context,
+            Icons.emoji_events_rounded,
+            '${data.longestStreak}d',
+            'Best',
+            FansivibeColors.accentGold,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildStatBadge(
+            context,
+            Icons.calendar_today_rounded,
+            '${data.totalDaysStyled}d',
+            'Total',
+            FansivibeColors.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatBadge(
+    BuildContext context,
+    IconData icon,
+    String value,
+    String label,
+    Color color,
+  ) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.smBorder,
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: FansivibeColors.textPrimary,
+              fontFamily: 'sans-serif',
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: FansivibeColors.textSecondary,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

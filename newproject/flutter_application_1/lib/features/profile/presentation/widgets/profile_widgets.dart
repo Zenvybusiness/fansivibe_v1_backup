@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
+import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class ProfileHeader extends StatelessWidget {
   const ProfileHeader({required this.data, super.key});
@@ -48,6 +50,244 @@ class ProfileHeader extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class ProfileHeroCard extends StatelessWidget {
+  const ProfileHeroCard({required this.data, super.key});
+
+  final ProfileData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final xpProgress = (data.styleProgress.current / data.styleProgress.next)
+        .clamp(0.0, 1.0);
+
+    return FansivibeCard(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 32,
+                backgroundColor: FansivibeColors.accentGold.withValues(
+                  alpha: 0.15,
+                ),
+                child: Text(
+                  data.avatarInitials,
+                  style: theme.textTheme.displayLarge?.copyWith(
+                    color: FansivibeColors.accentGold,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 28,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      data.name,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: FansivibeColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      data.username,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: FansivibeColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.auto_awesome_rounded,
+                          size: 14,
+                          color: FansivibeColors.accentGold,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          data.stylistLevel.label,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: FansivibeColors.accentGold,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: FansivibeColors.accentGold.withValues(
+                              alpha: 0.12,
+                            ),
+                            borderRadius: FansivibeRadius.fullBorder,
+                          ),
+                          child: Text(
+                            'Lvl ${data.stylistLevel.level}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: FansivibeColors.accentGold,
+                              fontFamily: 'sans-serif',
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    data.styleProgress.label,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: FansivibeColors.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                  Text(
+                    '${data.styleProgress.current} / ${data.styleProgress.next}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: FansivibeColors.accentGold,
+                      fontFamily: 'sans-serif',
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: FansivibeRadius.smBorder,
+                child: LinearProgressIndicator(
+                  value: xpProgress,
+                  minHeight: 8,
+                  backgroundColor: FansivibeColors.accentGold.withValues(
+                    alpha: 0.1,
+                  ),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    FansivibeColors.accentGold,
+                  ),
+                  borderRadius: FansivibeRadius.smBorder,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: FansivibeColors.surfaceContainerLow,
+                    borderRadius: FansivibeRadius.smBorder,
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.star_rounded,
+                            size: 16,
+                            color: FansivibeColors.accentGold,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${data.styleScore}',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: FansivibeColors.textPrimary,
+                              fontFamily: 'sans-serif',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Style Score',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: FansivibeColors.textSecondary,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: FansivibeColors.surfaceContainerLow,
+                    borderRadius: FansivibeRadius.smBorder,
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.leaderboard_rounded,
+                            size: 16,
+                            color: FansivibeColors.accentGold,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '#${data.globalRank.position}',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: FansivibeColors.textPrimary,
+                              fontFamily: 'sans-serif',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Global Rank',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: FansivibeColors.textSecondary,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Center(
+            child: Text(
+              data.joinDate,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: FansivibeColors.textSecondary.withValues(alpha: 0.6),
+                fontSize: 11,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -300,6 +540,133 @@ class AchievementGrid extends StatelessWidget {
   }
 
   IconData _getIconData(String name) {
+    switch (name) {
+      case 'local_fire_department':
+        return Icons.local_fire_department_rounded;
+      case 'emoji_events':
+        return Icons.emoji_events_rounded;
+      case 'star':
+        return Icons.star_rounded;
+      case 'checkroom':
+        return Icons.checkroom_rounded;
+      case 'explore':
+        return Icons.explore_rounded;
+      case 'auto_awesome':
+        return Icons.auto_awesome_rounded;
+      default:
+        return Icons.circle_rounded;
+    }
+  }
+}
+
+class AchievementBar extends StatelessWidget {
+  const AchievementBar({required this.achievements, super.key});
+
+  final List<AchievementData> achievements;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final unlocked = achievements.where((a) => a.unlocked).length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              Icons.emoji_events_rounded,
+              size: 18,
+              color: FansivibeColors.accentGold,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Achievements',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: FansivibeColors.textPrimary,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: FansivibeColors.accentGold.withValues(alpha: 0.1),
+                borderRadius: FansivibeRadius.fullBorder,
+              ),
+              child: Text(
+                '$unlocked/${achievements.length}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: FansivibeColors.accentGold,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11,
+                  fontFamily: 'sans-serif',
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 72,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: achievements.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              final a = achievements[index];
+              final isUnlocked = a.unlocked;
+
+              return Column(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isUnlocked
+                          ? FansivibeColors.accentGold.withValues(alpha: 0.18)
+                          : FansivibeColors.surface,
+                      border: Border.all(
+                        color: isUnlocked
+                            ? FansivibeColors.accentGold.withValues(alpha: 0.45)
+                            : FansivibeColors.accentGold.withValues(
+                                alpha: 0.08,
+                              ),
+                      ),
+                    ),
+                    child: Icon(
+                      _iconFromName(a.iconName),
+                      size: 20,
+                      color: isUnlocked
+                          ? FansivibeColors.accentGold
+                          : FansivibeColors.textSecondary.withValues(
+                              alpha: 0.35,
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    a.label,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 10,
+                      color: isUnlocked
+                          ? FansivibeColors.textPrimary
+                          : FansivibeColors.textSecondary.withValues(
+                              alpha: 0.5,
+                            ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  IconData _iconFromName(String name) {
     switch (name) {
       case 'local_fire_department':
         return Icons.local_fire_department_rounded;

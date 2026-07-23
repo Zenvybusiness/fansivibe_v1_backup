@@ -4,7 +4,6 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/profile_widgets.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
-import 'package:fansivibe/shared/components/section_title.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -36,70 +35,70 @@ class ProfileScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 8),
-
-                        // Profile Header
-                        ProfileHeader(data: profile),
+                        ProfileHeroCard(data: profile),
+                        const SizedBox(height: 24),
+                        AchievementBar(achievements: profile.achievements),
+                        const SizedBox(height: 24),
+                        FansivibeCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              StyleDnaCard(data: profile.styleDna),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                child: Divider(
+                                  height: 1,
+                                  color:
+                                      FansivibeColors.surfaceContainerHighest,
+                                ),
+                              ),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Saved Looks',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            color: FansivibeColors.textPrimary,
+                                          ),
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () => _handleMenuAction(
+                                      context,
+                                      'saved_looks',
+                                    ),
+                                    child: Text(
+                                      'View All',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: FansivibeColors.accentGold,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              SavedLooksRow(looks: profile.savedLooks),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          'Account',
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: FansivibeColors.textPrimary,
+                              ),
+                        ),
                         const SizedBox(height: 12),
-
-                        // Stylist Level
-                        Center(
-                          child: StylistLevelBadge(data: profile.stylistLevel),
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Style Score & Global Rank
-                        FansivibeCard(
-                          child: ProfileStatRow(
-                            score: profile.styleScore,
-                            rank: profile.globalRank,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-
-                        // Style Progress
-                        FansivibeCard(
-                          child: StyleProgressIndicator(
-                            data: profile.styleProgress,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Achievements
-                        SectionTitle(
-                          title: 'Achievements',
-                          subtitle:
-                              '${profile.achievements.where((a) => a.unlocked).length} of ${profile.achievements.length} unlocked',
-                        ),
-                        const SizedBox(height: 16),
-                        FansivibeCard(
-                          child: AchievementGrid(
-                            achievements: profile.achievements,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Saved Looks Preview
-                        SectionTitle(
-                          title: 'Saved Looks',
-                          actionLabel: 'View All',
-                          onActionPressed: () =>
-                              _handleMenuAction(context, 'saved_looks'),
-                        ),
-                        const SizedBox(height: 16),
-                        SavedLooksRow(looks: profile.savedLooks),
-                        const SizedBox(height: 24),
-
-                        // Style DNA
-                        SectionTitle(title: 'Style DNA'),
-                        const SizedBox(height: 16),
-                        FansivibeCard(
-                          child: StyleDnaCard(data: profile.styleDna),
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Menu Actions
-                        SectionTitle(title: 'Account'),
-                        const SizedBox(height: 16),
                         FansivibeCard(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 16,

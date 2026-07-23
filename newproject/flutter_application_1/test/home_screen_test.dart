@@ -72,7 +72,8 @@ void main() {
       expect(find.text('Style Score'), findsOneWidget);
       expect(find.text('Your weekly style performance'), findsOneWidget);
       expect(find.text('84'), findsWidgets); // Current score
-      expect(find.text('+3 vs last week'), findsOneWidget);
+      expect(find.text('+3 pts'), findsOneWidget);
+      expect(find.text('this week'), findsOneWidget);
 
       // Verify breakdown categories
       expect(find.text('Fit'), findsOneWidget);
@@ -108,7 +109,6 @@ void main() {
       expect(find.text('Style Streak'), findsOneWidget);
       expect(find.text('Keep your daily style momentum'), findsOneWidget);
       expect(find.text('Current'), findsOneWidget);
-      expect(find.text('Longest'), findsOneWidget);
       expect(find.text('Total'), findsOneWidget);
 
       // Verify streak days
@@ -324,7 +324,7 @@ void main() {
 
       expect(find.text('Style Streak'), findsOneWidget);
       expect(find.text('Current'), findsOneWidget);
-      expect(find.text('Longest'), findsOneWidget);
+      expect(find.text('Best'), findsOneWidget);
       expect(find.text('Total'), findsOneWidget);
     });
 

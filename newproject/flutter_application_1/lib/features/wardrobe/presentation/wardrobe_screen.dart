@@ -4,14 +4,9 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
-import 'package:fansivibe/shared/components/fansi_chip.dart';
-import 'package:fansivibe/shared/components/section_title.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
-import 'package:fansivibe/shared/utils/icon_utils.dart';
 
-/// The Wardrobe screen - Digital wardrobe and AI context.
 class WardrobeScreen extends StatefulWidget {
-  /// Creates a [WardrobeScreen].
   const WardrobeScreen({super.key});
 
   @override
@@ -34,6 +29,9 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         .where((item) => item.category == _selectedCategory)
         .toList();
   }
+
+  int get _favoritesCount =>
+      _localItems.where((item) => item.isFavorite).length;
 
   @override
   Widget build(BuildContext context) {
@@ -64,28 +62,20 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 8),
-
-                        // Wardrobe Header
-                        WardrobeHeader(
+                        WardrobeDashboardHeader(
                           totalItems: totalItems,
                           styleType: WardrobeMockData.styleType,
+                          favoritesCount: _favoritesCount,
+                          categoryCount: WardrobeMockData.categories.length - 1,
                         ),
                         const SizedBox(height: 24),
-
-                        // AI Wardrobe Insight Card
                         WardrobeInsightCard(
                           data: WardrobeInsightData.mock,
                           onActionPressed: () => _handleViewAnalysis(context),
                         ),
                         const SizedBox(height: 24),
-
-                        // Categories Section Title
-                        SectionTitle(title: 'Categories'),
-                        const SizedBox(height: 16),
-
-                        // Category Filters
                         SizedBox(
-                          height: 44,
+                          height: 82,
                           child: ListView.separated(
                             scrollDirection: Axis.horizontal,
                             physics: const BouncingScrollPhysics(),
@@ -93,41 +83,57 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                             separatorBuilder: (_, __) =>
                                 const SizedBox(width: 10),
                             itemBuilder: (context, index) {
-                              final category =
-                                  WardrobeMockData.categories[index];
-                              return FansiChip(
-                                label: category.name,
-                                icon: iconFromName(category.iconName),
-                                selected: _selectedCategory == category.id,
-                                onTap: () => _selectCategory(category.id),
+                              final cat = WardrobeMockData.categories[index];
+                              final count = cat.id == 'all'
+                                  ? totalItems
+                                  : _localItems
+                                        .where(
+                                          (item) => item.category == cat.id,
+                                        )
+                                        .length;
+                              return CategoryTile(
+                                name: cat.name,
+                                iconName: cat.iconName,
+                                count: count,
+                                selected: _selectedCategory == cat.id,
+                                onTap: () => _selectCategory(cat.id),
                               );
                             },
                           ),
                         ),
-                        const SizedBox(height: 20),
-
-                        // Item Grid Section Title
-                        SectionTitle(
-                          title: _selectedCategory == 'all'
-                              ? 'All Items'
-                              : WardrobeMockData.categories
-                                    .firstWhere(
-                                      (c) => c.id == _selectedCategory,
-                                    )
-                                    .name,
-                          subtitle: '${filteredItems.length} items',
+                        const SizedBox(height: 24),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _selectedCategory == 'all'
+                                    ? 'All Items'
+                                    : WardrobeMockData.categories
+                                          .firstWhere(
+                                            (c) => c.id == _selectedCategory,
+                                          )
+                                          .name,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: FansivibeColors.textPrimary,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '${filteredItems.length} ${filteredItems.length == 1 ? 'item' : 'items'}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: FansivibeColors.textSecondary,
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 16),
-
-                        // Clothing Item Grid
                         _buildItemGrid(
                           context,
                           items: filteredItems,
                           crossAxisCount: crossAxisCount,
                         ),
                         const SizedBox(height: 24),
-
-                        // Add Item Button
                         FansiButton.primary(
                           label: 'Add Item to Wardrobe',
                           icon: Icons.add_rounded,
@@ -153,13 +159,12 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   }) {
     final theme = Theme.of(context);
     final width = MediaQuery.of(context).size.width;
-    final horizontalPadding = width > 600 ? 48.0 : 20.0;
-    final availableWidth =
-        (width > 600 ? 520.0 : width) - horizontalPadding * 2;
+    final hp = width > 600 ? 48.0 : 20.0;
+    final available = (width > 600 ? 520.0 : width) - hp * 2;
     final spacing = 12.0;
-    final childWidth =
-        (availableWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
-    final childAspectRatio = childWidth / (childWidth * 1.4);
+    final childW =
+        (available - spacing * (crossAxisCount - 1)) / crossAxisCount;
+    final aspect = childW / (childW * 1.4);
 
     if (items.isEmpty) {
       return Padding(
@@ -192,7 +197,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         crossAxisCount: crossAxisCount,
         crossAxisSpacing: spacing,
         mainAxisSpacing: spacing,
-        childAspectRatio: childAspectRatio,
+        childAspectRatio: aspect,
       ),
       itemCount: items.length,
       itemBuilder: (context, index) {
@@ -214,7 +219,6 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
-    // TODO: Navigate to full wardrobe analysis
   }
 
   void _handleAddItem(BuildContext context) async {

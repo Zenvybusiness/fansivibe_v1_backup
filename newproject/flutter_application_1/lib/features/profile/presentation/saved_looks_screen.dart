@@ -4,7 +4,6 @@ import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
-
 class SavedLooksScreen extends StatelessWidget {
   const SavedLooksScreen({super.key});
 

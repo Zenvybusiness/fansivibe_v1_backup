@@ -89,13 +89,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Achievements'), findsOneWidget);
-      expect(find.text('4 of 6 unlocked'), findsOneWidget);
+      expect(find.text('4/6'), findsOneWidget);
+      // First 4 achievements visible in horizontal scroll; later ones may be off-screen
       expect(find.text('7-Day Streak'), findsOneWidget);
       expect(find.text('Style Guru'), findsOneWidget);
       expect(find.text('Score 90+'), findsOneWidget);
       expect(find.text('20 Looks'), findsOneWidget);
-      expect(find.text('Explorer'), findsOneWidget);
-      expect(find.text('Trendsetter'), findsOneWidget);
     });
 
     testWidgets('renders saved looks preview', (WidgetTester tester) async {
@@ -126,7 +125,6 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Style DNA'), findsOneWidget);
       expect(find.text('Skin Tone'), findsOneWidget);
       expect(find.text('Warm Medium'), findsOneWidget);
       expect(find.text('Face Shape'), findsOneWidget);
@@ -250,7 +248,7 @@ void main() {
       expect(find.text('Style Seeker'), findsOneWidget);
       expect(find.text('Achievements'), findsOneWidget);
       expect(find.text('Saved Looks'), findsWidgets);
-      expect(find.text('Style DNA'), findsOneWidget);
+      expect(find.text('Skin Tone'), findsOneWidget);
       expect(find.text('Account'), findsOneWidget);
       expect(find.text('Sign Out'), findsOneWidget);
     });
