@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_scan/data/outfit_scan_mock_data.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class OutfitProcessingScreen extends StatefulWidget {
@@ -156,29 +157,10 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
                         const SizedBox(height: 40),
 
                         if (allComplete)
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _navigateToAnalysis,
-                              icon: const Icon(
-                                Icons.visibility_rounded,
-                                size: 20,
-                              ),
-                              label: const Text('View Analysis'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: FansivibeColors.accentGold,
-                                foregroundColor: FansivibeColors.background,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 16,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                elevation: 4,
-                                shadowColor: FansivibeColors.accentGold
-                                    .withValues(alpha: 0.3),
-                              ),
-                            ),
+                          FansiButton.primary(
+                            label: 'View Results',
+                            icon: Icons.check_circle_outline,
+                            onPressed: _navigateToAnalysis,
                           ),
 
                         const SizedBox(height: 32),

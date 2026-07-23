@@ -1,59 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/icon_utils.dart';
-
-/// A premium card widget for the Wardrobe feature.
-class WardrobeCard extends StatelessWidget {
-  const WardrobeCard({
-    required this.child,
-    this.padding = const EdgeInsets.all(20),
-    this.margin = EdgeInsets.zero,
-    this.onTap,
-    this.borderColor,
-    super.key,
-  });
-
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-  final EdgeInsetsGeometry margin;
-  final VoidCallback? onTap;
-  final Color? borderColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final effectiveBorderColor =
-        borderColor ?? FansivibeColors.accentGold.withValues(alpha: 0.2);
-
-    Widget card = Container(
-      margin: margin,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: effectiveBorderColor, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: child,
-    );
-
-    if (onTap != null) {
-      return InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: card,
-      );
-    }
-
-    return card;
-  }
-}
 
 /// Wardrobe header with title, item count, and style type.
 class WardrobeHeader extends StatelessWidget {
@@ -135,8 +85,7 @@ class WardrobeInsightCard extends StatelessWidget {
     final theme = Theme.of(context);
     final accentColor = Color(data.accentColor);
 
-    return WardrobeCard(
-      borderColor: accentColor.withValues(alpha: 0.3),
+    return FansivibeCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -189,121 +138,14 @@ class WardrobeInsightCard extends StatelessWidget {
           ),
           if (onActionPressed != null) ...[
             const SizedBox(height: 16),
-            _WardrobeActionButton(
+            FansiButton.secondary(
               label: data.actionLabel,
               icon: Icons.arrow_forward_rounded,
               onPressed: onActionPressed,
-              accentColor: accentColor,
+              expanded: false,
             ),
           ],
         ],
-      ),
-    );
-  }
-
-  IconData _getIconData(String iconName) {
-    return iconFromName(iconName);
-  }
-}
-
-/// Secondary outline action button for Wardrobe.
-class _WardrobeActionButton extends StatelessWidget {
-  const _WardrobeActionButton({
-    required this.label,
-    required this.icon,
-    this.onPressed,
-    this.accentColor,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback? onPressed;
-  final Color? accentColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = accentColor ?? FansivibeColors.accentGold;
-
-    return FilledButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 18),
-      label: Text(
-        label,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
-        overflow: TextOverflow.ellipsis,
-      ),
-      style: FilledButton.styleFrom(
-        backgroundColor: color.withValues(alpha: 0.15),
-        foregroundColor: color,
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-        minimumSize: const Size(0, 44),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-    );
-  }
-}
-
-/// Category filter chip for the wardrobe.
-class CategoryFilterChip extends StatelessWidget {
-  const CategoryFilterChip({
-    required this.category,
-    required this.isSelected,
-    required this.onTap,
-    super.key,
-  });
-
-  final WardrobeCategory category;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? FansivibeColors.accentGold.withValues(alpha: 0.2)
-              : FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isSelected
-                ? FansivibeColors.accentGold
-                : FansivibeColors.accentGold.withValues(alpha: 0.15),
-            width: isSelected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              _getIconData(category.iconName),
-              size: 16,
-              color: isSelected
-                  ? FansivibeColors.accentGold
-                  : FansivibeColors.textSecondary,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              category.name,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: isSelected
-                    ? FansivibeColors.accentGold
-                    : FansivibeColors.textSecondary,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -480,87 +322,5 @@ class ClothingItemCard extends StatelessWidget {
       default:
         return FansivibeColors.textSecondary;
     }
-  }
-}
-
-/// Section title for wardrobe sections.
-class WardrobeSectionTitle extends StatelessWidget {
-  const WardrobeSectionTitle({required this.title, this.subtitle, super.key});
-
-  final String title;
-  final String? subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: theme.textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: FansivibeColors.textPrimary,
-          ),
-        ),
-        if (subtitle != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            subtitle!,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: FansivibeColors.textSecondary,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-/// Full-width primary action button for Wardrobe.
-class WardrobeActionButton extends StatelessWidget {
-  const WardrobeActionButton({
-    required this.label,
-    required this.icon,
-    this.onPressed,
-    super.key,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SizedBox(
-      width: double.infinity,
-      child: FilledButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 18),
-        label: Text(
-          label,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: FansivibeColors.background,
-          ),
-          overflow: TextOverflow.ellipsis,
-        ),
-        style: FilledButton.styleFrom(
-          backgroundColor: FansivibeColors.accentGold,
-          foregroundColor: FansivibeColors.background,
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-          minimumSize: const Size(0, 48),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          elevation: 4,
-          shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-      ),
-    );
   }
 }

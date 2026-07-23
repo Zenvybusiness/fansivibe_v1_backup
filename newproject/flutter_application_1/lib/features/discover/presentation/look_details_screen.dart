@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
-import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/look_details_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_badge.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 /// The Look Details screen (DISCOVER-002).
@@ -150,10 +151,9 @@ class LookDetailsScreen extends StatelessWidget {
               Positioned(
                 top: 12,
                 right: 12,
-                child: MatchPercentageBadge(
-                  percentage: look.matchScore,
-                  size: 56,
-                  showLabel: true,
+                child: FansiBadge(
+                  score: look.matchScore,
+                  size: BadgeSize.medium,
                 ),
               ),
             ],
@@ -303,36 +303,18 @@ class LookDetailsScreen extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: FilledButton.icon(
+          child: FansiButton.primary(
+            label: 'Save Look',
+            icon: Icons.favorite_rounded,
             onPressed: () => _handleSave(context),
-            icon: const Icon(Icons.favorite_rounded, size: 18),
-            label: const Text('Save Look'),
-            style: FilledButton.styleFrom(
-              backgroundColor: FansivibeColors.accentGold,
-              foregroundColor: FansivibeColors.background,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: OutlinedButton.icon(
+          child: FansiButton.secondary(
+            label: 'Share',
+            icon: Icons.share_rounded,
             onPressed: () => _handleShare(context),
-            icon: const Icon(Icons.share_rounded, size: 18),
-            label: const Text('Share'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: FansivibeColors.accentGold,
-              side: BorderSide(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.4),
-              ),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
           ),
         ),
       ],

@@ -1,81 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
+import 'package:fansivibe/shared/components/fansi_badge.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/components/fansi_chip.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/components/section_title.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/icon_utils.dart';
+import 'package:fansivibe/shared/utils/score_colors.dart';
 
 typedef HomeCard = FansivibeCard;
 typedef HomeSectionTitle = SectionTitle;
-
-/// A premium button widget for the Home feature.
-class HomeActionButton extends StatelessWidget {
-  /// Creates a [HomeActionButton].
-  const HomeActionButton({
-    required this.label,
-    required this.icon,
-    this.onPressed,
-    this.isPrimary = true,
-    this.expanded = true,
-    this.accentColor,
-    super.key,
-  });
-
-  /// Button label.
-  final String label;
-
-  /// Leading icon.
-  final IconData icon;
-
-  /// Tap callback.
-  final VoidCallback? onPressed;
-
-  /// Whether this is a primary (gold) button.
-  final bool isPrimary;
-
-  /// Whether to expand to full width.
-  final bool expanded;
-
-  /// Custom accent color.
-  final Color? accentColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = accentColor ?? FansivibeColors.accentGold;
-    final backgroundColor = isPrimary ? color : color.withValues(alpha: 0.15);
-    final foregroundColor = isPrimary ? FansivibeColors.background : color;
-
-    final button = FilledButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 18),
-      label: Text(
-        label,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: foregroundColor,
-        ),
-        overflow: TextOverflow.ellipsis,
-      ),
-      style: FilledButton.styleFrom(
-        backgroundColor: backgroundColor,
-        foregroundColor: foregroundColor,
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-        minimumSize: const Size(0, 44),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        elevation: isPrimary ? 4 : 0,
-        shadowColor: color.withValues(alpha: 0.3),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-    );
-
-    if (expanded) {
-      return SizedBox(width: double.infinity, child: button);
-    }
-
-    return button;
-  }
-}
 
 /// A stat display widget for the Home feature.
 class HomeStatItem extends StatelessWidget {
@@ -351,77 +286,20 @@ class StreakDayIndicator extends StatelessWidget {
   }
 }
 
-/// An outfit item chip widget.
-class OutfitItemChip extends StatelessWidget {
-  /// Creates an [OutfitItemChip].
-  const OutfitItemChip({required this.item, this.onTap, super.key});
-
-  /// Outfit item data.
-  final OutfitItemData item;
-
-  /// Optional tap callback.
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Semantics(
-      button: true,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: FansivibeColors.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-              width: 1,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                _getCategoryIcon(item.category),
-                size: 16,
-                color: FansivibeColors.accentGold,
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  item.name,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: FansivibeColors.textPrimary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  IconData _getCategoryIcon(String category) {
-    switch (category.toLowerCase()) {
-      case 'outerwear':
-        return Icons.checkroom_rounded;
-      case 'tops':
-        return Icons.person_rounded;
-      case 'bottoms':
-        return Icons.accessibility_rounded;
-      case 'footwear':
-        return Icons.directions_walk_rounded;
-      case 'accessories':
-        return Icons.diamond_rounded;
-      default:
-        return Icons.category_rounded;
-    }
+IconData outfitCategoryIcon(String category) {
+  switch (category.toLowerCase()) {
+    case 'outerwear':
+      return Icons.checkroom_rounded;
+    case 'tops':
+      return Icons.person_rounded;
+    case 'bottoms':
+      return Icons.accessibility_rounded;
+    case 'footwear':
+      return Icons.directions_walk_rounded;
+    case 'accessories':
+      return Icons.diamond_rounded;
+    default:
+      return Icons.category_rounded;
   }
 }
 
@@ -495,12 +373,10 @@ class AIInsightCard extends StatelessWidget {
           ),
           if (onActionPressed != null) ...[
             const SizedBox(height: 16),
-            HomeActionButton(
+            FansiButton.secondary(
               label: data.actionLabel,
               icon: Icons.arrow_forward_rounded,
               onPressed: onActionPressed,
-              isPrimary: false,
-              accentColor: accentColor,
               expanded: false,
             ),
           ],
@@ -812,7 +688,12 @@ class TodaysLookCard extends StatelessWidget {
               spacing: 10,
               runSpacing: 10,
               children: data.items
-                  .map((item) => OutfitItemChip(item: item))
+                  .map(
+                    (item) => FansiChip(
+                      label: item.name,
+                      icon: outfitCategoryIcon(item.category),
+                    ),
+                  )
                   .toList(),
             ),
           ),
@@ -828,18 +709,16 @@ class TodaysLookCard extends StatelessWidget {
                 if (isNarrow) {
                   return Column(
                     children: [
-                      HomeActionButton(
+                      FansiButton.primary(
                         label: 'Try This Look',
                         icon: Icons.check_circle_outline_rounded,
                         onPressed: onTryThisLook,
-                        isPrimary: true,
                       ),
                       const SizedBox(height: 12),
-                      HomeActionButton(
+                      FansiButton.secondary(
                         label: 'Change Style',
                         icon: Icons.refresh_rounded,
                         onPressed: onChangeStyle,
-                        isPrimary: false,
                       ),
                     ],
                   );
@@ -847,20 +726,18 @@ class TodaysLookCard extends StatelessWidget {
                 return Row(
                   children: [
                     Expanded(
-                      child: HomeActionButton(
+                      child: FansiButton.primary(
                         label: 'Try This Look',
                         icon: Icons.check_circle_outline_rounded,
                         onPressed: onTryThisLook,
-                        isPrimary: true,
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: HomeActionButton(
+                      child: FansiButton.secondary(
                         label: 'Change Style',
                         icon: Icons.refresh_rounded,
                         onPressed: onChangeStyle,
-                        isPrimary: false,
                       ),
                     ),
                   ],
@@ -874,43 +751,7 @@ class TodaysLookCard extends StatelessWidget {
   }
 
   Widget _buildStyleScoreBadge(BuildContext context) {
-    final theme = Theme.of(context);
-    final score = data.styleScore;
-    Color scoreColor;
-
-    if (score >= 90) {
-      scoreColor = const Color(0xFF4CAF50);
-    } else if (score >= 80) {
-      scoreColor = FansivibeColors.accentGold;
-    } else if (score >= 70) {
-      scoreColor = const Color(0xFFFF9800);
-    } else {
-      scoreColor = const Color(0xFFF44336);
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: scoreColor.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: scoreColor.withValues(alpha: 0.3), width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.star_rounded, size: 16, color: scoreColor),
-          const SizedBox(width: 6),
-          Text(
-            '$score',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: scoreColor,
-              fontFamily: 'sans-serif',
-            ),
-          ),
-        ],
-      ),
-    );
+    return FansiBadge(score: data.styleScore);
   }
 }
 
@@ -1012,17 +853,7 @@ class StyleScoreCard extends StatelessWidget {
     StyleScoreBreakdownItem item,
   ) {
     final theme = Theme.of(context);
-    Color scoreColor;
-
-    if (item.score >= 90) {
-      scoreColor = const Color(0xFF4CAF50);
-    } else if (item.score >= 80) {
-      scoreColor = FansivibeColors.accentGold;
-    } else if (item.score >= 70) {
-      scoreColor = const Color(0xFFFF9800);
-    } else {
-      scoreColor = const Color(0xFFF44336);
-    }
+    final scoreColor = scoreColorFromDouble(item.score / 100);
 
     return Padding(
       padding: const EdgeInsets.only(right: 12),

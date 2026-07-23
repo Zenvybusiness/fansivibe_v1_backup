@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 /// The Discover screen - Personalized style discovery.
@@ -341,7 +342,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         if (_selectedOccasion != 'all' ||
             _selectedStyle != 'all' ||
             _selectedFit != 'all')
-          TextButton(
+          FansiButton.tertiary(
+            label: 'Clear filters',
             onPressed: () {
               setState(() {
                 _selectedOccasion = 'all';
@@ -352,19 +354,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 _fitOptions = FitFilters.options;
               });
             },
-            style: TextButton.styleFrom(
-              foregroundColor: FansivibeColors.accentGold,
-              padding: EdgeInsets.zero,
-              minimumSize: const Size(0, 32),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            child: Text(
-              'Clear filters',
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: FansivibeColors.accentGold,
-              ),
-            ),
           ),
       ],
     );
@@ -442,7 +431,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
-            FilledButton.icon(
+            FansiButton.primary(
+              label: 'Reset filters',
+              icon: Icons.refresh_rounded,
               onPressed: () {
                 setState(() {
                   _searchQuery = '';
@@ -455,19 +446,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                   _fitOptions = FitFilters.options;
                 });
               },
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('Reset filters'),
-              style: FilledButton.styleFrom(
-                backgroundColor: FansivibeColors.accentGold,
-                foregroundColor: FansivibeColors.background,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
             ),
           ],
         ),

@@ -3,7 +3,11 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/components/fansi_chip.dart';
+import 'package:fansivibe/shared/components/section_title.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/icon_utils.dart';
 
 /// The Wardrobe screen - Digital wardrobe and AI context.
 class WardrobeScreen extends StatefulWidget {
@@ -76,7 +80,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                         const SizedBox(height: 24),
 
                         // Categories Section Title
-                        WardrobeSectionTitle(title: 'Categories'),
+                        SectionTitle(title: 'Categories'),
                         const SizedBox(height: 16),
 
                         // Category Filters
@@ -91,9 +95,10 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                             itemBuilder: (context, index) {
                               final category =
                                   WardrobeMockData.categories[index];
-                              return CategoryFilterChip(
-                                category: category,
-                                isSelected: _selectedCategory == category.id,
+                              return FansiChip(
+                                label: category.name,
+                                icon: iconFromName(category.iconName),
+                                selected: _selectedCategory == category.id,
                                 onTap: () => _selectCategory(category.id),
                               );
                             },
@@ -102,7 +107,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                         const SizedBox(height: 20),
 
                         // Item Grid Section Title
-                        WardrobeSectionTitle(
+                        SectionTitle(
                           title: _selectedCategory == 'all'
                               ? 'All Items'
                               : WardrobeMockData.categories
@@ -123,7 +128,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                         const SizedBox(height: 24),
 
                         // Add Item Button
-                        WardrobeActionButton(
+                        FansiButton.primary(
                           label: 'Add Item to Wardrobe',
                           icon: Icons.add_rounded,
                           onPressed: () => _handleAddItem(context),

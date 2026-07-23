@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class FaceProcessingScreen extends StatefulWidget {
@@ -151,29 +152,10 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
                         const SizedBox(height: 40),
 
                         if (allComplete)
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _navigateToResult,
-                              icon: const Icon(
-                                Icons.visibility_rounded,
-                                size: 20,
-                              ),
-                              label: const Text('View Recommendations'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: FansivibeColors.accentGold,
-                                foregroundColor: FansivibeColors.background,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 16,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                elevation: 4,
-                                shadowColor: FansivibeColors.accentGold
-                                    .withValues(alpha: 0.3),
-                              ),
-                            ),
+                          FansiButton.primary(
+                            label: 'View Results',
+                            icon: Icons.check_circle_outline,
+                            onPressed: _navigateToResult,
                           ),
 
                         const SizedBox(height: 32),

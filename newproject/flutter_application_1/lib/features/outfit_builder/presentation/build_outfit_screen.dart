@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class BuildOutfitScreen extends StatefulWidget {
@@ -141,32 +142,10 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
                         const SizedBox(height: 32),
 
                         // Build button
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: _allSelected ? _buildOutfit : null,
-                            icon: const Icon(
-                              Icons.auto_awesome_rounded,
-                              size: 20,
-                            ),
-                            label: const Text('Build My Outfit'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: FansivibeColors.accentGold,
-                              foregroundColor: FansivibeColors.background,
-                              disabledBackgroundColor: FansivibeColors
-                                  .accentGold
-                                  .withValues(alpha: 0.3),
-                              disabledForegroundColor:
-                                  FansivibeColors.textSecondary,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              elevation: 4,
-                              shadowColor: FansivibeColors.accentGold
-                                  .withValues(alpha: 0.3),
-                            ),
-                          ),
+                        FansiButton.primary(
+                          label: 'Build Outfit',
+                          icon: Icons.checkroom_rounded,
+                          onPressed: _allSelected ? _buildOutfit : null,
                         ),
 
                         const SizedBox(height: 32),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class OutfitGenerationScreen extends StatefulWidget {
@@ -166,29 +167,10 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
                         const SizedBox(height: 40),
 
                         if (allComplete)
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _navigateToRecommendation,
-                              icon: const Icon(
-                                Icons.visibility_rounded,
-                                size: 20,
-                              ),
-                              label: const Text('View Recommendation'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: FansivibeColors.accentGold,
-                                foregroundColor: FansivibeColors.background,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 16,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                elevation: 4,
-                                shadowColor: FansivibeColors.accentGold
-                                    .withValues(alpha: 0.3),
-                              ),
-                            ),
+                          FansiButton.primary(
+                            label: 'View Generation',
+                            icon: Icons.check_circle_outline,
+                            onPressed: _navigateToRecommendation,
                           ),
 
                         const SizedBox(height: 32),

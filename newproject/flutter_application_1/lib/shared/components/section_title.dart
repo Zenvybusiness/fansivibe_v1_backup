@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
 class SectionTitle extends StatelessWidget {
   const SectionTitle({
@@ -17,8 +18,6 @@ class SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
@@ -31,18 +30,13 @@ class SectionTitle extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: FansivibeColors.textPrimary,
-                  ),
+                  style: FansivibeTypography.headlineMediumWithFamily,
                 ),
                 if (subtitle != null) ...[
                   const SizedBox(height: 4),
                   Text(
                     subtitle!,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: FansivibeColors.textSecondary,
-                    ),
+                    style: FansivibeTypography.bodyMediumWithFamily,
                   ),
                 ],
               ],
@@ -52,7 +46,7 @@ class SectionTitle extends StatelessWidget {
             TextButton(
               onPressed: onActionPressed,
               style: TextButton.styleFrom(
-                foregroundColor: FansivibeColors.accentGold,
+                foregroundColor: FansivibeColors.primary,
                 padding: EdgeInsets.zero,
                 minimumSize: const Size(0, 32),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -62,9 +56,8 @@ class SectionTitle extends StatelessWidget {
                 label: actionLabel,
                 child: Text(
                   actionLabel!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: FansivibeColors.accentGold,
+                  style: FansivibeTypography.labelMediumWithFamily.copyWith(
+                    color: FansivibeColors.primary,
                   ),
                 ),
               ),

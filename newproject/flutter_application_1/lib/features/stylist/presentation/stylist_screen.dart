@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/shared/components/fansivibe_card.dart';
+import 'package:fansivibe/shared/components/section_title.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class StylistActionData {
@@ -85,7 +87,10 @@ class StylistScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 8),
-                        _buildHeader(context),
+                        SectionTitle(
+                          title: 'Stylist',
+                          subtitle: 'AI-powered style tools',
+                        ),
                         const SizedBox(height: 28),
                         ...StylistActionData.mockActions.map(
                           (action) => Padding(
@@ -106,93 +111,50 @@ class StylistScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Stylist',
-          style: theme.textTheme.displayLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: FansivibeColors.textPrimary,
-            fontSize: 28,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'AI-powered style tools',
-          style: theme.textTheme.bodyLarge?.copyWith(
-            color: FansivibeColors.textSecondary,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildActionCard(BuildContext context, StylistActionData action) {
     final theme = Theme.of(context);
 
-    return InkWell(
+    return FansivibeCard(
+      padding: const EdgeInsets.all(20),
       onTap: () => _handleAction(context, action),
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: action.accentColor.withValues(alpha: 0.2),
-            width: 1,
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: action.accentColor.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(action.icon, color: action.accentColor, size: 24),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: action.accentColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(action.icon, color: action.accentColor, size: 24),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    action.title,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: FansivibeColors.textPrimary,
-                    ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  action.title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: FansivibeColors.textPrimary,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    action.subtitle,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: FansivibeColors.textSecondary,
-                    ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  action.subtitle,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: FansivibeColors.textSecondary,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: FansivibeColors.textSecondary,
-              size: 24,
-            ),
-          ],
-        ),
+          ),
+          Icon(
+            Icons.chevron_right_rounded,
+            color: FansivibeColors.textSecondary,
+            size: 24,
+          ),
+        ],
       ),
     );
   }

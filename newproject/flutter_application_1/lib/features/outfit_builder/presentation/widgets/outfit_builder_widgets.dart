@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/score_colors.dart';
 
@@ -366,24 +367,7 @@ class OutfitComponentCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          SizedBox(
-            height: 32,
-            child: OutlinedButton(
-              onPressed: onReplace,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: FansivibeColors.accentGold,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                side: BorderSide(
-                  color: FansivibeColors.accentGold.withValues(alpha: 0.3),
-                ),
-                textStyle: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
-              ),
-              child: const Text('Replace'),
-            ),
-          ),
+          FansiButton.secondary(label: 'Replace', onPressed: onReplace),
         ],
       ),
     );

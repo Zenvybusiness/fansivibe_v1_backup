@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class FaceScanScreen extends StatelessWidget {
@@ -126,23 +127,10 @@ class FaceScanScreen extends StatelessWidget {
   }
 
   Widget _buildStartScanButton(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: FilledButton.icon(
-        onPressed: () => _handleScan(context),
-        icon: const Icon(Icons.face_rounded, size: 20),
-        label: const Text('Start Scan'),
-        style: FilledButton.styleFrom(
-          backgroundColor: FansivibeColors.accentGold,
-          foregroundColor: FansivibeColors.background,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          elevation: 4,
-          shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
-        ),
-      ),
+    return FansiButton.primary(
+      label: 'Scan Face',
+      icon: Icons.face_retouching_natural,
+      onPressed: () => _handleScan(context),
     );
   }
 

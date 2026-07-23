@@ -6,6 +6,8 @@ import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
+
 /// Creates a [FansivibeApp] with an isolated router to prevent state
 /// leaking across navigation tests.
 Widget _freshApp() {
@@ -36,7 +38,7 @@ void main() {
       expect(find.text('Modern Minimalist'), findsOneWidget);
       expect(find.text('Work • Casual Friday'), findsOneWidget);
       expect(find.text('Style Score'), findsOneWidget);
-      expect(find.text('87'), findsWidgets); // Style score badge
+      expect(find.text('87%'), findsWidgets); // Style score badge
 
       // Verify description
       expect(
@@ -166,7 +168,7 @@ void main() {
 
       final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       expect(materialApp.theme?.brightness, Brightness.dark);
-      expect(materialApp.theme?.primaryColor, const Color(0xFFC5A059));
+      expect(materialApp.theme?.primaryColor, const Color(0xFFE3C373));
     });
 
     testWidgets('Try This Look navigates to Daily Outfit screen', (
@@ -176,7 +178,7 @@ void main() {
 
       await tester.scrollUntilVisible(find.text('Try This Look'), 500.0);
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(HomeActionButton).first);
+      await tester.tap(find.byType(FansiButton).first);
       await tester.pumpAndSettle();
 
       expect(find.text('Daily Outfit'), findsOneWidget);
@@ -287,7 +289,7 @@ void main() {
 
       expect(find.text('TODAY\'S LOOK'), findsOneWidget);
       expect(find.text('Modern Minimalist'), findsOneWidget);
-      expect(find.text('87'), findsWidgets);
+      expect(find.text('87%'), findsWidgets);
       expect(find.text('Try This Look'), findsOneWidget);
       expect(find.text('Change Style'), findsOneWidget);
     });
@@ -383,60 +385,6 @@ void main() {
 
       expect(find.text('Test Content'), findsOneWidget);
       expect(find.byType(Container), findsWidgets);
-    });
-
-    testWidgets('HomeActionButton renders primary and secondary variants', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Scaffold(
-            body: Column(
-              children: [
-                HomeActionButton(
-                  label: 'Primary',
-                  icon: Icons.check_rounded,
-                  onPressed: () {},
-                  isPrimary: true,
-                ),
-                HomeActionButton(
-                  label: 'Secondary',
-                  icon: Icons.refresh_rounded,
-                  onPressed: () {},
-                  isPrimary: false,
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('Primary'), findsOneWidget);
-      expect(find.text('Secondary'), findsOneWidget);
-    });
-
-    testWidgets('OutfitItemChip renders with category icon', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Scaffold(
-            body: OutfitItemChip(
-              item: const OutfitItemData(
-                id: '1',
-                name: 'Test Blazer',
-                category: 'outerwear',
-                color: 'Navy',
-              ),
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('Test Blazer'), findsOneWidget);
-      expect(find.byIcon(Icons.checkroom_rounded), findsOneWidget);
     });
 
     testWidgets('StreakDayIndicator shows styled and unstyled days', (

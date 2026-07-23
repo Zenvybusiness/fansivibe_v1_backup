@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class GroomingResultScreen extends StatelessWidget {
@@ -549,27 +550,19 @@ class GroomingResultScreen extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: OutlinedButton.icon(
+          child: FansiButton.secondary(
+            label: 'Try Another',
+            icon: Icons.refresh_rounded,
             onPressed: () {
               context.replaceNamed(RouteNames.grooming);
             },
-            icon: const Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('Start Over'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: FansivibeColors.accentGold,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              side: BorderSide(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.3),
-              ),
-            ),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: FilledButton.icon(
+          child: FansiButton.primary(
+            label: 'Save Look',
+            icon: Icons.favorite_rounded,
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -582,18 +575,6 @@ class GroomingResultScreen extends StatelessWidget {
                 ),
               );
             },
-            icon: const Icon(Icons.bookmark_outline_rounded, size: 18),
-            label: const Text('Save Recommendation'),
-            style: FilledButton.styleFrom(
-              backgroundColor: FansivibeColors.accentGold,
-              foregroundColor: FansivibeColors.background,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              elevation: 4,
-              shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
-            ),
           ),
         ),
       ],

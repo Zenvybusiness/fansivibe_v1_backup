@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fansivibe/app/app.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_chip.dart';
 
 void main() {
   group('DiscoverScreen Widget Tests', () {
@@ -190,7 +191,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify trending badges appear
-      expect(find.byType(TrendingBadge), findsWidgets);
+      expect(find.byType(FansiChip), findsWidgets);
     });
 
     testWidgets('switches between For You and Trending tabs', (

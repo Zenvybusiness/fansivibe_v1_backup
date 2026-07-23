@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class OutfitScanScreen extends StatefulWidget {
@@ -418,21 +419,10 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
                 ),
               ),
               const SizedBox(height: 16),
-              FilledButton.icon(
+              FansiButton.primary(
+                label: 'Scan Outfit',
+                icon: Icons.camera_alt_rounded,
                 onPressed: onAction,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: Text(actionLabel),
-                style: FilledButton.styleFrom(
-                  backgroundColor: FansivibeColors.accentGold,
-                  foregroundColor: FansivibeColors.background,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
               ),
             ],
           ),
@@ -494,33 +484,20 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   }
 
   Widget _buildCaptureButton(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: FilledButton.icon(
-        onPressed: () => _handleCapture(context),
-        icon: const Icon(Icons.camera_alt_rounded, size: 20),
-        label: const Text('Capture Look'),
-        style: FilledButton.styleFrom(
-          backgroundColor: FansivibeColors.accentGold,
-          foregroundColor: FansivibeColors.background,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          elevation: 4,
-          shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
-        ),
-      ),
+    return FansiButton.primary(
+      label: 'View Analysis',
+      icon: Icons.dashboard_rounded,
+      onPressed: () => _handleCapture(context),
     );
   }
 
   Widget _buildSecondaryActions(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Row(
       children: [
         Expanded(
-          child: OutlinedButton.icon(
+          child: FansiButton.secondary(
+            label: 'Share',
+            icon: Icons.share_rounded,
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -533,54 +510,14 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
                 ),
               );
             },
-            icon: Icon(
-              Icons.photo_library_outlined,
-              size: 18,
-              color: FansivibeColors.accentGold,
-            ),
-            label: Text(
-              'Gallery',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: FansivibeColors.accentGold,
-              ),
-            ),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              side: BorderSide(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.3),
-              ),
-            ),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: OutlinedButton.icon(
+          child: FansiButton.secondary(
+            label: 'Rescan',
+            icon: Icons.refresh_rounded,
             onPressed: _switchCamera,
-            icon: Icon(
-              Icons.flip_camera_android_rounded,
-              size: 18,
-              color: FansivibeColors.accentGold,
-            ),
-            label: Text(
-              'Switch Camera',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: FansivibeColors.accentGold,
-              ),
-            ),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              side: BorderSide(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.3),
-              ),
-            ),
           ),
         ),
       ],

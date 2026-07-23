@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/presentation/look_details_screen.dart';
-import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/look_details_widgets.dart';
 
 Widget _wrapScreen(DiscoverLookData look) {
@@ -22,7 +22,7 @@ void main() {
 
       expect(find.text(look.title), findsWidgets);
       expect(find.text(look.description), findsOneWidget);
-      expect(find.byType(MatchPercentageBadge), findsOneWidget);
+      expect(find.byType(FansiBadge), findsOneWidget);
     });
 
     testWidgets('renders match score breakdown section', (

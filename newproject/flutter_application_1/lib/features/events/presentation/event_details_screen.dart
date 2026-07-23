@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class EventDetailsScreen extends StatelessWidget {
@@ -314,20 +315,10 @@ class EventDetailsScreen extends StatelessWidget {
   Widget _buildGenerateOutfitButton(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      child: FilledButton.icon(
+      child: FansiButton.primary(
+        label: 'Generate Outfit',
+        icon: Icons.auto_awesome_rounded,
         onPressed: () => _generateOutfit(context),
-        icon: const Icon(Icons.auto_awesome_rounded, size: 20),
-        label: const Text('Generate Outfit'),
-        style: FilledButton.styleFrom(
-          backgroundColor: FansivibeColors.accentGold,
-          foregroundColor: FansivibeColors.background,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          elevation: 4,
-          shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
-        ),
       ),
     );
   }
@@ -335,20 +326,10 @@ class EventDetailsScreen extends StatelessWidget {
   Widget _buildEditEventButton(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      child: OutlinedButton.icon(
+      child: FansiButton.secondary(
+        label: 'Edit Event',
+        icon: Icons.edit_outlined,
         onPressed: () => _editEvent(context),
-        icon: const Icon(Icons.edit_outlined, size: 18),
-        label: const Text('Edit Event'),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: FansivibeColors.textSecondary,
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          side: BorderSide(
-            color: FansivibeColors.textSecondary.withValues(alpha: 0.3),
-          ),
-        ),
       ),
     );
   }

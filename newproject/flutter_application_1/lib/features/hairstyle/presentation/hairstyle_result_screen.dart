@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class HairstyleResultScreen extends StatelessWidget {
@@ -267,55 +268,31 @@ class HairstyleResultScreen extends StatelessWidget {
   }
 
   Widget _buildActions(BuildContext context) {
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: () {
-              context.replaceNamed(RouteNames.hairstyle);
-            },
-            icon: const Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('Scan Again'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: FansivibeColors.accentGold,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              side: BorderSide(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.3),
-              ),
-            ),
-          ),
+        FansiButton.secondary(
+          label: 'Try Another',
+          icon: Icons.refresh_rounded,
+          onPressed: () {
+            context.replaceNamed(RouteNames.hairstyle);
+          },
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: FilledButton.icon(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Hairstyle saved to profile'),
-                  backgroundColor: FansivibeColors.accentGold,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+        const SizedBox(height: 12),
+        FansiButton.primary(
+          label: 'Save Style',
+          icon: Icons.favorite_rounded,
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Hairstyle saved to profile'),
+                backgroundColor: FansivibeColors.accentGold,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              );
-            },
-            icon: const Icon(Icons.bookmark_outline_rounded, size: 18),
-            label: const Text('Save to Profile'),
-            style: FilledButton.styleFrom(
-              backgroundColor: FansivibeColors.accentGold,
-              foregroundColor: FansivibeColors.background,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
               ),
-              elevation: 4,
-              shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
-            ),
-          ),
+            );
+          },
         ),
       ],
     );

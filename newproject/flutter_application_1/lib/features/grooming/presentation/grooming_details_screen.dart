@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
-import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class GroomingDetailsScreen extends StatelessWidget {
@@ -420,34 +420,21 @@ class GroomingDetailsScreen extends StatelessWidget {
   Widget _buildActions(BuildContext context) {
     return Column(
       children: [
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('${recommendation.name} saved to profile'),
-                  backgroundColor: FansivibeColors.accentGold,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+        FansiButton.primary(
+          label: 'Try This Look',
+          icon: Icons.auto_awesome_rounded,
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${recommendation.name} saved to profile'),
+                backgroundColor: FansivibeColors.accentGold,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              );
-            },
-            icon: const Icon(Icons.bookmark_outline_rounded, size: 20),
-            label: const Text('Save Recommendation'),
-            style: FilledButton.styleFrom(
-              backgroundColor: FansivibeColors.accentGold,
-              foregroundColor: FansivibeColors.background,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
               ),
-              elevation: 4,
-              shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
-            ),
-          ),
+            );
+          },
         ),
       ],
     );

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/profile/data/profile_mocks.dart';
+import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+
 
 class SavedLooksScreen extends StatelessWidget {
   const SavedLooksScreen({super.key});
@@ -84,15 +86,6 @@ class _SavedLookCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    Color scoreColor;
-    if (look.score >= 90) {
-      scoreColor = const Color(0xFF4CAF50);
-    } else if (look.score >= 80) {
-      scoreColor = FansivibeColors.accentGold;
-    } else {
-      scoreColor = const Color(0xFFFF9800);
-    }
-
     return FansivibeCard(
       padding: const EdgeInsets.all(16),
       child: Row(
@@ -126,30 +119,7 @@ class _SavedLookCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: scoreColor.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.star_rounded, size: 12, color: scoreColor),
-                          const SizedBox(width: 2),
-                          Text(
-                            '${look.score}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: scoreColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    FansiBadge(score: look.score, size: BadgeSize.compact),
                   ],
                 ),
                 const SizedBox(height: 4),

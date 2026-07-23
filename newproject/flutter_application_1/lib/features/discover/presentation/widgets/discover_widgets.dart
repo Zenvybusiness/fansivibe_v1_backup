@@ -1,155 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
+import 'package:fansivibe/shared/components/fansi_badge.dart';
+import 'package:fansivibe/shared/components/fansi_chip.dart';
+import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
-
-/// A premium card widget for the Discover feature.
-class DiscoverCard extends StatelessWidget {
-  /// Creates a [DiscoverCard].
-  const DiscoverCard({
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-    this.margin = EdgeInsets.zero,
-    this.onTap,
-    this.borderColor,
-    super.key,
-  });
-
-  /// The child widget.
-  final Widget child;
-
-  /// Internal padding.
-  final EdgeInsetsGeometry padding;
-
-  /// External margin.
-  final EdgeInsetsGeometry margin;
-
-  /// Optional tap callback.
-  final VoidCallback? onTap;
-
-  /// Optional border color.
-  final Color? borderColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final effectiveBorderColor =
-        borderColor ?? FansivibeColors.accentGold.withValues(alpha: 0.15);
-
-    Widget card = Container(
-      margin: margin,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: effectiveBorderColor, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: child,
-    );
-
-    if (onTap != null) {
-      return Semantics(
-        button: true,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: card,
-        ),
-      );
-    }
-
-    return card;
-  }
-}
-
-/// A section title widget for the Discover feature.
-class DiscoverSectionTitle extends StatelessWidget {
-  /// Creates a [DiscoverSectionTitle].
-  const DiscoverSectionTitle({
-    required this.title,
-    this.subtitle,
-    this.actionLabel,
-    this.onActionPressed,
-    super.key,
-  });
-
-  /// Section title.
-  final String title;
-
-  /// Optional subtitle.
-  final String? subtitle;
-
-  /// Optional action label.
-  final String? actionLabel;
-
-  /// Optional action callback.
-  final VoidCallback? onActionPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: FansivibeColors.textPrimary,
-                  ),
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle!,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: FansivibeColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          if (actionLabel != null && onActionPressed != null)
-            TextButton(
-              onPressed: onActionPressed,
-              style: TextButton.styleFrom(
-                foregroundColor: FansivibeColors.accentGold,
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 32),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Text(
-                actionLabel!,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: FansivibeColors.accentGold,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
 
 /// A tab button for Discover tabs (For You / Trending).
 class DiscoverTabButton extends StatelessWidget {
-  /// Creates a [DiscoverTabButton].
   const DiscoverTabButton({
     required this.data,
     required this.isSelected,
@@ -157,13 +14,8 @@ class DiscoverTabButton extends StatelessWidget {
     super.key,
   });
 
-  /// Tab data.
   final DiscoverTabData data;
-
-  /// Whether this tab is selected.
   final bool isSelected;
-
-  /// Tap callback.
   final VoidCallback onTap;
 
   @override
@@ -220,78 +72,8 @@ class DiscoverTabButton extends StatelessWidget {
   }
 }
 
-/// A filter chip for Discover filters (Occasion, Style, Fit).
-class DiscoverFilterChip extends StatelessWidget {
-  /// Creates a [DiscoverFilterChip].
-  const DiscoverFilterChip({
-    required this.option,
-    required this.onTap,
-    super.key,
-  });
-
-  /// Filter option data.
-  final FilterOption option;
-
-  /// Tap callback.
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isSelected = option.isSelected;
-
-    return Semantics(
-      button: true,
-      label: option.label,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? FansivibeColors.accentGold.withValues(alpha: 0.15)
-                : FansivibeColors.surface,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isSelected
-                  ? FansivibeColors.accentGold
-                  : FansivibeColors.accentGold.withValues(alpha: 0.1),
-              width: isSelected ? 1.5 : 1,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                option.icon,
-                size: 16,
-                color: isSelected
-                    ? FansivibeColors.accentGold
-                    : FansivibeColors.textSecondary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                option.label,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: isSelected
-                      ? FansivibeColors.accentGold
-                      : FansivibeColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// A horizontal filter chips row for Discover.
 class DiscoverFilterChipsRow extends StatelessWidget {
-  /// Creates a [DiscoverFilterChipsRow].
   const DiscoverFilterChipsRow({
     required this.options,
     required this.onOptionChanged,
@@ -299,13 +81,8 @@ class DiscoverFilterChipsRow extends StatelessWidget {
     super.key,
   });
 
-  /// Filter options.
   final List<FilterOption> options;
-
-  /// Callback when an option changes.
   final void Function(FilterOption) onOptionChanged;
-
-  /// Optional section title.
   final String? title;
 
   @override
@@ -332,8 +109,10 @@ class DiscoverFilterChipsRow extends StatelessWidget {
             children: options.map((option) {
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
-                child: DiscoverFilterChip(
-                  option: option,
+                child: FansiChip(
+                  label: option.label,
+                  icon: option.icon,
+                  selected: option.isSelected,
                   onTap: () => onOptionChanged(option),
                 ),
               );
@@ -345,137 +124,8 @@ class DiscoverFilterChipsRow extends StatelessWidget {
   }
 }
 
-/// Match percentage badge widget.
-class MatchPercentageBadge extends StatelessWidget {
-  /// Creates a [MatchPercentageBadge].
-  const MatchPercentageBadge({
-    required this.percentage,
-    this.size = 48,
-    this.showLabel = true,
-    super.key,
-  });
-
-  /// Match percentage (0-100).
-  final int percentage;
-
-  /// Badge size.
-  final double size;
-
-  /// Whether to show the "Match" label.
-  final bool showLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    Color scoreColor;
-
-    if (percentage >= 90) {
-      scoreColor = const Color(0xFF4CAF50);
-    } else if (percentage >= 80) {
-      scoreColor = FansivibeColors.accentGold;
-    } else if (percentage >= 70) {
-      scoreColor = const Color(0xFFFF9800);
-    } else {
-      scoreColor = const Color(0xFFF44336);
-    }
-
-    return Semantics(
-      label: 'Match $percentage%',
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: size,
-            height: size,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CircularProgressIndicator(
-                  value: percentage / 100,
-                  strokeWidth: 4,
-                  backgroundColor: scoreColor.withValues(alpha: 0.15),
-                  valueColor: AlwaysStoppedAnimation<Color>(scoreColor),
-                  strokeCap: StrokeCap.round,
-                ),
-                Center(
-                  child: Text(
-                    '$percentage%',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: FansivibeColors.textPrimary,
-                      fontFamily: 'sans-serif',
-                      fontSize: size * 0.22,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (showLabel) ...[
-            const SizedBox(height: 4),
-            Text(
-              'Match',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: FansivibeColors.textSecondary,
-                fontSize: 10,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Trending badge widget.
-class TrendingBadge extends StatelessWidget {
-  /// Creates a [TrendingBadge].
-  const TrendingBadge({this.label = 'Trending', super.key});
-
-  /// Badge label.
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.3),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.trending_up_rounded,
-            size: 12,
-            color: FansivibeColors.accentGold,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: FansivibeColors.accentGold,
-              fontSize: 10,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// Look card widget for Discover grid.
 class LookCard extends StatelessWidget {
-  /// Creates a [LookCard].
   const LookCard({
     required this.data,
     this.onTap,
@@ -484,35 +134,26 @@ class LookCard extends StatelessWidget {
     super.key,
   });
 
-  /// Look data.
   final DiscoverLookData data;
-
-  /// Tap callback.
   final VoidCallback? onTap;
-
-  /// Whether to show match percentage badge.
   final bool showMatchBadge;
-
-  /// Whether to show trending badge.
   final bool showTrendingBadge;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return DiscoverCard(
+    return FansivibeCard(
       onTap: onTap,
       padding: EdgeInsets.zero,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // Calculate available height for content
-          final imageHeight = constraints.maxWidth * 4 / 3; // 3:4 aspect ratio
+          final imageHeight = constraints.maxWidth * 4 / 3;
           final contentHeight = constraints.maxHeight - imageHeight;
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Image area with badges
               SizedBox(
                 height: imageHeight,
                 width: double.infinity,
@@ -529,7 +170,6 @@ class LookCard extends StatelessWidget {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          // Placeholder for look image
                           Center(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
@@ -555,7 +195,6 @@ class LookCard extends StatelessWidget {
                               ],
                             ),
                           ),
-                          // Gradient overlay
                           Positioned(
                             bottom: 0,
                             left: 0,
@@ -583,25 +222,29 @@ class LookCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    // Trending badge
                     if (showTrendingBadge)
-                      Positioned(top: 8, left: 8, child: TrendingBadge()),
-                    // Match badge
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        child: FansiChip(
+                          label: 'Trending',
+                          icon: Icons.trending_up_rounded,
+                          selected: true,
+                        ),
+                      ),
                     if (showMatchBadge)
                       Positioned(
                         top: 8,
                         right: 8,
-                        child: MatchPercentageBadge(
-                          percentage: data.matchScore,
-                          size: 36,
-                          showLabel: false,
+                        child: FansiBadge(
+                          score: data.matchScore,
+                          size: BadgeSize.compact,
                         ),
                       ),
                   ],
                 ),
               ),
 
-              // Content - constrained to available height
               SizedBox(
                 height: contentHeight,
                 child: Padding(
@@ -612,7 +255,6 @@ class LookCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Title and occasion
                         Text(
                           data.title,
                           style: theme.textTheme.titleMedium?.copyWith(
@@ -633,7 +275,6 @@ class LookCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
 
-                        // Style and fit tags
                         Wrap(
                           spacing: 5,
                           runSpacing: 3,
@@ -651,7 +292,6 @@ class LookCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
 
-                        // Wardrobe match indicator
                         if (data.wardrobeMatchCount > 0)
                           Row(
                             children: [

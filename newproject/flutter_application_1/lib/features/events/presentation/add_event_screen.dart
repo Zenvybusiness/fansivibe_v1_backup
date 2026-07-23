@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class AddEventScreen extends StatefulWidget {
@@ -212,11 +213,10 @@ class _AddEventScreenState extends State<AddEventScreen> {
                         // Add button
                         SizedBox(
                           width: double.infinity,
-                          child: FilledButton.icon(
+                          child: FansiButton.primary(
+                            label: 'Add Event',
+                            icon: Icons.add_rounded,
                             onPressed: _isValid ? _addEvent : null,
-                            icon: const Icon(Icons.add_rounded, size: 20),
-                            label: const Text('Add Event'),
-                            style: _buttonStyle(),
                           ),
                         ),
                         const SizedBox(height: 32),
@@ -394,21 +394,6 @@ class _AddEventScreenState extends State<AddEventScreen> {
           ),
         );
       },
-    );
-  }
-
-  ButtonStyle _buttonStyle() {
-    return FilledButton.styleFrom(
-      backgroundColor: FansivibeColors.accentGold,
-      foregroundColor: FansivibeColors.background,
-      disabledBackgroundColor: FansivibeColors.accentGold.withValues(
-        alpha: 0.3,
-      ),
-      disabledForegroundColor: FansivibeColors.textSecondary,
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 4,
-      shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
     );
   }
 }

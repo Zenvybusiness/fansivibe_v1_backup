@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class OutfitRecommendationScreen extends StatelessWidget {
@@ -349,64 +350,38 @@ class OutfitRecommendationScreen extends StatelessWidget {
   Widget _buildActions(BuildContext context) {
     return Column(
       children: [
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Wearing this look!'),
-                  backgroundColor: FansivibeColors.accentGold,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+        FansiButton.primary(
+          label: 'Save Outfit',
+          icon: Icons.favorite_rounded,
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Wearing this look!'),
+                backgroundColor: FansivibeColors.accentGold,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              );
-            },
-            icon: const Icon(Icons.check_rounded, size: 20),
-            label: const Text('Wear This Look'),
-            style: FilledButton.styleFrom(
-              backgroundColor: FansivibeColors.accentGold,
-              foregroundColor: FansivibeColors.background,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
               ),
-              elevation: 4,
-              shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
-            ),
-          ),
+            );
+          },
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Look saved to wardrobe'),
-                  backgroundColor: FansivibeColors.accentGold,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+        FansiButton.secondary(
+          label: 'Regenerate',
+          icon: Icons.refresh_rounded,
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Look saved to wardrobe'),
+                backgroundColor: FansivibeColors.accentGold,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              );
-            },
-            icon: const Icon(Icons.bookmark_outline_rounded, size: 18),
-            label: const Text('Save Look'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: FansivibeColors.accentGold,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
               ),
-              side: BorderSide(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.3),
-              ),
-            ),
-          ),
+            );
+          },
         ),
       ],
     );

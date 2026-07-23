@@ -130,7 +130,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Tap the WardrobeActionButton (nearest match)
+      // Tap the View Analysis button
       final viewAnalysisBtn = find.text('View Analysis');
       await tester.tap(viewAnalysisBtn);
       await tester.pumpAndSettle();
@@ -271,29 +271,6 @@ void main() {
       expect(tapped, true);
     });
 
-    testWidgets('CategoryFilterChip renders and responds to selection', (
-      WidgetTester tester,
-    ) async {
-      bool tapped = false;
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Scaffold(
-            body: CategoryFilterChip(
-              category: WardrobeMockData.categories.first,
-              isSelected: true,
-              onTap: () => tapped = true,
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('All Items'), findsOneWidget);
-      await tester.tap(find.text('All Items'));
-      await tester.pump();
-      expect(tapped, true);
-    });
-
     testWidgets('ClothingItemCard renders item info', (
       WidgetTester tester,
     ) async {
@@ -341,48 +318,6 @@ void main() {
       );
 
       expect(find.byIcon(Icons.favorite_rounded), findsNothing);
-    });
-
-    testWidgets('WardrobeActionButton renders and handles tap', (
-      WidgetTester tester,
-    ) async {
-      bool tapped = false;
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Scaffold(
-            body: WardrobeActionButton(
-              label: 'Test Action',
-              icon: Icons.add_rounded,
-              onPressed: () => tapped = true,
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('Test Action'), findsOneWidget);
-      await tester.tap(find.text('Test Action'));
-      await tester.pump();
-      expect(tapped, true);
-    });
-
-    testWidgets('WardrobeSectionTitle renders with title and subtitle', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const Scaffold(
-            body: WardrobeSectionTitle(
-              title: 'Test Section',
-              subtitle: 'Test subtitle',
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('Test Section'), findsOneWidget);
-      expect(find.text('Test subtitle'), findsOneWidget);
     });
   });
 }

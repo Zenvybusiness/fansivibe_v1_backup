@@ -1,17 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
+/// A tonal card that uses background colour shifts instead of borders or
+/// drop shadows to define its boundary against the parent surface.
+///
+/// - [variant] selects the surface-container tier (default = `container`).
+/// - [onTap] promotes the card to `container-high` on press.
+/// - No borders and no shadows (per the "No-Line" and tonal-layering rules).
+///
+/// [borderColor] is accepted for backward compatibility but NOT rendered.
 class FansivibeCard extends StatelessWidget {
   const FansivibeCard({
     required this.child,
+    this.variant = CardVariant.container,
     this.padding = const EdgeInsets.all(20),
     this.margin = EdgeInsets.zero,
     this.onTap,
+    // ignore: unused_element
     this.borderColor,
     super.key,
   });
 
   final Widget child;
+  final CardVariant variant;
   final EdgeInsetsGeometry padding;
   final EdgeInsetsGeometry margin;
   final VoidCallback? onTap;
@@ -19,34 +31,31 @@ class FansivibeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final effectiveBorderColor =
-        borderColor ?? FansivibeColors.accentGold.withValues(alpha: 0.2);
+    final bgColor = switch (variant) {
+      CardVariant.low => FansivibeColors.surfaceContainerLow,
+      CardVariant.container => FansivibeColors.surfaceContainer,
+      CardVariant.high => FansivibeColors.surfaceContainerHigh,
+      CardVariant.highest => FansivibeColors.surfaceContainerHighest,
+    };
 
     Widget card = Container(
       margin: margin,
       padding: padding,
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: effectiveBorderColor, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        color: bgColor,
+        borderRadius: FansivibeRadius.mdBorder,
       ),
       child: child,
     );
 
     if (onTap != null) {
-      return Semantics(
+      card = Semantics(
         button: true,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: FansivibeRadius.mdBorder,
+          splashColor: FansivibeColors.primary.withValues(alpha: 0.08),
+          highlightColor: FansivibeColors.primary.withValues(alpha: 0.04),
           child: card,
         ),
       );
@@ -55,3 +64,5 @@ class FansivibeCard extends StatelessWidget {
     return card;
   }
 }
+
+enum CardVariant { low, container, high, highest }

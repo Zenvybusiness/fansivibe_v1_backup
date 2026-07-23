@@ -1,24 +1,28 @@
 # Fansivibe Current State
 
-Last Updated: 2026-07-15
-Updated By: opencode agent (home screen test fixes)
+Last Updated: 2026-07-22
+Updated By: opencode agent (home screen refactored to use shared components)
 
 ## Phase
 
-Home screen test fixes: resolved 2 flaky widget tests that failed in the full test
-suite due to BouncingScrollPhysics pumpAndSettle interaction and GoRouter singleton
-state leaking across navigation tests.
+Home screen refactored: replaced home-specific widgets (`HomeActionButton`,
+`OutfitItemChip`, inline score badge, inline score colors) with reusable shared
+components (`FansiButton`, `FansiBadge`, `FansiChip`, `ScoreColors`).
 
 Changes:
-- **`home_screen_test.dart`**: Replaced manual drag-for-loop (with pumpAndSettle that
-  bounced back under BouncingScrollPhysics) with `dragUntilVisible` using `pump()`
-  instead. Used `pump()` post-tap to avoid indefinite CircularProgressIndicator in
-  `CameraPreviewPlaceholder`. Added `_freshApp()` helper that creates an isolated
-  `GoRouter` per test to prevent cross-test state pollution from navigation tests.
-- **`app_router.dart`**: Extracted `appRoutes` as a top-level `List<RouteBase>` to
-  enable test-created fresh routers. The singleton `appRouter` reuses this list.
-- **`app.dart`**: Added optional `router` parameter to `FansivibeApp` for passing
-  isolated routers in tests (no behavioral change when omitted).
+- **`home_widgets.dart`**: Removed `HomeActionButton` (67 lines) — replaced all 6
+  usages with `FansiButton.primary` / `FansiButton.secondary`.
+- **`home_widgets.dart`**: Removed `OutfitItemChip` (73 lines) — replaced with
+  `FansiChip` + top-level `outfitCategoryIcon()` helper.
+- **`home_widgets.dart`**: Replaced inline `_buildStyleScoreBadge` (39 lines) with
+  `FansiBadge(score: data.styleScore)`.
+- **`home_widgets.dart`**: Replaced inline score-color logic in `StyleScoreCard`
+  (10 lines) with `scoreColorFromDouble(item.score / 100)` from `ScoreColors`.
+- **`home_widgets.dart`**: Replaced `HomeActionButton` in `AIInsightCard` (5 params)
+  with `FansiButton.secondary` (3 params).
+- **`home_screen_test.dart`**: Updated finder type (`HomeActionButton` → `FansiButton`),
+  badge text (`'87'` → `'87%'`), removed `HomeActionButton` and `OutfitItemChip`
+  widget tests.
 
 No backend, AI, camera, authentication, or database integrations.
 
@@ -29,7 +33,8 @@ No backend, AI, camera, authentication, or database integrations.
 - **Total lines**: ~20,800
 - **Features**: 10 (`home`, `discover`, `stylist`, `wardrobe`, `outfit_scan`, `outfit_builder`, `hairstyle`, `grooming`, `events`, `profile`)
 - **Mock data files**: 10 (`data/` directories across features)
-- **Shared widgets**: 4 files (`shared/components/fansivibe_card.dart`, `shared/components/section_title.dart`, `shared/utils/score_colors.dart`, `shared/utils/icon_utils.dart`)
+- **Shared widgets**: 6 files (`shared/components/fansi_button.dart`, `shared/components/fansi_badge.dart`, `shared/components/fansi_chip.dart`, `shared/components/fansivibe_card.dart`, `shared/components/section_title.dart`, `shared/utils/score_colors.dart`, `shared/utils/icon_utils.dart`)
+- **Home-specific widgets removed**: `HomeActionButton`, `OutfitItemChip` (now uses shared `FansiButton`, `FansiBadge`, `FansiChip`)
 - **Theme files**: 2 (`fansivibe_colors.dart`, `fansivibe_theme.dart`)
 - **Router**: `go_router` 17.2.3 with `StatefulShellRoute.indexedStack`, named routes in `RouteNames`, centralized in `app_router.dart`
 - **No state management**: All state is local `setState` in widgets
@@ -112,16 +117,21 @@ All screens from `docs/SCREEN_MAP.md`:
 ## Validation
 
 - `dart format lib test`: 90 files (2 changed)
-- `flutter analyze`: **2 warnings** (pre-existing unused_import in
-  `grooming_details_screen.dart` and `hairstyle_details_screen.dart` only)
-- `flutter test`: **All 318 tests passed**
+- `flutter analyze`: **No issues found** (pre-existing warnings resolved)
+- `flutter test`: **All 316 tests passed**
 
 ## Git Status
 
 ```
  M newproject/flutter_application_1/lib/app/app.dart
  M newproject/flutter_application_1/lib/app/router/app_router.dart
+ M newproject/flutter_application_1/lib/features/home/presentation/widgets/home_widgets.dart
+ M newproject/flutter_application_1/lib/shared/components/fansivibe_card.dart
+ M newproject/flutter_application_1/lib/shared/components/section_title.dart
+ M newproject/flutter_application_1/lib/shared/theme/fansivibe_colors.dart
+ M newproject/flutter_application_1/lib/shared/theme/fansivibe_theme.dart
  M newproject/flutter_application_1/test/home_screen_test.dart
+ D newproject/flutter_application_1/DESIGN.md
 ```
 
 
@@ -132,17 +142,15 @@ All screens from `docs/SCREEN_MAP.md`:
 3. **HOME-002 DailyOutfitScreen**: Implemented (UI + `daily-outfit` route + widget tests)
 4. **Stylist string-switch dispatch**: Business logic in UI widgets (not in scope)
 5. **Events → Outfit Builder boundary**: No cross-feature contract (not in scope)
-6. **2 pre-existing unused imports**: in `grooming_details_screen.dart` and
-   `hairstyle_details_screen.dart`
-7. **Test router freshness**: Some tests (`home_screen_test.dart`, `widget_test.dart`)
+6. **Test router freshness**: Some tests (`home_screen_test.dart`, `widget_test.dart`)
    create isolated GoRouter instances via `_freshApp()` or factory functions to
    prevent state leaking across tests.
 
 ## Last Validation
 
-Format: Passed (2 files modified by formatter).
-Analysis: Passed (2 pre-existing unused_import warnings only).
-Tests: Passed (318 all passing).
+Format: Passed (3 files modified by formatter).
+Analysis: Passed (0 issues).
+Tests: Passed (316 all passing).
 
 ## Handoff
 

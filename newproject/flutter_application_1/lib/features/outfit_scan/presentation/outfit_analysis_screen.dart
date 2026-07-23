@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/outfit_scan/data/outfit_scan_mock_data.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class OutfitAnalysisScreen extends StatelessWidget {
@@ -245,25 +246,17 @@ class OutfitAnalysisScreen extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: OutlinedButton.icon(
+          child: FansiButton.secondary(
+            label: 'Save',
+            icon: Icons.bookmark_border,
             onPressed: () => Navigator.of(context).pop(),
-            icon: const Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('Scan Again'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: FansivibeColors.accentGold,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              side: BorderSide(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.3),
-              ),
-            ),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: FilledButton.icon(
+          child: FansiButton.primary(
+            label: 'Generate Look',
+            icon: Icons.auto_awesome_rounded,
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -276,18 +269,6 @@ class OutfitAnalysisScreen extends StatelessWidget {
                 ),
               );
             },
-            icon: const Icon(Icons.bookmark_outline_rounded, size: 18),
-            label: const Text('Save Look'),
-            style: FilledButton.styleFrom(
-              backgroundColor: FansivibeColors.accentGold,
-              foregroundColor: FansivibeColors.background,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              elevation: 4,
-              shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
-            ),
           ),
         ),
       ],
