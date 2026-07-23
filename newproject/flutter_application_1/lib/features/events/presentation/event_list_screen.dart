@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
 import 'package:fansivibe/features/events/presentation/widgets/events_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class EventListScreen extends StatefulWidget {
@@ -85,6 +86,14 @@ class _EventListScreenState extends State<EventListScreen> {
                           ),
                         ),
                         const SizedBox(height: 28),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 20),
+                          child: FansiButton.primary(
+                            label: 'Add event',
+                            icon: Icons.add_rounded,
+                            onPressed: _addEvent,
+                          ),
+                        ),
                         if (_events.isEmpty)
                           _buildEmptyState(context)
                         else
