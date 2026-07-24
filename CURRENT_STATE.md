@@ -11,7 +11,7 @@ functionality, navigation, and state management.
 | Screen | Change |
 |--------|--------|
 | **Stylist** | Dashboard-style: hero header + 2×2 action grid + full-width Event Planning tile. Removed `SectionTitle` import. |
-| **Home** → `StyleScoreCard` | Circular progress ring (88px) + trend pill badge (`±N pts this week`) + 2×2 breakdown tiles with score bars. Uses `scoreColorFromDouble`. |
+| **Home** → `TodaysLookCard` | Redesigned as premium editorial card with 65/35 split: large edge-to-edge image (width-square) with gradient overlay, floating score badge (top-right), "TODAY'S LOOK" label (top-left), weather/occasion overlay (bottom-left); bottom section uses `surfaceContainer` tonal layer with serif editorial title, score pill, one-line description, garment chips, and two equal-width CTAs. Removed `FansivibeCard` wrapper. Uses `LayoutBuilder` for responsive sizing. `ClipRRect` with `mdBorder` for rounded corners. |
 | **Home** → `StyleStreakCard` | Flame pill badge (orange 7+ streak, gold otherwise) + week-path timeline with gold connectors + 3 stat badges (Current/Best/Total). Removed `HomeProgressRing`/`StreakDayIndicator`. |
 | **Home** → `QuickActionCard` | Fixed 76px tile with 4px accent bar, compact 44×44 icon, centered text, subtle chevron. Uses `FansivibeRadius` tokens. |
 | **Discover** → filter | Replaced 3 chip rows with single filter button (50×50, `tune_rounded` icon + badge count) → `_FilterSheet` modal bottom sheet. |
@@ -134,12 +134,16 @@ Tests: 261 passed, 43 failed (all 43 pre-existing, not caused by these changes).
 
 ## Changes Made
 
-### Fixed RenderFlex overflow root cause in LookCard (discover page)
+### Fixed RenderFlex overflow root cause + restored image height in LookCard
 
-- **File**: `lib/features/discover/presentation/widgets/discover_widgets.dart`
-- **Root cause**: The image area used a fixed `height: 140`, stealing space from content. With `childAspectRatio: 0.72`, the grid allocated ~221.5px per card at 375px. After 140px image + 20px padding, only ~61.5px remained for content — but content (title + occasion + tags + wardrobe pill) needs ~74-93px.
-- **Fix**: Replaced the fixed `SizedBox(height: 140)` with `Expanded` so the image fills remaining space after the content takes its natural height. The content `Padding` and `Wrap` are no longer wrapped in `Flexible` — they render at their intrinsic size, and the image adapts to whatever space is left.
-- Preserves every visual element: no changes to colors, typography, spacing, padding (still `EdgeInsets.all(10)`), card dimensions, border radius, shadows, or grid layout.
+- **Files**: `lib/features/discover/presentation/widgets/discover_widgets.dart`, `lib/features/discover/presentation/discover_screen.dart`
+- **Root cause**: Fixed `height: 140` image area stole space from content inside a grid with `childAspectRatio: 0.72`. At 375px the card was only 221.5px tall. Content (title + occasion + tags + wardrobe pill) needed ~123px after 20px padding, leaving only ~98.5px (<45%) for the image — causing RenderFlex overflow.
+- **Fix**:
+  1. **`discover_screen.dart:480`** — Changed `childAspectRatio` from `0.72` to `0.50`. This makes each card taller (319px at 375px), giving both image and content enough room.
+  2. **`discover_widgets.dart:157`** — Replaced `SizedBox(height: 140)` with `Expanded` so the image fills remaining space after content takes its natural height. The image adapts to available space rather than stealing it.
+  3. **`discover_widgets.dart:253,292`** — Removed `Flexible` wrappers from content `Padding` and `Wrap`. Content renders at its intrinsic size without constraint.
+- **Result** at 375px: image ≈ 61% (196px), content ≈ 39% (123px). Image is the primary visual focus. All text, chips, and badges render at full size inside card bounds. Zero RenderFlex overflows.
+- Preserves: colors, typography, padding (`EdgeInsets.all(10)`), spacing, border radius, shadows, and grid layout (spacing, cross-axis count).
 
 ## Remaining Audit Issues
 
