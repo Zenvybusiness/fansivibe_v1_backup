@@ -154,99 +154,100 @@ class LookCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                height: 140,
-                width: double.infinity,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        color: FansivibeColors.surface,
-                        borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(24),
+              Expanded(
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: FansivibeColors.surface,
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(24),
+                          ),
+                        ),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Center(
+                              child: Icon(
+                                _categoryIcon(data.occasion),
+                                size: 32,
+                                color: FansivibeColors.accentGold.withValues(
+                                  alpha: 0.25,
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              child: Container(
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  borderRadius: const BorderRadius.vertical(
+                                    bottom: Radius.circular(24),
+                                  ),
+                                  gradient: LinearGradient(
+                                    begin: Alignment.bottomCenter,
+                                    end: Alignment.topCenter,
+                                    colors: [
+                                      FansivibeColors.background,
+                                      Colors.transparent,
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Center(
-                            child: Icon(
-                              _categoryIcon(data.occasion),
-                              size: 32,
-                              color: FansivibeColors.accentGold.withValues(
-                                alpha: 0.25,
-                              ),
+                      if (showTrendingBadge)
+                        Positioned(
+                          top: 6,
+                          left: 6,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
                             ),
-                          ),
-                          Positioned(
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            child: Container(
-                              height: 40,
-                              decoration: BoxDecoration(
-                                borderRadius: const BorderRadius.vertical(
-                                  bottom: Radius.circular(24),
-                                ),
-                                gradient: LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: [
-                                    FansivibeColors.background,
-                                    Colors.transparent,
-                                  ],
-                                ),
-                              ),
+                            decoration: BoxDecoration(
+                              color: FansivibeColors.accentGold,
+                              borderRadius: FansivibeRadius.fullBorder,
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (showTrendingBadge)
-                      Positioned(
-                        top: 6,
-                        left: 6,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: FansivibeColors.accentGold,
-                            borderRadius: FansivibeRadius.fullBorder,
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.trending_up_rounded,
-                                size: 10,
-                                color: FansivibeColors.onPrimary,
-                              ),
-                              const SizedBox(width: 3),
-                              Text(
-                                'Trending',
-                                style: theme.textTheme.bodySmall?.copyWith(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.trending_up_rounded,
+                                  size: 10,
                                   color: FansivibeColors.onPrimary,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 9,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 3),
+                                Text(
+                                  'Trending',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: FansivibeColors.onPrimary,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 9,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    if (showMatchBadge)
-                      Positioned(
-                        top: 6,
-                        right: 6,
-                        child: FansiBadge(
-                          score: data.matchScore,
-                          size: BadgeSize.compact,
+                      if (showMatchBadge)
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child: FansiBadge(
+                            score: data.matchScore,
+                            size: BadgeSize.compact,
+                          ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               Padding(

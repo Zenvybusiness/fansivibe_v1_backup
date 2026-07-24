@@ -128,9 +128,18 @@ All screens from `docs/SCREEN_MAP.md`:
 
 ## Last Validation
 
-Format: Passed (0 files changed).
+Format: Passed (1 file changed).
 Analysis: Passed (4 info, 0 errors/warnings).
 Tests: 261 passed, 43 failed (all 43 pre-existing, not caused by these changes).
+
+## Changes Made
+
+### Fixed RenderFlex overflow root cause in LookCard (discover page)
+
+- **File**: `lib/features/discover/presentation/widgets/discover_widgets.dart`
+- **Root cause**: The image area used a fixed `height: 140`, stealing space from content. With `childAspectRatio: 0.72`, the grid allocated ~221.5px per card at 375px. After 140px image + 20px padding, only ~61.5px remained for content — but content (title + occasion + tags + wardrobe pill) needs ~74-93px.
+- **Fix**: Replaced the fixed `SizedBox(height: 140)` with `Expanded` so the image fills remaining space after the content takes its natural height. The content `Padding` and `Wrap` are no longer wrapped in `Flexible` — they render at their intrinsic size, and the image adapts to whatever space is left.
+- Preserves every visual element: no changes to colors, typography, spacing, padding (still `EdgeInsets.all(10)`), card dimensions, border radius, shadows, or grid layout.
 
 ## Remaining Audit Issues
 
