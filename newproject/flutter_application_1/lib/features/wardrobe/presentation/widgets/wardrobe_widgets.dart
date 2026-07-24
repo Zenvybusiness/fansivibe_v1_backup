@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
-import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
+import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/icon_utils.dart';
 
 class WardrobeDashboardHeader extends StatelessWidget {
@@ -22,128 +23,142 @@ class WardrobeDashboardHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.12),
-                borderRadius: FansivibeRadius.smBorder,
-              ),
-              child: const Icon(
-                Icons.checkroom_rounded,
-                color: FansivibeColors.accentGold,
-                size: 22,
+            Expanded(
+              child: Text(
+                'My Wardrobe',
+                style: FansivibeTypography.headlineMediumWithFamily,
               ),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: FansivibeSpacing.md,
+                vertical: FansivibeSpacing.sm,
+              ),
+              decoration: BoxDecoration(
+                color: FansivibeColors.primary.withValues(alpha: 0.12),
+                borderRadius: FansivibeRadius.fullBorder,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    'My Wardrobe',
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: FansivibeColors.textPrimary,
-                      fontSize: 24,
-                    ),
+                  Icon(
+                    Icons.favorite_rounded,
+                    size: 14,
+                    color: FansivibeColors.primary,
                   ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Text(
-                        '$totalItems items',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: FansivibeColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: FansivibeColors.accentGold.withValues(
-                            alpha: 0.1,
-                          ),
-                          borderRadius: FansivibeRadius.fullBorder,
-                        ),
-                        child: Text(
-                          styleType,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: FansivibeColors.accentGold,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(width: 6),
+                  Text(
+                    '$favoritesCount',
+                    style: FansivibeTypography.labelMediumWithFamily.copyWith(
+                      color: FansivibeColors.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: FansivibeSpacing.xs + 2),
         Row(
           children: [
-            _buildStatTile(context, '$totalItems', 'Total items'),
-            const SizedBox(width: 10),
-            _buildStatTile(context, '$categoryCount', 'Categories'),
-            const SizedBox(width: 10),
-            _buildStatTile(
-              context,
-              '$favoritesCount',
-              'Favorites',
-              valueColor: FansivibeColors.accentGold,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              decoration: BoxDecoration(
+                color: FansivibeColors.primary.withValues(alpha: 0.12),
+                borderRadius: FansivibeRadius.fullBorder,
+              ),
+              child: Text(
+                styleType,
+                style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                  color: FansivibeColors.primary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+            const SizedBox(width: FansivibeSpacing.sm),
+            Text(
+              '$totalItems items',
+              style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                color: FansivibeColors.secondary.withValues(alpha: 0.6),
+              ),
+            ),
+            const Spacer(),
+            SizedBox(
+              height: 30,
+              child: _buildGlassmorphicButton(
+                icon: Icons.tune_rounded,
+                onTap: () {},
+              ),
+            ),
+            const SizedBox(width: FansivibeSpacing.xs),
+            SizedBox(
+              height: 30,
+              child: _buildGlassmorphicButton(
+                icon: Icons.sort_rounded,
+                onTap: () {},
+              ),
             ),
           ],
         ),
+        const SizedBox(height: FansivibeSpacing.xs + 2),
+        _buildSearchBar(),
       ],
     );
   }
 
-  Widget _buildStatTile(
-    BuildContext context,
-    String value,
-    String label, {
-    Color? valueColor,
-  }) {
-    final theme = Theme.of(context);
+  Widget _buildSearchBar() {
+    return Container(
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: FansivibeSpacing.md),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.fullBorder,
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.search_rounded,
+            size: 14,
+            color: FansivibeColors.secondary.withValues(alpha: 0.6),
+          ),
+          const SizedBox(width: FansivibeSpacing.sm),
+          Expanded(
+            child: Text(
+              'Search your wardrobe...',
+              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                color: FansivibeColors.secondary.withValues(alpha: 0.5),
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: FansivibeColors.surfaceContainerLow,
-          borderRadius: FansivibeRadius.smBorder,
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: valueColor ?? FansivibeColors.textPrimary,
-                fontFamily: 'sans-serif',
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: FansivibeColors.textSecondary,
-                fontSize: 11,
-              ),
-            ),
-          ],
+  Widget _buildGlassmorphicButton({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: FansivibeRadius.fullBorder,
+        child: Container(
+          width: 30,
+          decoration: BoxDecoration(
+            color: FansivibeColors.surfaceContainerLow.withValues(alpha: 0.6),
+            borderRadius: FansivibeRadius.fullBorder,
+          ),
+          child: Icon(icon, size: 14, color: FansivibeColors.secondary),
         ),
       ),
     );
@@ -168,61 +183,62 @@ class CategoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Semantics(
       button: true,
       child: InkWell(
         onTap: onTap,
-        borderRadius: FansivibeRadius.smBorder,
-        child: Container(
-          width: 72,
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        borderRadius: FansivibeRadius.fullBorder,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(
+            horizontal: FansivibeSpacing.lg,
+            vertical: FansivibeSpacing.sm + 2,
+          ),
           decoration: BoxDecoration(
             color: selected
-                ? FansivibeColors.accentGold.withValues(alpha: 0.1)
-                : FansivibeColors.surface,
-            borderRadius: FansivibeRadius.smBorder,
-            border: Border.all(
-              color: selected
-                  ? FansivibeColors.accentGold.withValues(alpha: 0.45)
-                  : FansivibeColors.accentGold.withValues(alpha: 0.08),
-              width: selected ? 1.5 : 1,
-            ),
+                ? FansivibeColors.primary.withValues(alpha: 0.15)
+                : FansivibeColors.surfaceContainerLow,
+            borderRadius: FansivibeRadius.fullBorder,
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 iconFromName(iconName),
-                size: 22,
+                size: 16,
                 color: selected
-                    ? FansivibeColors.accentGold
-                    : FansivibeColors.textSecondary,
+                    ? FansivibeColors.primary
+                    : FansivibeColors.secondary,
               ),
-              const SizedBox(height: 6),
+              const SizedBox(width: FansivibeSpacing.sm),
               Text(
                 name == 'All Items' ? 'All' : name,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
+                style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                   color: selected
-                      ? FansivibeColors.accentGold
-                      : FansivibeColors.textSecondary,
-                  fontSize: 10,
+                      ? FansivibeColors.primary
+                      : FansivibeColors.secondary,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 2),
-              Text(
-                '$count',
-                style: theme.textTheme.bodySmall?.copyWith(
+              const SizedBox(width: FansivibeSpacing.xs),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
                   color: selected
-                      ? FansivibeColors.accentGold
-                      : FansivibeColors.textSecondary.withValues(alpha: 0.7),
-                  fontSize: 10,
-                  fontFamily: 'sans-serif',
+                      ? FansivibeColors.primary.withValues(alpha: 0.2)
+                      : FansivibeColors.surfaceContainerHighest,
+                  borderRadius: FansivibeRadius.fullBorder,
+                ),
+                child: Text(
+                  '$count',
+                  style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    color: selected
+                        ? FansivibeColors.primary
+                        : FansivibeColors.secondary.withValues(alpha: 0.7),
+                  ),
                 ),
               ),
             ],
@@ -245,10 +261,14 @@ class WardrobeInsightCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final accentColor = Color(data.accentColor);
 
-    return FansivibeCard(
+    return Container(
+      padding: const EdgeInsets.all(FansivibeSpacing.md),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainer,
+        borderRadius: FansivibeRadius.mdBorder,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -273,15 +293,12 @@ class WardrobeInsightCard extends StatelessWidget {
                   children: [
                     Text(
                       data.title,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: FansivibeColors.textPrimary,
-                      ),
+                      style: FansivibeTypography.titleLargeWithFamily,
                     ),
                     const SizedBox(height: 2),
                     Text(
                       'AI Insight',
-                      style: theme.textTheme.bodySmall?.copyWith(
+                      style: FansivibeTypography.labelSmallWithFamily.copyWith(
                         color: accentColor,
                         fontWeight: FontWeight.w500,
                       ),
@@ -291,16 +308,16 @@ class WardrobeInsightCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: FansivibeSpacing.sm + 4),
           Text(
             data.insight,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: FansivibeColors.textPrimary,
+            style: FansivibeTypography.bodyLargeWithFamily.copyWith(
+              color: FansivibeColors.onSurface,
               height: 1.5,
             ),
           ),
           if (onActionPressed != null) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: FansivibeSpacing.sm + 4),
             FansiButton.secondary(
               label: data.actionLabel,
               icon: Icons.arrow_forward_rounded,
@@ -314,147 +331,226 @@ class WardrobeInsightCard extends StatelessWidget {
   }
 }
 
-class ClothingItemCard extends StatelessWidget {
+class ClothingItemCard extends StatefulWidget {
   const ClothingItemCard({required this.item, this.onTap, super.key});
 
   final WardrobeItemData item;
   final VoidCallback? onTap;
 
   @override
+  State<ClothingItemCard> createState() => _ClothingItemCardState();
+}
+
+class _ClothingItemCardState extends State<ClothingItemCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animController;
+  late Animation<double> _scaleAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    _scaleAnim = Tween<double>(begin: 1.0, end: 0.97).animate(
+      CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
+    );
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final item = widget.item;
     final swatch = _colorFromName(item.color);
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: FansivibeRadius.mdBorder,
-      child: Container(
-        decoration: BoxDecoration(
-          color: FansivibeColors.surface,
-          borderRadius: FansivibeRadius.mdBorder,
-          border: Border.all(
-            color: FansivibeColors.accentGold.withValues(alpha: 0.1),
+    return AnimatedBuilder(
+      animation: _scaleAnim,
+      builder: (context, child) {
+        return Transform.scale(scale: _scaleAnim.value, child: child);
+      },
+      child: GestureDetector(
+        onTapDown: (_) => _animController.forward(),
+        onTapUp: (_) {
+          _animController.reverse();
+          widget.onTap?.call();
+        },
+        onTapCancel: () => _animController.reverse(),
+        child: Container(
+          decoration: BoxDecoration(
+            color: FansivibeColors.surfaceContainer,
+            borderRadius: FansivibeRadius.mdBorder,
           ),
-        ),
-        child: Column(
-          children: [
-            Expanded(
-              flex: 3,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: swatch.withValues(alpha: 0.15),
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(24),
-                  ),
-                ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              Expanded(
+                flex: 65,
                 child: Stack(
                   children: [
-                    Center(
-                      child: Icon(
-                        _categoryIcon(item.category),
-                        size: 32,
-                        color: swatch.withValues(alpha: 0.5),
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            swatch.withValues(alpha: 0.25),
+                            swatch.withValues(alpha: 0.40),
+                          ],
+                        ),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          _categoryIcon(item.category),
+                          size: 40,
+                          color: swatch.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                FansivibeColors.surfaceContainer.withValues(
+                                  alpha: 0.6,
+                                ),
+                              ],
+                              stops: const [0.5, 1.0],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                     if (item.isFavorite)
                       Positioned(
-                        top: 6,
-                        right: 6,
+                        top: FansivibeSpacing.sm,
+                        right: FansivibeSpacing.sm,
                         child: Container(
-                          width: 24,
-                          height: 24,
+                          width: 28,
+                          height: 28,
                           decoration: BoxDecoration(
-                            color: FansivibeColors.surface.withValues(
-                              alpha: 0.7,
-                            ),
+                            color: FansivibeColors.surfaceContainerLow
+                                .withValues(alpha: 0.8),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.favorite_rounded,
                             size: 14,
-                            color: FansivibeColors.accentGold,
+                            color: FansivibeColors.primary,
                           ),
                         ),
                       ),
-                    Positioned(
-                      bottom: 6,
-                      left: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: FansivibeColors.surface.withValues(alpha: 0.7),
-                          borderRadius: FansivibeRadius.fullBorder,
-                        ),
-                        child: Text(
-                          item.material ?? '',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: 8,
-                            color: FansivibeColors.textSecondary,
+                    if (item.material != null)
+                      Positioned(
+                        bottom: FansivibeSpacing.sm,
+                        left: FansivibeSpacing.sm,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: FansivibeSpacing.sm,
+                            vertical: 3,
                           ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.name,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: FansivibeColors.textPrimary,
-                        fontWeight: FontWeight.w500,
-                        fontSize: 12,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Container(
-                          width: 10,
-                          height: 10,
                           decoration: BoxDecoration(
-                            color: swatch,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: FansivibeColors.accentGold.withValues(
-                                alpha: 0.2,
-                              ),
-                              width: 0.5,
-                            ),
+                            color: FansivibeColors.surfaceContainerLow
+                                .withValues(alpha: 0.8),
+                            borderRadius: FansivibeRadius.fullBorder,
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
                           child: Text(
-                            item.color,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: FansivibeColors.textSecondary,
-                              fontSize: 10,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+                            item.material!,
+                            style: FansivibeTypography.labelSmallWithFamily
+                                .copyWith(
+                                  fontSize: 9,
+                                  color: FansivibeColors.secondary,
+                                ),
                           ),
                         ),
-                      ],
-                    ),
+                      ),
                   ],
                 ),
               ),
-            ),
-          ],
+              Expanded(
+                flex: 35,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    FansivibeSpacing.sm + 2,
+                    FansivibeSpacing.sm,
+                    FansivibeSpacing.sm + 2,
+                    FansivibeSpacing.sm + 2,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        style: FansivibeTypography.labelMediumWithFamily
+                            .copyWith(
+                              color: FansivibeColors.onSurface,
+                              fontSize: 11,
+                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const Spacer(),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: swatch,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: FansivibeSpacing.xs),
+                          Expanded(
+                            child: Text(
+                              item.color,
+                              style: FansivibeTypography.labelSmallWithFamily
+                                  .copyWith(
+                                    fontSize: 9,
+                                    color: FansivibeColors.secondary,
+                                  ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: FansivibeSpacing.xs),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          _miniIcon(Icons.favorite_outline_rounded),
+                          const SizedBox(width: FansivibeSpacing.xs),
+                          _miniIcon(Icons.edit_rounded),
+                          const SizedBox(width: FansivibeSpacing.xs),
+                          _miniIcon(Icons.more_horiz_rounded),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _miniIcon(IconData icon) {
+    return Icon(
+      icon,
+      size: 14,
+      color: FansivibeColors.secondary.withValues(alpha: 0.5),
     );
   }
 
@@ -516,7 +612,6 @@ class ClothingItemCard extends StatelessWidget {
   }
 }
 
-// Retained for backward compatibility.
 class WardrobeHeader extends StatelessWidget {
   const WardrobeHeader({
     required this.totalItems,
@@ -529,17 +624,12 @@ class WardrobeHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'My Wardrobe',
-          style: theme.textTheme.displayLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: FansivibeColors.textPrimary,
-            fontSize: 28,
-          ),
+          style: FansivibeTypography.headlineMediumWithFamily,
         ),
         const SizedBox(height: 4),
         Row(
@@ -552,9 +642,7 @@ class WardrobeHeader extends StatelessWidget {
             const SizedBox(width: 6),
             Text(
               '$totalItems items',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: FansivibeColors.textSecondary,
-              ),
+              style: FansivibeTypography.bodyMediumWithFamily,
             ),
             const SizedBox(width: 16),
             Icon(
@@ -566,9 +654,7 @@ class WardrobeHeader extends StatelessWidget {
             Expanded(
               child: Text(
                 styleType,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: FansivibeColors.textSecondary,
-                ),
+                style: FansivibeTypography.bodyMediumWithFamily,
                 overflow: TextOverflow.ellipsis,
               ),
             ),

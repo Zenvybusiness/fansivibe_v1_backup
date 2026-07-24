@@ -5,6 +5,8 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
+import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
 class WardrobeScreen extends StatefulWidget {
   const WardrobeScreen({super.key});
@@ -61,27 +63,27 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const SizedBox(height: 8),
+                        const SizedBox(height: FansivibeSpacing.xs),
                         WardrobeDashboardHeader(
                           totalItems: totalItems,
                           styleType: WardrobeMockData.styleType,
                           favoritesCount: _favoritesCount,
                           categoryCount: WardrobeMockData.categories.length - 1,
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: FansivibeSpacing.sm + 4),
                         WardrobeInsightCard(
                           data: WardrobeInsightData.mock,
                           onActionPressed: () => _handleViewAnalysis(context),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: FansivibeSpacing.sm + 4),
                         SizedBox(
-                          height: 82,
+                          height: 40,
                           child: ListView.separated(
                             scrollDirection: Axis.horizontal,
                             physics: const BouncingScrollPhysics(),
                             itemCount: WardrobeMockData.categories.length,
                             separatorBuilder: (_, __) =>
-                                const SizedBox(width: 10),
+                                const SizedBox(width: FansivibeSpacing.sm),
                             itemBuilder: (context, index) {
                               final cat = WardrobeMockData.categories[index];
                               final count = cat.id == 'all'
@@ -101,7 +103,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                             },
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: FansivibeSpacing.md),
                         Row(
                           children: [
                             Expanded(
@@ -113,33 +115,33 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                                             (c) => c.id == _selectedCategory,
                                           )
                                           .name,
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: FansivibeColors.textPrimary,
-                                ),
+                                style: FansivibeTypography.labelMediumWithFamily
+                                    .copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: FansivibeColors.onSurface,
+                                    ),
                               ),
                             ),
                             Text(
                               '${filteredItems.length} ${filteredItems.length == 1 ? 'item' : 'items'}',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: FansivibeColors.textSecondary,
-                              ),
+                              style: FansivibeTypography.labelSmallWithFamily
+                                  .copyWith(color: FansivibeColors.secondary),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: FansivibeSpacing.md),
                         _buildItemGrid(
                           context,
                           items: filteredItems,
                           crossAxisCount: crossAxisCount,
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: FansivibeSpacing.lg),
                         FansiButton.primary(
                           label: 'Add Item to Wardrobe',
                           icon: Icons.add_rounded,
                           onPressed: () => _handleAddItem(context),
                         ),
-                        const SizedBox(height: 32),
+                        const SizedBox(height: FansivibeSpacing.lg),
                       ],
                     ),
                   ),
@@ -157,31 +159,37 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     required List<WardrobeItemData> items,
     required int crossAxisCount,
   }) {
-    final theme = Theme.of(context);
     final width = MediaQuery.of(context).size.width;
     final hp = width > 600 ? 48.0 : 20.0;
     final available = (width > 600 ? 520.0 : width) - hp * 2;
     final spacing = 12.0;
     final childW =
         (available - spacing * (crossAxisCount - 1)) / crossAxisCount;
-    final aspect = childW / (childW * 1.4);
+    final aspect = childW / (childW * 1.55);
 
     if (items.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 32),
+        padding: const EdgeInsets.symmetric(vertical: FansivibeSpacing.xxl),
         child: Center(
           child: Column(
             children: [
               Icon(
                 Icons.inventory_2_outlined,
-                size: 48,
-                color: FansivibeColors.textSecondary.withValues(alpha: 0.4),
+                size: 64,
+                color: FansivibeColors.secondary.withValues(alpha: 0.3),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: FansivibeSpacing.md),
               Text(
                 'No items in this category yet',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: FansivibeColors.textSecondary,
+                style: FansivibeTypography.bodyLargeWithFamily.copyWith(
+                  color: FansivibeColors.secondary,
+                ),
+              ),
+              const SizedBox(height: FansivibeSpacing.sm),
+              Text(
+                'Add your first piece to get started',
+                style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                  color: FansivibeColors.secondary.withValues(alpha: 0.6),
                 ),
               ),
             ],
