@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
+import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
-import 'package:fansivibe/features/onboarding/data/onboarding_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
@@ -21,6 +21,10 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (_isFirstVisit && _hasAnalysis) {
+      return FirstTimeHomeScreen(displayName: _displayName);
+    }
+
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -45,10 +49,10 @@ class HomeScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 8),
-                        if (_isFirstVisit && _hasAnalysis)
-                          _buildFirstVisitBanner(context),
-                        if (_isFirstVisit && _hasAnalysis)
-                          const SizedBox(height: 12),
+                        if (_isFirstVisit && !_hasAnalysis)
+                          _lightPathPrompt(context),
+                        if (_isFirstVisit && !_hasAnalysis)
+                          const SizedBox(height: 24),
                         GreetingHeader(
                           data: GreetingData(
                             greeting: _isFirstVisit ? 'Welcome' : 'Good morning',
@@ -57,16 +61,6 @@ class HomeScreen extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 28),
-                        if (_isFirstVisit && _hasAnalysis) ...[
-                          _StyleDNACard(),
-                          const SizedBox(height: 24),
-                          _AiProgressSection(),
-                          const SizedBox(height: 24),
-                        ],
-                        if (!_hasAnalysis) ...[
-                          _lightPathPrompt(context),
-                          const SizedBox(height: 24),
-                        ],
                         TodaysLookCard(
                           data: TodaysLookData.mock,
                           onTryThisLook: () => _handleTryThisLook(context),
@@ -98,41 +92,6 @@ class HomeScreen extends StatelessWidget {
             );
           },
         ),
-      ),
-    );
-  }
-
-  Widget _buildFirstVisitBanner(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(FansivibeSpacing.md),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            FansivibeColors.primary.withValues(alpha: 0.08),
-            Colors.transparent,
-          ],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        borderRadius: FansivibeRadius.smBorder,
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.auto_awesome_rounded,
-            size: 18,
-            color: FansivibeColors.primary,
-          ),
-          SizedBox(width: FansivibeSpacing.sm),
-          Text(
-            'Your Style DNA is ready. Explore your personalized dashboard.',
-            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-              color: FansivibeColors.primary,
-              fontSize: 13,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -278,235 +237,6 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: FansivibeColors.accentGold,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
-}
-
-class _StyleDNACard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(FansivibeSpacing.lg),
-      decoration: BoxDecoration(
-        color: FansivibeColors.surfaceContainerLow,
-        borderRadius: FansivibeRadius.mdBorder,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.auto_awesome_rounded,
-                size: 16,
-                color: FansivibeColors.primary,
-              ),
-              SizedBox(width: FansivibeSpacing.sm),
-              Text(
-                'Your Style DNA',
-                style: FansivibeTypography.headlineMediumWithFamily.copyWith(
-                  fontSize: 20,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: FansivibeSpacing.md),
-          Row(
-            children: [
-              _DnaAttribute(label: 'Refined Minimalist', icon: Icons.dashboard_rounded),
-              SizedBox(width: FansivibeSpacing.md),
-              _DnaAttribute(label: 'Score 82', icon: Icons.trending_up_rounded),
-            ],
-          ),
-          SizedBox(height: FansivibeSpacing.md),
-          Row(
-            children: [
-              _ColorDot(color: 0xFF2D2D2D),
-              _ColorDot(color: 0xFF8B7D6B),
-              _ColorDot(color: 0xFFC5A059),
-              _ColorDot(color: 0xFFF5F0EB),
-              _ColorDot(color: 0xFF4A6741),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DnaAttribute extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  const _DnaAttribute({required this.label, required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: FansivibeColors.primary.withValues(alpha: 0.08),
-        borderRadius: FansivibeRadius.fullBorder,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: FansivibeColors.primary),
-          SizedBox(width: FansivibeSpacing.xs),
-          Text(
-            label,
-            style: FansivibeTypography.labelMediumWithFamily.copyWith(
-              color: FansivibeColors.primary,
-              fontSize: 11,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ColorDot extends StatelessWidget {
-  final int color;
-  const _ColorDot({required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(right: FansivibeSpacing.sm),
-      child: Container(
-        width: 24,
-        height: 24,
-        decoration: BoxDecoration(
-          color: Color(color),
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.1),
-            width: 1,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AiProgressSection extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(FansivibeSpacing.md),
-      decoration: BoxDecoration(
-        color: FansivibeColors.surfaceContainerLow,
-        borderRadius: FansivibeRadius.mdBorder,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.auto_awesome_rounded,
-                size: 14,
-                color: FansivibeColors.primary,
-              ),
-              SizedBox(width: FansivibeSpacing.sm),
-              Text(
-                'Appearance Intelligence',
-                style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: FansivibeSpacing.sm),
-          Text(
-            '2 of 7 capabilities active. Tap to explore more.',
-            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-              color: FansivibeColors.secondary,
-              fontSize: 13,
-            ),
-          ),
-          SizedBox(height: FansivibeSpacing.sm + 4),
-          SizedBox(
-            height: 64,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              children: allCapabilities.map((cap) {
-                return _CompactCapability(
-                  name: cap.name,
-                  active: cap.active,
-                  hint: cap.unlockHint,
-                );
-              }).toList(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CompactCapability extends StatelessWidget {
-  final String name;
-  final bool active;
-  final String? hint;
-  const _CompactCapability({
-    required this.name,
-    required this.active,
-    this.hint,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 56,
-      margin: EdgeInsets.only(right: FansivibeSpacing.sm),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: active
-                  ? FansivibeColors.primary.withValues(alpha: 0.12)
-                  : FansivibeColors.surfaceContainerHighest,
-              border: active
-                  ? Border.all(
-                      color: FansivibeColors.primary.withValues(alpha: 0.3),
-                      width: 1.5,
-                    )
-                  : null,
-            ),
-            child: Center(
-              child: Icon(
-                active ? Icons.check_circle_rounded : Icons.lock_rounded,
-                size: 14,
-                color: active
-                    ? FansivibeColors.primary
-                    : FansivibeColors.secondary.withValues(alpha: 0.5),
-              ),
-            ),
-          ),
-          SizedBox(height: FansivibeSpacing.xs),
-          Text(
-            name.split(' ').first,
-            style: FansivibeTypography.labelSmallWithFamily.copyWith(
-              fontSize: 8,
-              color: active
-                  ? FansivibeColors.primary
-                  : FansivibeColors.secondary.withValues(alpha: 0.5),
-            ),
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
       ),
     );
   }

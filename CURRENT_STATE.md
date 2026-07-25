@@ -1,7 +1,7 @@
 # Fansivibe Current State
 
 Last Updated: 2026-07-25
-Updated By: opencode agent (implemented complete onboarding feature — 9 screens + personalized Home)
+Updated By: opencode agent (implemented complete onboarding feature — 9 screens + personalized Home; designed First-Time Home Experience)
 
 ## Phase
 
@@ -38,8 +38,8 @@ preserve original data flow, navigation, and state. All use `FansivibeTypography
 ## Repository Facts
 
 - **Flutter project at**: `newproject/flutter_application_1`
-- **Dart files**: 64 (`lib/`) + 25 (`test/`)
-- **Total lines**: ~20,900
+- **Dart files**: 65 (`lib/`) + 25 (`test/`)
+- **Total lines**: ~21,460
 - **Features**: 10 (`home`, `discover`, `stylist`, `wardrobe`, `outfit_scan`, `outfit_builder`, `hairstyle`, `grooming`, `events`, `profile`)
 - **Mock data files**: 10 (`data/` directories across features)
 - **Shared widgets**: 7 files (`fansi_button.dart`, `fansi_badge.dart`, `fansi_chip.dart`, `fansivibe_card.dart`, `section_title.dart`, `score_colors.dart`, `icon_utils.dart`)
@@ -118,7 +118,7 @@ All screens from `docs/SCREEN_MAP.md`, plus new onboarding screens:
 | `initialLocation` | `/entry` (unchanged — splash is entry screen's opening animation) |
 | New routes | `/splash`, `/onboarding/vibe`, `/onboarding/camera-permission`, `/onboarding/photo-capture`, `/onboarding/analysis`, `/onboarding/result`, `/onboarding/account` |
 | Route names added | `splash`, `vibeSelect`, `cameraPermission`, `photoCapture`, `aiAnalysis`, `yourAnalysis`, `accountCreation` |
-| Home screen | Now accepts `Map<String, dynamic>? onboardingData` for first-visit personalization |
+| Home screen | Now accepts `Map<String, dynamic>? onboardingData` for first-visit personalization; delegates to `FirstTimeHomeScreen` when onboarding complete |
 
 ## Migration Completed (from previous work)
 
@@ -154,8 +154,8 @@ All screens from `docs/SCREEN_MAP.md`, plus new onboarding screens:
 
 ## Last Validation
 
-Analysis: Passed — 0 issues in onboarding, app router, home screen; 4 pre-existing infos in `outfit_scan`.
-Tests: 217 passed, 87 failed (43 new failures from routing changes + 44 pre-existing).
+Analysis: Passed — 0 issues in home feature; 4 pre-existing infos in `outfit_scan`.
+Tests: 217 passed, 87 failed (unchanged — no new failures introduced).
 
 ## Changes Made — Onboarding Feature Implementation
 
@@ -197,9 +197,36 @@ Tests: 217 passed, 87 failed (43 new failures from routing changes + 44 pre-exis
 - Old `lib/features/entry/presentation/entry_screen.dart` preserved as fallback
 
 **HomeScreen updates**:
-- First visit with photo path: shows welcome banner, Style DNA card, AI Progress section
+- First visit with photo path: now routes to `FirstTimeHomeScreen` — a full-screen first-time experience
 - First visit with light path: shows "Analyze Your Style" prompt card with camera icon
-- All existing sections preserved with mock data fallback
+- All existing sections preserved with mock data fallback (subsequent visits)
+- Removed unused `_StyleDNACard`, `_AiProgressSection`, `_CompactCapability`, `_DnaAttribute`, `_ColorDot`, `_buildFirstVisitBanner`
+
+## Changes Made — First-Time Home Experience
+
+### New file: `lib/features/home/presentation/first_time_home_screen.dart` (908 lines)
+
+A premium editorial first-visit screen shown immediately after onboarding completion.
+
+**Sections** (staggered fade + slide animations, 1.8s total):
+1. **Hero Greeting** — "Welcome to Fansivibe", personalized name, success message
+2. **Hero Card** — Premium gradient container with large Style Score badge (radial glow), Style DNA label, dominant color palette (5 swatch row), and a one-line AI insight
+3. **Today's First Recommendation** — Lifestyle card with image area (AI RECOMMENDED tag), content section (title, description, garment chips, "Why this suits you" explanation, "Try This Look" CTA)
+4. **Continue Building Your Style** — Expanded capability list (all 7 from `allCapabilities`): active items show checkmark + gold tint; locked items show lock icon + description + unlock hint CTA pill
+5. **Quick Actions** — 4 glass-action cards using `BackdropFilter` blur: Scan Another Look, Add Wardrobe, Explore Hairstyles, Discover Style Tips
+6. **AI Insight** — Premium insight card with gold gradient border, AI icon, bold insight statement, body text, "Explore Hairstyles" button
+
+**Navigation actions** — Routes to existing screens via `context.pushNamed`/`goNamed`: `dailyOutfit`, `scanOutfit`, `wardrobe`, `hairstyle`, `discover`
+
+**Design tokens** — Uses `FansivibeColors`, `FansivibeTypography`, `FansivibeSpacing`, `FansivibeRadius` exclusively. No hardcoded visual values. Follows the Digital Atelier design system (no borders, tonal layering, `sm`/`md`/`lg` radius, serif headings, sans-serif body, gold accents).
+
+### Modified file: `lib/features/home/presentation/home_screen.dart` (244 lines, -279)
+
+- Early return to `FirstTimeHomeScreen` when `_isFirstVisit && _hasAnalysis`
+- Removed 5 unused private classes (`_StyleDNACard`, `_DnaAttribute`, `_ColorDot`, `_AiProgressSection`, `_CompactCapability`)
+- Removed `_buildFirstVisitBanner`
+- Simplified conditional rendering for light path vs returning user
+- Removed unused `onboarding_data.dart` import
 
 ## Remaining Audit Issues
 
