@@ -1,3 +1,29 @@
+class AiInsightData {
+  const AiInsightData({
+    required this.title,
+    required this.description,
+    required this.iconName,
+  });
+
+  final String title;
+  final String description;
+  final String iconName;
+}
+
+class AlternativeLookData {
+  const AlternativeLookData({
+    required this.id,
+    required this.name,
+    required this.matchScore,
+    required this.styleName,
+  });
+
+  final String id;
+  final String name;
+  final int matchScore;
+  final String styleName;
+}
+
 class DailyOutfitData {
   const DailyOutfitData({
     required this.title,
@@ -10,6 +36,11 @@ class DailyOutfitData {
     required this.reasons,
     required this.styleDna,
     required this.wardrobeContext,
+    this.aiSelectionReason,
+    this.confidenceBoost,
+    this.aiInsights = const [],
+    this.alternatives = const [],
+    this.dailyStyleTip,
   });
 
   final String title;
@@ -22,15 +53,19 @@ class DailyOutfitData {
   final List<String> reasons;
   final StyleDnaContext styleDna;
   final WardrobeContext wardrobeContext;
+  final String? aiSelectionReason;
+  final String? confidenceBoost;
+  final List<AiInsightData> aiInsights;
+  final List<AlternativeLookData> alternatives;
+  final String? dailyStyleTip;
 
   static const DailyOutfitData mock = DailyOutfitData(
     title: 'Modern Minimalist',
-    occasion: 'Work \u2022 Casual Friday',
+    occasion: 'Casual Friday',
     weather: '68\u00B0F \u2022 Partly Cloudy',
     description:
         'Clean lines meet relaxed sophistication. The unstructured blazer '
-        'elevates the merino tee while the wool trousers keep it grounded. '
-        'Perfect for transitioning from desk to drinks.',
+        'elevates the merino tee while the wool trousers keep it grounded.',
     matchScore: 91,
     styleScore: 87,
     components: [
@@ -98,6 +133,62 @@ class DailyOutfitData {
           'You own 6 of these pieces. Adding a charcoal unstructured blazer '
           'would unlock 4 new outfit combinations.',
     ),
+    aiSelectionReason:
+        'Perfect for today\'s partly cloudy weather and your Modern Classic aesthetic.',
+    confidenceBoost: 'You\'ll feel polished and effortlessly confident.',
+    aiInsights: [
+      AiInsightData(
+        title: 'Color Harmony',
+        description:
+            'The charcoal-and-cream palette creates a sophisticated monochrome '
+            'that complements your warm skin tone.',
+        iconName: 'palette_outlined',
+      ),
+      AiInsightData(
+        title: 'Body Proportions',
+        description:
+            'The tapered trousers and structured blazer create a balanced '
+            'silhouette that elongates your frame naturally.',
+        iconName: 'accessibility_new_rounded',
+      ),
+      AiInsightData(
+        title: 'Style Compatibility',
+        description:
+            'This Modern Minimalist look aligns perfectly with your '
+            'Refined Minimalist Style DNA.',
+        iconName: 'auto_awesome_rounded',
+      ),
+      AiInsightData(
+        title: 'Occasion Suitability',
+        description:
+            'Smart casual with enough polish for meetings and enough '
+            'comfort for after-work plans.',
+        iconName: 'event_outlined',
+      ),
+    ],
+    alternatives: [
+      AlternativeLookData(
+        id: 'alt_1',
+        name: 'Relaxed Refined',
+        matchScore: 88,
+        styleName: 'Smart Casual',
+      ),
+      AlternativeLookData(
+        id: 'alt_2',
+        name: 'Urban Edge',
+        matchScore: 84,
+        styleName: 'Contemporary',
+      ),
+      AlternativeLookData(
+        id: 'alt_3',
+        name: 'Classic Heritage',
+        matchScore: 82,
+        styleName: 'Traditional',
+      ),
+    ],
+    dailyStyleTip:
+        'A textured leather belt in warm brown adds depth to monochrome '
+        'outfits without breaking the clean silhouette.',
   );
 }
 

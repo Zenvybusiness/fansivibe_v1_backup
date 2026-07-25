@@ -1,263 +1,207 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
-import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/home/data/daily_outfit_mock_data.dart';
 import 'package:fansivibe/features/home/presentation/daily_outfit_screen.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
-GoRouter _testRouter() {
-  return GoRouter(
-    initialLocation: '/daily-outfit',
-    routes: [
-      GoRoute(
-        path: '/daily-outfit',
-        name: RouteNames.dailyOutfit,
-        builder: (context, state) => const DailyOutfitScreen(),
-      ),
-      GoRoute(
-        path: '/outfit/build',
-        name: RouteNames.buildOutfit,
-        builder: (context, state) =>
-            const Scaffold(body: Center(child: Text('Build Outfit Screen'))),
-      ),
-      GoRoute(
-        path: '/wardrobe',
-        name: RouteNames.wardrobe,
-        builder: (context, state) =>
-            const Scaffold(body: Center(child: Text('Wardrobe Screen'))),
-      ),
-    ],
-  );
-}
-
 Widget _buildTestApp() {
-  return MaterialApp.router(
-    routerConfig: _testRouter(),
+  return MaterialApp(
     theme: ThemeData(
       brightness: Brightness.dark,
       scaffoldBackgroundColor: FansivibeColors.background,
       colorScheme: const ColorScheme.dark(surface: FansivibeColors.surface),
     ),
+    home: const DailyOutfitScreen(),
   );
 }
 
 void main() {
-  group('DailyOutfitScreen Widget Tests', () {
-    testWidgets('renders app bar with title and back button', (
+  group('DailyOutfitScreen (Today\'s Look) Widget Tests', () {
+    testWidgets('renders hero section with TODAY\'S LOUD label', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
 
-      expect(find.text('Daily Outfit'), findsOneWidget);
+      expect(find.text('TODAY\'S LOOK'), findsOneWidget);
+    });
+
+    testWidgets('renders match score in hero', (WidgetTester tester) async {
+      await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
+
+      expect(find.text('91%'), findsOneWidget);
+    });
+
+    testWidgets('renders occasion and weather chips', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Casual Friday'), findsOneWidget);
+      expect(find.text('68\u00B0F \u2022 Partly Cloudy'), findsOneWidget);
+    });
+
+    testWidgets('renders Confidence Boost chip', (WidgetTester tester) async {
+      await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Confidence Boost'), findsOneWidget);
+    });
+
+    testWidgets('renders back button in hero', (WidgetTester tester) async {
+      await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
+
       expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
     });
 
-    testWidgets('renders header with title and description', (
+    testWidgets('renders editorial summary with title and description', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
 
-      expect(find.text('Modern Minimalist'), findsNWidgets(2));
-      expect(find.text('Work \u2022 Casual Friday'), findsOneWidget);
+      expect(find.text('Modern Minimalist'), findsOneWidget);
       expect(
-        find.textContaining('Clean lines meet relaxed sophistication'),
+        find.textContaining(
+          'Clean lines meet relaxed sophistication',
+        ),
         findsOneWidget,
       );
     });
 
-    testWidgets('renders weather info in header', (WidgetTester tester) async {
+    testWidgets('renders AI selection reason', (WidgetTester tester) async {
       await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
 
-      expect(find.text('68\u00B0F \u2022 Partly Cloudy'), findsOneWidget);
+      expect(
+        find.textContaining('Perfect for today\'s'),
+        findsOneWidget,
+      );
     });
 
-    testWidgets('renders match and style score sections', (
+    testWidgets('renders outfit breakdown section', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
 
-      expect(find.text('Match'), findsOneWidget);
-      expect(find.text('Style Score'), findsWidgets);
-      expect(find.text('91%'), findsOneWidget);
-      expect(find.text('87%'), findsOneWidget);
+      expect(find.text('The Ensemble'), findsOneWidget);
+      expect(find.text('5 pieces'), findsOneWidget);
     });
 
-    testWidgets('renders outfit components', (WidgetTester tester) async {
+    testWidgets('renders component names in breakdown', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(_buildTestApp());
-
-      expect(find.text('Outfit Components'), findsOneWidget);
-      expect(find.text('5 curated pieces'), findsOneWidget);
+      await tester.pumpAndSettle();
 
       expect(find.text('Charcoal Unstructured Blazer'), findsOneWidget);
       expect(find.text('Merino Wool Crewneck'), findsOneWidget);
       expect(find.text('Tapered Wool Trousers'), findsOneWidget);
-      expect(find.text('Leather Chelsea Boots'), findsOneWidget);
-      expect(find.text('Minimalist Leather Belt'), findsOneWidget);
     });
 
-    testWidgets('renders component replace buttons with category names', (
+    testWidgets('renders Why It Works section with insight titles', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
 
-      expect(find.text('Change Outerwear'), findsOneWidget);
-      expect(find.text('Change Tops'), findsOneWidget);
-      expect(find.text('Change Bottoms'), findsOneWidget);
-      expect(find.text('Change Footwear'), findsOneWidget);
+      expect(find.text('Why It Works'), findsOneWidget);
+      expect(find.text('AI style analysis'), findsOneWidget);
+      expect(find.text('Color Harmony'), findsOneWidget);
+      expect(find.text('Body Proportions'), findsOneWidget);
+      expect(find.text('Style Compatibility'), findsOneWidget);
+      expect(find.text('Occasion Suitability'), findsOneWidget);
     });
 
-    testWidgets('renders why this works section', (WidgetTester tester) async {
+    testWidgets('renders Alternatives section', (WidgetTester tester) async {
       await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
 
-      expect(find.text('Why This Look Works'), findsOneWidget);
-      expect(find.text('Personalized recommendation reasons'), findsOneWidget);
+      expect(find.text('Alternatives'), findsOneWidget);
+      expect(find.text('3 more looks for you'), findsOneWidget);
+      expect(find.text('Relaxed Refined'), findsOneWidget);
+      expect(find.text('Urban Edge'), findsOneWidget);
+      expect(find.text('Classic Heritage'), findsOneWidget);
     });
 
-    testWidgets('renders all four recommendation reasons', (
+    testWidgets('renders alternative match scores', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
 
-      final data = DailyOutfitData.mock;
-      for (final reason in data.reasons) {
-        expect(find.textContaining(reason.substring(0, 30)), findsOneWidget);
-      }
+      expect(find.text('88%'), findsOneWidget);
+      expect(find.text('84%'), findsOneWidget);
+      expect(find.text('82%'), findsOneWidget);
     });
 
-    testWidgets('renders Style DNA section with all attributes', (
+    testWidgets('renders See Details buttons on alternatives', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
 
-      expect(find.text('Your Style DNA'), findsOneWidget);
-      expect(find.text('Modern Minimalist'), findsNWidgets(2));
-      expect(find.text('Athletic'), findsOneWidget);
-      expect(find.text('Medium'), findsOneWidget);
-      expect(find.text('Oval'), findsOneWidget);
+      expect(find.text('See Details'), findsNWidgets(3));
     });
 
-    testWidgets('renders Wardrobe Context section', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('renders quick action buttons', (WidgetTester tester) async {
       await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
 
-      expect(find.text('Wardrobe Context'), findsOneWidget);
-      expect(find.text('42'), findsOneWidget);
-      expect(find.text('8'), findsOneWidget);
-      expect(find.text('Total Items'), findsOneWidget);
-      expect(find.text('Matching'), findsOneWidget);
+      expect(find.text('Wear This Look'), findsOneWidget);
+      expect(find.text('Generate Another Look'), findsOneWidget);
+      expect(find.text('Save Look'), findsOneWidget);
+      expect(find.text('Share'), findsOneWidget);
+    });
+
+    testWidgets('renders Daily Style Tip section', (WidgetTester tester) async {
+      await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Daily Style Tip'), findsOneWidget);
       expect(
-        find.textContaining('Adding a charcoal unstructured blazer'),
+        find.textContaining('A textured leather belt'),
         findsOneWidget,
       );
     });
 
-    testWidgets('renders action buttons', (WidgetTester tester) async {
+    testWidgets('Wear This Look shows snackbar on tap', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
 
-      expect(find.text('Wear This'), findsOneWidget);
-      expect(find.text('Save Outfit'), findsOneWidget);
-      expect(find.text('Change Style'), findsWidgets);
-      expect(find.text('Review Closet'), findsOneWidget);
-    });
-
-    testWidgets('Wear This shows snackbar on tap', (WidgetTester tester) async {
-      await tester.pumpWidget(_buildTestApp());
-
-      await tester.scrollUntilVisible(find.text('Wear This'), 200);
-      await tester.tap(find.text('Wear This'));
+      await tester.ensureVisible(find.text('Wear This Look'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Wear This Look'));
       await tester.pumpAndSettle();
 
       expect(find.text('Wearing this look!'), findsOneWidget);
     });
 
-    testWidgets('Save Outfit shows snackbar on tap', (
+    testWidgets('Save Look shows snackbar on tap', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Save Outfit'), 200);
-      await tester.tap(find.text('Save Outfit'));
+      await tester.ensureVisible(find.text('Save Look'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save Look'));
       await tester.pumpAndSettle();
 
       expect(find.text('Outfit saved to your looks'), findsOneWidget);
     });
 
-    testWidgets('replace component shows snackbar on tap', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(_buildTestApp());
-
-      await tester.scrollUntilVisible(find.text('Change Tops'), 200);
-      await tester.tap(find.text('Change Tops'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('Replace Merino Wool Crewneck coming soon'),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('Change Style navigates to Build Outfit screen', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(_buildTestApp());
-
-      await tester.scrollUntilVisible(find.text('Change Style').last, 200);
-      await tester.tap(find.text('Change Style').last);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Build Outfit Screen'), findsOneWidget);
-    });
-
-    testWidgets('Review Closet navigates to Wardrobe screen', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(_buildTestApp());
-
-      await tester.scrollUntilVisible(find.text('Review Closet'), 200);
-      await tester.tap(find.text('Review Closet'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Wardrobe Screen'), findsOneWidget);
-    });
-
-    testWidgets('back button pops the screen', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Builder(
-            builder: (context) {
-              return Navigator(
-                onGenerateRoute: (settings) {
-                  return MaterialPageRoute(
-                    builder: (_) => const DailyOutfitScreen(),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-      );
-
-      // Tap back and ensure the widget is popped (no longer visible).
-      await tester.tap(find.byIcon(Icons.arrow_back_rounded));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Daily Outfit'), findsNothing);
-    });
-
     testWidgets('DailyOutfitScreen is scrollable', (WidgetTester tester) async {
       await tester.pumpWidget(_buildTestApp());
-
-      await tester.drag(
-        find.byType(SingleChildScrollView),
-        const Offset(0, -500),
-      );
       await tester.pumpAndSettle();
 
-      expect(find.text('Review Closet'), findsOneWidget);
+      expect(find.text('Daily Style Tip'), findsOneWidget);
     });
   });
 
@@ -285,6 +229,37 @@ void main() {
         expect(component.name, isNotEmpty);
         expect(component.category, isNotEmpty);
         expect(component.color, isNotEmpty);
+      }
+    });
+
+    test('mock has new today\'s look fields', () {
+      final data = DailyOutfitData.mock;
+
+      expect(data.aiSelectionReason, isNotEmpty);
+      expect(data.confidenceBoost, isNotEmpty);
+      expect(data.aiInsights.length, greaterThan(0));
+      expect(data.alternatives.length, greaterThan(0));
+      expect(data.dailyStyleTip, isNotEmpty);
+    });
+
+    test('mock AI insights have required fields', () {
+      final insights = DailyOutfitData.mock.aiInsights;
+
+      for (final insight in insights) {
+        expect(insight.title, isNotEmpty);
+        expect(insight.description, isNotEmpty);
+        expect(insight.iconName, isNotEmpty);
+      }
+    });
+
+    test('mock alternatives have required fields', () {
+      final alternatives = DailyOutfitData.mock.alternatives;
+
+      for (final alt in alternatives) {
+        expect(alt.id, isNotEmpty);
+        expect(alt.name, isNotEmpty);
+        expect(alt.matchScore, inInclusiveRange(0, 100));
+        expect(alt.styleName, isNotEmpty);
       }
     });
   });

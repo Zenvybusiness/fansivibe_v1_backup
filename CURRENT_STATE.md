@@ -1,7 +1,7 @@
 # Fansivibe Current State
 
-Last Updated: 2026-07-25
-Updated By: opencode agent (implemented complete onboarding feature — 9 screens + personalized Home; designed First-Time Home Experience)
+Last Updated: 2026-07-26
+Updated By: opencode agent (redesigned DailyOutfitScreen as Today's Look flagship experience)
 
 ## Phase
 
@@ -202,11 +202,40 @@ Tests: 217 passed, 87 failed (unchanged — no new failures introduced).
 - All existing sections preserved with mock data fallback (subsequent visits)
 - Removed unused `_StyleDNACard`, `_AiProgressSection`, `_CompactCapability`, `_DnaAttribute`, `_ColorDot`, `_buildFirstVisitBanner`
 
-## Changes Made — First-Time Home Experience
+## Changes Made — Today's Look Screen Redesign
 
-### New file: `lib/features/home/presentation/first_time_home_screen.dart` (908 lines)
+### Modified: `lib/features/home/presentation/daily_outfit_screen.dart`
 
-A premium editorial first-visit screen shown immediately after onboarding completion.
+Complete redesign as the "Today's Look" flagship experience using the Digital Atelier design system.
+
+**Design changes:**
+- Hero outfit section occupying ~68% of viewport with ambient gradient backdrop
+- Floating glass chips overlay using `BackdropFilter` blur: TODAY'S LOOK label, AI Match Score (91%), Occasion, Weather, Confidence Boost
+- Editorial summary with outfit name (serif), description, and italic AI selection reason
+- Horizontal card carousel for outfit breakdown (The Ensemble) with clothing image area, name, color, category
+- "Why It Works" section with 4 glass insight cards: Color Harmony, Body Proportions, Style Compatibility, Occasion Suitability
+- Alternative looks horizontal carousel with match scores, style names, and "See Details" CTA
+- Quick actions: Wear This Look (primary gold), Generate Another Look, Save Look, Share
+- Daily Style Tip editorial card with lightbulb icon
+- Staggered entrance animations (7 sections, 2.4s total) with `easeOutCubic`
+- Responsive layout with tablet-aware sizing
+- Respects `disableAnimations` for reduced motion
+
+**Removed sections from old screen:** Score cards (Match/Style), Style DNA card, Wardrobe Context card, "Change Style" actions, component replace buttons.
+
+### Modified: `lib/features/home/data/daily_outfit_mock_data.dart`
+
+Extended with 3 new model classes and mock data:
+- `AiInsightData` — title, description, iconName for Why It Works cards
+- `AlternativeLookData` — id, name, matchScore, styleName for alternatives carousel
+- New fields on `DailyOutfitData`: `aiSelectionReason`, `confidenceBoost`, `aiInsights`, `alternatives`, `dailyStyleTip`
+
+### Validation
+
+- `dart analyze`: 0 issues in home feature
+- Tests: 23 passed, 0 failed (all daily_outfit_screen tests rewritten for new UI, added 8 new test cases for new sections)
+
+Skill used: `dart-run-static-analysis`
 
 **Sections** (staggered fade + slide animations, 1.8s total):
 1. **Hero Greeting** — "Welcome to Fansivibe", personalized name, success message
