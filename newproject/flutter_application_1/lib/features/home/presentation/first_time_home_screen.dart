@@ -21,12 +21,12 @@ class FirstTimeHomeScreen extends StatefulWidget {
 class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _greetingAnim;
-  late Animation<double> _heroCardAnim;
-  late Animation<double> _recommendationAnim;
-  late Animation<double> _capabilitiesAnim;
-  late Animation<double> _quickActionsAnim;
-  late Animation<double> _insightAnim;
+  late Animation<double> _headerAnim;
+  late Animation<double> _heroAnim;
+  late Animation<double> _lookAnim;
+  late Animation<double> _gridAnim;
+  late Animation<double> _toolsAnim;
+  late Animation<double> _quoteAnim;
 
   static const _mockScore = 82;
   static const _mockDna = 'Refined Minimalist';
@@ -43,14 +43,14 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1800),
+      duration: const Duration(milliseconds: 2000),
     );
-    _greetingAnim = _buildAnim(0.0, 0.2);
-    _heroCardAnim = _buildAnim(0.15, 0.4);
-    _recommendationAnim = _buildAnim(0.3, 0.55);
-    _capabilitiesAnim = _buildAnim(0.45, 0.7);
-    _quickActionsAnim = _buildAnim(0.6, 0.82);
-    _insightAnim = _buildAnim(0.75, 1.0);
+    _headerAnim = _buildAnim(0.0, 0.18);
+    _heroAnim = _buildAnim(0.12, 0.35);
+    _lookAnim = _buildAnim(0.28, 0.52);
+    _gridAnim = _buildAnim(0.42, 0.65);
+    _toolsAnim = _buildAnim(0.55, 0.78);
+    _quoteAnim = _buildAnim(0.68, 0.95);
     _controller.forward();
   }
 
@@ -58,7 +58,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
     return Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: Interval(start, end, curve: Curves.easeOut),
+        curve: Interval(start, end, curve: Curves.easeOutCubic),
       ),
     );
   }
@@ -78,7 +78,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
           builder: (context, constraints) {
             final maxWidth = constraints.maxWidth;
             final horizontalPadding = maxWidth > 600 ? 48.0 : 20.0;
-            final contentMaxWidth = maxWidth > 600 ? 520.0 : double.infinity;
+            final contentMaxWidth = maxWidth > 600 ? 560.0 : double.infinity;
 
             return SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
@@ -92,37 +92,31 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(height: FansivibeSpacing.lg),
+                        SizedBox(height: FansivibeSpacing.sm),
                         _buildAnimatedSection(
-                          _greetingAnim,
-                          _buildHeroGreeting(),
+                          _headerAnim, _buildHeader(),
                         ),
-                        SizedBox(height: FansivibeSpacing.xl),
+                        SizedBox(height: FansivibeSpacing.lg + 8),
                         _buildAnimatedSection(
-                          _heroCardAnim,
-                          _buildHeroCard(),
+                          _heroAnim, _buildHeroSpread(),
                         ),
-                        SizedBox(height: FansivibeSpacing.lg + 4),
+                        SizedBox(height: FansivibeSpacing.xl + 4),
                         _buildAnimatedSection(
-                          _recommendationAnim,
-                          _buildRecommendation(context),
+                          _lookAnim, _buildLookEditorial(context),
                         ),
-                        SizedBox(height: FansivibeSpacing.lg + 4),
+                        SizedBox(height: FansivibeSpacing.xl + 4),
                         _buildAnimatedSection(
-                          _capabilitiesAnim,
-                          _buildCapabilities(),
+                          _gridAnim, _buildCapabilityGrid(),
                         ),
-                        SizedBox(height: FansivibeSpacing.lg + 4),
+                        SizedBox(height: FansivibeSpacing.xl + 4),
                         _buildAnimatedSection(
-                          _quickActionsAnim,
-                          _buildQuickActions(context),
+                          _toolsAnim, _buildQuickTools(context),
                         ),
-                        SizedBox(height: FansivibeSpacing.lg + 4),
+                        SizedBox(height: FansivibeSpacing.xl + 4),
                         _buildAnimatedSection(
-                          _insightAnim,
-                          _buildAiInsight(),
+                          _quoteAnim, _buildAiQuote(),
                         ),
-                        SizedBox(height: FansivibeSpacing.xxl),
+                        SizedBox(height: FansivibeSpacing.xxxl),
                       ],
                     ),
                   ),
@@ -142,7 +136,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
         return Opacity(
           opacity: anim.value,
           child: Transform.translate(
-            offset: Offset(0, 24 * (1 - anim.value)),
+            offset: Offset(0, 20 * (1 - anim.value)),
             child: child,
           ),
         );
@@ -150,60 +144,70 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
     );
   }
 
-  Widget _buildHeroGreeting() {
+  Widget _buildHeader() {
     final name = widget.displayName ?? 'you';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Container(
+          height: 3,
+          width: 48,
+          decoration: BoxDecoration(
+            color: FansivibeColors.primary,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        SizedBox(height: FansivibeSpacing.md),
         Text(
-          'Welcome to Fansivibe',
+          'WELCOME',
           style: FansivibeTypography.labelMediumWithFamily.copyWith(
             color: FansivibeColors.primary,
-            letterSpacing: 2.0,
-            fontSize: 13,
+            letterSpacing: 3.0,
+            fontSize: 12,
             fontWeight: FontWeight.w600,
           ),
         ),
         SizedBox(height: FansivibeSpacing.sm),
         Text(
-          'Your analysis is ready, $name.',
+          'Your style\nawakening.',
           style: FansivibeTypography.displayLargeWithFamily.copyWith(
-            fontSize: 36,
-            height: 1.15,
+            fontSize: 40,
+            height: 1.08,
+            letterSpacing: -0.5,
           ),
         ),
         SizedBox(height: FansivibeSpacing.sm + 4),
         Text(
-          'We\'ve analyzed your features and style preferences. Here\'s what we discovered — your personal style journey starts now.',
-          style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+          'We analysed everything, $name.\nYour Style DNA is ready.',
+          style: FansivibeTypography.bodyLargeWithFamily.copyWith(
             color: FansivibeColors.secondary,
             height: 1.5,
-            fontSize: 15,
+            fontSize: 16,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildHeroCard() {
+  Widget _buildHeroSpread() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 28),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
             FansivibeColors.surfaceContainerLow,
-            FansivibeColors.surfaceContainer,
+            FansivibeColors.surfaceContainer.withValues(alpha: 0.6),
           ],
         ),
         borderRadius: FansivibeRadius.lgBorder,
         boxShadow: [
           BoxShadow(
-            color: FansivibeColors.primary.withValues(alpha: 0.06),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
+            color: FansivibeColors.primary.withValues(alpha: 0.05),
+            blurRadius: 32,
+            offset: const Offset(0, 12),
           ),
         ],
       ),
@@ -211,10 +215,10 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildScoreBadge(),
-              SizedBox(width: FansivibeSpacing.md),
+              _buildScoreGlobe(),
+              SizedBox(width: FansivibeSpacing.md + 4),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,15 +227,17 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
                       'Style Score',
                       style: FansivibeTypography.labelMediumWithFamily.copyWith(
                         color: FansivibeColors.secondary,
-                        letterSpacing: 1.2,
-                        fontSize: 11,
+                        letterSpacing: 1.8,
+                        fontSize: 10,
                       ),
                     ),
                     SizedBox(height: FansivibeSpacing.xs),
                     Text(
-                      _mockDna,
-                      style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                        fontSize: 20,
+                      'A strong foundation\nwith room to evolve.',
+                      style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                        color: FansivibeColors.secondary.withValues(alpha: 0.8),
+                        fontSize: 13,
+                        height: 1.5,
                       ),
                     ),
                   ],
@@ -240,123 +246,173 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
             ],
           ),
           SizedBox(height: FansivibeSpacing.lg),
-          _buildColorPalette(),
-          SizedBox(height: FansivibeSpacing.lg),
-          _buildInsightPreview(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildScoreBadge() {
-    return Container(
-      width: 80,
-      height: 80,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          colors: [
-            FansivibeColors.primary.withValues(alpha: 0.1),
-            FansivibeColors.primary.withValues(alpha: 0.02),
-            Colors.transparent,
-          ],
-          stops: const [0.0, 0.5, 1.0],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '$_mockScore',
-              style: FansivibeTypography.displayLargeWithFamily.copyWith(
-                fontSize: 32,
-                fontWeight: FontWeight.w600,
-                color: FansivibeColors.primary,
-              ),
-            ),
-            Text(
-              'of 100',
-              style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                fontSize: 9,
-                color: FansivibeColors.secondary.withValues(alpha: 0.6),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildColorPalette() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Dominant Palette',
-          style: FansivibeTypography.labelMediumWithFamily.copyWith(
-            color: FansivibeColors.secondary,
-            letterSpacing: 1.2,
-            fontSize: 11,
+          Container(
+            width: double.infinity,
+            height: 1,
+            color: FansivibeColors.primary.withValues(alpha: 0.12),
           ),
-        ),
-        SizedBox(height: FansivibeSpacing.sm + 4),
-        Row(
-          children: [
-            for (int i = 0; i < _mockPalette.length; i++)
-              Padding(
-                padding: EdgeInsets.only(
-                  right: i < _mockPalette.length - 1
-                      ? FansivibeSpacing.sm
-                      : 0,
-                ),
+          SizedBox(height: FansivibeSpacing.md + 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Color(_mockPalette[i].color),
-                        borderRadius: FansivibeRadius.smBorder,
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.08),
-                          width: 1,
-                        ),
+                    Text(
+                      'Style DNA',
+                      style: FansivibeTypography.labelMediumWithFamily.copyWith(
+                        color: FansivibeColors.secondary,
+                        letterSpacing: 1.8,
+                        fontSize: 10,
                       ),
                     ),
-                    SizedBox(height: FansivibeSpacing.xs),
+                    SizedBox(height: FansivibeSpacing.xs + 2),
                     Text(
-                      _mockPalette[i].label,
-                      style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                        fontSize: 9,
-                        color: FansivibeColors.secondary.withValues(alpha: 0.7),
+                      _mockDna,
+                      style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ),
               ),
+              _buildPaletteBar(),
+            ],
+          ),
+          SizedBox(height: FansivibeSpacing.lg),
+          _buildPullQuote(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScoreGlobe() {
+    return Container(
+      width: 96,
+      height: 96,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            FansivibeColors.primary.withValues(alpha: 0.12),
+            FansivibeColors.primary.withValues(alpha: 0.04),
+            Colors.transparent,
           ],
+          stops: const [0.0, 0.55, 1.0],
+        ),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 82,
+            height: 82,
+            child: CircularProgressIndicator(
+              value: _mockScore / 100,
+              strokeWidth: 3,
+              backgroundColor: FansivibeColors.primary.withValues(alpha: 0.08),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                FansivibeColors.primary,
+              ),
+              strokeCap: StrokeCap.round,
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '$_mockScore',
+                style: FansivibeTypography.displayLargeWithFamily.copyWith(
+                  fontSize: 34,
+                  fontWeight: FontWeight.w600,
+                  color: FansivibeColors.primary,
+                  height: 1.0,
+                ),
+              ),
+              Text(
+                'of 100',
+                style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                  fontSize: 8,
+                  color: FansivibeColors.secondary.withValues(alpha: 0.5),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPaletteBar() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          'PALETTE',
+          style: FansivibeTypography.labelSmallWithFamily.copyWith(
+            fontSize: 8,
+            color: FansivibeColors.secondary.withValues(alpha: 0.5),
+            letterSpacing: 1.5,
+          ),
+        ),
+        SizedBox(height: FansivibeSpacing.xs + 2),
+        SizedBox(
+          height: 32,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (int i = 0; i < _mockPalette.length; i++)
+                Container(
+                  width: 28,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: Color(_mockPalette[i].color),
+                    borderRadius: i == 0
+                        ? const BorderRadius.only(
+                            topLeft: Radius.circular(6),
+                            bottomLeft: Radius.circular(6),
+                          )
+                        : i == _mockPalette.length - 1
+                        ? const BorderRadius.only(
+                            topRight: Radius.circular(6),
+                            bottomRight: Radius.circular(6),
+                          )
+                        : BorderRadius.zero,
+                    border: Border(
+                      right: BorderSide(
+                        color: FansivibeColors.surface.withValues(alpha: 0.3),
+                        width: 1,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildInsightPreview() {
+  Widget _buildPullQuote() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(FansivibeSpacing.md),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       decoration: BoxDecoration(
-        color: FansivibeColors.primary.withValues(alpha: 0.06),
+        color: FansivibeColors.primary.withValues(alpha: 0.05),
         borderRadius: FansivibeRadius.smBorder,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.auto_awesome_rounded,
-            size: 16,
-            color: FansivibeColors.primary,
+          Text(
+            '\u201C',
+            style: FansivibeTypography.displayLargeWithFamily.copyWith(
+              fontSize: 28,
+              height: 0.9,
+              color: FansivibeColors.primary,
+            ),
           ),
           SizedBox(width: FansivibeSpacing.sm),
           Expanded(
@@ -365,7 +421,8 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
               style: FansivibeTypography.bodyMediumWithFamily.copyWith(
                 color: FansivibeColors.onSurface,
                 fontSize: 13,
-                height: 1.5,
+                height: 1.6,
+                fontStyle: FontStyle.italic,
               ),
             ),
           ),
@@ -374,23 +431,39 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
     );
   }
 
-  Widget _buildRecommendation(BuildContext context) {
+  Widget _buildLookEditorial(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Your First Recommendation',
-          style: FansivibeTypography.headlineMediumWithFamily.copyWith(
-            fontSize: 20,
-          ),
+        Row(
+          children: [
+            Container(
+              height: 2,
+              width: 32,
+              decoration: BoxDecoration(
+                color: FansivibeColors.primary,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+            SizedBox(width: FansivibeSpacing.sm + 4),
+            Text(
+              'FIRST RECOMMENDATION',
+              style: FansivibeTypography.labelMediumWithFamily.copyWith(
+                color: FansivibeColors.primary,
+                letterSpacing: 2.0,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
-        SizedBox(height: FansivibeSpacing.md),
+        SizedBox(height: FansivibeSpacing.md + 4),
         ClipRRect(
           borderRadius: FansivibeRadius.mdBorder,
           child: Column(
             children: [
-              _buildRecImageSection(context),
-              _buildRecContent(context),
+              _buildLookImage(),
+              _buildLookContent(context),
             ],
           ),
         ),
@@ -398,9 +471,9 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
     );
   }
 
-  Widget _buildRecImageSection(BuildContext context) {
+  Widget _buildLookImage() {
     return Container(
-      height: 180,
+      height: 200,
       width: double.infinity,
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -408,8 +481,10 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
           end: Alignment.bottomCenter,
           colors: [
             FansivibeColors.surfaceContainerHigh,
-            FansivibeColors.surfaceContainerLow,
+            FansivibeColors.surfaceContainer.withValues(alpha: 0.8),
+            FansivibeColors.surface,
           ],
+          stops: const [0.0, 0.5, 1.0],
         ),
       ),
       child: Stack(
@@ -418,44 +493,59 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
           Center(
             child: Icon(
               Icons.checkroom_rounded,
-              size: 64,
-              color: FansivibeColors.primary.withValues(alpha: 0.15),
+              size: 72,
+              color: FansivibeColors.primary.withValues(alpha: 0.1),
             ),
           ),
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment.topCenter,
-                colors: [
-                  FansivibeColors.surface.withValues(alpha: 0.9),
-                  Colors.transparent,
-                  Colors.transparent,
-                ],
-                stops: const [0.0, 0.3, 1.0],
+          Positioned(
+            top: FansivibeSpacing.md,
+            left: FansivibeSpacing.md,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12, vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: FansivibeColors.surface.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                'EDITOR\'S PICK',
+                style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                  color: FansivibeColors.primary,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 2.0,
+                  fontSize: 9,
+                ),
               ),
             ),
           ),
           Positioned(
             bottom: FansivibeSpacing.md,
-            left: FansivibeSpacing.md,
+            right: FansivibeSpacing.md,
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 5,
-              ),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: FansivibeColors.primary.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(6),
+                color: FansivibeColors.primary.withValues(alpha: 0.12),
+                borderRadius: FansivibeRadius.fullBorder,
               ),
-              child: Text(
-                'AI RECOMMENDED',
-                style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                  color: FansivibeColors.primary,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.8,
-                  fontSize: 10,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.star_rounded,
+                    size: 14,
+                    color: FansivibeColors.primary,
+                  ),
+                  SizedBox(width: FansivibeSpacing.xs),
+                  Text(
+                    '87',
+                    style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                      color: FansivibeColors.primary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -464,11 +554,11 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
     );
   }
 
-  Widget _buildRecContent(BuildContext context) {
+  Widget _buildLookContent(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: FansivibeColors.surfaceContainer,
       ),
       child: Column(
@@ -476,16 +566,19 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
         children: [
           Text(
             'Modern Minimalist',
-            style: FansivibeTypography.titleLargeWithFamily.copyWith(
-              fontSize: 20,
+            style: FansivibeTypography.displayLargeWithFamily.copyWith(
+              fontSize: 26,
+              fontWeight: FontWeight.w500,
+              height: 1.1,
             ),
           ),
-          SizedBox(height: FansivibeSpacing.sm),
+          SizedBox(height: FansivibeSpacing.sm + 2),
           Text(
-            'Clean lines meet relaxed sophistication. This look complements your refined silhouette and warm neutral palette.',
+            'Clean lines, relaxed sophistication. This look complements your refined silhouette and warm neutral palette.',
             style: FansivibeTypography.bodyMediumWithFamily.copyWith(
               color: FansivibeColors.secondary,
               height: 1.5,
+              fontSize: 14,
             ),
           ),
           SizedBox(height: FansivibeSpacing.md + 4),
@@ -493,33 +586,46 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
             spacing: 8,
             runSpacing: 8,
             children: [
-              _buildGarmentChip('Unstructured Blazer', Icons.checkroom_rounded),
-              _buildGarmentChip('Merino Crewneck', Icons.person_rounded),
-              _buildGarmentChip('Tapered Trousers', Icons.accessibility_rounded),
+              _editorialTag('Unstructured Blazer'),
+              _editorialTag('Merino Crewneck'),
+              _editorialTag('Tapered Trousers'),
+              _editorialTag('Chelsea Boots'),
             ],
           ),
           SizedBox(height: FansivibeSpacing.md + 4),
-          Text(
-            'Why this suits you',
-            style: FansivibeTypography.labelMediumWithFamily.copyWith(
-              color: FansivibeColors.secondary,
-              letterSpacing: 1.0,
-              fontSize: 11,
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(FansivibeSpacing.md),
+            decoration: BoxDecoration(
+              color: FansivibeColors.surfaceContainerLow,
+              borderRadius: FansivibeRadius.smBorder,
             ),
-          ),
-          SizedBox(height: FansivibeSpacing.sm),
-          Text(
-            'Vertical lines and a tonal palette elongate your frame. The unstructured blazer adds polish without stiffness — matching your natural ease.',
-            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-              color: FansivibeColors.secondary.withValues(alpha: 0.8),
-              fontSize: 13,
-              height: 1.5,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 14,
+                  color: FansivibeColors.primary,
+                ),
+                SizedBox(width: FansivibeSpacing.sm),
+                Expanded(
+                  child: Text(
+                    'Vertical lines and a tonal palette elongate your frame. The unstructured blazer adds polish without stiffness.',
+                    style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                      color: FansivibeColors.secondary.withValues(alpha: 0.85),
+                      fontSize: 13,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           SizedBox(height: FansivibeSpacing.md + 4),
           FansiButton.primary(
             label: 'Try This Look',
-            icon: Icons.check_circle_outline_rounded,
+            icon: Icons.arrow_forward_rounded,
             onPressed: () => context.pushNamed(RouteNames.dailyOutfit),
           ),
         ],
@@ -527,230 +633,270 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
     );
   }
 
-  Widget _buildGarmentChip(String label, IconData icon) {
+  Widget _editorialTag(String label) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: FansivibeColors.surfaceContainerHigh,
-        borderRadius: FansivibeRadius.smBorder,
+        borderRadius: BorderRadius.circular(6),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: FansivibeColors.secondary),
-          SizedBox(width: FansivibeSpacing.xs + 2),
-          Text(
-            label,
-            style: FansivibeTypography.labelSmallWithFamily.copyWith(
-              color: FansivibeColors.secondary,
-              fontSize: 11,
-            ),
-          ),
-        ],
+      child: Text(
+        label,
+        style: FansivibeTypography.labelSmallWithFamily.copyWith(
+          color: FansivibeColors.secondary,
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }
 
-  Widget _buildCapabilities() {
+  Widget _buildCapabilityGrid() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(
-              Icons.auto_awesome_rounded,
-              size: 16,
-              color: FansivibeColors.primary,
+            Container(
+              height: 2,
+              width: 32,
+              decoration: BoxDecoration(
+                color: FansivibeColors.primary,
+                borderRadius: BorderRadius.circular(1),
+              ),
             ),
-            SizedBox(width: FansivibeSpacing.sm),
+            SizedBox(width: FansivibeSpacing.sm + 4),
             Text(
-              'Continue Building Your Style',
-              style: FansivibeTypography.headlineMediumWithFamily.copyWith(
-                fontSize: 20,
+              'CAPABILITIES',
+              style: FansivibeTypography.labelMediumWithFamily.copyWith(
+                color: FansivibeColors.primary,
+                letterSpacing: 2.0,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
         ),
         SizedBox(height: FansivibeSpacing.sm),
         Text(
-          'Unlock the full power of your AI style intelligence.',
-          style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+          'Your style intelligence grows with you.',
+          style: FansivibeTypography.bodyLargeWithFamily.copyWith(
             color: FansivibeColors.secondary,
+            fontSize: 15,
           ),
         ),
-        SizedBox(height: FansivibeSpacing.md),
-        ...allCapabilities.map(_buildCapabilityItem),
+        SizedBox(height: FansivibeSpacing.md + 4),
+        ...List.generate(
+          (allCapabilities.length + 1) ~/ 2,
+          (rowIndex) {
+            final first = allCapabilities[rowIndex * 2];
+            final second = rowIndex * 2 + 1 < allCapabilities.length
+                ? allCapabilities[rowIndex * 2 + 1]
+                : null;
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: rowIndex < ((allCapabilities.length + 1) ~/ 2) - 1
+                    ? FansivibeSpacing.sm + 4
+                    : 0,
+              ),
+              child: Row(
+                children: [
+                  Expanded(child: _capabilityTile(first)),
+                  if (second != null) ...[
+                    SizedBox(width: FansivibeSpacing.sm + 4),
+                    Expanded(child: _capabilityTile(second)),
+                  ],
+                ],
+              ),
+            );
+          },
+        ),
       ],
     );
   }
 
-  Widget _buildCapabilityItem(AiCapability cap) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: FansivibeSpacing.sm + 4),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(FansivibeSpacing.md),
-        decoration: BoxDecoration(
-          color: cap.active
-              ? FansivibeColors.primary.withValues(alpha: 0.04)
-              : FansivibeColors.surfaceContainerLow,
-          borderRadius: FansivibeRadius.mdBorder,
-          border: cap.active
-              ? Border.all(
-                  color: FansivibeColors.primary.withValues(alpha: 0.12),
-                  width: 1,
-                )
-              : null,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: cap.active
-                    ? FansivibeColors.primary.withValues(alpha: 0.12)
-                    : FansivibeColors.surfaceContainerHighest,
-                border: cap.active
-                    ? Border.all(
-                        color: FansivibeColors.primary.withValues(alpha: 0.3),
-                        width: 1.5,
-                      )
-                    : null,
-              ),
-              child: Center(
-                child: Icon(
-                  cap.active
-                      ? Icons.check_circle_rounded
-                      : Icons.lock_rounded,
-                  size: 18,
-                  color: cap.active
-                      ? FansivibeColors.primary
-                      : FansivibeColors.secondary.withValues(alpha: 0.5),
+  Widget _capabilityTile(AiCapability cap) {
+    final isActive = cap.active;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: isActive
+            ? FansivibeColors.primary.withValues(alpha: 0.04)
+            : FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.mdBorder,
+        border: isActive
+            ? Border.all(
+                color: FansivibeColors.primary.withValues(alpha: 0.15),
+                width: 1,
+              )
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isActive
+                      ? FansivibeColors.primary.withValues(alpha: 0.12)
+                      : FansivibeColors.surfaceContainerHighest,
+                  border: isActive
+                      ? Border.all(
+                          color: FansivibeColors.primary.withValues(alpha: 0.3),
+                          width: 1.5,
+                        )
+                      : null,
+                ),
+                child: Center(
+                  child: Icon(
+                    isActive
+                        ? Icons.check_circle_rounded
+                        : Icons.lock_rounded,
+                    size: 15,
+                    color: isActive
+                        ? FansivibeColors.primary
+                        : FansivibeColors.secondary.withValues(alpha: 0.4),
+                  ),
                 ),
               ),
+              SizedBox(width: FansivibeSpacing.sm + 2),
+              Expanded(
+                child: Text(
+                  cap.name,
+                  style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: isActive
+                        ? FansivibeColors.primary
+                        : FansivibeColors.onSurface,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: FansivibeSpacing.sm),
+          Text(
+            cap.description,
+            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+              color: FansivibeColors.secondary,
+              fontSize: 11,
+              height: 1.4,
             ),
-            SizedBox(width: FansivibeSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          if (!isActive && cap.unlockHint != null) ...[
+            SizedBox(height: FansivibeSpacing.sm + 2),
+            GestureDetector(
+              onTap: () => _onUnlockHint(cap.name, cap.unlockHint!),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    cap.name,
-                    style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                      fontSize: 15,
+                    cap.unlockHint!,
+                    style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                      color: FansivibeColors.primary,
                       fontWeight: FontWeight.w600,
-                      color: cap.active
-                          ? FansivibeColors.primary
-                          : FansivibeColors.onSurface,
+                      fontSize: 10,
                     ),
                   ),
-                  SizedBox(height: FansivibeSpacing.xs),
-                  Text(
-                    cap.description,
-                    style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                      color: FansivibeColors.secondary,
-                      fontSize: 13,
-                      height: 1.4,
-                    ),
+                  SizedBox(width: FansivibeSpacing.xs),
+                  Icon(
+                    Icons.arrow_forward_rounded,
+                    size: 11,
+                    color: FansivibeColors.primary,
                   ),
-                  if (!cap.active && cap.unlockHint != null) ...[
-                    SizedBox(height: FansivibeSpacing.sm + 2),
-                    GestureDetector(
-                      onTap: () => _onUnlockCapability(cap.name),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: FansivibeColors.primary.withValues(alpha: 0.08),
-                          borderRadius: FansivibeRadius.fullBorder,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              cap.unlockHint!,
-                              style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                color: FansivibeColors.primary,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 11,
-                              ),
-                            ),
-                            SizedBox(width: FansivibeSpacing.xs),
-                            Icon(
-                              Icons.arrow_forward_rounded,
-                              size: 12,
-                              color: FansivibeColors.primary,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
           ],
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildQuickActions(BuildContext context) {
+  Widget _buildQuickTools(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Row(
+          children: [
+            Container(
+              height: 2,
+              width: 32,
+              decoration: BoxDecoration(
+                color: FansivibeColors.primary,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+            SizedBox(width: FansivibeSpacing.sm + 4),
+            Text(
+              'TOOLS',
+              style: FansivibeTypography.labelMediumWithFamily.copyWith(
+                color: FansivibeColors.primary,
+                letterSpacing: 2.0,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: FansivibeSpacing.sm),
         Text(
-          'Quick Actions',
-          style: FansivibeTypography.headlineMediumWithFamily.copyWith(
-            fontSize: 20,
+          'Explore what\'s possible.',
+          style: FansivibeTypography.bodyLargeWithFamily.copyWith(
+            color: FansivibeColors.secondary,
+            fontSize: 15,
           ),
         ),
-        SizedBox(height: FansivibeSpacing.md),
-        _buildGlassActionCard(
-          context,
-          icon: Icons.camera_alt_outlined,
-          title: 'Scan Another Look',
-          subtitle: 'Get AI analysis on any outfit',
-          onTap: () => context.pushNamed(RouteNames.scanOutfit),
-        ),
-        SizedBox(height: FansivibeSpacing.sm + 4),
-        _buildGlassActionCard(
-          context,
-          icon: Icons.checkroom_outlined,
-          title: 'Add Wardrobe',
-          subtitle: 'Build your digital wardrobe',
-          onTap: () => context.goNamed(RouteNames.wardrobe),
-        ),
-        SizedBox(height: FansivibeSpacing.sm + 4),
-        _buildGlassActionCard(
-          context,
-          icon: Icons.face_rounded,
-          title: 'Explore Hairstyles',
-          subtitle: 'Find your perfect hairstyle',
-          onTap: () => context.pushNamed(RouteNames.hairstyle),
-        ),
-        SizedBox(height: FansivibeSpacing.sm + 4),
-        _buildGlassActionCard(
-          context,
-          icon: Icons.lightbulb_outline_rounded,
-          title: 'Discover Style Tips',
-          subtitle: 'Personalized style insights',
-          onTap: () => context.goNamed(RouteNames.discover),
+        SizedBox(height: FansivibeSpacing.md + 4),
+        SizedBox(
+          height: 100,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            children: [
+              _glassTool(
+                icon: Icons.camera_alt_outlined,
+                label: 'Scan\nOutfit',
+                onTap: () => context.pushNamed(RouteNames.scanOutfit),
+              ),
+              _glassTool(
+                icon: Icons.checkroom_outlined,
+                label: 'Add\nWardrobe',
+                onTap: () => context.goNamed(RouteNames.wardrobe),
+              ),
+              _glassTool(
+                icon: Icons.face_rounded,
+                label: 'Hairstyle\nStudio',
+                onTap: () => context.pushNamed(RouteNames.hairstyle),
+              ),
+              _glassTool(
+                icon: Icons.lightbulb_outline_rounded,
+                label: 'Style\nTips',
+                onTap: () => context.goNamed(RouteNames.discover),
+              ),
+              _glassTool(
+                icon: Icons.event_outlined,
+                label: 'Event\nStyling',
+                onTap: () => context.goNamed(RouteNames.events),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildGlassActionCard(
-    BuildContext context, {
+  Widget _glassTool({
     required IconData icon,
-    required String title,
-    required String subtitle,
+    required String label,
     required VoidCallback onTap,
   }) {
     return Semantics(
@@ -758,57 +904,55 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
       child: InkWell(
         onTap: onTap,
         borderRadius: FansivibeRadius.mdBorder,
-        child: ClipRRect(
-          borderRadius: FansivibeRadius.mdBorder,
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-              decoration: BoxDecoration(
-                color: FansivibeColors.surfaceContainerLow.withValues(alpha: 0.6),
-                borderRadius: FansivibeRadius.mdBorder,
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: FansivibeColors.primary.withValues(alpha: 0.1),
-                      borderRadius: FansivibeRadius.smBorder,
+        child: Padding(
+          padding: const EdgeInsets.only(right: FansivibeSpacing.sm + 4),
+          child: ClipRRect(
+            borderRadius: FansivibeRadius.mdBorder,
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: Container(
+                width: 88,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 16,
+                  horizontal: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: FansivibeColors.surfaceContainerLow
+                      .withValues(alpha: 0.55),
+                  borderRadius: FansivibeRadius.mdBorder,
+                  border: Border.all(
+                    color: FansivibeColors.primary.withValues(alpha: 0.06),
+                    width: 0.5,
+                  ),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: FansivibeColors.primary.withValues(alpha: 0.1),
+                        borderRadius: FansivibeRadius.smBorder,
+                      ),
+                      child: Icon(
+                        icon, size: 20,
+                        color: FansivibeColors.primary,
+                      ),
                     ),
-                    child: Icon(icon, size: 22, color: FansivibeColors.primary),
-                  ),
-                  SizedBox(width: FansivibeSpacing.md),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          title,
-                          style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        SizedBox(height: FansivibeSpacing.xs),
-                        Text(
-                          subtitle,
-                          style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                            color: FansivibeColors.secondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
+                    SizedBox(height: FansivibeSpacing.sm),
+                    Text(
+                      label,
+                      style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                        color: FansivibeColors.onSurface,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        height: 1.3,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                  ),
-                  Icon(
-                    Icons.arrow_forward_rounded,
-                    size: 18,
-                    color: FansivibeColors.primary.withValues(alpha: 0.6),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -817,23 +961,23 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
     );
   }
 
-  Widget _buildAiInsight() {
+  Widget _buildAiQuote() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(FansivibeSpacing.lg),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            FansivibeColors.primary.withValues(alpha: 0.06),
+            FansivibeColors.primary.withValues(alpha: 0.05),
             FansivibeColors.surfaceContainerLow,
           ],
         ),
         borderRadius: FansivibeRadius.lgBorder,
         border: Border.all(
-          color: FansivibeColors.primary.withValues(alpha: 0.1),
-          width: 1,
+          color: FansivibeColors.primary.withValues(alpha: 0.08),
+          width: 0.5,
         ),
       ),
       child: Column(
@@ -842,24 +986,28 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
-                  color: FansivibeColors.primary.withValues(alpha: 0.12),
+                  color: FansivibeColors.primary.withValues(alpha: 0.1),
                   borderRadius: FansivibeRadius.smBorder,
                 ),
-                child: Icon(
-                  Icons.auto_awesome_rounded,
-                  size: 20,
-                  color: FansivibeColors.primary,
+                child: Center(
+                  child: Icon(
+                    Icons.auto_awesome_rounded,
+                    size: 18,
+                    color: FansivibeColors.primary,
+                  ),
                 ),
               ),
-              SizedBox(width: FansivibeSpacing.md),
+              SizedBox(width: FansivibeSpacing.sm + 4),
               Text(
-                'AI Insight',
+                'AI INSIGHT',
                 style: FansivibeTypography.labelMediumWithFamily.copyWith(
                   color: FansivibeColors.primary,
-                  letterSpacing: 1.2,
-                  fontSize: 11,
+                  letterSpacing: 2.0,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -868,34 +1016,40 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
           Text(
             'Your facial structure pairs exceptionally well with textured hairstyles.',
             style: FansivibeTypography.titleLargeWithFamily.copyWith(
-              fontSize: 18,
+              fontSize: 20,
               height: 1.35,
+              fontWeight: FontWeight.w500,
             ),
           ),
           SizedBox(height: FansivibeSpacing.sm + 4),
           Text(
-            'Based on your face shape analysis, adding volume at the crown creates a balanced proportion with your jawline. Explore hairstyle recommendations to see what works best.',
+            'Adding volume at the crown creates a balanced proportion with your jawline. This is one of several insights generated from your facial analysis.',
             style: FansivibeTypography.bodyMediumWithFamily.copyWith(
               color: FansivibeColors.secondary,
               height: 1.6,
+              fontSize: 14,
             ),
           ),
           SizedBox(height: FansivibeSpacing.md + 4),
-          FansiButton.secondary(
-            label: 'Explore Hairstyles',
-            icon: Icons.arrow_forward_rounded,
-            onPressed: () => context.pushNamed(RouteNames.hairstyle),
-            expanded: false,
+          Row(
+            children: [
+              FansiButton.secondary(
+                label: 'Explore Hairstyles',
+                icon: Icons.arrow_forward_rounded,
+                onPressed: () => context.pushNamed(RouteNames.hairstyle),
+                expanded: false,
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  void _onUnlockCapability(String name) {
+  void _onUnlockHint(String name, String hint) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Coming soon: $name'),
+        content: Text('$name: $hint'),
         backgroundColor: FansivibeColors.surfaceContainerHighest,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
