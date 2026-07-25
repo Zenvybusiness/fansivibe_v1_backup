@@ -1,4 +1,13 @@
 abstract final class RouteNames {
+  static const splash = 'splash';
+  static const entry = 'entry';
+  static const vibeSelect = 'vibe-select';
+  static const cameraPermission = 'camera-permission';
+  static const photoCapture = 'photo-capture';
+  static const aiAnalysis = 'ai-analysis';
+  static const yourAnalysis = 'your-analysis';
+  static const accountCreation = 'account-creation';
+
   static const home = 'home';
   static const dailyOutfit = 'daily-outfit';
   static const discover = 'discover';

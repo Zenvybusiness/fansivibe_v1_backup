@@ -2,6 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/app/router/router_shell.dart';
+import 'package:fansivibe/features/onboarding/presentation/screens/splash_screen.dart';
+import 'package:fansivibe/features/onboarding/presentation/screens/entry_screen.dart';
+import 'package:fansivibe/features/onboarding/presentation/screens/vibe_select_screen.dart';
+import 'package:fansivibe/features/onboarding/presentation/screens/camera_permission_screen.dart';
+import 'package:fansivibe/features/onboarding/presentation/screens/photo_capture_screen.dart';
+import 'package:fansivibe/features/onboarding/presentation/screens/ai_analysis_screen.dart';
+import 'package:fansivibe/features/onboarding/presentation/screens/your_analysis_screen.dart';
+import 'package:fansivibe/features/onboarding/presentation/screens/account_creation_screen.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/presentation/discover_screen.dart';
 import 'package:fansivibe/features/discover/presentation/look_details_screen.dart';
@@ -41,6 +49,49 @@ import 'package:fansivibe/features/wardrobe/presentation/wardrobe_item_details_s
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_screen.dart';
 
 final List<RouteBase> appRoutes = [
+  GoRoute(
+    path: '/splash',
+    name: RouteNames.splash,
+    builder: (context, state) => const SplashScreen(),
+  ),
+  GoRoute(
+    path: '/entry',
+    name: RouteNames.entry,
+    builder: (context, state) => const EntryScreen(),
+  ),
+  GoRoute(
+    path: '/onboarding/vibe',
+    name: RouteNames.vibeSelect,
+    builder: (context, state) => const VibeSelectScreen(),
+  ),
+  GoRoute(
+    path: '/onboarding/camera-permission',
+    name: RouteNames.cameraPermission,
+    builder: (context, state) => const CameraPermissionScreen(),
+  ),
+  GoRoute(
+    path: '/onboarding/photo-capture',
+    name: RouteNames.photoCapture,
+    builder: (context, state) {
+      final extra = state.extra as Map<String, dynamic>?;
+      return PhotoCaptureScreen(source: extra?['source'] as String?);
+    },
+  ),
+  GoRoute(
+    path: '/onboarding/analysis',
+    name: RouteNames.aiAnalysis,
+    builder: (context, state) => const AiAnalysisScreen(),
+  ),
+  GoRoute(
+    path: '/onboarding/result',
+    name: RouteNames.yourAnalysis,
+    builder: (context, state) => const YourAnalysisScreen(),
+  ),
+  GoRoute(
+    path: '/onboarding/account',
+    name: RouteNames.accountCreation,
+    builder: (context, state) => const AccountCreationScreen(),
+  ),
   StatefulShellRoute.indexedStack(
     builder: (context, state, navigationShell) {
       return RouterShell(navigationShell: navigationShell);
@@ -51,7 +102,10 @@ final List<RouteBase> appRoutes = [
           GoRoute(
             path: '/home',
             name: RouteNames.home,
-            builder: (context, state) => const HomeScreen(),
+            builder: (context, state) {
+              final extra = state.extra as Map<String, dynamic>?;
+              return HomeScreen(onboardingData: extra);
+            },
             routes: [
               GoRoute(
                 path: 'daily-outfit',
@@ -334,6 +388,6 @@ final List<RouteBase> appRoutes = [
 ];
 
 final GoRouter appRouter = GoRouter(
-  initialLocation: '/home',
+  initialLocation: '/entry',
   routes: appRoutes,
 );
