@@ -1,7 +1,108 @@
 # Fansivibe Current State
 
-Last Updated: 2026-07-30
-Updated By: opencode agent (UI Polish & Fixes round — fonts, color tokens, dead code removal, router error handling)
+Last Updated: 2026-08-01
+Updated By: opencode agent (Value-first Entry screen redesign + returning-user account gate)
+
+## Changes Made — Professional Entry Screen Redesign (edit)
+
+### Modified: `lib/features/onboarding/presentation/screens/entry_screen.dart`
+
+Replaced the over-decorated "atelier" treatment with a restrained, professional
+first-launch screen. Removed competing decoration (viewfinder corners, aura
+gauge, star field, glow orbs, diamond bullets) in favor of one focal point and
+clear type hierarchy. All routes/behavior unchanged.
+
+**Design changes:**
+- **Wordmark**: clean two-line lockup — serif FANSIVIBE (26px, tracked) over
+  gold "APPEARANCE INTELLIGENCE" label. Dropped the pill badge.
+- **Mirror focal point** (new): single 148px breathing ring with soft radial
+  glow and person glyph — the only decorative element, animated via a subtle
+  `_breathController` (0.45→0.85 alpha, 2.8s easeInOut).
+- **Headline**: "Your best style, / *discovered by AI.*" — italic gold
+  second line; dropped the 3-line manifesto block.
+- **Value statement**: one muted line "Look better. Dress smarter. Build
+  confidence." in place of diamond bullets + verbose support copy.
+- **CTA stack**: `Analyze My Style` (primary) + `Explore Without Scanning`
+  (secondary) — now the clear visual anchor.
+- **Account gate**: no card — hairline divider + "Already have a Fansivibe
+  account?" + two equal ghost pills (`Sign In` / `Continue as New User`).
+- **Privacy note**: lock + label retained, switched to `Wrap` to eliminate a
+  26px RenderFlex overflow under large text scale.
+- Motion: single clean fade+slide `_Reveal` (8–12px) stagger over 1200ms;
+  `TickerProviderStateMixin` retained for the two controllers.
+
+### Validation
+
+- `dart format`: passed
+- `flutter analyze` (onboarding): 0 issues
+- Tests: 220 passed, 87 failed (pre-existing baseline; 0 overflow exceptions, 0 entry failures)
+
+## Changes Made — Creative "Digital Atelier" Entry Screen Redesign
+
+### Modified: `lib/features/onboarding/presentation/screens/entry_screen.dart`
+
+Elevated the first-launch screen into an editorial, art-directed experience while
+keeping all routes, behavior, and the value-first + account-gate flow intact.
+
+**Design changes:**
+- **Ambient backdrop**: two large radial gold `_GlowOrb`s + 4 scattered `_Star`s
+  behind the content, breathing via a looping `_glowController`.
+- **Logo badge**: pill tag "AI APPEARANCE INTELLIGENCE" (gold dot) above a large
+  serif FANSIVIBE wordmark.
+- **Hero visual** (new): a 232px "analysis viewfinder" card with corner brackets
+  (`_CornerPainter`), a live gold aura gauge (`_AuraPainter`, 64% arc with a
+  pulsing end dot driven by the glow animation), sparkle icons, and a circular
+  silhouette avatar — arriving with an `easeOutBack` scale-in.
+- **Headline**: serif "Know your **style** *before you dress.*" with "style" in
+  italic gold.
+- **Manifesto**: three diamond-bulleted lines — Look better. / Dress smarter. /
+  Build confidence.
+- **Support copy** replaced with AI-powered style/grooming/color line.
+- **Account gate**: now a glass `surfaceContainerLow` card (`mdBorder` + hairline
+  outline) holding "Do you already have a Fansivibe account?" with `Sign In` /
+  `New Here` pill buttons.
+- All tokens (`FansivibeColors/Typography/Spacing/Radius`) only; responsive
+  `LayoutBuilder` + staggered animations preserved.
+
+**Bug fix**: switched State mixin from `SingleTickerProviderStateMixin` →
+`TickerProviderStateMixin` (two controllers now run).
+
+### Validation
+
+- `dart format`: passed
+- `flutter analyze` (onboarding): 0 issues
+- Tests: 220 passed, 87 failed (same pre-existing baseline, no entry-related failures)
+
+## Changes Made — Value-First Entry Screen & Returning-User Gate
+
+### Modified: `lib/features/onboarding/presentation/screens/entry_screen.dart`
+
+Redesigned the first-launch screen to lead with the value proposition instead of
+a generic "Get Started" (already value-led, now a full visual redesign).
+
+**Design changes:**
+- **Headline**: "AI-powered Style, Grooming & Appearance Intelligence"
+- **Value statements**: "Look better. / Dress smarter. / Build confidence." (gold
+  editorial lines) + one-line supporting copy
+- **Removed** the old `_HeroIllustration` graphic → minimal text-forward layout
+- **Primary CTA**: `Analyze My Style` → photo path (`vibeSelect`, `photoPath: true`)
+- **Secondary CTA**: `Explore Without Scanning` → light path (`photoPath: false`) — kept
+- **Account gate** (new, replaces old Sign In section): "Do you already have a
+  Fansivibe account?" with two side-by-side buttons:
+  - `Sign In` → Home (mock, unchanged)
+  - `Continue as New User` → photo path (same route as Analyze My Style)
+- **Privacy note** retained at bottom; staggered entrance animations, design
+  tokens (`FansivibeColors/Typography/Spacing/Radius`), and responsive
+  `LayoutBuilder` layout preserved.
+
+**No routing changes** — the gate lives on the Entry screen itself; save step
+still routes straight to `AccountCreationScreen`.
+
+### Validation
+
+- `dart format`: passed
+- `flutter analyze` (onboarding): 0 issues
+- Tests: 220 passed, 87 failed (same pre-existing baseline, no new failures)
 
 ## Phase
 
