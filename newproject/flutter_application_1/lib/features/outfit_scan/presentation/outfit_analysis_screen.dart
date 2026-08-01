@@ -180,10 +180,10 @@ class OutfitAnalysisScreen extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
+                color: FansivibeColors.success.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+                  color: FansivibeColors.success.withValues(alpha: 0.3),
                 ),
               ),
               child: Row(
@@ -192,13 +192,13 @@ class OutfitAnalysisScreen extends StatelessWidget {
                   Icon(
                     Icons.check_circle_rounded,
                     size: 14,
-                    color: const Color(0xFF4CAF50),
+                    color: FansivibeColors.success,
                   ),
                   const SizedBox(width: 6),
                   Text(
                     'Analysis Ready',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF4CAF50),
+                      color: FansivibeColors.success,
                       fontWeight: FontWeight.w600,
                       fontSize: 11,
                     ),

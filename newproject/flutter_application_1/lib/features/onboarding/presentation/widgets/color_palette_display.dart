@@ -26,9 +26,7 @@ class ColorPaletteDisplay extends StatelessWidget {
             for (int i = 0; i < swatches.length; i++)
               Padding(
                 padding: EdgeInsets.only(
-                  right: i < swatches.length - 1
-                      ? FansivibeSpacing.sm + 4
-                      : 0,
+                  right: i < swatches.length - 1 ? FansivibeSpacing.sm + 4 : 0,
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,

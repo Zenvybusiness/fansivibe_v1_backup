@@ -97,51 +97,60 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: contentMaxWidth),
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: horizontalPadding,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         SizedBox(height: FansivibeSpacing.lg),
                         _buildScoreSection(),
                         SizedBox(height: FansivibeSpacing.xl),
-                        _buildAnimatedSection(_paletteAnim,
+                        _buildAnimatedSection(
+                          _paletteAnim,
                           ColorPaletteDisplay(swatches: _mockPalette),
                         ),
                         SizedBox(height: FansivibeSpacing.xl),
                         Text(
                           'AI Insights',
-                          style: FansivibeTypography.headlineMediumWithFamily.copyWith(
-                            fontSize: 20,
-                          ),
+                          style: FansivibeTypography.headlineMediumWithFamily
+                              .copyWith(fontSize: 20),
                         ),
                         SizedBox(height: FansivibeSpacing.md),
-                        _buildAnimatedSection(_insight1Anim,
+                        _buildAnimatedSection(
+                          _insight1Anim,
                           const AnalysisInsightCard(
                             icon: Icons.accessibility_new_rounded,
                             title: 'Strong Silhouette',
-                            body: 'Your balanced proportions create a clean foundation. Structured shoulders enhance your natural frame.',
+                            body:
+                                'Your balanced proportions create a clean foundation. Structured shoulders enhance your natural frame.',
                           ),
                         ),
                         SizedBox(height: FansivibeSpacing.sm + 4),
-                        _buildAnimatedSection(_insight2Anim,
+                        _buildAnimatedSection(
+                          _insight2Anim,
                           const AnalysisInsightCard(
                             icon: Icons.palette_outlined,
                             title: 'Color Harmony',
-                            body: 'Your palette leans toward warm neutrals. Jewel tones would add depth while maintaining your refined aesthetic.',
+                            body:
+                                'Your palette leans toward warm neutrals. Jewel tones would add depth while maintaining your refined aesthetic.',
                           ),
                         ),
                         SizedBox(height: FansivibeSpacing.sm + 4),
-                        _buildAnimatedSection(_insight3Anim,
+                        _buildAnimatedSection(
+                          _insight3Anim,
                           const AnalysisInsightCard(
                             icon: Icons.tune_rounded,
                             title: 'Refinement Tip',
-                            body: 'Try a tapered hem on your trousers for a cleaner line from waist to shoe. Small adjustments, big impact.',
+                            body:
+                                'Try a tapered hem on your trousers for a cleaner line from waist to shoe. Small adjustments, big impact.',
                           ),
                         ),
                         SizedBox(height: FansivibeSpacing.xl),
                         _buildProgressSection(),
                         SizedBox(height: FansivibeSpacing.xl),
-                        _buildAnimatedSection(_ctaAnim,
+                        _buildAnimatedSection(
+                          _ctaAnim,
                           Column(
                             children: [
                               FansiButton.primary(
@@ -186,7 +195,8 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   }
 
   Widget _buildScoreSection() {
-    return _buildAnimatedSection(_scoreAnim,
+    return _buildAnimatedSection(
+      _scoreAnim,
       Center(
         child: Column(
           children: [
@@ -206,10 +216,7 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  AnimatedScoreCounter(
-                    targetScore: _mockScore,
-                    fontSize: 64,
-                  ),
+                  AnimatedScoreCounter(targetScore: _mockScore, fontSize: 64),
                   Text(
                     'Style Score',
                     style: FansivibeTypography.labelMediumWithFamily.copyWith(
@@ -234,7 +241,8 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   }
 
   Widget _buildProgressSection() {
-    return _buildAnimatedSection(_progressAnim,
+    return _buildAnimatedSection(
+      _progressAnim,
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

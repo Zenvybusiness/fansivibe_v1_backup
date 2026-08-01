@@ -1,7 +1,7 @@
 # Fansivibe Current State
 
-Last Updated: 2026-07-26
-Updated By: opencode agent (redesigned DailyOutfitScreen as Today's Look flagship experience)
+Last Updated: 2026-07-30
+Updated By: opencode agent (UI Polish & Fixes round — fonts, color tokens, dead code removal, router error handling)
 
 ## Phase
 
@@ -38,8 +38,8 @@ preserve original data flow, navigation, and state. All use `FansivibeTypography
 ## Repository Facts
 
 - **Flutter project at**: `newproject/flutter_application_1`
-- **Dart files**: 65 (`lib/`) + 25 (`test/`)
-- **Total lines**: ~21,460
+- **Dart files**: 62 (`lib/`) + 25 (`test/`)
+- **Total lines**: ~21,000
 - **Features**: 10 (`home`, `discover`, `stylist`, `wardrobe`, `outfit_scan`, `outfit_builder`, `hairstyle`, `grooming`, `events`, `profile`)
 - **Mock data files**: 10 (`data/` directories across features)
 - **Shared widgets**: 7 files (`fansi_button.dart`, `fansi_badge.dart`, `fansi_chip.dart`, `fansivibe_card.dart`, `section_title.dart`, `score_colors.dart`, `icon_utils.dart`)
@@ -257,23 +257,49 @@ Skill used: `dart-run-static-analysis`
 - Simplified conditional rendering for light path vs returning user
 - Removed unused `onboarding_data.dart` import
 
+## Changes Made — UI Polish & Fixes Round
+
+### Fonts Bundled
+- Downloaded and registered **Noto Serif** (variable) and **Inter** (variable) fonts
+- Font files at `assets/fonts/NotoSerif-Variable.ttf` and `assets/fonts/Inter-Variable.ttf`
+- Updated `pubspec.yaml` with font declarations
+- Updated `fansivibe_typography.dart` to use bundled fonts as defaults (was falling back to system serif/sans-serif)
+
+### Hardcoded Colors Replaced
+- Replaced all `Color(0xFF4CAF50)` → `FansivibeColors.success` (17 files)
+- Replaced all `Color(0xFFFF9800)` → `FansivibeColors.warning` (4 files)
+- Replaced all `Color(0xFFF44336)` → `FansivibeColors.error` (4 files)
+- Updated `score_colors.dart` utility to use semantic tokens
+- Files affected: `profile_widgets.dart`, `look_details_widgets.dart`, `outfit_generation_screen.dart`, `home_widgets.dart`, `outfit_scan_widgets.dart`, `outfit_analysis_screen.dart`, `outfit_processing_screen.dart`, `face_processing_screen.dart`, `hairstyle_details_screen.dart`, `hairstyle_widgets.dart`, `hairstyle_result_screen.dart`, `outfit_recommendation_screen.dart`, `grooming_details_screen.dart`, `grooming_processing_screen.dart`, `grooming_widgets.dart`, `grooming_result_screen.dart`
+
+### Dead Code Removed
+- Deleted `lib/app/main_shell.dart` (unused — router uses `router_shell.dart`)
+- Deleted `lib/features/entry/` (duplicate pre-onboarding EntryScreen — onboarding version is active)
+
+### Router Error Handling
+- Replaced all `const SizedBox()` blank-screen returns (9 occurrences) with `_missingDataScreen()` / `_missingDataScreenWithText()` using `FansiErrorView`
+- Files affected: `app_router.dart` (look-details, outfit-generation, hairstyle-details, grooming screens, event-details, wardrobe-add-item, wardrobe-item-details)
+
+### FansivibeCard API Cleanup
+- Removed deprecated `borderColor` parameter from `FansivibeCard` (was already documented as "NOT rendered")
+- Updated callers: `home_widgets.dart` removed borderColor, `subscription_screen.dart` replaced with `variant` parameter
+- Added `CardVariant.high` usage for popular subscription plan
+
 ## Remaining Audit Issues
 
 1. **No state management**: All state is local `setState` (not in scope)
 2. **No domain layer**: No `domain/` directory in any feature (not in scope)
-3. **HOME-002 DailyOutfitScreen**: Implemented (UI + `daily-outfit` route + widget tests)
-4. **Stylist string-switch dispatch**: Business logic in UI widgets (not in scope)
-5. **Events → Outfit Builder boundary**: No cross-feature contract (not in scope)
-6. **43 new test failures**: Caused by routing changes (new entry screen, home screen
-   accepting onboarding data). Tests use `const FansivibeApp()` (default router) instead
-   of isolated `GoRouter` instances with explicit `initialLocation`. Fix: update tests
-   to use factory functions with `/home` initial location.
-7. **Mock data**: All onboarding analysis data is currently hardcoded mock values.
-   Needs real AI integration.
-8. **Photo capture**: Camera/gallery functionality is simulated (placeholder UI).
-   Needs platform channel integration.
-9. **Splash routing**: Splash screen route exists but initialLocation is `/entry` to
-   maintain test compatibility. Splash can be set as initialLocation when tests are updated.
+3. **Stylist string-switch dispatch**: Business logic in UI widgets (not in scope)
+4. **Events → Outfit Builder boundary**: No cross-feature contract (not in scope)
+5. **87 failing tests**: Same pre-existing issues (home screen onboarding data, entry screen routing). Not introduced by this round.
+6. **Mock data**: All onboarding analysis data is currently hardcoded mock values.
+    Needs real AI integration.
+7. **Photo capture**: Camera/gallery functionality is simulated (placeholder UI).
+    Needs platform channel integration.
+8. **Splash routing**: Splash screen route exists but initialLocation is `/entry` to
+    maintain test compatibility.
+9. **Naming inconsistency**: `FansiButton` vs `FansivibeCard` prefix mismatch (deferred).
+10. **Mega-widget files**: `home_widgets.dart` (1,277 lines) and others still need splitting (deferred).
 
 ## Handoff
 

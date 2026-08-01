@@ -59,13 +59,20 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
       duration: const Duration(milliseconds: 800),
     );
     _questionAnim = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _animController, curve: const Interval(0.0, 0.3, curve: Curves.easeOut)),
+      CurvedAnimation(
+        parent: _animController,
+        curve: const Interval(0.0, 0.3, curve: Curves.easeOut),
+      ),
     );
     _cardAnims = List.generate(6, (i) {
       return Tween<double>(begin: 0, end: 1).animate(
         CurvedAnimation(
           parent: _animController,
-          curve: Interval(0.15 + i * 0.08, 0.6 + i * 0.05, curve: Curves.easeOut),
+          curve: Interval(
+            0.15 + i * 0.08,
+            0.6 + i * 0.05,
+            curve: Curves.easeOut,
+          ),
         ),
       );
     });
@@ -88,16 +95,12 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
   }
 
   void _onContinue() {
-    final route = _photoPath
-        ? RouteNames.cameraPermission
-        : RouteNames.home;
+    final route = _photoPath ? RouteNames.cameraPermission : RouteNames.home;
     context.goNamed(route, extra: {'vibe': _selected?.name});
   }
 
   void _onSkip() {
-    final route = _photoPath
-        ? RouteNames.cameraPermission
-        : RouteNames.home;
+    final route = _photoPath ? RouteNames.cameraPermission : RouteNames.home;
     context.goNamed(route, extra: {'vibe': null});
   }
 
@@ -118,7 +121,9 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: contentMaxWidth),
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: horizontalPadding,
+                    ),
                     child: Column(
                       children: [
                         SizedBox(height: FansivibeSpacing.xl + 8),
@@ -132,17 +137,18 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
                                   Text(
                                     'Which style feels\nmost like you?',
                                     textAlign: TextAlign.center,
-                                    style: FansivibeTypography.headlineMediumWithFamily.copyWith(
-                                      fontSize: 28,
-                                      height: 1.2,
-                                    ),
+                                    style: FansivibeTypography
+                                        .headlineMediumWithFamily
+                                        .copyWith(fontSize: 28, height: 1.2),
                                   ),
                                   SizedBox(height: FansivibeSpacing.sm),
                                   Text(
                                     'Choose one that resonates',
-                                    style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                                      color: FansivibeColors.secondary,
-                                    ),
+                                    style: FansivibeTypography
+                                        .bodyMediumWithFamily
+                                        .copyWith(
+                                          color: FansivibeColors.secondary,
+                                        ),
                                   ),
                                 ],
                               ),
@@ -164,7 +170,10 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
                               animation: _cardAnims[i],
                               builder: (context, _) {
                                 return Transform.translate(
-                                  offset: Offset(0, 60 * (1 - _cardAnims[i].value)),
+                                  offset: Offset(
+                                    0,
+                                    60 * (1 - _cardAnims[i].value),
+                                  ),
                                   child: Opacity(
                                     opacity: _cardAnims[i].value,
                                     child: VibeCard(
@@ -173,7 +182,9 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
                                       lineOffsets: visual.lineOffsets,
                                       isSelected: _selected == vibe,
                                       onTap: () => setState(() {
-                                        _selected = (_selected == vibe) ? null : vibe;
+                                        _selected = (_selected == vibe)
+                                            ? null
+                                            : vibe;
                                       }),
                                     ),
                                   ),

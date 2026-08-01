@@ -13,8 +13,8 @@ abstract final class FansivibeTypography {
   // ── Font families (swap strings when fonts are bundled) ──
   static const String displayFamily = 'Noto Serif';
   static const String textFamily = 'Inter';
-  static const String _displayFallback = 'serif';
-  static const String _textFallback = 'sans-serif';
+  static const String _displayFallback = 'Noto Serif';
+  static const String _textFallback = 'Inter';
 
   static String get _display => displayFamily;
   static String get _text => textFamily;

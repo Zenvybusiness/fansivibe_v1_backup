@@ -230,7 +230,7 @@ class OutfitRecommendationScreen extends StatelessWidget {
           icon: Icons.event_outlined,
           title: 'Occasion Match',
           description: rec.occasionMatch,
-          accentColor: const Color(0xFF4CAF50),
+          accentColor: FansivibeColors.success,
         ),
       ],
     );
@@ -301,7 +301,7 @@ class OutfitRecommendationScreen extends StatelessWidget {
         color: FansivibeColors.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: const Color(0xFFFF9800).withValues(alpha: 0.2),
+          color: FansivibeColors.warning.withValues(alpha: 0.2),
         ),
       ),
       child: Row(
@@ -310,13 +310,13 @@ class OutfitRecommendationScreen extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFFFF9800).withValues(alpha: 0.1),
+              color: FansivibeColors.warning.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(
               Icons.lightbulb_outline_rounded,
               size: 20,
-              color: Color(0xFFFF9800),
+              color: FansivibeColors.warning,
             ),
           ),
           const SizedBox(width: 14),

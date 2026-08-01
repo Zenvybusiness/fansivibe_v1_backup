@@ -127,7 +127,9 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen>
                           Icon(
                             Icons.image_rounded,
                             size: 40,
-                            color: FansivibeColors.primary.withValues(alpha: 0.3),
+                            color: FansivibeColors.primary.withValues(
+                              alpha: 0.3,
+                            ),
                           ),
                           Positioned(
                             bottom: 16,
@@ -221,7 +223,9 @@ class _CaptureButton extends StatelessWidget {
             height: isPrimary ? 72 : 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isPrimary ? Colors.white : Colors.white.withValues(alpha: 0.2),
+              color: isPrimary
+                  ? Colors.white
+                  : Colors.white.withValues(alpha: 0.2),
               border: isPrimary
                   ? Border.all(color: FansivibeColors.primary, width: 3)
                   : null,
@@ -229,7 +233,8 @@ class _CaptureButton extends StatelessWidget {
             child: Center(
               child: isPrimary
                   ? Container(
-                      width: 62, height: 62,
+                      width: 62,
+                      height: 62,
                       decoration: const BoxDecoration(
                         shape: BoxShape.circle,
                         color: Colors.white,
@@ -240,7 +245,10 @@ class _CaptureButton extends StatelessWidget {
           ),
           if (label.isNotEmpty) ...[
             const SizedBox(height: 4),
-            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
           ],
         ],
       ),
@@ -262,12 +270,16 @@ class _SilhouettePainter extends CustomPainter {
     final path = Path()
       ..moveTo(size.width * 0.5, size.height * 0.08)
       ..quadraticBezierTo(
-        size.width * 0.75, size.height * 0.08,
-        size.width * 0.75, size.height * 0.22,
+        size.width * 0.75,
+        size.height * 0.08,
+        size.width * 0.75,
+        size.height * 0.22,
       )
       ..quadraticBezierTo(
-        size.width * 0.78, size.height * 0.35,
-        size.width * 0.75, size.height * 0.48,
+        size.width * 0.78,
+        size.height * 0.35,
+        size.width * 0.75,
+        size.height * 0.48,
       )
       ..lineTo(size.width * 0.8, size.height * 0.55)
       ..lineTo(size.width * 0.72, size.height * 0.6)
@@ -281,12 +293,16 @@ class _SilhouettePainter extends CustomPainter {
       ..lineTo(size.width * 0.2, size.height * 0.55)
       ..lineTo(size.width * 0.25, size.height * 0.48)
       ..quadraticBezierTo(
-        size.width * 0.22, size.height * 0.35,
-        size.width * 0.25, size.height * 0.22,
+        size.width * 0.22,
+        size.height * 0.35,
+        size.width * 0.25,
+        size.height * 0.22,
       )
       ..quadraticBezierTo(
-        size.width * 0.25, size.height * 0.08,
-        size.width * 0.5, size.height * 0.08,
+        size.width * 0.25,
+        size.height * 0.08,
+        size.width * 0.5,
+        size.height * 0.08,
       )
       ..close();
 

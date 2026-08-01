@@ -84,7 +84,9 @@ class _CameraPermissionScreenState extends State<CameraPermissionScreen>
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: contentMaxWidth),
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: horizontalPadding,
+                    ),
                     child: Column(
                       children: [
                         SizedBox(height: FansivibeSpacing.xxl + 8),
@@ -103,23 +105,32 @@ class _CameraPermissionScreenState extends State<CameraPermissionScreen>
                                 Icon(
                                   Icons.camera_alt_outlined,
                                   size: 64,
-                                  color: FansivibeColors.primary.withValues(alpha: 0.3),
-                                ),
-                                Positioned(
-                                  top: 36, right: 36,
-                                  child: Icon(
-                                    Icons.lock_outline_rounded,
-                                    size: 20,
-                                    color: FansivibeColors.primary.withValues(alpha: 0.6),
+                                  color: FansivibeColors.primary.withValues(
+                                    alpha: 0.3,
                                   ),
                                 ),
                                 Positioned(
-                                  bottom: 36, left: 36,
+                                  top: 36,
+                                  right: 36,
+                                  child: Icon(
+                                    Icons.lock_outline_rounded,
+                                    size: 20,
+                                    color: FansivibeColors.primary.withValues(
+                                      alpha: 0.6,
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  bottom: 36,
+                                  left: 36,
                                   child: Container(
-                                    width: 8, height: 8,
+                                    width: 8,
+                                    height: 8,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      color: FansivibeColors.success.withValues(alpha: 0.5),
+                                      color: FansivibeColors.success.withValues(
+                                        alpha: 0.5,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -135,29 +146,38 @@ class _CameraPermissionScreenState extends State<CameraPermissionScreen>
                               Text(
                                 'One Photo Is\nAll It Takes',
                                 textAlign: TextAlign.center,
-                                style: FansivibeTypography.headlineMediumWithFamily.copyWith(
-                                  fontSize: 28,
-                                  height: 1.2,
-                                ),
+                                style: FansivibeTypography
+                                    .headlineMediumWithFamily
+                                    .copyWith(fontSize: 28, height: 1.2),
                               ),
                               SizedBox(height: FansivibeSpacing.md),
                               Text(
                                 'AI analyzes your look and suggests improvements.\nNo data is stored without your permission.',
                                 textAlign: TextAlign.center,
-                                style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                                  color: FansivibeColors.secondary,
-                                  height: 1.5,
-                                ),
+                                style: FansivibeTypography.bodyMediumWithFamily
+                                    .copyWith(
+                                      color: FansivibeColors.secondary,
+                                      height: 1.5,
+                                    ),
                               ),
                             ],
                           ),
                         ),
                         SizedBox(height: FansivibeSpacing.xl),
-                        _TrustItem(anim: _trust1Anim, text: 'Your photo is analyzed and stored securely.'),
+                        _TrustItem(
+                          anim: _trust1Anim,
+                          text: 'Your photo is analyzed and stored securely.',
+                        ),
                         SizedBox(height: FansivibeSpacing.sm + 4),
-                        _TrustItem(anim: _trust2Anim, text: 'Only you decide what to share and save.'),
+                        _TrustItem(
+                          anim: _trust2Anim,
+                          text: 'Only you decide what to share and save.',
+                        ),
                         SizedBox(height: FansivibeSpacing.sm + 4),
-                        _TrustItem(anim: _trust3Anim, text: 'We never post or share your images.'),
+                        _TrustItem(
+                          anim: _trust3Anim,
+                          text: 'We never post or share your images.',
+                        ),
                         SizedBox(height: FansivibeSpacing.xl),
                         _AnimatedSection(
                           anim: _ctaAnim,

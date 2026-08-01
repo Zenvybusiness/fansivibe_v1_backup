@@ -84,26 +84,17 @@ class _EntryScreenState extends State<EntryScreen>
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: contentMaxWidth),
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: horizontalPadding,
+                    ),
                     child: Column(
                       children: [
                         SizedBox(height: FansivibeSpacing.xxl),
-                        _buildAnimatedOpacity(
-                          _logoAnim,
-                          _Logo(),
-                        ),
+                        _buildAnimatedOpacity(_logoAnim, _Logo()),
                         SizedBox(height: FansivibeSpacing.xxxl),
-                        _buildAnimatedSlide(
-                          _headlineAnim,
-                          _Headline(),
-                          30,
-                        ),
+                        _buildAnimatedSlide(_headlineAnim, _Headline(), 30),
                         SizedBox(height: FansivibeSpacing.md),
-                        _buildAnimatedSlide(
-                          _subtitleAnim,
-                          _Subtitle(),
-                          20,
-                        ),
+                        _buildAnimatedSlide(_subtitleAnim, _Subtitle(), 20),
                         SizedBox(height: FansivibeSpacing.xl + 8),
                         _buildAnimatedOpacity(
                           _illustrationAnim,
@@ -145,7 +136,11 @@ class _EntryScreenState extends State<EntryScreen>
     );
   }
 
-  Widget _buildAnimatedSlide(Animation<double> anim, Widget child, double offset) {
+  Widget _buildAnimatedSlide(
+    Animation<double> anim,
+    Widget child,
+    double offset,
+  ) {
     return AnimatedBuilder(
       animation: anim,
       builder: (context, _) {
@@ -221,9 +216,11 @@ class _HeroIllustration extends StatelessWidget {
           alignment: Alignment.center,
           children: [
             Positioned(
-              top: -40, right: -40,
+              top: -40,
+              right: -40,
               child: Container(
-                width: 160, height: 160,
+                width: 160,
+                height: 160,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: FansivibeColors.primary.withValues(alpha: 0.04),
@@ -231,9 +228,11 @@ class _HeroIllustration extends StatelessWidget {
               ),
             ),
             Positioned(
-              bottom: -30, left: -30,
+              bottom: -30,
+              left: -30,
               child: Container(
-                width: 130, height: 130,
+                width: 130,
+                height: 130,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: FansivibeColors.primary.withValues(alpha: 0.03),
@@ -241,7 +240,8 @@ class _HeroIllustration extends StatelessWidget {
               ),
             ),
             Container(
-              width: 140, height: 140,
+              width: 140,
+              height: 140,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
@@ -255,7 +255,8 @@ class _HeroIllustration extends StatelessWidget {
               ),
             ),
             Container(
-              width: 80, height: 80,
+              width: 80,
+              height: 80,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: FansivibeColors.surfaceContainerHighest,
@@ -267,7 +268,8 @@ class _HeroIllustration extends StatelessWidget {
               ),
             ),
             Positioned(
-              top: 52, right: 56,
+              top: 52,
+              right: 56,
               child: Icon(
                 Icons.auto_awesome,
                 size: 18,
@@ -275,7 +277,8 @@ class _HeroIllustration extends StatelessWidget {
               ),
             ),
             Positioned(
-              top: 80, left: 52,
+              top: 80,
+              left: 52,
               child: Icon(
                 Icons.star_outline_rounded,
                 size: 14,
@@ -283,7 +286,8 @@ class _HeroIllustration extends StatelessWidget {
               ),
             ),
             Positioned(
-              bottom: 56, right: 64,
+              bottom: 56,
+              right: 64,
               child: Icon(
                 Icons.star_outline_rounded,
                 size: 12,
@@ -291,9 +295,11 @@ class _HeroIllustration extends StatelessWidget {
               ),
             ),
             Positioned(
-              bottom: 72, left: 60,
+              bottom: 72,
+              left: 60,
               child: Container(
-                width: 6, height: 6,
+                width: 6,
+                height: 6,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: FansivibeColors.primary.withValues(alpha: 0.25),

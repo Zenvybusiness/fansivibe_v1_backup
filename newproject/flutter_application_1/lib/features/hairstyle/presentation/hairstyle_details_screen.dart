@@ -72,7 +72,7 @@ class HairstyleDetailsScreen extends StatelessWidget {
                           Icons.content_cut_rounded,
                           'Maintenance',
                           recommendation.maintenance,
-                          const Color(0xFF4CAF50),
+                          FansivibeColors.success,
                         ),
                         const SizedBox(height: 12),
 
@@ -129,10 +129,10 @@ class HairstyleDetailsScreen extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
+            color: FansivibeColors.success.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+              color: FansivibeColors.success.withValues(alpha: 0.3),
             ),
           ),
           child: Column(
@@ -141,13 +141,13 @@ class HairstyleDetailsScreen extends StatelessWidget {
                 '$percentage%',
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: const Color(0xFF4CAF50),
+                  color: FansivibeColors.success,
                 ),
               ),
               Text(
                 'match',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF4CAF50),
+                  color: FansivibeColors.success,
                   fontSize: 10,
                 ),
               ),

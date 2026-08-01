@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/app/router/router_shell.dart';
+import 'package:fansivibe/shared/components/fansi_error_view.dart';
+import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/splash_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/entry_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/vibe_select_screen.dart';
@@ -47,6 +49,23 @@ import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_category_s
 import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_item_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_item_details_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_screen.dart';
+
+Widget _missingDataScreen() {
+  return Scaffold(
+    backgroundColor: FansivibeColors.surface,
+    body: const FansiErrorView(
+      message:
+          'Could not load the requested content. Please go back and try again.',
+    ),
+  );
+}
+
+Widget _missingDataScreenWithText(String label) {
+  return Scaffold(
+    backgroundColor: FansivibeColors.surface,
+    body: FansiErrorView(message: label),
+  );
+}
 
 final List<RouteBase> appRoutes = [
   GoRoute(
@@ -130,7 +149,7 @@ final List<RouteBase> appRoutes = [
                   final look = state.extra as DiscoverLookData?;
                   return look != null
                       ? LookDetailsScreen(look: look)
-                      : const SizedBox();
+                      : _missingDataScreen();
                 },
               ),
             ],
@@ -183,7 +202,10 @@ final List<RouteBase> appRoutes = [
                     name: RouteNames.outfitGeneration,
                     builder: (context, state) {
                       final data = state.extra as Map<String, String>?;
-                      if (data == null) return const SizedBox();
+                      if (data == null)
+                        return _missingDataScreenWithText(
+                          'Missing outfit preferences.',
+                        );
                       return OutfitGenerationScreen(
                         occasion: data['occasion']!,
                         mood: data['mood']!,
@@ -245,7 +267,10 @@ final List<RouteBase> appRoutes = [
                     name: RouteNames.groomingProcessing,
                     builder: (context, state) {
                       final data = state.extra as Map<String, String>?;
-                      if (data == null) return const SizedBox();
+                      if (data == null)
+                        return _missingDataScreenWithText(
+                          'Missing grooming data.',
+                        );
                       return GroomingProcessingScreen(
                         faceShape: data['faceShape']!,
                         beardStyle: data['beardStyle']!,
@@ -259,7 +284,10 @@ final List<RouteBase> appRoutes = [
                         name: RouteNames.groomingResult,
                         builder: (context, state) {
                           final data = state.extra as Map<String, String>?;
-                          if (data == null) return const SizedBox();
+                          if (data == null)
+                            return _missingDataScreenWithText(
+                              'Missing grooming data.',
+                            );
                           return GroomingResultScreen(
                             faceShape: data['faceShape']!,
                             beardStyle: data['beardStyle']!,
@@ -276,7 +304,7 @@ final List<RouteBase> appRoutes = [
                                   state.extra as GroomingRecommendation?;
                               return rec != null
                                   ? GroomingDetailsScreen(recommendation: rec)
-                                  : const SizedBox();
+                                  : _missingDataScreen();
                             },
                           ),
                         ],
@@ -302,7 +330,7 @@ final List<RouteBase> appRoutes = [
                       final event = state.extra as UserEvent?;
                       return event != null
                           ? EventDetailsScreen(event: event)
-                          : const SizedBox();
+                          : _missingDataScreen();
                     },
                   ),
                 ],
@@ -330,7 +358,7 @@ final List<RouteBase> appRoutes = [
                   final category = state.extra as AddItemCategoryConfig?;
                   return category != null
                       ? AddWardrobeItemScreen(category: category)
-                      : const SizedBox();
+                      : _missingDataScreen();
                 },
               ),
               GoRoute(
@@ -340,7 +368,7 @@ final List<RouteBase> appRoutes = [
                   final item = state.extra as WardrobeItemData?;
                   return item != null
                       ? WardrobeItemDetailsScreen(item: item)
-                      : const SizedBox();
+                      : _missingDataScreen();
                 },
               ),
             ],

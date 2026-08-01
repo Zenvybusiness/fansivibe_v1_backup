@@ -129,7 +129,7 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
                                 ? const Icon(
                                     Icons.check_circle_rounded,
                                     size: 64,
-                                    color: Color(0xFF4CAF50),
+                                    color: FansivibeColors.success,
                                   )
                                 : SizedBox(
                                     width: 48,
@@ -276,7 +276,7 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
     final Widget icon;
 
     if (isComplete) {
-      iconColor = const Color(0xFF4CAF50);
+      iconColor = FansivibeColors.success;
       icon = Icon(Icons.check_circle_rounded, size: 22, color: iconColor);
     } else if (isActive) {
       iconColor = FansivibeColors.accentGold;

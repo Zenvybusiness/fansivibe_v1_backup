@@ -207,7 +207,7 @@ class HairstyleResultScreen extends StatelessWidget {
             Text(
               '$percentage% match',
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: const Color(0xFF4CAF50),
+                color: FansivibeColors.success,
                 fontWeight: FontWeight.w500,
               ),
             ),

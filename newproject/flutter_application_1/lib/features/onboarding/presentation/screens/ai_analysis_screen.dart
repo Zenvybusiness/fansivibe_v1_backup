@@ -94,7 +94,9 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen>
                           shape: BoxShape.circle,
                           color: FansivibeColors.surfaceContainerHighest,
                           border: Border.all(
-                            color: FansivibeColors.primary.withValues(alpha: 0.3),
+                            color: FansivibeColors.primary.withValues(
+                              alpha: 0.3,
+                            ),
                             width: 2,
                           ),
                         ),
@@ -102,7 +104,9 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen>
                           child: Icon(
                             Icons.image_rounded,
                             size: 48,
-                            color: FansivibeColors.primary.withValues(alpha: 0.4),
+                            color: FansivibeColors.primary.withValues(
+                              alpha: 0.4,
+                            ),
                           ),
                         ),
                       ),

@@ -139,7 +139,7 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
                                 ? Icon(
                                     Icons.check_circle_rounded,
                                     size: 64,
-                                    color: const Color(0xFF4CAF50),
+                                    color: FansivibeColors.success,
                                   )
                                 : SizedBox(
                                     width: 48,

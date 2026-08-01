@@ -164,7 +164,7 @@ class GroomingStageIndicator extends StatelessWidget {
     final Widget icon;
 
     if (isComplete) {
-      iconColor = const Color(0xFF4CAF50);
+      iconColor = FansivibeColors.success;
       icon = Icon(Icons.check_circle_rounded, size: 22, color: iconColor);
     } else if (isActive) {
       iconColor = FansivibeColors.accentGold;

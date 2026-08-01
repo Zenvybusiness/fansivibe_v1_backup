@@ -109,7 +109,7 @@ class HairstyleCheckIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final color = isPassing
-        ? const Color(0xFF4CAF50)
+        ? FansivibeColors.success
         : FansivibeColors.textSecondary.withValues(alpha: 0.5);
 
     return Row(
@@ -157,7 +157,7 @@ class HairstyleStageIndicator extends StatelessWidget {
     final Widget icon;
 
     if (isComplete) {
-      iconColor = const Color(0xFF4CAF50);
+      iconColor = FansivibeColors.success;
       icon = Icon(Icons.check_circle_rounded, size: 22, color: iconColor);
     } else if (isActive) {
       iconColor = FansivibeColors.accentGold;

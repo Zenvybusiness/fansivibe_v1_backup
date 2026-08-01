@@ -31,9 +31,7 @@ class VibeCard extends StatelessWidget {
           color: FansivibeColors.surfaceContainer,
           borderRadius: FansivibeRadius.mdBorder,
           border: Border.all(
-            color: isSelected
-                ? FansivibeColors.primary
-                : Colors.transparent,
+            color: isSelected ? FansivibeColors.primary : Colors.transparent,
             width: isSelected ? 2 : 0,
           ),
           boxShadow: isSelected

@@ -9,11 +9,7 @@ class AiCapabilityIcon extends StatelessWidget {
   final AiCapability capability;
   final double size;
 
-  const AiCapabilityIcon({
-    required this.capability,
-    this.size = 48,
-    super.key,
-  });
+  const AiCapabilityIcon({required this.capability, this.size = 48, super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -93,9 +89,7 @@ class AiCapabilityIcon extends StatelessWidget {
         ),
         backgroundColor: FansivibeColors.surfaceContainerHighest,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: FansivibeRadius.smBorder,
-        ),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smBorder),
         duration: const Duration(seconds: 2),
       ),
     );

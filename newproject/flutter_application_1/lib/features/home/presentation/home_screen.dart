@@ -55,7 +55,9 @@ class HomeScreen extends StatelessWidget {
                           const SizedBox(height: 24),
                         GreetingHeader(
                           data: GreetingData(
-                            greeting: _isFirstVisit ? 'Welcome' : 'Good morning',
+                            greeting: _isFirstVisit
+                                ? 'Welcome'
+                                : 'Good morning',
                             name: _displayName ?? 'Alex',
                             dateLabel: _formatDate(),
                           ),
@@ -143,10 +145,7 @@ class HomeScreen extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: FansivibeColors.secondary,
-            ),
+            Icon(Icons.chevron_right_rounded, color: FansivibeColors.secondary),
           ],
         ),
       ),
@@ -188,11 +187,27 @@ class HomeScreen extends StatelessWidget {
   String _formatDate() {
     final now = DateTime.now();
     final weekdays = [
-      'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
     ];
     final months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     return '${weekdays[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
   }

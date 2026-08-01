@@ -70,13 +70,13 @@ class ScoreCategoryRow extends StatelessWidget {
 
     Color scoreColor;
     if (score >= 90) {
-      scoreColor = const Color(0xFF4CAF50);
+      scoreColor = FansivibeColors.success;
     } else if (score >= 80) {
       scoreColor = FansivibeColors.accentGold;
     } else if (score >= 70) {
-      scoreColor = const Color(0xFFFF9800);
+      scoreColor = FansivibeColors.warning;
     } else {
-      scoreColor = const Color(0xFFF44336);
+      scoreColor = FansivibeColors.error;
     }
 
     return Row(
@@ -260,13 +260,13 @@ class ComponentRow extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
+              color: FansivibeColors.success.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
               'Owned',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF4CAF50),
+                color: FansivibeColors.success,
                 fontWeight: FontWeight.w600,
                 fontSize: 10,
               ),
@@ -380,13 +380,13 @@ class AlternativeSection extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
-                color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
+                color: FansivibeColors.success.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
                 'Owned',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF4CAF50),
+                  color: FansivibeColors.success,
                   fontWeight: FontWeight.w600,
                   fontSize: 9,
                 ),

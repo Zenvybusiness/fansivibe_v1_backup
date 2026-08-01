@@ -1,7 +1,13 @@
 enum StyleVibe {
-  minimalist('Minimalist', 'Clean lines, neutral palette, intentional simplicity'),
+  minimalist(
+    'Minimalist',
+    'Clean lines, neutral palette, intentional simplicity',
+  ),
   bold('Bold', 'Strong colors, statement pieces, confident presence'),
-  classic('Classic', 'Timeless tailoring, refined silhouettes, investment pieces'),
+  classic(
+    'Classic',
+    'Timeless tailoring, refined silhouettes, investment pieces',
+  ),
   trendy('Trendy', 'Current fashion, dynamic silhouettes, cultural edge'),
   natural('Natural', 'Relaxed textures, earth tones, effortless comfort'),
   edgy('Edgy', 'Dark palette, unconventional cuts, artistic expression');

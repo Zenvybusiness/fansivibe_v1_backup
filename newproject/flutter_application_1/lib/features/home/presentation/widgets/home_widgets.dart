@@ -49,11 +49,11 @@ class HomeStatItem extends StatelessWidget {
 
     switch (trend) {
       case StyleTrend.up:
-        trendColor = const Color(0xFF4CAF50);
+        trendColor = FansivibeColors.success;
         trendIcon = Icons.trending_up_rounded;
         break;
       case StyleTrend.down:
-        trendColor = const Color(0xFFF44336);
+        trendColor = FansivibeColors.error;
         trendIcon = Icons.trending_down_rounded;
         break;
       case StyleTrend.stable:
@@ -321,7 +321,6 @@ class AIInsightCard extends StatelessWidget {
     final accentColor = Color(data.accentColor);
 
     return FansivibeCard(
-      borderColor: accentColor.withValues(alpha: 0.3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

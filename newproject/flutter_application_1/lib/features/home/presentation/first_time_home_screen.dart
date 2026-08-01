@@ -93,29 +93,26 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         SizedBox(height: FansivibeSpacing.sm),
-                        _buildAnimatedSection(
-                          _headerAnim, _buildHeader(),
-                        ),
+                        _buildAnimatedSection(_headerAnim, _buildHeader()),
                         SizedBox(height: FansivibeSpacing.lg + 8),
+                        _buildAnimatedSection(_heroAnim, _buildHeroSpread()),
+                        SizedBox(height: FansivibeSpacing.xl + 4),
                         _buildAnimatedSection(
-                          _heroAnim, _buildHeroSpread(),
+                          _lookAnim,
+                          _buildLookEditorial(context),
                         ),
                         SizedBox(height: FansivibeSpacing.xl + 4),
                         _buildAnimatedSection(
-                          _lookAnim, _buildLookEditorial(context),
+                          _gridAnim,
+                          _buildCapabilityGrid(),
                         ),
                         SizedBox(height: FansivibeSpacing.xl + 4),
                         _buildAnimatedSection(
-                          _gridAnim, _buildCapabilityGrid(),
+                          _toolsAnim,
+                          _buildQuickTools(context),
                         ),
                         SizedBox(height: FansivibeSpacing.xl + 4),
-                        _buildAnimatedSection(
-                          _toolsAnim, _buildQuickTools(context),
-                        ),
-                        SizedBox(height: FansivibeSpacing.xl + 4),
-                        _buildAnimatedSection(
-                          _quoteAnim, _buildAiQuote(),
-                        ),
+                        _buildAnimatedSection(_quoteAnim, _buildAiQuote()),
                         SizedBox(height: FansivibeSpacing.xxxl),
                       ],
                     ),
@@ -461,10 +458,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
         ClipRRect(
           borderRadius: FansivibeRadius.mdBorder,
           child: Column(
-            children: [
-              _buildLookImage(),
-              _buildLookContent(context),
-            ],
+            children: [_buildLookImage(), _buildLookContent(context)],
           ),
         ),
       ],
@@ -501,9 +495,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
             top: FansivibeSpacing.md,
             left: FansivibeSpacing.md,
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 6,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: FansivibeColors.surface.withValues(alpha: 0.7),
                 borderRadius: BorderRadius.circular(6),
@@ -558,9 +550,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-      decoration: BoxDecoration(
-        color: FansivibeColors.surfaceContainer,
-      ),
+      decoration: BoxDecoration(color: FansivibeColors.surfaceContainer),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -686,31 +676,28 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
           ),
         ),
         SizedBox(height: FansivibeSpacing.md + 4),
-        ...List.generate(
-          (allCapabilities.length + 1) ~/ 2,
-          (rowIndex) {
-            final first = allCapabilities[rowIndex * 2];
-            final second = rowIndex * 2 + 1 < allCapabilities.length
-                ? allCapabilities[rowIndex * 2 + 1]
-                : null;
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: rowIndex < ((allCapabilities.length + 1) ~/ 2) - 1
-                    ? FansivibeSpacing.sm + 4
-                    : 0,
-              ),
-              child: Row(
-                children: [
-                  Expanded(child: _capabilityTile(first)),
-                  if (second != null) ...[
-                    SizedBox(width: FansivibeSpacing.sm + 4),
-                    Expanded(child: _capabilityTile(second)),
-                  ],
+        ...List.generate((allCapabilities.length + 1) ~/ 2, (rowIndex) {
+          final first = allCapabilities[rowIndex * 2];
+          final second = rowIndex * 2 + 1 < allCapabilities.length
+              ? allCapabilities[rowIndex * 2 + 1]
+              : null;
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: rowIndex < ((allCapabilities.length + 1) ~/ 2) - 1
+                  ? FansivibeSpacing.sm + 4
+                  : 0,
+            ),
+            child: Row(
+              children: [
+                Expanded(child: _capabilityTile(first)),
+                if (second != null) ...[
+                  SizedBox(width: FansivibeSpacing.sm + 4),
+                  Expanded(child: _capabilityTile(second)),
                 ],
-              ),
-            );
-          },
-        ),
+              ],
+            ),
+          );
+        }),
       ],
     );
   }
@@ -753,9 +740,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
                 ),
                 child: Center(
                   child: Icon(
-                    isActive
-                        ? Icons.check_circle_rounded
-                        : Icons.lock_rounded,
+                    isActive ? Icons.check_circle_rounded : Icons.lock_rounded,
                     size: 15,
                     color: isActive
                         ? FansivibeColors.primary
@@ -917,8 +902,9 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
                   horizontal: 12,
                 ),
                 decoration: BoxDecoration(
-                  color: FansivibeColors.surfaceContainerLow
-                      .withValues(alpha: 0.55),
+                  color: FansivibeColors.surfaceContainerLow.withValues(
+                    alpha: 0.55,
+                  ),
                   borderRadius: FansivibeRadius.mdBorder,
                   border: Border.all(
                     color: FansivibeColors.primary.withValues(alpha: 0.06),
@@ -936,7 +922,8 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
                         borderRadius: FansivibeRadius.smBorder,
                       ),
                       child: Icon(
-                        icon, size: 20,
+                        icon,
+                        size: 20,
                         color: FansivibeColors.primary,
                       ),
                     ),
@@ -1052,9 +1039,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
         content: Text('$name: $hint'),
         backgroundColor: FansivibeColors.surfaceContainerHighest,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: FansivibeRadius.smBorder,
-        ),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smBorder),
         duration: const Duration(seconds: 2),
       ),
     );

@@ -94,9 +94,7 @@ class _PlanCard extends StatelessWidget {
     final theme = Theme.of(context);
 
     return FansivibeCard(
-      borderColor: plan.isPopular
-          ? FansivibeColors.accentGold
-          : FansivibeColors.accentGold.withValues(alpha: 0.2),
+      variant: plan.isPopular ? CardVariant.high : CardVariant.container,
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

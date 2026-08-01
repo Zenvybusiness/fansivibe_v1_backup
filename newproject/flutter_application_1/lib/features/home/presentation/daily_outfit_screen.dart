@@ -344,11 +344,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     );
   }
 
-  Widget _glassChip(
-    String label, {
-    IconData? icon,
-    Color? color,
-  }) {
+  Widget _glassChip(String label, {IconData? icon, Color? color}) {
     final chipColor = color ?? FansivibeColors.onSurface;
     return ClipRRect(
       borderRadius: FansivibeRadius.fullBorder,
@@ -431,10 +427,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     );
   }
 
-  Widget _buildEditorialSummary(
-    BuildContext context,
-    DailyOutfitData data,
-  ) {
+  Widget _buildEditorialSummary(BuildContext context, DailyOutfitData data) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -485,10 +478,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     );
   }
 
-  Widget _buildOutfitBreakdown(
-    BuildContext context,
-    DailyOutfitData data,
-  ) {
+  Widget _buildOutfitBreakdown(BuildContext context, DailyOutfitData data) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -767,20 +757,16 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.star_rounded,
-                            size: 10,
-                            color: scoreColor,
-                          ),
+                          Icon(Icons.star_rounded, size: 10, color: scoreColor),
                           SizedBox(width: 3),
                           Text(
                             '${alt.matchScore}%',
                             style: FansivibeTypography.labelSmallWithFamily
                                 .copyWith(
-                              color: scoreColor,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 10,
-                            ),
+                                  color: scoreColor,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 10,
+                                ),
                           ),
                         ],
                       ),
@@ -827,9 +813,9 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                         ),
                         textStyle: FansivibeTypography.labelSmallWithFamily
                             .copyWith(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
                       child: const Text('See Details'),
                     ),
@@ -996,9 +982,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         content: const Text('Wearing this look!'),
         backgroundColor: FansivibeColors.primary,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -1009,9 +993,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         content: const Text('Generating a new look...'),
         backgroundColor: FansivibeColors.primary,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -1022,9 +1004,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         content: const Text('Outfit saved to your looks'),
         backgroundColor: FansivibeColors.primary,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -1035,9 +1015,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         content: const Text('Share feature coming soon'),
         backgroundColor: FansivibeColors.surfaceContainerHighest,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -1048,9 +1026,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         content: Text('Viewing ${alt.name} details...'),
         backgroundColor: FansivibeColors.primary,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }

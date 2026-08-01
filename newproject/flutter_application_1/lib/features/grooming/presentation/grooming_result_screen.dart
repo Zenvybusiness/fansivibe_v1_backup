@@ -224,7 +224,7 @@ class GroomingResultScreen extends StatelessWidget {
         color: FansivibeColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFF4CAF50).withValues(alpha: 0.2),
+          color: FansivibeColors.success.withValues(alpha: 0.2),
         ),
       ),
       child: Row(
@@ -235,7 +235,7 @@ class GroomingResultScreen extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
-                color: const Color(0xFF4CAF50).withValues(alpha: 0.4),
+                color: FansivibeColors.success.withValues(alpha: 0.4),
                 width: 3,
               ),
             ),
@@ -245,7 +245,7 @@ class GroomingResultScreen extends StatelessWidget {
                 style: theme.textTheme.displayLarge?.copyWith(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
-                  color: const Color(0xFF4CAF50),
+                  color: FansivibeColors.success,
                 ),
               ),
             ),
@@ -441,7 +441,7 @@ class GroomingResultScreen extends StatelessWidget {
           Icons.timeline_rounded,
           'Cheek Line',
           top.cheekLine,
-          const Color(0xFF4CAF50),
+          FansivibeColors.success,
         ),
         const SizedBox(height: 10),
         _buildSpecRow(

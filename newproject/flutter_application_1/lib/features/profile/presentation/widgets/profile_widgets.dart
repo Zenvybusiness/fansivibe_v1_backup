@@ -716,11 +716,11 @@ class SavedLooksRow extends StatelessWidget {
   ) {
     Color scoreColor;
     if (look.score >= 90) {
-      scoreColor = const Color(0xFF4CAF50);
+      scoreColor = FansivibeColors.success;
     } else if (look.score >= 80) {
       scoreColor = FansivibeColors.accentGold;
     } else {
-      scoreColor = const Color(0xFFFF9800);
+      scoreColor = FansivibeColors.warning;
     }
 
     return Container(

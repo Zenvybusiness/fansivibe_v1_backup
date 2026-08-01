@@ -9,7 +9,6 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 /// - [onTap] promotes the card to `container-high` on press.
 /// - No borders and no shadows (per the "No-Line" and tonal-layering rules).
 ///
-/// [borderColor] is accepted for backward compatibility but NOT rendered.
 class FansivibeCard extends StatelessWidget {
   const FansivibeCard({
     required this.child,
@@ -17,8 +16,6 @@ class FansivibeCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(20),
     this.margin = EdgeInsets.zero,
     this.onTap,
-    // ignore: unused_element
-    this.borderColor,
     super.key,
   });
 
@@ -27,7 +24,6 @@ class FansivibeCard extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final EdgeInsetsGeometry margin;
   final VoidCallback? onTap;
-  final Color? borderColor;
 
   @override
   Widget build(BuildContext context) {
