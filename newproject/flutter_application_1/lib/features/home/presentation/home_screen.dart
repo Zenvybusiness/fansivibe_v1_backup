@@ -3,11 +3,9 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
 import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
+import 'package:fansivibe/features/home/presentation/first_time_light_path_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
-import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
-import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
-import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
 class HomeScreen extends StatelessWidget {
   final Map<String, dynamic>? onboardingData;
@@ -18,11 +16,15 @@ class HomeScreen extends StatelessWidget {
   bool get _hasAnalysis =>
       onboardingData?.containsKey('onboarding_complete') == true;
   String? get _displayName => onboardingData?['display_name'] as String?;
+  String? get _vibeName => onboardingData?['vibe'] as String?;
 
   @override
   Widget build(BuildContext context) {
     if (_isFirstVisit && _hasAnalysis) {
       return FirstTimeHomeScreen(displayName: _displayName);
+    }
+    if (_isFirstVisit) {
+      return FirstTimeLightPathHomeScreen(vibeName: _vibeName);
     }
 
     final theme = Theme.of(context);
@@ -49,10 +51,6 @@ class HomeScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 8),
-                        if (_isFirstVisit && !_hasAnalysis)
-                          _lightPathPrompt(context),
-                        if (_isFirstVisit && !_hasAnalysis)
-                          const SizedBox(height: 24),
                         GreetingHeader(
                           data: GreetingData(
                             greeting: _isFirstVisit
@@ -98,79 +96,8 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _lightPathPrompt(BuildContext context) {
-    return GestureDetector(
-      onTap: () => context.pushNamed(RouteNames.cameraPermission),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(FansivibeSpacing.lg),
-        decoration: BoxDecoration(
-          color: FansivibeColors.surfaceContainerLow,
-          borderRadius: FansivibeRadius.mdBorder,
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: FansivibeColors.primary.withValues(alpha: 0.1),
-                borderRadius: FansivibeRadius.smBorder,
-              ),
-              child: Icon(
-                Icons.camera_alt_outlined,
-                color: FansivibeColors.primary,
-                size: 22,
-              ),
-            ),
-            SizedBox(width: FansivibeSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Analyze Your Style',
-                    style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  SizedBox(height: FansivibeSpacing.xs),
-                  Text(
-                    'Take a photo to unlock your personal Style DNA',
-                    style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                      color: FansivibeColors.secondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right_rounded, color: FansivibeColors.secondary),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildQuickActions(BuildContext context) {
     final actions = QuickActionData.mockActions;
-    if (_isFirstVisit && !_hasAnalysis) {
-      final scanAction = QuickActionData(
-        id: 'scan_outfit',
-        title: 'Analyze My Style',
-        subtitle: 'Get your first AI analysis',
-        iconName: 'camera_alt_outlined',
-        route: '/onboarding/camera-permission',
-        accentColor: 0xFFC5A059,
-      );
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: QuickActionCard(
-          data: scanAction,
-          onTap: () => context.pushNamed(RouteNames.cameraPermission),
-        ),
-      );
-    }
     return Column(
       children: actions.map((action) {
         return Padding(

@@ -50,7 +50,7 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen>
 
   void _onComplete() {
     if (!mounted) return;
-    context.goNamed(RouteNames.yourAnalysis);
+    context.replaceNamed(RouteNames.yourAnalysis);
   }
 
   @override

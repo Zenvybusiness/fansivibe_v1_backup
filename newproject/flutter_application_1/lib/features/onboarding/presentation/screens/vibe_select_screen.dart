@@ -95,13 +95,22 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
   }
 
   void _onContinue() {
-    final route = _photoPath ? RouteNames.cameraPermission : RouteNames.home;
-    context.goNamed(route, extra: {'vibe': _selected?.name});
+    if (_photoPath) {
+      context.pushNamed(
+        RouteNames.cameraPermission,
+        extra: {'vibe': _selected?.name},
+      );
+    } else {
+      context.goNamed(RouteNames.home, extra: {'vibe': _selected?.name});
+    }
   }
 
   void _onSkip() {
-    final route = _photoPath ? RouteNames.cameraPermission : RouteNames.home;
-    context.goNamed(route, extra: {'vibe': null});
+    if (_photoPath) {
+      context.pushNamed(RouteNames.cameraPermission, extra: {'vibe': null});
+    } else {
+      context.goNamed(RouteNames.home, extra: {'vibe': null});
+    }
   }
 
   @override

@@ -56,11 +56,11 @@ class _CameraPermissionScreenState extends State<CameraPermissionScreen>
   }
 
   void _onAllowCamera() {
-    context.goNamed(RouteNames.photoCapture, extra: {'source': 'camera'});
+    context.pushNamed(RouteNames.photoCapture, extra: {'source': 'camera'});
   }
 
   void _onGallery() {
-    context.goNamed(RouteNames.photoCapture, extra: {'source': 'gallery'});
+    context.pushNamed(RouteNames.photoCapture, extra: {'source': 'gallery'});
   }
 
   void _onSkip() {
@@ -258,10 +258,12 @@ class _TrustItem extends StatelessWidget {
                 color: FansivibeColors.primary.withValues(alpha: 0.7),
               ),
               SizedBox(width: FansivibeSpacing.sm),
-              Text(
-                text,
-                style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                  color: FansivibeColors.secondary,
+              Expanded(
+                child: Text(
+                  text,
+                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                    color: FansivibeColors.secondary,
+                  ),
                 ),
               ),
             ],

@@ -73,11 +73,15 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   }
 
   void _onSave() {
-    context.goNamed(RouteNames.accountCreation);
+    context.pushNamed(RouteNames.accountCreation);
   }
 
   void _onRetake() {
-    context.goNamed(RouteNames.photoCapture);
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.goNamed(RouteNames.photoCapture);
+    }
   }
 
   @override

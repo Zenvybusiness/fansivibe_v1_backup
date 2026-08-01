@@ -69,11 +69,11 @@ class _EntryScreenState extends State<EntryScreen>
   }
 
   void _onAnalyze() {
-    context.goNamed(RouteNames.vibeSelect, extra: {'photoPath': true});
+    context.pushNamed(RouteNames.vibeSelect, extra: {'photoPath': true});
   }
 
   void _onExplore() {
-    context.goNamed(RouteNames.vibeSelect, extra: {'photoPath': false});
+    context.pushNamed(RouteNames.vibeSelect, extra: {'photoPath': false});
   }
 
   void _onSignIn() {

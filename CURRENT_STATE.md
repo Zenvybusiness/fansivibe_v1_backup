@@ -1,7 +1,76 @@
 # Fansivibe Current State
 
-Last Updated: 2026-08-01
-Updated By: opencode agent (Value-first Entry screen redesign + returning-user account gate)
+Last Updated: 2026-08-02
+Updated By: opencode agent (Light-path first-visit Home redesign)
+
+## Changes Made — Professional Light-Path First-Visit Home
+
+Replaced the placeholder light-path first-visit state (scattered prompt card +
+leaked placeholder score) with a dedicated, editorial first-visit screen for new
+users who chose "Explore Without Scanning" and picked a style.
+
+**New file:** `lib/features/home/presentation/first_time_light_path_home_screen.dart`
+
+Sections (staggered reveal, 2s, `easeOutCubic`):
+1. **Hero header** — gold eyebrow "WELCOME TO FANSIVIBE", serif headline "Your
+   style journey begins today.", value line.
+2. **Style Direction card** — acknowledges the chosen vibe (serif label,
+   description, per-vibe motif icon/gradient). Skip state shows "Open to
+   Everything". First time the selected vibe is actually surfaced.
+3. **Analysis pending card** — replaces the fake Style Score. Camera ring icon,
+   "YOUR ANALYSIS IS WAITING", primary CTA **Analyze My Style** → camera
+   permission + tertiary "Explore looks while you wait" → Discover.
+4. **Preview look** — "A PREVIEW OF WHAT'S WAITING" editorial look card
+   (Modern Minimalist + tags + Try This Look → Daily Outfit).
+5. **Tools** — glass tool row (Scan Outfit, Add Wardrobe, Hairstyle Studio,
+   Style Tips, Event Styling).
+6. **AI quote** — "AI IS READY WHEN YOU ARE" close.
+
+**Modified:** `lib/features/home/presentation/home_screen.dart`
+- `HomeScreen` now routes light-path first visits
+  (`onboardingData != null && no onboarding_complete`) to the new screen,
+  passing the selected `vibe`.
+- Removed the now-dead `_lightPathPrompt` and the first-visit branch of
+  `_buildQuickActions`.
+
+**Bug fixes (latent overflow, found via new widget tests):**
+- Glass tool tiles in both `FirstTimeLightPathHomeScreen` and
+  `FirstTimeHomeScreen` overflowed the fixed 100px rail (icon + label).
+  Bumped rail to 118px, tightened padding, wrapped label in `Flexible`.
+- `CameraPermissionScreen._TrustItem` Row overflowed because text was not in
+  `Expanded` — wrapped the trust-statement text in `Expanded` (fixes the light
+  path → camera permission destination).
+
+**New tests:** `test/first_time_light_path_home_screen_test.dart` (4 cases —
+render, chosen vibe, no-vibe state, Analyze My Style navigation).
+
+**Validation**
+- `dart format`: passed
+- `flutter analyze lib`: 0 errors (7 pre-existing infos, none in touched files)
+- Tests: **224 passed, 87 failed** (was 220/87 — +4 new passing tests, 0 regressions)
+
+## Changes Made — Onboarding Flow Sequence Polish (navigation only, no UI changes)
+
+Rewired the onboarding journey to a proper navigation stack. All screens and
+their UIs are unchanged; only route transitions changed. This restores
+back-navigation through the wizard and keeps the stack clean on completion.
+
+| Screen | Before | After |
+|--------|--------|-------|
+| Entry → VibeSelect | `goNamed` | `pushNamed` (photo + light paths) |
+| VibeSelect → CameraPermission | `goNamed` | `pushNamed` (photo path only) |
+| VibeSelect → Home (light path) | `goNamed` | `goNamed` (unchanged) |
+| CameraPermission → PhotoCapture | `goNamed` | `pushNamed` |
+| PhotoCapture → AiAnalysis | `goNamed` | `pushNamed` |
+| AiAnalysis → YourAnalysis | `goNamed` | `replaceNamed` (auto-transition, no duplicate stack entry) |
+| YourAnalysis → AccountCreation | `goNamed` | `pushNamed` |
+| YourAnalysis → Retake | `goNamed` | `pop()` if possible (returns to existing captured photo) |
+| Skips / Sign In / Account done → Home | `goNamed` | `goNamed` (unchanged — clears wizard stack) |
+
+**Validation**
+- `dart format`: passed
+- `flutter analyze` (onboarding): 0 issues
+- Tests: 220 passed, 87 failed (same pre-existing baseline)
 
 ## Changes Made — Professional Entry Screen Redesign (edit)
 

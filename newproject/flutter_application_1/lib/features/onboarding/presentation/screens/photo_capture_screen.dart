@@ -49,7 +49,10 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen>
     _previewController.forward();
     Timer(const Duration(seconds: 2), () {
       if (!mounted) return;
-      context.goNamed(RouteNames.aiAnalysis, extra: {'photoPath': 'captured'});
+      context.pushNamed(
+        RouteNames.aiAnalysis,
+        extra: {'photoPath': 'captured'},
+      );
     });
   }
 
