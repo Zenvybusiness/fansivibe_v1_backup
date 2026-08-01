@@ -7,6 +7,7 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
 
 class WardrobeScreen extends StatefulWidget {
   const WardrobeScreen({super.key});
@@ -237,6 +238,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       setState(() {
         _localItems.add(result);
       });
+      UserSession.hasSavedWardrobeItem = true;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${result.name} added to wardrobe'),

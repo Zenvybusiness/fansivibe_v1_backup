@@ -6,6 +6,7 @@ import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart
 import 'package:fansivibe/features/home/presentation/first_time_light_path_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
 
 class HomeScreen extends StatelessWidget {
   final Map<String, dynamic>? onboardingData;
@@ -20,6 +21,9 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (_isFirstVisit && _hasAnalysis && UserSession.hasSavedWardrobeItem) {
+      return FirstTimeLightPathHomeScreen(vibeName: _vibeName);
+    }
     if (_isFirstVisit && _hasAnalysis) {
       return FirstTimeHomeScreen(displayName: _displayName);
     }

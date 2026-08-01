@@ -1,7 +1,35 @@
 # Fansivibe Current State
 
 Last Updated: 2026-08-02
-Updated By: opencode agent (Removed "Continue as New User" gate button)
+Updated By: opencode agent (New-user Home switches to light-path screen after saving an item)
+
+## Changes Made — New-User Home Shows Light-Path Screen After Saving an Item
+
+After a new user completes onboarding (account created) and then saves a
+wardrobe item, the Home tab now shows the light-path first-visit screen
+(`FirstTimeLightPathHomeScreen`) instead of the score/DNA first-time screen
+(`FirstTimeHomeScreen`). Everything else untouched.
+
+**New file:** `lib/shared/utils/user_session.dart`
+- `UserSession.hasSavedWardrobeItem` — session-scoped flag (no persistence or
+  state management exists in the app; simple shared flag is the existing
+  cross-feature contract style).
+
+**Modified:** `lib/features/wardrobe/presentation/wardrobe_screen.dart`
+- `_handleAddItem` sets `UserSession.hasSavedWardrobeItem = true` when an item
+  is added.
+
+**Modified:** `lib/features/home/presentation/home_screen.dart`
+- New branch: `_isFirstVisit && _hasAnalysis && UserSession.hasSavedWardrobeItem`
+  → `FirstTimeLightPathHomeScreen` (reuses the exact light-path screen).
+- Returning users and light-path first visits are unchanged.
+
+**Validation**
+- `flutter analyze lib`: 0 errors, 7 pre-existing infos (all in untouched
+  `outfit_scan_screen.dart`)
+- `dart format`: passed
+- Tests (home + wardrobe + light-path files): 43 passed / 20 failed — identical
+  to the pre-change baseline (verified via `git stash`), 0 regressions
 
 ## Changes Made — Entry Screen Account Gate Trim
 
