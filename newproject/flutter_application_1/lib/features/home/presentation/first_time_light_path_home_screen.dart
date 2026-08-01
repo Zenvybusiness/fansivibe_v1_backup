@@ -166,6 +166,104 @@ class _FirstTimeLightPathHomeScreenState
     );
   }
 
+  Widget _craftedCard({
+    required Widget child,
+    EdgeInsetsGeometry padding = const EdgeInsets.all(FansivibeSpacing.lg),
+    Alignment glowAlign = Alignment.topRight,
+    Color glowColor = FansivibeColors.primary,
+    double glowOpacity = 0.06,
+  }) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: FansivibeRadius.lgBorder,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            FansivibeColors.surfaceContainerLow,
+            FansivibeColors.surfaceContainer.withValues(alpha: 0.55),
+          ],
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: FansivibeRadius.lgBorder,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    radius: 1.15,
+                    center: glowAlign,
+                    colors: [
+                      glowColor.withValues(alpha: glowOpacity),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                height: 1,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      glowColor.withValues(alpha: 0.22),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Padding(padding: padding, child: child),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _medallion({
+    required IconData icon,
+    double size = 56,
+    double iconSize = 22,
+    Color accent = FansivibeColors.primary,
+    Color iconColor = FansivibeColors.primary,
+  }) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          radius: 1.0,
+          colors: [
+            accent.withValues(alpha: 0.22),
+            accent.withValues(alpha: 0.04),
+          ],
+        ),
+        border: Border.all(color: accent.withValues(alpha: 0.28), width: 1),
+      ),
+      child: Center(
+        child: Container(
+          width: size * 0.64,
+          height: size * 0.64,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: FansivibeColors.surfaceContainerHigh,
+            border: Border.all(color: accent.withValues(alpha: 0.18), width: 1),
+          ),
+          child: Icon(icon, size: iconSize, color: iconColor),
+        ),
+      ),
+    );
+  }
+
   Widget _buildHeader() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -213,27 +311,10 @@ class _FirstTimeLightPathHomeScreenState
 
   Widget _buildVibeCard() {
     final motif = _vibe != null ? _vibeMotifs[_vibe!] : null;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(FansivibeSpacing.lg),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            FansivibeColors.surfaceContainerLow,
-            FansivibeColors.surfaceContainer.withValues(alpha: 0.6),
-          ],
-        ),
-        borderRadius: FansivibeRadius.lgBorder,
-        boxShadow: [
-          BoxShadow(
-            color: FansivibeColors.primary.withValues(alpha: 0.05),
-            blurRadius: 32,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
+    final accent = motif?.gradient.first ?? FansivibeColors.primary;
+    return _craftedCard(
+      glowColor: accent,
+      glowOpacity: 0.08,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -242,33 +323,10 @@ class _FirstTimeLightPathHomeScreenState
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      (motif?.gradient.first ?? FansivibeColors.primary)
-                          .withValues(alpha: 0.45),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-                child: Container(
-                  margin: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: FansivibeColors.surfaceContainerHigh,
-                  ),
-                  child: Center(
-                    child: Icon(
-                      motif?.icon ?? Icons.auto_awesome_rounded,
-                      size: 22,
-                      color: FansivibeColors.primary,
-                    ),
-                  ),
-                ),
+              _medallion(
+                icon: motif?.icon ?? Icons.auto_awesome_rounded,
+                accent: accent,
+                iconColor: FansivibeColors.primary,
               ),
               SizedBox(width: FansivibeSpacing.md),
               Expanded(
@@ -301,7 +359,7 @@ class _FirstTimeLightPathHomeScreenState
           Container(
             width: double.infinity,
             height: 1,
-            color: FansivibeColors.primary.withValues(alpha: 0.12),
+            color: FansivibeColors.outlineVariant.withValues(alpha: 0.45),
           ),
           SizedBox(height: FansivibeSpacing.md),
           Row(
@@ -335,46 +393,20 @@ class _FirstTimeLightPathHomeScreenState
   }
 
   Widget _buildAnalysisCard(BuildContext context) {
-    return Container(
-      width: double.infinity,
+    return _craftedCard(
       padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            FansivibeColors.primary.withValues(alpha: 0.10),
-            FansivibeColors.surfaceContainerLow,
-          ],
-        ),
-        borderRadius: FansivibeRadius.lgBorder,
-        border: Border.all(
-          color: FansivibeColors.primary.withValues(alpha: 0.10),
-          width: 0.5,
-        ),
-      ),
+      glowAlign: Alignment.topLeft,
+      glowOpacity: 0.12,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: FansivibeColors.primary.withValues(alpha: 0.12),
-                  border: Border.all(
-                    color: FansivibeColors.primary.withValues(alpha: 0.3),
-                    width: 1.5,
-                  ),
-                ),
-                child: Icon(
-                  Icons.camera_alt_rounded,
-                  size: 26,
-                  color: FansivibeColors.primary,
-                ),
+              _medallion(
+                icon: Icons.camera_alt_rounded,
+                size: 56,
+                iconSize: 26,
               ),
               SizedBox(width: FansivibeSpacing.md),
               Expanded(
@@ -470,11 +502,23 @@ class _FirstTimeLightPathHomeScreenState
       child: Stack(
         fit: StackFit.expand,
         children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                radius: 1.0,
+                center: const Alignment(0.0, -0.7),
+                colors: [
+                  FansivibeColors.primary.withValues(alpha: 0.14),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
           Center(
             child: Icon(
               Icons.checkroom_rounded,
               size: 72,
-              color: FansivibeColors.primary.withValues(alpha: 0.1),
+              color: FansivibeColors.primary.withValues(alpha: 0.12),
             ),
           ),
           Positioned(
@@ -483,17 +527,31 @@ class _FirstTimeLightPathHomeScreenState
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                color: FansivibeColors.surface.withValues(alpha: 0.7),
+                color: FansivibeColors.surface.withValues(alpha: 0.72),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: Text(
-                'EDITOR\'S PICK',
-                style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                  color: FansivibeColors.primary,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 2.0,
-                  fontSize: 9,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 5,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: FansivibeColors.primary,
+                    ),
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    'EDITOR\'S PICK',
+                    style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                      color: FansivibeColors.primary,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 2.0,
+                      fontSize: 9,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -503,8 +561,12 @@ class _FirstTimeLightPathHomeScreenState
             child: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: FansivibeColors.primary.withValues(alpha: 0.12),
+                color: FansivibeColors.surface.withValues(alpha: 0.6),
                 borderRadius: FansivibeRadius.fullBorder,
+                border: Border.all(
+                  color: FansivibeColors.primary.withValues(alpha: 0.18),
+                  width: 1,
+                ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -584,8 +646,12 @@ class _FirstTimeLightPathHomeScreenState
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: FansivibeColors.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(6),
+        color: FansivibeColors.surfaceContainerHigh.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: FansivibeColors.primary.withValues(alpha: 0.08),
+          width: 0.5,
+        ),
       ),
       child: Text(
         label,
@@ -726,43 +792,18 @@ class _FirstTimeLightPathHomeScreenState
   }
 
   Widget _buildAiQuote() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            FansivibeColors.primary.withValues(alpha: 0.05),
-            FansivibeColors.surfaceContainerLow,
-          ],
-        ),
-        borderRadius: FansivibeRadius.lgBorder,
-        border: Border.all(
-          color: FansivibeColors.primary.withValues(alpha: 0.08),
-          width: 0.5,
-        ),
-      ),
+    return _craftedCard(
+      glowAlign: Alignment.bottomLeft,
+      glowOpacity: 0.07,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: FansivibeColors.primary.withValues(alpha: 0.1),
-                  borderRadius: FansivibeRadius.smBorder,
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.auto_awesome_rounded,
-                    size: 18,
-                    color: FansivibeColors.primary,
-                  ),
-                ),
+              _medallion(
+                icon: Icons.auto_awesome_rounded,
+                size: 36,
+                iconSize: 18,
               ),
               SizedBox(width: FansivibeSpacing.sm + 4),
               Text(

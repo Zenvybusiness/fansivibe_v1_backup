@@ -137,10 +137,7 @@ class _EntryScreenState extends State<EntryScreen>
                         _Reveal(
                           anim: _gateAnim,
                           offset: 10,
-                          child: _AccountGate(
-                            onSignIn: _onSignIn,
-                            onNewUser: _onAnalyze,
-                          ),
+                          child: _AccountGate(onSignIn: _onSignIn),
                         ),
                         SizedBox(height: FansivibeSpacing.lg + 8),
                         _Reveal(
@@ -344,8 +341,7 @@ class _SecondaryCTA extends StatelessWidget {
 
 class _AccountGate extends StatelessWidget {
   final VoidCallback onSignIn;
-  final VoidCallback onNewUser;
-  const _AccountGate({required this.onSignIn, required this.onNewUser});
+  const _AccountGate({required this.onSignIn});
 
   @override
   Widget build(BuildContext context) {
@@ -363,24 +359,10 @@ class _AccountGate extends StatelessWidget {
           ),
         ),
         SizedBox(height: FansivibeSpacing.md),
-        Row(
-          children: [
-            Expanded(
-              child: _GateButton(
-                label: 'Sign In',
-                icon: Icons.login_rounded,
-                onPressed: onSignIn,
-              ),
-            ),
-            SizedBox(width: FansivibeSpacing.md),
-            Expanded(
-              child: _GateButton(
-                label: 'Continue as\nNew User',
-                icon: Icons.person_add_alt_rounded,
-                onPressed: onNewUser,
-              ),
-            ),
-          ],
+        _GateButton(
+          label: 'Sign In',
+          icon: Icons.login_rounded,
+          onPressed: onSignIn,
         ),
       ],
     );

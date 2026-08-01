@@ -1,7 +1,20 @@
 # Fansivibe Current State
 
 Last Updated: 2026-08-02
-Updated By: opencode agent (Light-path first-visit Home redesign)
+Updated By: opencode agent (Removed "Continue as New User" gate button)
+
+## Changes Made — Entry Screen Account Gate Trim
+
+### Modified: `lib/features/onboarding/presentation/screens/entry_screen.dart`
+
+Removed the "Continue as New User" ghost button from the `_AccountGate`. The
+gate now shows only the "Sign In" button (full-width) under the "Already have a
+Fansivibe account?" prompt. Dropped the now-unused `onNewUser` callback and its
+`_onAnalyze` wiring. Nothing else changed — CTAs, routing, and behavior intact.
+
+**Validation**
+- `flutter analyze` (entry_screen.dart): 0 issues
+- No test references the removed button; no entry_screen_test.dart exists
 
 ## Changes Made — Professional Light-Path First-Visit Home
 
@@ -43,6 +56,17 @@ Sections (staggered reveal, 2s, `easeOutCubic`):
 
 **New tests:** `test/first_time_light_path_home_screen_test.dart` (4 cases —
 render, chosen vibe, no-vibe state, Analyze My Style navigation).
+
+**Container restyle (visual only, no content/behavior change):**
+- Replaced per-card `boxShadow` + full borders with a shared `_craftedCard`
+  treatment: tonal `surfaceContainerLow → surfaceContainer` gradient, a soft
+  radial accent glow in a corner, and a hairline gold top edge (design system:
+  "depth through surface colour, not shadows/borders").
+- New `_medallion` layered-ring icon treatment (soft radial fill + dual
+  hairline rings) used for the vibe motif, camera, and AI spark icons.
+- Vibe card divider switched gold → muted `outlineVariant`; look badges refined
+  to glass chips with hairline gold borders; editorial tags got hairline borders.
+- All text, sections, order, navigation, and tests unchanged.
 
 **Validation**
 - `dart format`: passed
