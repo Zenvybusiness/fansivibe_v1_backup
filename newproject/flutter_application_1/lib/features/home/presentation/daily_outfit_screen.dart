@@ -69,7 +69,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
           builder: (context, constraints) {
             final maxWidth = constraints.maxWidth;
             final isTablet = maxWidth > 600;
-            final horizontalPadding = isTablet ? 48.0 : 0.0;
+            final horizontalPadding = isTablet ? 48.0 : 20.0;
             final contentMaxWidth = isTablet ? 600.0 : double.infinity;
 
             return SingleChildScrollView(
@@ -87,44 +87,42 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                       ),
                       Padding(
                         padding: EdgeInsets.symmetric(
-                          horizontal: horizontalPadding > 0
-                              ? horizontalPadding
-                              : FansivibeSpacing.lg,
+                          horizontal: horizontalPadding,
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            SizedBox(height: FansivibeSpacing.lg),
+                            SizedBox(height: FansivibeSpacing.xl),
                             _animatedSection(
                               _editorialAnim,
                               reduceMotion,
                               _buildEditorialSummary(context, data),
                             ),
-                            SizedBox(height: FansivibeSpacing.xl),
+                            SizedBox(height: FansivibeSpacing.xxl),
                             _animatedSection(
                               _breakdownAnim,
                               reduceMotion,
                               _buildOutfitBreakdown(context, data),
                             ),
-                            SizedBox(height: FansivibeSpacing.xl),
+                            SizedBox(height: FansivibeSpacing.xxl),
                             _animatedSection(
                               _insightsAnim,
                               reduceMotion,
                               _buildWhyItWorks(context, data),
                             ),
-                            SizedBox(height: FansivibeSpacing.xl),
+                            SizedBox(height: FansivibeSpacing.xxl),
                             _animatedSection(
                               _alternativesAnim,
                               reduceMotion,
                               _buildAlternatives(context, data),
                             ),
-                            SizedBox(height: FansivibeSpacing.xl),
+                            SizedBox(height: FansivibeSpacing.xxl),
                             _animatedSection(
                               _actionsAnim,
                               reduceMotion,
                               _buildQuickActions(context, data),
                             ),
-                            SizedBox(height: FansivibeSpacing.lg),
+                            SizedBox(height: FansivibeSpacing.xl),
                             _animatedSection(
                               _tipAnim,
                               reduceMotion,
@@ -165,144 +163,193 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     );
   }
 
+  // ────────────────────────────── HERO ──────────────────────────────
+
   Widget _buildHeroSection(
     BuildContext context,
     DailyOutfitData data,
     BoxConstraints constraints,
   ) {
     final viewHeight = MediaQuery.of(context).size.height;
-    final heroHeight = viewHeight * 0.68;
+    final heroHeight = (viewHeight * 0.6).clamp(380.0, 520.0).toDouble();
+    final w = constraints.maxWidth;
+    final isTablet = w > 600;
+    final p = isTablet ? 48.0 : 20.0;
     final scoreColor = _scoreColor(data.matchScore);
-    final isTablet = constraints.maxWidth > 600;
+
+    final panelWidth = w * 0.62;
+    final panelHeight = heroHeight * 0.5;
+    final panelTop = heroHeight * 0.17;
+    final panelLeft = w - panelWidth + 14;
 
     return SizedBox(
-      height: heroHeight.clamp(380, 600),
+      height: heroHeight,
       width: double.infinity,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Hero(
-            tag: 'todays-outfit-hero',
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  FansivibeColors.surfaceContainerHigh,
+                  FansivibeColors.surfaceContainerLow,
+                  FansivibeColors.surface,
+                ],
+                stops: const [0.0, 0.55, 1.0],
+              ),
+            ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned(
+                  top: -40,
+                  right: -60,
+                  child: Container(
+                    width: 220,
+                    height: 220,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: FansivibeColors.primary.withValues(alpha: 0.05),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 40,
+                  left: -70,
+                  child: Container(
+                    width: 170,
+                    height: 170,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: FansivibeColors.primary.withValues(alpha: 0.03),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: p,
+            left: p,
+            child: Semantics(
+              button: true,
+              child: GestureDetector(
+                onTap: () => Navigator.of(context).pop(),
+                child: _glassCircle(icon: Icons.arrow_back_rounded, size: 40),
+              ),
+            ),
+          ),
+          Positioned(
+            top: p,
+            right: p,
+            child: _glassPill(
+              icon: Icons.auto_awesome_rounded,
+              text: '${data.matchScore}%',
+              color: scoreColor,
+            ),
+          ),
+          Positioned(
+            left: panelLeft,
+            top: panelTop,
             child: Container(
+              width: panelWidth,
+              height: panelHeight,
               decoration: BoxDecoration(
+                borderRadius: FansivibeRadius.lgBorder,
                 gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                   colors: [
                     FansivibeColors.surfaceContainerHigh,
-                    FansivibeColors.surfaceContainerLow,
-                    FansivibeColors.surface,
+                    FansivibeColors.surfaceContainer,
                   ],
-                  stops: const [0.0, 0.5, 1.0],
                 ),
               ),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Positioned(
-                    top: -40,
-                    right: -40,
-                    child: Container(
-                      width: 200,
-                      height: 200,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: FansivibeColors.primary.withValues(alpha: 0.04),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 60,
-                    left: -60,
-                    child: Container(
-                      width: 160,
-                      height: 160,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: FansivibeColors.primary.withValues(alpha: 0.03),
-                      ),
-                    ),
-                  ),
                   Center(
                     child: Icon(
                       Icons.checkroom_rounded,
-                      size: 96,
-                      color: FansivibeColors.primary.withValues(alpha: 0.12),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment.topCenter,
-                colors: [
-                  FansivibeColors.surface.withValues(alpha: 0.92),
-                  FansivibeColors.surface.withValues(alpha: 0.4),
-                  Colors.transparent,
-                  Colors.transparent,
-                ],
-                stops: const [0.0, 0.25, 0.55, 1.0],
-              ),
-            ),
-          ),
-          Positioned(
-            top: isTablet ? 32 : 16,
-            left: isTablet ? 48 : 20,
-            child: Semantics(
-              button: true,
-              child: GestureDetector(
-                onTap: () => Navigator.of(context).pop(),
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: FansivibeColors.surface.withValues(alpha: 0.5),
-                    borderRadius: FansivibeRadius.fullBorder,
-                    border: Border.all(
+                      size: 68,
                       color: FansivibeColors.primary.withValues(alpha: 0.1),
-                      width: 0.5,
                     ),
                   ),
-                  child: Icon(
-                    Icons.arrow_back_rounded,
-                    size: 20,
-                    color: FansivibeColors.onSurface,
+                  Positioned(
+                    right: 16,
+                    bottom: 16,
+                    child: Icon(
+                      Icons.expand_less_rounded,
+                      size: 18,
+                      color: FansivibeColors.primary.withValues(alpha: 0.25),
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
           Positioned(
-            top: isTablet ? 32 : 16,
-            right: isTablet ? 48 : 20,
-            child: _glassChip(
-              '${data.matchScore}%',
-              icon: Icons.auto_awesome_rounded,
-              color: scoreColor,
-            ),
-          ),
-          Positioned(
-            top: isTablet ? 88 : 68,
-            left: isTablet ? 48 : 20,
-            child: _sectionLabel('TODAY\'S LOOK'),
-          ),
-          Positioned(
-            bottom: isTablet ? 120 : 100,
-            left: isTablet ? 48 : 20,
+            left: p,
+            top: heroHeight * 0.40,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _glassChip(
+                Container(
+                  width: 28,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: FansivibeColors.primary,
+                    borderRadius: FansivibeRadius.fullBorder,
+                  ),
+                ),
+                SizedBox(height: 10),
+                Container(
+                  constraints: BoxConstraints(maxWidth: w - (p * 2)),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'TODAY\'S LOOK',
+                      maxLines: 1,
+                      style: FansivibeTypography.displayLargeWithFamily
+                          .copyWith(
+                            fontSize: isTablet ? 52 : 42,
+                            fontWeight: FontWeight.w500,
+                            height: 1.0,
+                            letterSpacing: -0.5,
+                          ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: p,
+            bottom: heroHeight * 0.17,
+            child: _glassPill(
+              icon: Icons.auto_awesome_rounded,
+              text: 'Confidence Boost',
+              color: FansivibeColors.primary,
+            ),
+          ),
+          Positioned(
+            left: p,
+            bottom: p,
+            child: Wrap(
+              spacing: FansivibeSpacing.sm,
+              runSpacing: FansivibeSpacing.sm,
+              children: [
+                _garmentTag(
                   data.occasion,
                   icon: Icons.event_outlined,
                   color: FansivibeColors.primary,
                 ),
-                SizedBox(height: FansivibeSpacing.sm),
-                _glassChip(
+                _garmentTag(
                   data.weather,
                   icon: Icons.cloud_outlined,
                   color: FansivibeColors.secondary,
@@ -310,68 +357,39 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
               ],
             ),
           ),
-          if (data.confidenceBoost != null)
-            Positioned(
-              bottom: isTablet ? 36 : 24,
-              left: isTablet ? 48 : 20,
-              child: _confidenceChip(data.confidenceBoost!),
-            ),
         ],
       ),
     );
   }
 
-  Widget _sectionLabel(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      decoration: BoxDecoration(
-        color: FansivibeColors.surface.withValues(alpha: 0.55),
-        borderRadius: FansivibeRadius.fullBorder,
-        border: Border.all(
-          color: FansivibeColors.primary.withValues(alpha: 0.15),
-          width: 0.5,
-        ),
-      ),
-      child: Text(
-        label,
-        style: FansivibeTypography.labelMediumWithFamily.copyWith(
-          color: FansivibeColors.primary,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 2.0,
-          fontSize: 11,
-        ),
-      ),
-    );
-  }
+  // ─────────────────────── TONAL / GLASS BUILDING BLOCKS ───────────────────────
 
-  Widget _glassChip(String label, {IconData? icon, Color? color}) {
-    final chipColor = color ?? FansivibeColors.onSurface;
+  /// Floating glass element — `surfaceContainerLow` @ 70% + 20px blur.
+  /// No line; separation through glass and tonal depth.
+  Widget _glassPill({IconData? icon, required String text, Color? color}) {
+    final c = color ?? FansivibeColors.onSurface;
     return ClipRRect(
       borderRadius: FansivibeRadius.fullBorder,
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: FansivibeColors.surface.withValues(alpha: 0.4),
+            color: FansivibeColors.surfaceContainerLow.withValues(alpha: 0.7),
             borderRadius: FansivibeRadius.fullBorder,
-            border: Border.all(
-              color: chipColor.withValues(alpha: 0.15),
-              width: 0.5,
-            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (icon != null) ...[
-                Icon(icon, size: 14, color: chipColor),
+                Icon(icon, size: 14, color: c),
                 SizedBox(width: FansivibeSpacing.sm),
               ],
               Text(
-                label,
+                text,
                 style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                  color: chipColor,
-                  fontWeight: FontWeight.w600,
+                  color: c,
+                  fontWeight: FontWeight.w700,
                   fontSize: 12,
                 ),
               ),
@@ -382,61 +400,83 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     );
   }
 
-  Widget _confidenceChip(String text) {
-    return ClipRRect(
-      borderRadius: FansivibeRadius.fullBorder,
+  Widget _glassCircle({required IconData icon, required double size}) {
+    return ClipOval(
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          width: size,
+          height: size,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                FansivibeColors.primary.withValues(alpha: 0.15),
-                FansivibeColors.primary.withValues(alpha: 0.05),
-              ],
-            ),
-            borderRadius: FansivibeRadius.fullBorder,
-            border: Border.all(
-              color: FansivibeColors.primary.withValues(alpha: 0.2),
-              width: 0.5,
-            ),
+            color: FansivibeColors.surfaceContainerLow.withValues(alpha: 0.7),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.auto_awesome_rounded,
-                size: 14,
-                color: FansivibeColors.primary,
-              ),
-              SizedBox(width: FansivibeSpacing.sm),
-              Text(
-                'Confidence Boost',
-                style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                  color: FansivibeColors.primary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 11,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
+          child: Center(
+            child: Icon(
+              icon,
+              size: size * 0.5,
+              color: FansivibeColors.onSurface,
+            ),
           ),
         ),
       ),
     );
   }
 
+  /// Garment-tag chip — `surfaceContainerHighest` @ `sm` radius, label text.
+  Widget _garmentTag(String label, {IconData? icon, Color? color}) {
+    final c = color ?? FansivibeColors.onSurface;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerHighest,
+        borderRadius: FansivibeRadius.smBorder,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 13, color: c),
+            SizedBox(width: FansivibeSpacing.xs + 2),
+          ],
+          Text(
+            label,
+            style: FansivibeTypography.labelSmallWithFamily.copyWith(
+              color: c,
+              fontWeight: FontWeight.w600,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _goldLabel(String text, {double fontSize = 10}) {
+    return Text(
+      text,
+      style: FansivibeTypography.labelMediumWithFamily.copyWith(
+        color: FansivibeColors.primary,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 2.0,
+        fontSize: fontSize,
+      ),
+    );
+  }
+
+  // ─────────────────────────── EDITORIAL SUMMARY ───────────────────────────
+
   Widget _buildEditorialSummary(BuildContext context, DailyOutfitData data) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _goldLabel('THE DAILY EDIT'),
+        SizedBox(height: FansivibeSpacing.sm),
         Text(
           data.title,
           style: FansivibeTypography.displayLargeWithFamily.copyWith(
-            fontSize: 34,
+            fontSize: 36,
             fontWeight: FontWeight.w500,
-            height: 1.08,
+            height: 1.1,
             letterSpacing: -0.5,
           ),
         ),
@@ -450,24 +490,27 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
           ),
         ),
         if (data.aiSelectionReason != null) ...[
-          SizedBox(height: FansivibeSpacing.md),
+          SizedBox(height: FansivibeSpacing.lg),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.auto_awesome_rounded,
-                size: 16,
+              _garmentTag(
+                'AI NOTE',
+                icon: Icons.auto_awesome_rounded,
                 color: FansivibeColors.primary,
               ),
-              SizedBox(width: FansivibeSpacing.sm),
+              SizedBox(width: FansivibeSpacing.sm + 4),
               Expanded(
-                child: Text(
-                  data.aiSelectionReason!,
-                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                    color: FansivibeColors.primary,
-                    fontSize: 14,
-                    height: 1.5,
-                    fontStyle: FontStyle.italic,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    data.aiSelectionReason!,
+                    style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                      color: FansivibeColors.primary,
+                      fontSize: 14,
+                      height: 1.5,
+                      fontStyle: FontStyle.italic,
+                    ),
                   ),
                 ),
               ),
@@ -478,6 +521,8 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     );
   }
 
+  // ─────────────────────────── THE ENSEMBLE ───────────────────────────
+
   Widget _buildOutfitBreakdown(BuildContext context, DailyOutfitData data) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -485,7 +530,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         _buildSectionHeader('The Ensemble', '${data.components.length} pieces'),
         SizedBox(height: FansivibeSpacing.md + 4),
         SizedBox(
-          height: isTablet(context) ? 180 : 165,
+          height: isTablet(context) ? 190 : 175,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
@@ -518,7 +563,6 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     DailyOutfitComponent component,
     bool isTablet,
   ) {
-    final theme = Theme.of(context);
     final color = _parseColor(component.colorHex);
     final cardWidth = isTablet ? 200.0 : 170.0;
 
@@ -536,27 +580,64 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
               height: cardWidth * 0.5,
               width: double.infinity,
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.08),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    color.withValues(alpha: 0.12),
+                    FansivibeColors.surfaceContainerLow,
+                  ],
+                  stops: const [0.0, 0.9],
+                ),
                 borderRadius: BorderRadius.vertical(
                   top: Radius.circular(FansivibeRadius.md),
                 ),
               ),
-              child: Center(
-                child: Icon(
-                  _categoryIcon(component.category),
-                  size: 36,
-                  color: color.withValues(alpha: 0.4),
-                ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Center(
+                    child: Icon(
+                      _categoryIcon(component.category),
+                      size: 34,
+                      color: color.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: FansivibeColors.surfaceContainerHighest,
+                        borderRadius: FansivibeRadius.smBorder,
+                      ),
+                      child: Text(
+                        component.category.toUpperCase(),
+                        style: FansivibeTypography.labelSmallWithFamily
+                            .copyWith(
+                              color: FansivibeColors.primary,
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1,
+                            ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     component.name,
-                    style: theme.textTheme.bodyMedium?.copyWith(
+                    style: FansivibeTypography.titleLargeWithFamily.copyWith(
                       fontWeight: FontWeight.w600,
                       color: FansivibeColors.onSurface,
                       fontSize: 13,
@@ -564,15 +645,33 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  SizedBox(height: FansivibeSpacing.xs),
-                  Text(
-                    '${component.color} \u2022 ${component.category}',
-                    style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                      color: FansivibeColors.secondary,
-                      fontSize: 10,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  SizedBox(height: FansivibeSpacing.xs + 2),
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: color,
+                        ),
+                      ),
+                      SizedBox(width: FansivibeSpacing.xs + 2),
+                      Flexible(
+                        child: Text(
+                          component.material == null
+                              ? component.color
+                              : '${component.color} \u2022 ${component.material}',
+                          style: FansivibeTypography.labelSmallWithFamily
+                              .copyWith(
+                                color: FansivibeColors.secondary,
+                                fontSize: 10,
+                              ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -582,6 +681,8 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
       ),
     );
   }
+
+  // ─────────────────────────── WHY IT WORKS ───────────────────────────
 
   Widget _buildWhyItWorks(BuildContext context, DailyOutfitData data) {
     return Column(
@@ -608,65 +709,57 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
   Widget _insightCard(BuildContext context, AiInsightData insight) {
     final icon = _insightIcon(insight.iconName);
 
-    return ClipRRect(
-      borderRadius: FansivibeRadius.mdBorder,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
-          decoration: BoxDecoration(
-            color: FansivibeColors.surfaceContainerLow.withValues(alpha: 0.6),
-            borderRadius: FansivibeRadius.mdBorder,
-            border: Border.all(
-              color: FansivibeColors.primary.withValues(alpha: 0.05),
-              width: 0.5,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.mdBorder,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: FansivibeColors.primary.withValues(alpha: 0.1),
+              borderRadius: FansivibeRadius.smBorder,
+            ),
+            child: Center(
+              child: Icon(icon, size: 18, color: FansivibeColors.primary),
             ),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: FansivibeColors.primary.withValues(alpha: 0.08),
-                  borderRadius: FansivibeRadius.smBorder,
+          SizedBox(width: FansivibeSpacing.sm + 4),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  insight.title,
+                  style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-                child: Center(
-                  child: Icon(icon, size: 18, color: FansivibeColors.primary),
+                SizedBox(height: FansivibeSpacing.xs + 2),
+                Text(
+                  insight.description,
+                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                    color: FansivibeColors.secondary,
+                    fontSize: 13,
+                    height: 1.5,
+                  ),
                 ),
-              ),
-              SizedBox(width: FansivibeSpacing.sm + 4),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      insight.title,
-                      style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    SizedBox(height: FansivibeSpacing.xs + 2),
-                    Text(
-                      insight.description,
-                      style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                        color: FansivibeColors.secondary,
-                        fontSize: 13,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
+
+  // ─────────────────────────── ALTERNATIVES ───────────────────────────
 
   Widget _buildAlternatives(BuildContext context, DailyOutfitData data) {
     return Column(
@@ -675,7 +768,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         _buildSectionHeader('Alternatives', '3 more looks for you'),
         SizedBox(height: FansivibeSpacing.md + 4),
         SizedBox(
-          height: isTablet(context) ? 230 : 210,
+          height: isTablet(context) ? 240 : 220,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
@@ -734,6 +827,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                 ),
               ),
               child: Stack(
+                fit: StackFit.expand,
                 children: [
                   Center(
                     child: Icon(
@@ -751,8 +845,8 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: scoreColor.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(6),
+                        color: FansivibeColors.surfaceContainerHighest,
+                        borderRadius: FansivibeRadius.smBorder,
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -776,7 +870,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -800,24 +894,24 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                   SizedBox(height: FansivibeSpacing.sm),
                   SizedBox(
                     width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: () => _handleSeeDetails(context, alt),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: FansivibeColors.primary,
+                    child: GestureDetector(
+                      onTap: () => _handleSeeDetails(context, alt),
+                      child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 6),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: FansivibeRadius.smBorder,
+                        child: Text(
+                          'See Details',
+                          style: FansivibeTypography.labelMediumWithFamily
+                              .copyWith(
+                                color: FansivibeColors.primary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                                letterSpacing: 0.5,
+                                decoration: TextDecoration.underline,
+                                decorationColor: FansivibeColors.primary,
+                                decorationThickness: 1,
+                              ),
                         ),
-                        side: BorderSide(
-                          color: FansivibeColors.primary.withValues(alpha: 0.2),
-                        ),
-                        textStyle: FansivibeTypography.labelSmallWithFamily
-                            .copyWith(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                            ),
                       ),
-                      child: const Text('See Details'),
                     ),
                   ),
                 ],
@@ -829,13 +923,15 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     );
   }
 
+  // ─────────────────────────── QUICK ACTIONS ───────────────────────────
+
   Widget _buildQuickActions(BuildContext context, DailyOutfitData data) {
     return Column(
       children: [
-        FansiButton.primary(
+        _goldGradientCta(
           label: 'Wear This Look',
           icon: Icons.check_circle_outline_rounded,
-          onPressed: () => _handleWearThis(context),
+          onTap: () => _handleWearThis(context),
         ),
         SizedBox(height: FansivibeSpacing.sm + 4),
         FansiButton.secondary(
@@ -852,21 +948,32 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         SizedBox(height: FansivibeSpacing.sm + 4),
         SizedBox(
           width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () => _handleShare(context),
-            icon: const Icon(Icons.share_outlined, size: 18),
-            label: const Text('Share'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: FansivibeColors.secondary,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: FansivibeRadius.fullBorder,
-              ),
-              side: BorderSide(
-                color: FansivibeColors.secondary.withValues(alpha: 0.2),
-              ),
-              textStyle: FansivibeTypography.bodyLargeWithFamily.copyWith(
-                fontWeight: FontWeight.w600,
+          child: GestureDetector(
+            onTap: () => _handleShare(context),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.share_outlined,
+                    size: 16,
+                    color: FansivibeColors.primary,
+                  ),
+                  SizedBox(width: FansivibeSpacing.sm),
+                  Text(
+                    'Share',
+                    style: FansivibeTypography.labelMediumWithFamily.copyWith(
+                      color: FansivibeColors.primary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      letterSpacing: 0.5,
+                      decoration: TextDecoration.underline,
+                      decorationColor: FansivibeColors.primary,
+                      decorationThickness: 1,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -875,104 +982,147 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     );
   }
 
-  Widget _buildDailyStyleTip(BuildContext context, DailyOutfitData data) {
-    if (data.dailyStyleTip == null) return const SizedBox.shrink();
-
+  /// Signature primary CTA — `primary` → `primaryContainer` at 135 degrees.
+  Widget _goldGradientCta({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
     return ClipRRect(
-      borderRadius: FansivibeRadius.mdBorder,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                FansivibeColors.primary.withValues(alpha: 0.04),
-                FansivibeColors.surfaceContainerLow.withValues(alpha: 0.6),
-              ],
-            ),
-            borderRadius: FansivibeRadius.mdBorder,
-            border: Border.all(
-              color: FansivibeColors.primary.withValues(alpha: 0.06),
-              width: 0.5,
-            ),
+      borderRadius: FansivibeRadius.fullBorder,
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [FansivibeColors.primary, FansivibeColors.primaryContainer],
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: FansivibeColors.primary.withValues(alpha: 0.1),
-                  borderRadius: FansivibeRadius.smBorder,
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.lightbulb_outline_rounded,
-                    size: 16,
-                    color: FansivibeColors.primary,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            child: Container(
+              height: 52,
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              alignment: Alignment.center,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.check_circle_outline_rounded,
+                    size: 18,
+                    color: FansivibeColors.onPrimary,
                   ),
-                ),
-              ),
-              SizedBox(width: FansivibeSpacing.sm + 4),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Daily Style Tip',
-                      style: FansivibeTypography.labelMediumWithFamily.copyWith(
-                        color: FansivibeColors.primary,
-                        letterSpacing: 1.5,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                      ),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: FansivibeTypography.bodyLargeWithFamily.copyWith(
+                      color: FansivibeColors.onPrimary,
+                      fontWeight: FontWeight.w600,
                     ),
-                    SizedBox(height: FansivibeSpacing.xs + 2),
-                    Text(
-                      data.dailyStyleTip!,
-                      style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                        color: FansivibeColors.onSurface,
-                        fontSize: 13,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildSectionHeader(String title, String subtitle) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Column(
+  // ─────────────────────────── DAILY STYLE TIP ───────────────────────────
+
+  Widget _buildDailyStyleTip(BuildContext context, DailyOutfitData data) {
+    if (data.dailyStyleTip == null) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            FansivibeColors.primary.withValues(alpha: 0.05),
+            FansivibeColors.surfaceContainerLow,
+          ],
+          stops: const [0.0, 0.7],
+        ),
+        borderRadius: FansivibeRadius.mdBorder,
+      ),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: FansivibeTypography.headlineMediumWithFamily.copyWith(
-              fontSize: 22,
-              fontWeight: FontWeight.w500,
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: FansivibeColors.primary.withValues(alpha: 0.12),
+              borderRadius: FansivibeRadius.smBorder,
+            ),
+            child: Center(
+              child: Icon(
+                Icons.lightbulb_outline_rounded,
+                size: 17,
+                color: FansivibeColors.primary,
+              ),
             ),
           ),
-          SizedBox(height: FansivibeSpacing.xs),
-          Text(
-            subtitle,
-            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-              color: FansivibeColors.secondary,
+          SizedBox(width: FansivibeSpacing.sm + 4),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _goldLabel('Daily Style Tip', fontSize: 10),
+                SizedBox(height: FansivibeSpacing.xs + 2),
+                Text(
+                  data.dailyStyleTip!,
+                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                    color: FansivibeColors.onSurface,
+                    fontSize: 13,
+                    height: 1.5,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, String subtitle) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 26,
+          height: 3,
+          decoration: BoxDecoration(
+            color: FansivibeColors.primary,
+            borderRadius: FansivibeRadius.fullBorder,
+          ),
+        ),
+        SizedBox(height: FansivibeSpacing.sm),
+        Text(
+          title,
+          style: FansivibeTypography.headlineMediumWithFamily.copyWith(
+            fontSize: 22,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        SizedBox(height: FansivibeSpacing.xs),
+        Text(
+          subtitle,
+          style: FansivibeTypography.labelMediumWithFamily.copyWith(
+            color: FansivibeColors.primary,
+            fontWeight: FontWeight.w600,
+            fontSize: 10,
+            letterSpacing: 1.5,
+          ),
+        ),
+      ],
     );
   }
 

@@ -1,7 +1,42 @@
 # Fansivibe Current State
 
 Last Updated: 2026-08-02
-Updated By: opencode agent (UX/flow bug fixes + full test suite synced to current UX)
+Updated By: opencode agent (Today's Look creative redesign per DESIGN.md)
+
+## Changes Made — Today's Look Screen Redesign (faithful Digital Atelier)
+
+### Modified: `newproject/flutter_application_1/lib/features/home/presentation/daily_outfit_screen.dart`
+
+Creative redesign of the Today's Look screen to follow `DESIGN.md` (The Digital
+Atelier) more strictly. **No functionality, data, navigation, or text strings
+changed** — only visual treatment.
+
+**Design changes (per DESIGN.md):**
+- **No-Line Rule**: removed every `Border.all(...)`. All separation now via
+  tonal layers and glass — no 1px lines anywhere.
+- **Glass recipe**: floating elements (back button, score pill, Confidence
+  Boost pill) now use the spec'd `surfaceContainerLow` @ 70% + **20px** blur
+  (was 8px + borders).
+- **Garment-tag chips**: metadata (occasion, weather, AI NOTE, category tabs,
+  alt scores) are now solid `surfaceContainerHighest` @ `sm` radius label
+  tags.
+- **Editorial hero overlap**: large serif "TODAY'S LOOK" headline now overlaps
+  an asymmetric outfit photo panel that bleeds off the right edge (photo
+  overlaps a display heading per "Do overlap elements").
+- **Signature CTA gradient**: "Wear This Look" uses `primary` → `primaryContainer`
+  at 135° (gold metallic weight), full radius.
+- **Tertiary editorial links**: "See Details" and "Share" converted from
+  outlined buttons to gold underlined text links.
+- **Section headers**: gold hairline rule + serif title + letter-spaced gold
+  subtitle. Editorial label "THE DAILY EDIT" added to the summary.
+- **Cards**: tonal `surfaceContainerLow` with `md`/`lg` radius, color-tinted
+  gradient image wells, no shadows.
+
+**Validation**
+- `dart format`: passed
+- `flutter analyze`: 0 errors, 7 pre-existing infos (all in untouched
+  `outfit_scan`/`outfit_analysis` files)
+- `flutter test`: **311 passed, 0 failed** (all 23 daily_outfit tests green)
 
 ## Changes Made — UX/Flow Bug Fixes and Full Test Suite Now Green
 
