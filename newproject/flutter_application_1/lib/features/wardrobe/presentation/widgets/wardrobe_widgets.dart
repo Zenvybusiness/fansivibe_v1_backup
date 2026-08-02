@@ -278,7 +278,7 @@ class WardrobeInsightCard extends StatelessWidget {
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: accentColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: FansivibeRadius.smdBorder,
                 ),
                 child: Icon(
                   iconFromName(data.iconName),

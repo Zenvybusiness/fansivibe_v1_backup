@@ -3,6 +3,7 @@ import 'package:fansivibe/features/outfit_scan/data/outfit_scan_mock_data.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class OutfitAnalysisScreen extends StatelessWidget {
   const OutfitAnalysisScreen({super.key, this.capturedImagePath});
@@ -38,7 +39,7 @@ class OutfitAnalysisScreen extends StatelessWidget {
                   backgroundColor: FansivibeColors.accentGold,
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: FansivibeRadius.smdBorder,
                   ),
                 ),
               );
@@ -137,11 +138,8 @@ class OutfitAnalysisScreen extends StatelessWidget {
       height: 200,
       width: double.infinity,
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Stack(
         fit: StackFit.expand,
@@ -181,7 +179,7 @@ class OutfitAnalysisScreen extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: FansivibeColors.success.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: FansivibeRadius.smBorder,
                 border: Border.all(
                   color: FansivibeColors.success.withValues(alpha: 0.3),
                 ),
@@ -264,7 +262,7 @@ class OutfitAnalysisScreen extends StatelessWidget {
                   backgroundColor: FansivibeColors.accentGold,
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: FansivibeRadius.smdBorder,
                   ),
                 ),
               );

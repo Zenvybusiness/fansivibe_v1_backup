@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 enum StyleVibe {
   minimalist(
     'Minimalist',
@@ -16,6 +18,17 @@ enum StyleVibe {
   final String description;
   const StyleVibe(this.label, this.description);
 }
+
+/// Editorial gradient pair per vibe. Single source of truth so every
+/// feature (onboarding, home) renders the same vibe identity.
+const Map<StyleVibe, List<Color>> vibeGradientColors = {
+  StyleVibe.minimalist: [Color(0xFFD4D0C8), Color(0xFF8A8580)],
+  StyleVibe.bold: [Color(0xFFD4456A), Color(0xFF1E3A8A)],
+  StyleVibe.classic: [Color(0xFFC5A059), Color(0xFFF5EDD6)],
+  StyleVibe.trendy: [Color(0xFF6B21A8), Color(0xFF00BFFF)],
+  StyleVibe.natural: [Color(0xFF6B8E23), Color(0xFFD2691E)],
+  StyleVibe.edgy: [Color(0xFF1A1A2E), Color(0xFFE94560)],
+};
 
 class AnalysisResult {
   final int score;

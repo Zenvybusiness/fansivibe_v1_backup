@@ -323,7 +323,7 @@ class StylistLevelBadge extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
             color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: FansivibeRadius.smdBorder,
           ),
           child: Text(
             'Lvl ${data.level}',
@@ -339,7 +339,7 @@ class StylistLevelBadge extends StatelessWidget {
           width: 60,
           height: 6,
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(3),
+            borderRadius: FansivibeRadius.xsBorder,
             child: LinearProgressIndicator(
               value: progress,
               backgroundColor: FansivibeColors.accentGold.withValues(
@@ -462,7 +462,7 @@ class StyleProgressIndicator extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         ClipRRect(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: FansivibeRadius.xsBorder,
           child: LinearProgressIndicator(
             value: progress,
             minHeight: 10,
@@ -470,7 +470,7 @@ class StyleProgressIndicator extends StatelessWidget {
             valueColor: AlwaysStoppedAnimation<Color>(
               FansivibeColors.accentGold,
             ),
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: FansivibeRadius.xsBorder,
           ),
         ),
       ],
@@ -727,11 +727,8 @@ class SavedLooksRow extends StatelessWidget {
       width: 130,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.smdBorder,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -742,7 +739,7 @@ class SavedLooksRow extends StatelessWidget {
             height: 32,
             decoration: BoxDecoration(
               color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: FansivibeRadius.smBorder,
             ),
             child: Icon(
               Icons.checkroom_rounded,
@@ -832,7 +829,7 @@ class StyleDnaCard extends StatelessWidget {
           height: 36,
           decoration: BoxDecoration(
             color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: FansivibeRadius.smdBorder,
           ),
           child: Icon(icon, size: 18, color: FansivibeColors.accentGold),
         ),
@@ -877,7 +874,7 @@ class ProfileMenuCard extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: FansivibeRadius.smdBorder,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
         child: Row(

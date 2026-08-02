@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class AddEventScreen extends StatefulWidget {
   const AddEventScreen({super.key});
@@ -256,19 +257,19 @@ class _AddEventScreenState extends State<AddEventScreen> {
       filled: true,
       fillColor: FansivibeColors.surface,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: FansivibeRadius.smdBorder,
         borderSide: BorderSide(
           color: FansivibeColors.textSecondary.withValues(alpha: 0.2),
         ),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: FansivibeRadius.smdBorder,
         borderSide: BorderSide(
           color: FansivibeColors.textSecondary.withValues(alpha: 0.2),
         ),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: FansivibeRadius.smdBorder,
         borderSide: BorderSide(
           color: FansivibeColors.accentGold.withValues(alpha: 0.6),
         ),
@@ -288,12 +289,12 @@ class _AddEventScreenState extends State<AddEventScreen> {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: FansivibeRadius.smdBorder,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           color: FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: FansivibeRadius.smdBorder,
           border: Border.all(
             color: FansivibeColors.textSecondary.withValues(alpha: 0.2),
           ),
@@ -348,7 +349,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
               color: isSelected
                   ? FansivibeColors.accentGold.withValues(alpha: 0.1)
                   : FansivibeColors.surface,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: FansivibeRadius.smdBorder,
               border: Border.all(
                 color: isSelected
                     ? FansivibeColors.accentGold.withValues(alpha: 0.6)

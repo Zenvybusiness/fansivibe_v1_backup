@@ -6,6 +6,7 @@ import 'package:fansivibe/features/discover/presentation/widgets/discover_widget
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_chip.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 /// The Discover screen - Personalized style discovery.
 class DiscoverScreen extends StatefulWidget {
@@ -196,7 +197,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: FansivibeColors.accentGold.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: FansivibeRadius.smdBorder,
           ),
           child: const Icon(
             Icons.explore_rounded,
@@ -271,21 +272,21 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 vertical: 14,
               ),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: FansivibeRadius.smdBorder,
                 borderSide: BorderSide(
                   color: FansivibeColors.accentGold.withValues(alpha: 0.1),
                   width: 1,
                 ),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: FansivibeRadius.smdBorder,
                 borderSide: BorderSide(
                   color: FansivibeColors.accentGold.withValues(alpha: 0.1),
                   width: 1,
                 ),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: FansivibeRadius.smdBorder,
                 borderSide: const BorderSide(
                   color: FansivibeColors.accentGold,
                   width: 2,
@@ -300,7 +301,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           label: 'Open filters',
           child: InkWell(
             onTap: () => _showFilterSheet(context),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: FansivibeRadius.smdBorder,
             child: Container(
               height: 50,
               width: 50,
@@ -308,7 +309,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 color: activeCount > 0
                     ? FansivibeColors.accentGold.withValues(alpha: 0.15)
                     : FansivibeColors.surface,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: FansivibeRadius.smdBorder,
                 border: Border.all(
                   color: activeCount > 0
                       ? FansivibeColors.accentGold.withValues(alpha: 0.4)
@@ -578,7 +579,9 @@ class _FilterSheet extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: FansivibeColors.surfaceContainer,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(FansivibeRadius.md),
+        ),
       ),
       child: Padding(
         padding: EdgeInsets.only(bottom: bottomInset),
@@ -653,7 +656,7 @@ class _FilterSheet extends StatelessWidget {
           height: 4,
           decoration: BoxDecoration(
             color: FansivibeColors.textSecondary.withValues(alpha: 0.3),
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: FansivibeRadius.xsBorder,
           ),
         ),
       ),

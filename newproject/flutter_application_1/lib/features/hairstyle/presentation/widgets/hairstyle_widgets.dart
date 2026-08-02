@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/score_colors.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class FacePreviewPlaceholder extends StatelessWidget {
   const FacePreviewPlaceholder({super.key});
@@ -15,7 +16,7 @@ class FacePreviewPlaceholder extends StatelessWidget {
       width: double.infinity,
       decoration: BoxDecoration(
         color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Stack(
         fit: StackFit.expand,
@@ -29,7 +30,7 @@ class FacePreviewPlaceholder extends StatelessWidget {
                   height: 180,
                   decoration: BoxDecoration(
                     shape: BoxShape.rectangle,
-                    borderRadius: BorderRadius.circular(90),
+                    borderRadius: FansivibeRadius.fullBorder,
                     border: Border.all(
                       color: FansivibeColors.accentGold.withValues(alpha: 0.5),
                       width: 2,
@@ -58,7 +59,7 @@ class FacePreviewPlaceholder extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: FansivibeColors.accentGold.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: FansivibeRadius.smBorder,
                 border: Border.all(
                   color: FansivibeColors.accentGold.withValues(alpha: 0.4),
                 ),
@@ -224,17 +225,13 @@ class HairstyleCard extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: FansivibeRadius.baseBorder,
       child: Container(
         margin: const EdgeInsets.only(bottom: 14),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-            width: 1,
-          ),
+          color: FansivibeColors.surfaceContainerLow,
+          borderRadius: FansivibeRadius.baseBorder,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -245,7 +242,7 @@ class HairstyleCard extends StatelessWidget {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: FansivibeRadius.smdBorder,
                   ),
                   child: Icon(
                     recommendation.icon,
@@ -284,7 +281,7 @@ class HairstyleCard extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: scoreColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: FansivibeRadius.smBorder,
                     border: Border.all(
                       color: scoreColor.withValues(alpha: 0.3),
                     ),

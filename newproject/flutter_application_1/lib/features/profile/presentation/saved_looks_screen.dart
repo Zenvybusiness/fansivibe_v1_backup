@@ -3,6 +3,7 @@ import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class SavedLooksScreen extends StatelessWidget {
   const SavedLooksScreen({super.key});
@@ -94,7 +95,7 @@ class _SavedLookCard extends StatelessWidget {
             height: 48,
             decoration: BoxDecoration(
               color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: FansivibeRadius.smdBorder,
             ),
             child: Icon(
               Icons.checkroom_rounded,

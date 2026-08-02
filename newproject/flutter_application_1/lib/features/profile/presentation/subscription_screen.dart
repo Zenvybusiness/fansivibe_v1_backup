@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class SubscriptionScreen extends StatelessWidget {
   const SubscriptionScreen({super.key});
@@ -117,7 +118,7 @@ class _PlanCard extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: FansivibeColors.accentGold,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: FansivibeRadius.smdBorder,
                   ),
                   child: Text(
                     'Popular',
@@ -194,7 +195,7 @@ class _PlanCard extends StatelessWidget {
                     : FansivibeColors.accentGold,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: FansivibeRadius.smdBorder,
                   side: plan.isPopular
                       ? BorderSide.none
                       : BorderSide(

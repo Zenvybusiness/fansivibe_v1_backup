@@ -330,7 +330,7 @@ class AIInsightCard extends StatelessWidget {
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: accentColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: FansivibeRadius.smdBorder,
                 ),
                 child: Icon(
                   _getIconData(data.iconName),
@@ -416,7 +416,7 @@ class QuickActionCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: accentColor,
                     borderRadius: const BorderRadius.horizontal(
-                      left: Radius.circular(24),
+                      left: Radius.circular(FansivibeRadius.md),
                     ),
                   ),
                 ),
@@ -624,7 +624,7 @@ class TodaysLookCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: FansivibeRadius.xsBorder,
               ),
               child: Text(
                 'TODAY\'S LOOK',
@@ -716,7 +716,7 @@ class TodaysLookCard extends StatelessWidget {
                 ),
                 decoration: BoxDecoration(
                   color: scoreColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: FansivibeRadius.smBorder,
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,

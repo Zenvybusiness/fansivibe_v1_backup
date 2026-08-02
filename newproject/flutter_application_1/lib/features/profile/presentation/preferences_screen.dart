@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class PreferencesScreen extends StatefulWidget {
   const PreferencesScreen({super.key});
@@ -162,7 +163,7 @@ class _PreferenceTile extends StatelessWidget {
                         color: isSelected
                             ? FansivibeColors.accentGold
                             : FansivibeColors.accentGold.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: FansivibeRadius.baseBorder,
                         border: Border.all(
                           color: isSelected
                               ? FansivibeColors.accentGold

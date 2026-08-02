@@ -28,7 +28,7 @@ class DiscoverTabButton extends StatelessWidget {
       label: data.label,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: FansivibeRadius.smdBorder,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -36,7 +36,7 @@ class DiscoverTabButton extends StatelessWidget {
             color: isSelected
                 ? FansivibeColors.accentGold.withValues(alpha: 0.15)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: FansivibeRadius.smdBorder,
             border: Border.all(
               color: isSelected
                   ? FansivibeColors.accentGold.withValues(alpha: 0.4)
@@ -164,7 +164,7 @@ class LookCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: FansivibeColors.surface,
                           borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(24),
+                            top: Radius.circular(FansivibeRadius.md),
                           ),
                         ),
                         child: Stack(
@@ -187,7 +187,7 @@ class LookCard extends StatelessWidget {
                                 height: 40,
                                 decoration: BoxDecoration(
                                   borderRadius: const BorderRadius.vertical(
-                                    bottom: Radius.circular(24),
+                                    bottom: Radius.circular(FansivibeRadius.md),
                                   ),
                                   gradient: LinearGradient(
                                     begin: Alignment.bottomCenter,

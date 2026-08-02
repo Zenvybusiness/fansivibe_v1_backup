@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 /// A detail card used in LookDetailsScreen sections.
 class LookDetailCard extends StatelessWidget {
@@ -23,12 +24,8 @@ class LookDetailCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-          width: 1,
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -94,7 +91,7 @@ class ScoreCategoryRow extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: FansivibeRadius.xsBorder,
             child: LinearProgressIndicator(
               value: score / 100,
               minHeight: 8,
@@ -137,7 +134,7 @@ class ReasonRow extends StatelessWidget {
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: FansivibeRadius.smBorder,
           ),
           child: Icon(reason.icon, size: 18, color: FansivibeColors.accentGold),
         ),
@@ -185,7 +182,7 @@ class LookTag extends StatelessWidget {
         color: isFit
             ? FansivibeColors.accentGold.withValues(alpha: 0.1)
             : FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: FansivibeRadius.smBorder,
         border: Border.all(
           color: isFit
               ? FansivibeColors.accentGold.withValues(alpha: 0.3)
@@ -223,7 +220,7 @@ class ComponentRow extends StatelessWidget {
           height: 48,
           decoration: BoxDecoration(
             color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: FansivibeRadius.smBorder,
           ),
           child: Icon(
             Icons.checkroom_outlined,
@@ -261,7 +258,7 @@ class ComponentRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
               color: FansivibeColors.success.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: FansivibeRadius.xsBorder,
             ),
             child: Text(
               'Owned',
@@ -277,7 +274,7 @@ class ComponentRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
               color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: FansivibeRadius.xsBorder,
             ),
             child: Text(
               component.category,
@@ -333,7 +330,7 @@ class AlternativeSection extends StatelessWidget {
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: FansivibeColors.background,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: FansivibeRadius.smdBorder,
         border: Border.all(
           color: FansivibeColors.accentGold.withValues(alpha: 0.1),
           width: 1,
@@ -346,7 +343,7 @@ class AlternativeSection extends StatelessWidget {
             height: 40,
             decoration: BoxDecoration(
               color: FansivibeColors.accentGold.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: FansivibeRadius.smBorder,
             ),
             child: Icon(
               Icons.checkroom_outlined,
@@ -381,7 +378,7 @@ class AlternativeSection extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
                 color: FansivibeColors.success.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: FansivibeRadius.xsBorder,
               ),
               child: Text(
                 'Owned',

@@ -3,6 +3,7 @@ import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/score_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class OptionChip extends StatelessWidget {
   const OptionChip({
@@ -34,7 +35,7 @@ class OptionChip extends StatelessWidget {
           color: isSelected
               ? selectedColor.withValues(alpha: 0.1)
               : FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: FansivibeRadius.smdBorder,
           border: Border.all(
             color: isSelected
                 ? selectedColor.withValues(alpha: 0.6)
@@ -223,9 +224,8 @@ class MetricCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.smdBorder,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -234,7 +234,7 @@ class MetricCard extends StatelessWidget {
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: FansivibeRadius.smdBorder,
             ),
             child: Icon(icon, size: 20, color: color),
           ),
@@ -285,11 +285,8 @@ class OutfitComponentCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.smdBorder,
       ),
       child: Row(
         children: [
@@ -298,7 +295,7 @@ class OutfitComponentCard extends StatelessWidget {
             height: 44,
             decoration: BoxDecoration(
               color: _parseColor(component.colorHex).withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: FansivibeRadius.smdBorder,
               border: Border.all(
                 color: _parseColor(component.colorHex).withValues(alpha: 0.3),
               ),

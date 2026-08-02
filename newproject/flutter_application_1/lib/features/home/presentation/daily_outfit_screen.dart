@@ -1132,7 +1132,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         content: const Text('Wearing this look!'),
         backgroundColor: FansivibeColors.primary,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }
@@ -1143,7 +1143,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         content: const Text('Generating a new look...'),
         backgroundColor: FansivibeColors.primary,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }
@@ -1154,7 +1154,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         content: const Text('Outfit saved to your looks'),
         backgroundColor: FansivibeColors.primary,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }
@@ -1165,7 +1165,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         content: const Text('Share feature coming soon'),
         backgroundColor: FansivibeColors.surfaceContainerHighest,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }
@@ -1176,7 +1176,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         content: Text('Viewing ${alt.name} details...'),
         backgroundColor: FansivibeColors.primary,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }

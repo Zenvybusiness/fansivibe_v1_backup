@@ -111,9 +111,9 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
                             color: FansivibeColors.surface,
                             border: Border.all(
                               color: allComplete
-                                  ? const Color(
-                                      0xFF4CAF50,
-                                    ).withValues(alpha: 0.3)
+                                  ? FansivibeColors.success.withValues(
+                                      alpha: 0.3,
+                                    )
                                   : FansivibeColors.accentGold.withValues(
                                       alpha: 0.3,
                                     ),

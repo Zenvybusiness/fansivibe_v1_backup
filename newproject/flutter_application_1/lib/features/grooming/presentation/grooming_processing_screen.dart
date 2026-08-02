@@ -126,9 +126,9 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
                             color: FansivibeColors.surface,
                             border: Border.all(
                               color: allComplete
-                                  ? const Color(
-                                      0xFF4CAF50,
-                                    ).withValues(alpha: 0.3)
+                                  ? FansivibeColors.success.withValues(
+                                      alpha: 0.3,
+                                    )
                                   : FansivibeColors.accentGold.withValues(
                                       alpha: 0.3,
                                     ),

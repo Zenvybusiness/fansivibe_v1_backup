@@ -149,7 +149,7 @@ class _FirstTimeLightPathHomeScreenState
           width: 32,
           decoration: BoxDecoration(
             color: FansivibeColors.primary,
-            borderRadius: BorderRadius.circular(1),
+            borderRadius: FansivibeRadius.xsBorder,
           ),
         ),
         SizedBox(width: FansivibeSpacing.sm + 4),
@@ -273,7 +273,7 @@ class _FirstTimeLightPathHomeScreenState
           width: 48,
           decoration: BoxDecoration(
             color: FansivibeColors.primary,
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: FansivibeRadius.xsBorder,
           ),
         ),
         SizedBox(height: FansivibeSpacing.md),
@@ -310,8 +310,9 @@ class _FirstTimeLightPathHomeScreenState
   }
 
   Widget _buildVibeCard() {
-    final motif = _vibe != null ? _vibeMotifs[_vibe!] : null;
-    final accent = motif?.gradient.first ?? FansivibeColors.primary;
+    final accent = _vibe != null
+        ? vibeGradientColors[_vibe!]!.first
+        : FansivibeColors.primary;
     return _craftedCard(
       glowColor: accent,
       glowOpacity: 0.08,
@@ -324,7 +325,9 @@ class _FirstTimeLightPathHomeScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _medallion(
-                icon: motif?.icon ?? Icons.auto_awesome_rounded,
+                icon: _vibe != null
+                    ? _vibeIcons[_vibe!]!
+                    : Icons.auto_awesome_rounded,
                 accent: accent,
                 iconColor: FansivibeColors.primary,
               ),
@@ -528,7 +531,7 @@ class _FirstTimeLightPathHomeScreenState
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: FansivibeColors.surface.withValues(alpha: 0.72),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: FansivibeRadius.xsBorder,
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -647,7 +650,7 @@ class _FirstTimeLightPathHomeScreenState
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: FansivibeColors.surfaceContainerHigh.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: FansivibeRadius.smBorder,
         border: Border.all(
           color: FansivibeColors.primary.withValues(alpha: 0.08),
           width: 0.5,
@@ -842,37 +845,13 @@ class _FirstTimeLightPathHomeScreenState
   }
 }
 
-class _VibeMotif {
-  final IconData icon;
-  final List<Color> gradient;
-  const _VibeMotif(this.icon, this.gradient);
-}
-
-const Map<StyleVibe, _VibeMotif> _vibeMotifs = {
-  StyleVibe.minimalist: _VibeMotif(Icons.remove_rounded, [
-    Color(0xFFD4D0C8),
-    Color(0xFF8A8580),
-  ]),
-  StyleVibe.bold: _VibeMotif(Icons.bolt_rounded, [
-    Color(0xFFD4456A),
-    Color(0xFF1E3A8A),
-  ]),
-  StyleVibe.classic: _VibeMotif(Icons.diamond_outlined, [
-    Color(0xFFC5A059),
-    Color(0xFFF5EDD6),
-  ]),
-  StyleVibe.trendy: _VibeMotif(Icons.trending_up_rounded, [
-    Color(0xFF6B21A8),
-    Color(0xFF00BFFF),
-  ]),
-  StyleVibe.natural: _VibeMotif(Icons.eco_outlined, [
-    Color(0xFF6B8E23),
-    Color(0xFFD2691E),
-  ]),
-  StyleVibe.edgy: _VibeMotif(Icons.flash_on_rounded, [
-    Color(0xFF1A1A2E),
-    Color(0xFFE94560),
-  ]),
+const Map<StyleVibe, IconData> _vibeIcons = {
+  StyleVibe.minimalist: Icons.remove_rounded,
+  StyleVibe.bold: Icons.bolt_rounded,
+  StyleVibe.classic: Icons.diamond_outlined,
+  StyleVibe.trendy: Icons.trending_up_rounded,
+  StyleVibe.natural: Icons.eco_outlined,
+  StyleVibe.edgy: Icons.flash_on_rounded,
 };
 
 StyleVibe? _vibeFromName(String? name) {

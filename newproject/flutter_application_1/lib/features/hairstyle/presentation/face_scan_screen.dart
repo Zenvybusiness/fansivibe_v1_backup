@@ -5,6 +5,7 @@ import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widg
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class FaceScanScreen extends StatelessWidget {
   const FaceScanScreen({super.key});
@@ -77,11 +78,8 @@ class FaceScanScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Column(
         children: [

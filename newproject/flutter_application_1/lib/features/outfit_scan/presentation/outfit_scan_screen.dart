@@ -2,6 +2,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
@@ -322,7 +323,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       height: 280,
       width: double.infinity,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: FansivibeRadius.baseBorder,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -337,7 +338,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
                 ),
                 decoration: BoxDecoration(
                   color: FansivibeColors.accentGold.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: FansivibeRadius.smBorder,
                   border: Border.all(
                     color: FansivibeColors.accentGold.withValues(alpha: 0.4),
                   ),
@@ -385,7 +386,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       width: double.infinity,
       decoration: BoxDecoration(
         color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: FansivibeRadius.baseBorder,
         border: Border.all(
           color: FansivibeColors.accentGold.withValues(alpha: 0.15),
         ),
@@ -436,7 +437,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: FansivibeRadius.baseBorder,
         border: Border.all(
           color: FansivibeColors.accentGold.withValues(alpha: 0.15),
         ),
@@ -505,7 +506,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
                   backgroundColor: FansivibeColors.accentGold,
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: FansivibeRadius.smdBorder,
                   ),
                 ),
               );

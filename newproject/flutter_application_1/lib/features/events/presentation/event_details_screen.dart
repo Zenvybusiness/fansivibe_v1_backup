@@ -4,6 +4,7 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class EventDetailsScreen extends StatelessWidget {
   const EventDetailsScreen({required this.event, super.key});
@@ -92,7 +93,7 @@ class EventDetailsScreen extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: FansivibeColors.accentGold.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: FansivibeRadius.baseBorder,
           ),
           child: Icon(
             event.eventType.icon,
@@ -132,18 +133,8 @@ class EventDetailsScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Column(
         children: [
@@ -186,7 +177,7 @@ class EventDetailsScreen extends StatelessWidget {
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: FansivibeRadius.smdBorder,
           ),
           child: Icon(icon, size: 18, color: FansivibeColors.accentGold),
         ),
@@ -223,22 +214,8 @@ class EventDetailsScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color:
-              (hasOutfit
-                      ? const Color(0xFF2E7D32)
-                      : FansivibeColors.textSecondary)
-                  .withValues(alpha: 0.2),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Row(
         children: [
@@ -247,10 +224,10 @@ class EventDetailsScreen extends StatelessWidget {
             decoration: BoxDecoration(
               color:
                   (hasOutfit
-                          ? const Color(0xFF2E7D32)
+                          ? FansivibeColors.successContainer
                           : FansivibeColors.textSecondary)
                       .withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: FansivibeRadius.smdBorder,
             ),
             child: Icon(
               hasOutfit
@@ -258,7 +235,7 @@ class EventDetailsScreen extends StatelessWidget {
                   : Icons.hourglass_empty_rounded,
               size: 22,
               color: hasOutfit
-                  ? const Color(0xFF81C784)
+                  ? FansivibeColors.onSuccessContainer
                   : FansivibeColors.textSecondary,
             ),
           ),
@@ -291,16 +268,16 @@ class EventDetailsScreen extends StatelessWidget {
             decoration: BoxDecoration(
               color:
                   (hasOutfit
-                          ? const Color(0xFF2E7D32)
+                          ? FansivibeColors.successContainer
                           : FansivibeColors.textSecondary)
                       .withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: FansivibeRadius.smBorder,
             ),
             child: Text(
               hasOutfit ? 'Ready' : 'Pending',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: hasOutfit
-                    ? const Color(0xFF81C784)
+                    ? FansivibeColors.onSuccessContainer
                     : FansivibeColors.textSecondary,
                 fontWeight: FontWeight.w600,
                 fontSize: 11,
@@ -344,7 +321,7 @@ class EventDetailsScreen extends StatelessWidget {
         content: const Text('Edit Event coming soon'),
         backgroundColor: FansivibeColors.accentGold,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }

@@ -1,7 +1,58 @@
 # Fansivibe Current State
 
 Last Updated: 2026-08-02
-Updated By: opencode agent (Today's Look creative redesign per DESIGN.md)
+Updated By: opencode agent (Design consistency pass per DESIGN.md + audit)
+
+## Changes Made — Design Consistency Pass (professional UI/UX)
+
+Full-design audit followed by a token-consistency migration. All changes are
+visual-only; no behavior, data, navigation, or text changed.
+
+### 1. Semantic colors enforced (rule violations fixed)
+- **Removed forbidden Material blue/purple** (`#2196F3`, `#9C27B0`) →
+  `FansivibeColors.accentGold` (informational accent) in `grooming_details_screen.dart`,
+  `grooming_result_screen.dart`, `hairstyle_details_screen.dart`,
+  `outfit_recommendation_screen.dart`. Per DESIGN.md: "Don't use Material blue."
+- **New tokens** in `fansivibe_colors.dart`: `successContainer` (#2E7D32),
+  `onSuccessContainer` (#81C784). Replaced all hardcoded event greens in
+  `events_widgets.dart` + `event_details_screen.dart`.
+- **Raw semantic greens → tokens**: `0xFF4CAF50` → `FansivibeColors.success` in 4
+  processing screens (`outfit_processing`, `outfit_generation`, `face_processing`,
+  `grooming_processing`).
+- Retained deliberate content colors: stylist feature tints, streak flame orange,
+  vibe gradients (now shared), garment/palette swatches.
+
+### 2. Radius scale completed + migrated
+- Added missing steps to `fansivibe_radius.dart`: `xs` (4), `smd` (12), `base` (16).
+- Migrated **all** raw `BorderRadius.circular(...)` (163 spots across ~40 files) to
+  tokens: tiny→`xs`, 8→`sm`, 10/12/14→`smd`, 16/20→`base`, 24→`md`, 32→`lg`, 90→`full`.
+- Added `fansivibe_radius.dart` imports to 29 files that now use tokens.
+
+### 3. Vibe gradient de-duplicated (single source of truth)
+- New `vibeGradientColors` map in `onboarding_data.dart`; both `vibe_select_screen.dart`
+  and `first_time_light_path_home_screen.dart` now reference it (removed duplicated
+  color pairs + dead `_VibeVisual`/`_VibeMotif` classes).
+
+### 4. No-Line rule applied (tonal layering)
+Converted accent-tinted bordered cards on `surface` → tonal `surfaceContainerLow`
+lifts (boundary via colour shift, not lines) in grooming, hairstyle, outfit_builder,
+outfit_scan, discover, profile, wardrobe, and events screens. Removed drop shadows
+from card surfaces (kept brand-tinted glow on the hero in `first_time_home_screen`).
+Interactive ghost borders (selection chips, input fields, medallion rings, camera
+guides) intentionally preserved per DESIGN.md accessibility rule. `Border.all`
+usage: 88 → 58.
+
+**Validation**
+- `dart format`: passed
+- `flutter analyze`: 0 errors, 7 pre-existing infos (all in untouched files)
+- `flutter test`: **311 passed, 0 failed**
+
+**Files changed:** `shared/theme/fansivibe_colors.dart`, `shared/theme/fansivibe_radius.dart`,
+`shared/theme/fansivibe_theme.dart` (unchanged), `features/onboarding/data/onboarding_data.dart`,
+`features/onboarding/presentation/screens/vibe_select_screen.dart`,
+`features/home/presentation/first_time_light_path_home_screen.dart`, plus ~40 screen/widget
+files across events, grooming, hairstyle, outfit_builder, outfit_scan, discover, profile,
+wardrobe for radius + tonal-layering migration.
 
 ## Changes Made — Today's Look Screen Redesign (faithful Digital Atelier)
 

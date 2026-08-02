@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/score_colors.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class GroomingOptionChip extends StatelessWidget {
   const GroomingOptionChip({
@@ -33,7 +34,7 @@ class GroomingOptionChip extends StatelessWidget {
           color: isSelected
               ? selectedColor.withValues(alpha: 0.1)
               : FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: FansivibeRadius.smdBorder,
           border: Border.all(
             color: isSelected
                 ? selectedColor.withValues(alpha: 0.6)
@@ -231,17 +232,13 @@ class GroomingRecommendationCard extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: FansivibeRadius.baseBorder,
       child: Container(
         margin: const EdgeInsets.only(bottom: 14),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-            width: 1,
-          ),
+          color: FansivibeColors.surfaceContainerLow,
+          borderRadius: FansivibeRadius.baseBorder,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -252,7 +249,7 @@ class GroomingRecommendationCard extends StatelessWidget {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: FansivibeRadius.smdBorder,
                   ),
                   child: Icon(
                     recommendation.icon,
@@ -291,7 +288,7 @@ class GroomingRecommendationCard extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: scoreColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: FansivibeRadius.smBorder,
                     border: Border.all(
                       color: scoreColor.withValues(alpha: 0.3),
                     ),

@@ -4,6 +4,7 @@ import 'package:fansivibe/features/discover/presentation/widgets/look_details_wi
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 /// The Look Details screen (DISCOVER-002).
 class LookDetailsScreen extends StatelessWidget {
@@ -122,7 +123,7 @@ class LookDetailsScreen extends StatelessWidget {
           height: 200,
           decoration: BoxDecoration(
             color: FansivibeColors.surface,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: FansivibeRadius.baseBorder,
           ),
           child: Stack(
             fit: StackFit.expand,
@@ -327,7 +328,7 @@ class LookDetailsScreen extends StatelessWidget {
         content: Text('${look.title} saved to your looks'),
         backgroundColor: FansivibeColors.accentGold,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }
@@ -338,7 +339,7 @@ class LookDetailsScreen extends StatelessWidget {
         content: Text('Sharing ${look.title}...'),
         backgroundColor: FansivibeColors.accentGold,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }

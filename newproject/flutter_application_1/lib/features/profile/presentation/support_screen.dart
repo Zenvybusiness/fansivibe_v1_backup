@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class SupportScreen extends StatelessWidget {
   const SupportScreen({super.key});
@@ -132,7 +133,7 @@ class _SupportTopicTile extends StatelessWidget {
 
     return InkWell(
       onTap: () {},
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: FansivibeRadius.smdBorder,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
         child: Row(
@@ -142,7 +143,7 @@ class _SupportTopicTile extends StatelessWidget {
               height: 40,
               decoration: BoxDecoration(
                 color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: FansivibeRadius.smdBorder,
               ),
               child: Icon(
                 _getIcon(topic.iconName),

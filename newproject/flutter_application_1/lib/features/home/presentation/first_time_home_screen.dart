@@ -151,7 +151,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
           width: 48,
           decoration: BoxDecoration(
             color: FansivibeColors.primary,
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: FansivibeRadius.xsBorder,
           ),
         ),
         SizedBox(height: FansivibeSpacing.md),
@@ -368,13 +368,13 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
                     color: Color(_mockPalette[i].color),
                     borderRadius: i == 0
                         ? const BorderRadius.only(
-                            topLeft: Radius.circular(6),
-                            bottomLeft: Radius.circular(6),
+                            topLeft: Radius.circular(FansivibeRadius.xs),
+                            bottomLeft: Radius.circular(FansivibeRadius.xs),
                           )
                         : i == _mockPalette.length - 1
                         ? const BorderRadius.only(
-                            topRight: Radius.circular(6),
-                            bottomRight: Radius.circular(6),
+                            topRight: Radius.circular(FansivibeRadius.xs),
+                            bottomRight: Radius.circular(FansivibeRadius.xs),
                           )
                         : BorderRadius.zero,
                     border: Border(
@@ -439,7 +439,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
               width: 32,
               decoration: BoxDecoration(
                 color: FansivibeColors.primary,
-                borderRadius: BorderRadius.circular(1),
+                borderRadius: FansivibeRadius.xsBorder,
               ),
             ),
             SizedBox(width: FansivibeSpacing.sm + 4),
@@ -498,7 +498,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: FansivibeColors.surface.withValues(alpha: 0.7),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: FansivibeRadius.xsBorder,
               ),
               child: Text(
                 'EDITOR\'S PICK',
@@ -628,7 +628,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: FansivibeColors.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: FansivibeRadius.xsBorder,
       ),
       child: Text(
         label,
@@ -652,7 +652,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
               width: 32,
               decoration: BoxDecoration(
                 color: FansivibeColors.primary,
-                borderRadius: BorderRadius.circular(1),
+                borderRadius: FansivibeRadius.xsBorder,
               ),
             ),
             SizedBox(width: FansivibeSpacing.sm + 4),
@@ -817,7 +817,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
               width: 32,
               decoration: BoxDecoration(
                 color: FansivibeColors.primary,
-                borderRadius: BorderRadius.circular(1),
+                borderRadius: FansivibeRadius.xsBorder,
               ),
             ),
             SizedBox(width: FansivibeSpacing.sm + 4),

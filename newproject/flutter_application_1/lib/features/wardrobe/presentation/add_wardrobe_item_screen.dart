@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 /// Screen for filling in item details when adding a new wardrobe item.
 class AddWardrobeItemScreen extends StatefulWidget {
@@ -131,7 +132,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               color: Colors.red.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: FansivibeRadius.smdBorder,
                               border: Border.all(
                                 color: Colors.red.withValues(alpha: 0.3),
                               ),
@@ -180,7 +181,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                               ),
                               minimumSize: const Size(0, 48),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: FansivibeRadius.baseBorder,
                               ),
                               elevation: 4,
                               shadowColor: FansivibeColors.accentGold
@@ -208,7 +209,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: FansivibeRadius.smdBorder,
           ),
           child: Icon(
             _categoryIcon(widget.category.iconName),
@@ -247,7 +248,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
               color: isSelected
                   ? FansivibeColors.accentGold.withValues(alpha: 0.2)
                   : FansivibeColors.surface,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: FansivibeRadius.smdBorder,
               border: Border.all(
                 color: isSelected
                     ? FansivibeColors.accentGold
@@ -290,7 +291,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
               color: isSelected
                   ? FansivibeColors.accentGold.withValues(alpha: 0.2)
                   : FansivibeColors.surface,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: FansivibeRadius.smdBorder,
               border: Border.all(
                 color: isSelected
                     ? FansivibeColors.accentGold

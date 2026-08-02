@@ -5,6 +5,7 @@ import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class GroomingResultScreen extends StatelessWidget {
   const GroomingResultScreen({
@@ -128,11 +129,8 @@ class GroomingResultScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -221,11 +219,8 @@ class GroomingResultScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: FansivibeColors.success.withValues(alpha: 0.2),
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Row(
         children: [
@@ -315,11 +310,8 @@ class GroomingResultScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -449,7 +441,7 @@ class GroomingResultScreen extends StatelessWidget {
           Icons.visibility_rounded,
           'Eyewear Frame',
           top.eyewearFrame,
-          const Color(0xFF2196F3),
+          FansivibeColors.accentGold,
         ),
       ],
     );
@@ -468,9 +460,8 @@ class GroomingResultScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: accentColor.withValues(alpha: 0.2)),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.smdBorder,
       ),
       child: Row(
         children: [
@@ -478,7 +469,7 @@ class GroomingResultScreen extends StatelessWidget {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: accentColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: FansivibeRadius.smBorder,
             ),
             child: Icon(icon, size: 18, color: accentColor),
           ),
@@ -570,7 +561,7 @@ class GroomingResultScreen extends StatelessWidget {
                   backgroundColor: FansivibeColors.accentGold,
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: FansivibeRadius.smdBorder,
                   ),
                 ),
               );

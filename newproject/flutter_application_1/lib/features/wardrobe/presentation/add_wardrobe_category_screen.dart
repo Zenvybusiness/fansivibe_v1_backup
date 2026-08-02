@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 /// Screen for selecting a clothing category when adding a new wardrobe item.
 class AddWardrobeCategoryScreen extends StatelessWidget {
@@ -108,15 +109,11 @@ class _CategoryCard extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: FansivibeRadius.baseBorder,
       child: Container(
         decoration: BoxDecoration(
-          color: FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: FansivibeColors.accentGold.withValues(alpha: 0.2),
-            width: 1,
-          ),
+          color: FansivibeColors.surfaceContainerLow,
+          borderRadius: FansivibeRadius.baseBorder,
         ),
         child: FittedBox(
           fit: BoxFit.scaleDown,

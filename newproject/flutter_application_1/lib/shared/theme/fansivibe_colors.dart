@@ -27,6 +27,8 @@ abstract final class FansivibeColors {
 
   // ── Semantic ──
   static const Color success = Color(0xFF4CAF50);
+  static const Color successContainer = Color(0xFF2E7D32);
+  static const Color onSuccessContainer = Color(0xFF81C784);
   static const Color warning = Color(0xFFFF9800);
   static const Color error = Color(0xFFF44336);
 

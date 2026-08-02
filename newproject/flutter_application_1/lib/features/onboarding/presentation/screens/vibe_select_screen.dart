@@ -24,31 +24,13 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
   late Animation<double> _questionAnim;
   late List<Animation<double>> _cardAnims;
 
-  static const _vibeVisuals = [
-    _VibeVisual(
-      [Color(0xFFD4D0C8), Color(0xFF8A8580)],
-      [Offset(0.2, 0.0), Offset(0.5, 0.0), Offset(0.3, 0.0)],
-    ),
-    _VibeVisual(
-      [Color(0xFFD4456A), Color(0xFF1E3A8A)],
-      [Offset(0.1, 0.3), Offset(0.6, 0.1), Offset(0.4, 0.6)],
-    ),
-    _VibeVisual(
-      [Color(0xFFC5A059), Color(0xFFF5EDD6)],
-      [Offset(0.2, 0.2), Offset(0.5, 0.5), Offset(0.8, 0.8)],
-    ),
-    _VibeVisual(
-      [Color(0xFF6B21A8), Color(0xFF00BFFF)],
-      [Offset(0.0, 0.4), Offset(0.7, 0.0), Offset(0.3, 0.7)],
-    ),
-    _VibeVisual(
-      [Color(0xFF6B8E23), Color(0xFFD2691E)],
-      [Offset(0.2, 0.1), Offset(0.8, 0.3), Offset(0.5, 0.9)],
-    ),
-    _VibeVisual(
-      [Color(0xFF1A1A2E), Color(0xFFE94560)],
-      [Offset(0.0, 0.0), Offset(0.9, 0.4), Offset(0.2, 0.8)],
-    ),
+  static const _vibeLineOffsets = [
+    [Offset(0.2, 0.0), Offset(0.5, 0.0), Offset(0.3, 0.0)],
+    [Offset(0.1, 0.3), Offset(0.6, 0.1), Offset(0.4, 0.6)],
+    [Offset(0.2, 0.2), Offset(0.5, 0.5), Offset(0.8, 0.8)],
+    [Offset(0.0, 0.4), Offset(0.7, 0.0), Offset(0.3, 0.7)],
+    [Offset(0.2, 0.1), Offset(0.8, 0.3), Offset(0.5, 0.9)],
+    [Offset(0.0, 0.0), Offset(0.9, 0.4), Offset(0.2, 0.8)],
   ];
 
   @override
@@ -174,7 +156,6 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
                           childAspectRatio: 0.65,
                           children: List.generate(6, (i) {
                             final vibe = StyleVibe.values[i];
-                            final visual = _vibeVisuals[i];
                             return AnimatedBuilder(
                               animation: _cardAnims[i],
                               builder: (context, _) {
@@ -187,8 +168,8 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
                                     opacity: _cardAnims[i].value,
                                     child: VibeCard(
                                       label: vibe.label,
-                                      gradientColors: visual.gradientColors,
-                                      lineOffsets: visual.lineOffsets,
+                                      gradientColors: vibeGradientColors[vibe]!,
+                                      lineOffsets: _vibeLineOffsets[i],
                                       isSelected: _selected == vibe,
                                       onTap: () => setState(() {
                                         _selected = (_selected == vibe)
@@ -228,10 +209,4 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
       ),
     );
   }
-}
-
-class _VibeVisual {
-  final List<Color> gradientColors;
-  final List<Offset> lineOffsets;
-  const _VibeVisual(this.gradientColors, this.lineOffsets);
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/features/outfit_scan/data/outfit_scan_mock_data.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class CameraPreviewPlaceholder extends StatelessWidget {
   const CameraPreviewPlaceholder({super.key});
@@ -14,7 +15,7 @@ class CameraPreviewPlaceholder extends StatelessWidget {
       width: double.infinity,
       decoration: BoxDecoration(
         color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Stack(
         fit: StackFit.expand,
@@ -52,7 +53,7 @@ class CameraPreviewPlaceholder extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: FansivibeColors.accentGold.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: FansivibeRadius.smBorder,
                 border: Border.all(
                   color: FansivibeColors.accentGold.withValues(alpha: 0.4),
                 ),
@@ -209,9 +210,8 @@ class AnalysisSectionCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: scoreColor.withValues(alpha: 0.2), width: 1),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -235,7 +235,7 @@ class AnalysisSectionCard extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: scoreColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: FansivibeRadius.smBorder,
                     border: Border.all(
                       color: scoreColor.withValues(alpha: 0.3),
                     ),
@@ -305,11 +305,8 @@ class DetectedItemChip extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.smdBorder,
       ),
       child: Row(
         children: [
@@ -318,7 +315,7 @@ class DetectedItemChip extends StatelessWidget {
             height: 40,
             decoration: BoxDecoration(
               color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: FansivibeRadius.smdBorder,
             ),
             child: Icon(
               _categoryIcon(item.category),

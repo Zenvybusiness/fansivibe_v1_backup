@@ -8,6 +8,7 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class WardrobeScreen extends StatefulWidget {
   const WardrobeScreen({super.key});
@@ -225,7 +226,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         content: const Text('Opening Wardrobe Analysis...'),
         backgroundColor: FansivibeColors.accentGold,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }
@@ -245,7 +246,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
           backgroundColor: FansivibeColors.accentGold,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: FansivibeRadius.smdBorder,
           ),
         ),
       );

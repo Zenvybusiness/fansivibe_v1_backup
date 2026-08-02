@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class EventCard extends StatelessWidget {
   const EventCard({required this.event, required this.onTap, super.key});
@@ -14,23 +15,12 @@ class EventCard extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: FansivibeRadius.baseBorder,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: FansivibeColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          color: FansivibeColors.surfaceContainerLow,
+          borderRadius: FansivibeRadius.baseBorder,
         ),
         child: Row(
           children: [
@@ -38,7 +28,7 @@ class EventCard extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: FansivibeColors.accentGold.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: FansivibeRadius.smdBorder,
               ),
               child: Icon(
                 event.eventType.icon,
@@ -114,17 +104,17 @@ class EventCard extends StatelessWidget {
     final theme = Theme.of(context);
     final hasOutfit = event.hasOutfitRecommendation;
     final bgColor = hasOutfit
-        ? const Color(0xFF2E7D32).withValues(alpha: 0.2)
+        ? FansivibeColors.successContainer.withValues(alpha: 0.2)
         : FansivibeColors.textSecondary.withValues(alpha: 0.1);
     final textColor = hasOutfit
-        ? const Color(0xFF81C784)
+        ? FansivibeColors.onSuccessContainer
         : FansivibeColors.textSecondary;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: FansivibeRadius.smBorder,
       ),
       child: Text(
         hasOutfit ? 'Ready' : 'Pending',

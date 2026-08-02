@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 /// The Wardrobe Item Details screen (WARDROBE-004).
 class WardrobeItemDetailsScreen extends StatelessWidget {
@@ -95,12 +96,8 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
       width: double.infinity,
       height: 220,
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.12),
-          width: 1,
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Stack(
         fit: StackFit.expand,
@@ -146,19 +143,8 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.2),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Row(
         children: [
@@ -166,7 +152,7 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: FansivibeRadius.smdBorder,
             ),
             child: Icon(
               _categoryIcon(category?.iconName),
@@ -209,19 +195,8 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.2),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -349,7 +324,7 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
               foregroundColor: FansivibeColors.background,
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: FansivibeRadius.baseBorder,
               ),
               elevation: 4,
               shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
@@ -377,7 +352,7 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
                   ),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: FansivibeRadius.baseBorder,
                   ),
                 ),
               ),
@@ -405,7 +380,7 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
                   ),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: FansivibeRadius.baseBorder,
                   ),
                 ),
               ),
@@ -422,7 +397,7 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
         content: Text('Editing ${item.name}...'),
         backgroundColor: FansivibeColors.accentGold,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }
@@ -433,7 +408,7 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
         content: Text('${item.name} removed from wardrobe'),
         backgroundColor: FansivibeColors.accentGold,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }
@@ -444,7 +419,7 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
         content: Text('${item.name} added to outfit'),
         backgroundColor: FansivibeColors.accentGold,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }

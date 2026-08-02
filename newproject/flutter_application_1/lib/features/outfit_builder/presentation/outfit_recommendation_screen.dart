@@ -3,6 +3,7 @@ import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.
 import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class OutfitRecommendationScreen extends StatelessWidget {
   const OutfitRecommendationScreen({super.key});
@@ -153,7 +154,7 @@ class OutfitRecommendationScreen extends StatelessWidget {
                   backgroundColor: FansivibeColors.accentGold,
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: FansivibeRadius.smdBorder,
                   ),
                 ),
               );
@@ -218,13 +219,13 @@ class OutfitRecommendationScreen extends StatelessWidget {
           icon: Icons.palette_outlined,
           title: 'Color Harmony',
           description: rec.colorHarmony,
-          accentColor: const Color(0xFF9C27B0),
+          accentColor: FansivibeColors.accentGold,
         ),
         MetricCard(
           icon: Icons.accessibility_new_rounded,
           title: 'Body Fit',
           description: rec.bodyFit,
-          accentColor: const Color(0xFF2196F3),
+          accentColor: FansivibeColors.accentGold,
         ),
         MetricCard(
           icon: Icons.event_outlined,
@@ -243,11 +244,8 @@ class OutfitRecommendationScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: FansivibeColors.accentGold.withValues(alpha: 0.2),
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.smdBorder,
       ),
       child: Row(
         children: [
@@ -255,7 +253,7 @@ class OutfitRecommendationScreen extends StatelessWidget {
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: FansivibeRadius.smdBorder,
             ),
             child: const Icon(
               Icons.trending_up_rounded,
@@ -298,11 +296,8 @@ class OutfitRecommendationScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: FansivibeColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: FansivibeColors.warning.withValues(alpha: 0.2),
-        ),
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.smdBorder,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -311,7 +306,7 @@ class OutfitRecommendationScreen extends StatelessWidget {
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: FansivibeColors.warning.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: FansivibeRadius.smdBorder,
             ),
             child: const Icon(
               Icons.lightbulb_outline_rounded,
@@ -360,7 +355,7 @@ class OutfitRecommendationScreen extends StatelessWidget {
                 backgroundColor: FansivibeColors.accentGold,
                 behavior: SnackBarBehavior.floating,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: FansivibeRadius.smdBorder,
                 ),
               ),
             );
@@ -377,7 +372,7 @@ class OutfitRecommendationScreen extends StatelessWidget {
                 backgroundColor: FansivibeColors.accentGold,
                 behavior: SnackBarBehavior.floating,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: FansivibeRadius.smdBorder,
                 ),
               ),
             );
