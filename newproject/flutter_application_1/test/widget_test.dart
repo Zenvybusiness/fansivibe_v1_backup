@@ -1,12 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
+import 'package:fansivibe/app/router/app_router.dart';
+
+/// Creates a [FansivibeApp] with an isolated router that boots directly into
+/// the main shell (skipping the onboarding entry screen).
+Widget _freshApp() {
+  return FansivibeApp(
+    router: GoRouter(initialLocation: '/home', routes: appRoutes),
+  );
+}
 
 void main() {
   testWidgets('Fansivibe App renders main shell with bottom navigation', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const FansivibeApp());
+    await tester.pumpWidget(_freshApp());
 
     // Verify the home screen is shown by default.
     expect(find.text('Good morning, Alex'), findsOneWidget);
@@ -22,7 +32,7 @@ void main() {
   testWidgets('Bottom navigation switches between tabs', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const FansivibeApp());
+    await tester.pumpWidget(_freshApp());
 
     // Tap Discover tab.
     await tester.tap(
@@ -36,7 +46,7 @@ void main() {
     // Verify Discover screen is shown.
     expect(find.text('Find looks tailored to your style'), findsOneWidget);
     expect(find.text('For You'), findsOneWidget);
-    expect(find.text('OCCASION'), findsOneWidget);
+    expect(find.text('Trending'), findsAtLeast(1));
 
     // Tap Stylist tab.
     await tester.tap(
@@ -94,7 +104,7 @@ void main() {
   testWidgets('Build Outfit card navigates to BuildOutfitScreen', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const FansivibeApp());
+    await tester.pumpWidget(_freshApp());
 
     // Navigate to Stylist tab.
     await tester.tap(
@@ -124,7 +134,7 @@ void main() {
   testWidgets('Hairstyle card navigates to FaceScanScreen', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const FansivibeApp());
+    await tester.pumpWidget(_freshApp());
 
     // Navigate to Stylist tab.
     await tester.tap(
@@ -143,7 +153,7 @@ void main() {
 
     // Verify FaceScanScreen is shown.
     expect(find.text('Face Scan'), findsOneWidget);
-    expect(find.text('Start Scan'), findsOneWidget);
+    expect(find.text('Scan Face'), findsOneWidget);
 
     // Go back.
     await tester.tap(find.byIcon(Icons.arrow_back_rounded));
@@ -158,7 +168,7 @@ void main() {
   testWidgets('Event Planning card navigates to EventListScreen', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const FansivibeApp());
+    await tester.pumpWidget(_freshApp());
 
     // Navigate to Stylist tab.
     await tester.tap(
@@ -203,7 +213,7 @@ void main() {
   testWidgets('Beard / Glasses card navigates to GroomingInputScreen', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const FansivibeApp());
+    await tester.pumpWidget(_freshApp());
 
     // Navigate to Stylist tab.
     await tester.tap(
@@ -237,7 +247,7 @@ void main() {
   testWidgets('Tab state is preserved when switching tabs', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const FansivibeApp());
+    await tester.pumpWidget(_freshApp());
 
     // Switch to Discover tab.
     await tester.tap(
@@ -269,6 +279,6 @@ void main() {
     // Verify Discover screen is still showing (state preserved via IndexedStack).
     expect(find.text('Find looks tailored to your style'), findsOneWidget);
     expect(find.text('For You'), findsOneWidget);
-    expect(find.text('OCCASION'), findsOneWidget);
+    expect(find.text('Trending'), findsAtLeast(1));
   });
 }

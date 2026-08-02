@@ -1,14 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
+import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
+
+/// Creates a [FansivibeApp] booted directly into the main shell so tab
+/// navigation can be exercised without re-running the onboarding Entry flow.
+Widget _freshApp() {
+  return FansivibeApp(
+    router: GoRouter(initialLocation: '/home', routes: appRoutes),
+  );
+}
 
 void main() {
   group('DiscoverScreen Widget Tests', () {
     testWidgets('renders Discover header with title and subtitle', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
       await tester.tap(
@@ -28,7 +38,7 @@ void main() {
     testWidgets('renders search field and filter button', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
       await tester.tap(
@@ -51,7 +61,7 @@ void main() {
     testWidgets('renders For You and Trending tabs', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
       await tester.tap(
@@ -70,7 +80,7 @@ void main() {
     testWidgets('renders filter button with active count', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
       await tester.tap(
@@ -86,7 +96,7 @@ void main() {
     });
 
     testWidgets('renders look cards in grid', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
       await tester.tap(
@@ -104,7 +114,7 @@ void main() {
     testWidgets('renders match percentage badges on look cards', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
       await tester.tap(
@@ -122,7 +132,7 @@ void main() {
     testWidgets('renders trending badges on trending looks', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
       await tester.tap(
@@ -144,7 +154,7 @@ void main() {
     testWidgets('switches between For You and Trending tabs', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
       await tester.tap(
@@ -167,7 +177,7 @@ void main() {
     });
 
     testWidgets('shows results count', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
       await tester.tap(
@@ -185,7 +195,7 @@ void main() {
     testWidgets('opening filter sheet shows filter options', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
       await tester.tap(
@@ -211,7 +221,7 @@ void main() {
     testWidgets('clear filters in results header appears with active filters', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
       await tester.tap(

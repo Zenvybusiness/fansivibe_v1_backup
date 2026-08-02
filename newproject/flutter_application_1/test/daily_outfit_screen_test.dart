@@ -65,9 +65,7 @@ void main() {
 
       expect(find.text('Modern Minimalist'), findsOneWidget);
       expect(
-        find.textContaining(
-          'Clean lines meet relaxed sophistication',
-        ),
+        find.textContaining('Clean lines meet relaxed sophistication'),
         findsOneWidget,
       );
     });
@@ -76,10 +74,7 @@ void main() {
       await tester.pumpWidget(_buildTestApp());
       await tester.pumpAndSettle();
 
-      expect(
-        find.textContaining('Perfect for today\'s'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Perfect for today\'s'), findsOneWidget);
     });
 
     testWidgets('renders outfit breakdown section', (
@@ -163,10 +158,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Daily Style Tip'), findsOneWidget);
-      expect(
-        find.textContaining('A textured leather belt'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('A textured leather belt'), findsOneWidget);
     });
 
     testWidgets('Wear This Look shows snackbar on tap', (
@@ -183,9 +175,7 @@ void main() {
       expect(find.text('Wearing this look!'), findsOneWidget);
     });
 
-    testWidgets('Save Look shows snackbar on tap', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('Save Look shows snackbar on tap', (WidgetTester tester) async {
       await tester.pumpWidget(_buildTestApp());
       await tester.pumpAndSettle();
 

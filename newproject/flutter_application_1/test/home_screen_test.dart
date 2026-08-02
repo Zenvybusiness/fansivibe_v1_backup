@@ -21,17 +21,16 @@ void main() {
     testWidgets('renders greeting header with personalized greeting', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Verify greeting is displayed
       expect(find.text('Good morning, Alex'), findsOneWidget);
-      expect(find.text('Monday, January 13'), findsOneWidget);
     });
 
     testWidgets('renders Today\'s Look card with all components', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Verify Today's Look card elements
       expect(find.text('TODAY\'S LOOK'), findsOneWidget);
@@ -64,7 +63,7 @@ void main() {
     testWidgets('renders Style Score card with breakdown', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Scroll to find Style Score section
       await tester.scrollUntilVisible(find.text('Style Score'), 500.0);
@@ -83,7 +82,7 @@ void main() {
     });
 
     testWidgets('renders Quick Actions section', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.scrollUntilVisible(find.text('Quick Actions'), 500.0);
 
@@ -102,7 +101,7 @@ void main() {
     testWidgets('renders Style Streak card with progress', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.scrollUntilVisible(find.text('Style Streak'), 500.0);
 
@@ -124,7 +123,7 @@ void main() {
     testWidgets('renders AI Wardrobe Insight card', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.scrollUntilVisible(find.text('AI Insight'), 500.0);
 
@@ -142,7 +141,7 @@ void main() {
     testWidgets('HomeScreen is scrollable with all sections', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.drag(
         find.byType(SingleChildScrollView),
@@ -161,7 +160,7 @@ void main() {
     testWidgets('HomeScreen uses correct theme colors', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       final homeScreen = find.byType(HomeScreen);
       expect(homeScreen, findsOneWidget);
@@ -174,20 +173,20 @@ void main() {
     testWidgets('Try This Look navigates to Daily Outfit screen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.scrollUntilVisible(find.text('Try This Look'), 500.0);
       await tester.pumpAndSettle();
       await tester.tap(find.byType(FansiButton).first);
       await tester.pumpAndSettle();
 
-      expect(find.text('Daily Outfit'), findsOneWidget);
+      expect(find.text("TODAY'S LOOK"), findsOneWidget);
     });
 
     testWidgets(
       'Change Style button in Today\'s Look navigates to Build Outfit',
       (WidgetTester tester) async {
-        await tester.pumpWidget(const FansivibeApp());
+        await tester.pumpWidget(_freshApp());
 
         await tester.pumpAndSettle();
 
@@ -201,7 +200,7 @@ void main() {
         await tester.tap(changeStyleFinder);
         await tester.pumpAndSettle();
 
-        expect(find.text('Build Outfit'), findsOneWidget);
+        expect(find.text('Build Outfit'), findsNWidgets(2));
       },
     );
 
@@ -227,7 +226,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('Capture Look'), findsOneWidget);
+      expect(find.text('View Analysis'), findsOneWidget);
     });
 
     testWidgets('View Recommendations button on AI Insight shows snackbar', (

@@ -73,8 +73,8 @@ void main() {
     testWidgets('renders Start Scan button', (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(home: const FaceScanScreen()));
 
-      expect(find.text('Start Scan'), findsOneWidget);
-      expect(find.byIcon(Icons.face_rounded), findsWidgets);
+      expect(find.text('Scan Face'), findsOneWidget);
+      expect(find.byIcon(Icons.face_retouching_natural), findsWidgets);
     });
 
     testWidgets('start scan navigates to processing screen', (
@@ -84,7 +84,7 @@ void main() {
         MaterialApp.router(routerConfig: _hairstyleScanRouter),
       );
 
-      await tester.tap(find.text('Start Scan'));
+      await tester.tap(find.text('Scan Face'));
       for (var i = 0; i < 30; i++) {
         await tester.pump(const Duration(milliseconds: 16));
       }

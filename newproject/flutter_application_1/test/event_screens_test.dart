@@ -57,7 +57,7 @@ void main() {
       expect(find.text('Upcoming Events'), findsOneWidget);
       expect(find.text('Plan outfits for your events'), findsOneWidget);
       expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
-      expect(find.byIcon(Icons.add_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.add_rounded), findsNWidgets(2));
     });
 
     testWidgets('renders mock events', (WidgetTester tester) async {
@@ -107,7 +107,7 @@ void main() {
         MaterialApp.router(routerConfig: _eventRouter(const EventListScreen())),
       );
 
-      await tester.tap(find.byIcon(Icons.add_rounded));
+      await tester.tap(find.byIcon(Icons.add_rounded).first);
       await tester.pump();
       await tester.pump();
 

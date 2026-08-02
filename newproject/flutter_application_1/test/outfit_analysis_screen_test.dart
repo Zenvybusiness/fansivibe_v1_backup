@@ -54,16 +54,21 @@ void main() {
     testWidgets('renders action buttons', (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(home: const OutfitAnalysisScreen()));
 
-      expect(find.text('Scan Again'), findsOneWidget);
-      expect(find.text('Save Look'), findsOneWidget);
+      expect(find.text('Save'), findsOneWidget);
+      expect(find.text('Generate Look'), findsOneWidget);
     });
 
-    testWidgets('Scan Again navigates back', (WidgetTester tester) async {
+    testWidgets('Generate Look shows confirmation', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(MaterialApp(home: const OutfitAnalysisScreen()));
 
-      await tester.scrollUntilVisible(find.text('Scan Again'), 200);
-      await tester.tap(find.text('Scan Again'));
-      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Generate Look'), 200);
+      await tester.tap(find.text('Generate Look'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Look saved to wardrobe'), findsOneWidget);
     });
   });
 }

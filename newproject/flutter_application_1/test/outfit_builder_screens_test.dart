@@ -1,17 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
+import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/outfit_generation_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/outfit_recommendation_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart';
+
+/// Creates a [FansivibeApp] booted directly into the main shell (Stylist tab)
+/// to avoid re-running the onboarding Entry flow in navigation tests.
+Widget _freshApp() {
+  return FansivibeApp(
+    router: GoRouter(initialLocation: '/stylist', routes: appRoutes),
+  );
+}
 
 void main() {
   group('BuildOutfitScreen Widget Tests', () {
     testWidgets('renders app bar and header', (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(home: const BuildOutfitScreen()));
 
-      expect(find.text('Build Outfit'), findsOneWidget);
+      // "Build Outfit" appears in both the app bar and the build button.
+      expect(find.text('Build Outfit'), findsNWidgets(2));
       expect(find.text('Create Your Look'), findsOneWidget);
       expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
     });
@@ -55,9 +66,9 @@ void main() {
     ) async {
       await tester.pumpWidget(MaterialApp(home: const BuildOutfitScreen()));
 
-      await tester.scrollUntilVisible(find.text('Build My Outfit'), 200);
-      await tester.pump();
-      expect(find.text('Build My Outfit'), findsOneWidget);
+      final buildButton = find.widgetWithText(FilledButton, 'Build Outfit');
+      expect(buildButton, findsOneWidget);
+      expect(tester.widget<FilledButton>(buildButton).onPressed, isNull);
     });
 
     testWidgets('build button enables after all selections', (
@@ -80,10 +91,9 @@ void main() {
       await tester.tap(find.text('Warm'));
       await tester.pump();
 
-      await tester.scrollUntilVisible(find.text('Build My Outfit'), 200);
-      await tester.pump();
-
-      expect(find.text('Build My Outfit'), findsOneWidget);
+      final buildButton = find.widgetWithText(FilledButton, 'Build Outfit');
+      expect(buildButton, findsOneWidget);
+      expect(tester.widget<FilledButton>(buildButton).onPressed, isNotNull);
     });
 
     testWidgets('selecting an option shows check icon', (
@@ -109,15 +119,7 @@ void main() {
     testWidgets('build button navigates to generation screen via go_router', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
-      await tester.pumpAndSettle();
-
-      await tester.tap(
-        find.descendant(
-          of: find.byType(NavigationBar),
-          matching: find.text('Stylist'),
-        ),
-      );
+      await tester.pumpWidget(_freshApp());
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Build Outfit'));
@@ -138,8 +140,9 @@ void main() {
       await tester.tap(find.text('Warm'));
       await tester.pump();
 
-      await tester.scrollUntilVisible(find.text('Build My Outfit'), 200);
-      await tester.tap(find.text('Build My Outfit'));
+      final buildButton = find.widgetWithText(FilledButton, 'Build Outfit');
+      await tester.scrollUntilVisible(buildButton, 200);
+      await tester.tap(buildButton);
       await tester.pump();
       await tester.pump();
 
@@ -306,8 +309,8 @@ void main() {
         MaterialApp(home: const OutfitRecommendationScreen()),
       );
 
-      expect(find.text('Wear This Look'), findsOneWidget);
-      expect(find.text('Save Look'), findsOneWidget);
+      expect(find.text('Save Outfit'), findsOneWidget);
+      expect(find.text('Regenerate'), findsOneWidget);
     });
 
     testWidgets('renders Replace buttons for components', (

@@ -84,8 +84,8 @@ void main() {
     testWidgets('renders Capture Look button', (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
 
-      expect(find.text('Capture Look'), findsOneWidget);
-      expect(find.byIcon(Icons.camera_alt_rounded), findsWidgets);
+      expect(find.text('View Analysis'), findsOneWidget);
+      expect(find.byIcon(Icons.dashboard_rounded), findsWidgets);
     });
 
     testWidgets('renders Gallery and Switch Camera buttons', (
@@ -93,8 +93,8 @@ void main() {
     ) async {
       await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
 
-      expect(find.text('Gallery'), findsOneWidget);
-      expect(find.text('Switch Camera'), findsOneWidget);
+      expect(find.text('Share'), findsOneWidget);
+      expect(find.text('Rescan'), findsOneWidget);
     });
 
     testWidgets('capture look navigates to processing screen', (
@@ -102,7 +102,7 @@ void main() {
     ) async {
       await tester.pumpWidget(MaterialApp.router(routerConfig: _scanRouter));
 
-      await tester.tap(find.text('Capture Look'));
+      await tester.tap(find.text('View Analysis'));
       for (var i = 0; i < 30; i++) {
         await tester.pump(const Duration(milliseconds: 16));
       }

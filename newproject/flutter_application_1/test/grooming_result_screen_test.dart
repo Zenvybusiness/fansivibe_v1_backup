@@ -214,8 +214,8 @@ void main() {
       ),
     );
 
-    expect(find.text('Start Over'), findsOneWidget);
-    expect(find.text('Save Recommendation'), findsOneWidget);
+    expect(find.text('Try Another'), findsOneWidget);
+    expect(find.text('Save Look'), findsOneWidget);
   });
 
   testWidgets('tapping top recommendation navigates to details', (
@@ -252,16 +252,16 @@ void main() {
     expect(find.text('Styling Tips'), findsOneWidget);
   });
 
-  testWidgets('Start Over navigates back to input screen', (
+  testWidgets('Try Another navigates back to input screen', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
       MaterialApp.router(routerConfig: _groomingResultRouter()),
     );
 
-    await tester.ensureVisible(find.text('Start Over'));
+    await tester.ensureVisible(find.text('Try Another'));
     await tester.pump();
-    await tester.tap(find.text('Start Over'));
+    await tester.tap(find.text('Try Another'));
     for (var i = 0; i < 60; i++) {
       await tester.pump(const Duration(milliseconds: 16));
     }

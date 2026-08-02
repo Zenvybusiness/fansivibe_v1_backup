@@ -85,8 +85,8 @@ void main() {
     testWidgets('renders action buttons', (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen()));
 
-      expect(find.text('Scan Again'), findsOneWidget);
-      expect(find.text('Save to Profile'), findsOneWidget);
+      expect(find.text('Try Another'), findsOneWidget);
+      expect(find.text('Save Style'), findsOneWidget);
     });
 
     testWidgets('tapping top recommendation navigates to details', (
@@ -120,7 +120,7 @@ void main() {
       expect(find.text('Styling Tips'), findsOneWidget);
     });
 
-    testWidgets('Scan Again navigates back to scan screen', (
+    testWidgets('Try Another navigates back to scan screen', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -129,7 +129,7 @@ void main() {
 
       await tester.drag(find.byType(Scrollable).first, const Offset(0, -1000));
       await tester.pump();
-      await tester.tap(find.text('Scan Again'));
+      await tester.tap(find.text('Try Another'));
       for (var i = 0; i < 30; i++) {
         await tester.pump(const Duration(milliseconds: 16));
       }

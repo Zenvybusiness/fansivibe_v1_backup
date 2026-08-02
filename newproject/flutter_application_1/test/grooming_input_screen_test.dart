@@ -32,13 +32,13 @@ void main() {
     testWidgets('renders analyze button', (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(home: const GroomingInputScreen()));
 
-      expect(find.text('Analyze Features'), findsOneWidget);
+      expect(find.text('Analyze Style'), findsOneWidget);
     });
 
     testWidgets('analyze button exists', (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(home: const GroomingInputScreen()));
 
-      expect(find.text('Analyze Features'), findsOneWidget);
+      expect(find.text('Analyze Style'), findsOneWidget);
     });
 
     testWidgets('back button pops', (WidgetTester tester) async {

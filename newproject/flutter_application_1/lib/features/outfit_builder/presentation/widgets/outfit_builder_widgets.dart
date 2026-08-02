@@ -367,7 +367,11 @@ class OutfitComponentCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          FansiButton.secondary(label: 'Replace', onPressed: onReplace),
+          FansiButton.secondary(
+            label: 'Replace',
+            onPressed: onReplace,
+            expanded: false,
+          ),
         ],
       ),
     );

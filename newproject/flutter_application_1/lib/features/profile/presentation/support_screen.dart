@@ -78,29 +78,32 @@ class SupportScreen extends StatelessWidget {
                         FansivibeCard(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: ListTile(
-                              leading: Icon(
-                                Icons.mail_rounded,
-                                color: FansivibeColors.accentGold,
-                              ),
-                              title: Text(
-                                'Send us a message',
-                                style: theme.textTheme.bodyLarge?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: FansivibeColors.textPrimary,
+                            child: Material(
+                              color: Colors.transparent,
+                              child: ListTile(
+                                leading: Icon(
+                                  Icons.mail_rounded,
+                                  color: FansivibeColors.accentGold,
                                 ),
-                              ),
-                              subtitle: Text(
-                                'We typically respond within 24 hours',
-                                style: theme.textTheme.bodySmall?.copyWith(
+                                title: Text(
+                                  'Send us a message',
+                                  style: theme.textTheme.bodyLarge?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: FansivibeColors.textPrimary,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  'We typically respond within 24 hours',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: FansivibeColors.textSecondary,
+                                  ),
+                                ),
+                                trailing: Icon(
+                                  Icons.chevron_right_rounded,
                                   color: FansivibeColors.textSecondary,
                                 ),
+                                onTap: () {},
                               ),
-                              trailing: Icon(
-                                Icons.chevron_right_rounded,
-                                color: FansivibeColors.textSecondary,
-                              ),
-                              onTap: () {},
                             ),
                           ),
                         ),

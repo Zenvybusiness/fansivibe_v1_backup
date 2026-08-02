@@ -1,7 +1,66 @@
 # Fansivibe Current State
 
 Last Updated: 2026-08-02
-Updated By: opencode agent (New-user Home switches to light-path screen after saving an item)
+Updated By: opencode agent (UX/flow bug fixes + full test suite synced to current UX)
+
+## Changes Made — UX/Flow Bug Fixes and Full Test Suite Now Green
+
+Task: fix user-experience/user-flow issues = fix real app bugs + sync stale
+tests to the current (onboarding-first, redesigned) UX. Suite went from
+**87 failing / 220 passing** to **0 failing / 311 passing**.
+
+**Real app bugs fixed:**
+1. `lib/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart`
+   — Replace `FansiButton.secondary` inside a `Row` defaulted to `expanded: true`
+   → `SizedBox(width: double.infinity)` → "BoxConstraints forces an infinite
+   width" crash on the OutfitRecommendationScreen flow. Fixed with
+   `expanded: false`. (Other in-Row buttons already used `expanded: false`.)
+2. `lib/features/profile/presentation/support_screen.dart` — the contact
+   `ListTile` sat inside a `FansivibeCard` (DecoratedBox with a background),
+   tripping the "ListTile background color or ink splashes may be invisible"
+   debug assertion (crash in debug builds). Wrapped the ListTile in its own
+   `Material(color: Colors.transparent)`.
+
+**Test sync to current UX (all stale expectations updated):**
+- Introduced `_freshApp()` helper (`FansivibeApp(router: GoRouter(initialLocation:
+  '/home', routes: appRoutes))`) so suite-level tests boot directly into the main
+  shell instead of the onboarding Entry screen: `test/widget_test.dart`,
+  `test/home_screen_test.dart` (pattern already existed in `home_screen_test.dart`).
+- Label/icon updates: `'Start Scan'`→`'Scan Face'` (+`Icons.face_retouching_natural`),
+  `'Analyze Features'`→`'Analyze Style'`, `'Capture Look'`→`'View Analysis'`
+  (+`Icons.dashboard_rounded`), `'Gallery'/'Switch Camera'`→`'Share'/'Rescan'`,
+  `'Scan Again'`→`'Save'` + `'Save Look'`→`'Generate Look'` (outfit analysis),
+  `'Scan Again'`→`'Try Another'` + `'Save to Profile'`→`'Save Style'`,
+  `'Start Over'`→`'Try Another'` + `'Save Recommendation'`→`'Save Look'`,
+  `'Save to Profile'`→`'Try This Style'`, `'Save Recommendation'`→`'Try This Look'`,
+  `'Build My Outfit'`→`'Build Outfit'` (app bar + button → `findsNWidgets(2)`),
+  `'Wear This Look'/'Save Look'`→`'Save Outfit'/'Regenerate'`.
+- Discover: `'OCCASION'` section → current `'For You'`/`'Trending'` tabs.
+- Home: dropped static `'Monday, January 13'` expectation (date is now dynamic
+  via `_formatDate()`); Daily Outfit navigation marker `'Daily Outfit'`→`"TODAY'S LOOK"`;
+  Build Outfit marker `findsOneWidget`→`findsNWidgets(2)`.
+- SavedLooks scores: `'87'`/`'91'` → `'87%'`/`'91%'` (FansiBadge renders `%`).
+- Events: `Icons.add_rounded` now appears twice (app-bar action + "Add event"
+  button) → `findsNWidgets(2)` / `.first` for tap.
+- Wardrobe: stale `'Categories'` section expectations → `find.byType(CategoryTile)`.
+- OutfitAnalysis action test reworked: `'Generate Look'` shows the
+  "Look saved to wardrobe" snackbar (replaces the removed "Scan Again pops").
+
+**Validation**
+- `dart format`: passed (27 files formatted, 2 changed)
+- `flutter analyze`: 0 errors, 7 pre-existing infos (all in untouched files:
+  `app_router.dart`, `outfit_analysis_screen.dart`, `outfit_scan_screen.dart`)
+- `flutter test`: **311 passed, 0 failed** (was 220/87)
+
+**Files changed:** `lib/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart`,
+`lib/features/profile/presentation/support_screen.dart`, and 15 test files
+(`widget_test.dart`, `home_screen_test.dart`, `discover_screen_test.dart`,
+`profile_screen_test.dart`, `wardrobe_screen_test.dart`, `outfit_builder_screens_test.dart`,
+`outfit_scan_screen_test.dart`, `outfit_analysis_screen_test.dart`,
+`hairstyle_result_screen_test.dart`, `hairstyle_details_screen_test.dart`,
+`grooming_input_screen_test.dart`, `grooming_result_screen_test.dart`,
+`grooming_details_screen_test.dart`, `hairstyle_scan_screen_test.dart`,
+`event_screens_test.dart`).
 
 ## Changes Made — New-User Home Shows Light-Path Screen After Saving an Item
 
@@ -513,7 +572,7 @@ Skill used: `dart-run-static-analysis`
 2. **No domain layer**: No `domain/` directory in any feature (not in scope)
 3. **Stylist string-switch dispatch**: Business logic in UI widgets (not in scope)
 4. **Events → Outfit Builder boundary**: No cross-feature contract (not in scope)
-5. **87 failing tests**: Same pre-existing issues (home screen onboarding data, entry screen routing). Not introduced by this round.
+5. **Failing tests**: Resolved — suite is fully green (311 passed, 0 failed).
 6. **Mock data**: All onboarding analysis data is currently hardcoded mock values.
     Needs real AI integration.
 7. **Photo capture**: Camera/gallery functionality is simulated (placeholder UI).

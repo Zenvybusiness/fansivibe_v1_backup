@@ -160,9 +160,7 @@ void main() {
       );
     });
 
-    testWidgets('renders Save Recommendation button', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('renders Try This Look button', (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: GroomingDetailsScreen(
@@ -171,7 +169,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Save Recommendation'), findsOneWidget);
+      expect(find.text('Try This Look'), findsOneWidget);
     });
 
     testWidgets('back button pops', (WidgetTester tester) async {

@@ -1,15 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
+import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
+
+/// Creates a [FansivibeApp] booted directly into the main shell so tab
+/// navigation can be exercised without re-running the onboarding Entry flow.
+Widget _freshApp() {
+  return FansivibeApp(
+    router: GoRouter(initialLocation: '/home', routes: appRoutes),
+  );
+}
 
 void main() {
   group('WardrobeScreen Widget Tests', () {
     testWidgets('renders wardrobe header with title, count, and style type', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Wardrobe tab
       await tester.tap(
@@ -28,7 +38,7 @@ void main() {
     testWidgets('renders AI Wardrobe Insight card', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -48,7 +58,7 @@ void main() {
     });
 
     testWidgets('renders category filters', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -58,8 +68,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Verify categories section renders
-      expect(find.text('Categories'), findsOneWidget);
+      // Verify category filter pills render
+      expect(find.byType(CategoryTile), findsWidgets);
       // Verify a visible category chip
       expect(find.text('All Items'), findsWidgets);
       expect(find.text('Tops'), findsOneWidget);
@@ -68,7 +78,7 @@ void main() {
     testWidgets('renders clothing item grid with all items', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -90,7 +100,7 @@ void main() {
     testWidgets('filtering by category shows only matching items', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -112,7 +122,7 @@ void main() {
     testWidgets('View Analysis button shows snackbar on tap', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -141,7 +151,7 @@ void main() {
     testWidgets('Add Item button navigates to category selection', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -170,7 +180,7 @@ void main() {
     testWidgets('item tap navigates to item details screen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -203,7 +213,7 @@ void main() {
     });
 
     testWidgets('Wardrobe screen is scrollable', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -223,7 +233,7 @@ void main() {
       // All major sections should render
       expect(find.text('My Wardrobe'), findsOneWidget);
       expect(find.text('Wardrobe Health'), findsOneWidget);
-      expect(find.text('Categories'), findsOneWidget);
+      expect(find.byType(CategoryTile), findsWidgets);
       expect(find.text('Add Item to Wardrobe'), findsOneWidget);
     });
   });

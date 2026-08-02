@@ -1,15 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
+import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/profile_widgets.dart';
+
+/// Creates a [FansivibeApp] booted directly into the main shell so tab
+/// navigation can be exercised without re-running the onboarding Entry flow.
+Widget _freshApp() {
+  return FansivibeApp(
+    router: GoRouter(initialLocation: '/home', routes: appRoutes),
+  );
+}
 
 void main() {
   group('ProfileScreen Widget Tests', () {
     testWidgets('renders profile header with avatar and name', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       // Navigate to Profile tab
       await tester.tap(
@@ -27,7 +37,7 @@ void main() {
     });
 
     testWidgets('renders stylist level badge', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -44,7 +54,7 @@ void main() {
     testWidgets('renders style score and global rank', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -63,7 +73,7 @@ void main() {
     });
 
     testWidgets('renders style progress section', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -78,7 +88,7 @@ void main() {
     });
 
     testWidgets('renders achievements section', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -98,7 +108,7 @@ void main() {
     });
 
     testWidgets('renders saved looks preview', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -115,7 +125,7 @@ void main() {
     });
 
     testWidgets('renders Style DNA section', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -136,7 +146,7 @@ void main() {
     });
 
     testWidgets('renders account menu actions', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -157,7 +167,7 @@ void main() {
     testWidgets('menu actions navigate to PreferencesScreen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationBar),
@@ -180,7 +190,7 @@ void main() {
     testWidgets('menu actions navigate to SavedLooksScreen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationBar),
@@ -203,7 +213,7 @@ void main() {
     testWidgets('menu actions navigate to SubscriptionScreen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationBar),
@@ -226,7 +236,7 @@ void main() {
     testWidgets('ProfileScreen is scrollable with all sections', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       await tester.tap(
         find.descendant(
@@ -254,7 +264,7 @@ void main() {
     });
 
     testWidgets('uses correct dark theme', (WidgetTester tester) async {
-      await tester.pumpWidget(const FansivibeApp());
+      await tester.pumpWidget(_freshApp());
 
       final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       expect(materialApp.theme?.brightness, Brightness.dark);

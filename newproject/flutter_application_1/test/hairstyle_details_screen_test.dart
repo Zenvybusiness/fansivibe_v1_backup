@@ -106,7 +106,7 @@ void main() {
       );
     });
 
-    testWidgets('renders Save to Profile button', (WidgetTester tester) async {
+    testWidgets('renders Try This Style button', (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: HairstyleDetailsScreen(
@@ -115,7 +115,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Save to Profile'), findsOneWidget);
+      expect(find.text('Try This Style'), findsOneWidget);
     });
 
     testWidgets('back button pops', (WidgetTester tester) async {

@@ -91,8 +91,8 @@ void main() {
     testWidgets('renders scores', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
 
-      expect(find.text('87'), findsOneWidget);
-      expect(find.text('91'), findsOneWidget);
+      expect(find.text('87%'), findsOneWidget);
+      expect(find.text('91%'), findsOneWidget);
     });
 
     testWidgets('renders dates', (WidgetTester tester) async {
