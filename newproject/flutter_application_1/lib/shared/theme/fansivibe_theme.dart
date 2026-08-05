@@ -38,12 +38,29 @@ abstract final class FansivibeTheme {
 
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: FansivibeColors.surfaceContainerHigh,
-        indicatorColor: FansivibeColors.primary.withValues(alpha: 0.2),
+        indicatorColor: Colors.transparent,
         surfaceTintColor: FansivibeColors.surface,
         elevation: 0,
-        labelTextStyle: WidgetStatePropertyAll(
-          FansivibeTypography.labelSmallWithFamily,
-        ),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return FansivibeTypography.labelSmallWithFamily.copyWith(
+              color: FansivibeColors.primary,
+              shadows: [
+                Shadow(
+                  color: FansivibeColors.primary.withValues(alpha: 0.75),
+                  blurRadius: 6,
+                ),
+                Shadow(
+                  color: FansivibeColors.primary.withValues(alpha: 0.4),
+                  blurRadius: 12,
+                ),
+              ],
+            );
+          }
+          return FansivibeTypography.labelSmallWithFamily.copyWith(
+            color: FansivibeColors.secondary,
+          );
+        }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return const IconThemeData(

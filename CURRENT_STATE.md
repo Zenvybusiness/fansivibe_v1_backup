@@ -1,7 +1,29 @@
 # Fansivibe Current State
 
 Last Updated: 2026-08-05
-Updated By: opencode agent (AI assistant + learning engine + FastAPI backend)
+Updated By: opencode agent
+
+## Changes Made — Nav Bar: Icon + Label Glow Only (no background pill)
+
+Task: in the bottom `NavigationBar`, only the selected icon and its label
+should glow on tab switch — the tinted background indicator pill must not.
+
+- `lib/app/router/router_shell.dart` — `indicatorColor` changed from
+  `theme.colorScheme.primaryContainer` to `Colors.transparent` (removes the
+  background glow pill). Destinations now use a new `_GlowingIcon` widget that
+  renders the icon glyph as `Text` (MaterialIcons font) with a gold glow
+  (`Shadow` blur 8 + 16, `FansivibeColors.primary` at 0.75/0.4 alpha) on the
+  `selectedIcon` only; unselected icons keep the muted `secondary` color.
+- `lib/shared/theme/fansivibe_theme.dart` — nav bar `indicatorColor` set to
+  `Colors.transparent`; `labelTextStyle` now resolves per state: selected label
+  gets the gold `primary` color with glow shadows (blur 6 + 12); unselected
+  keeps muted `secondary`. `iconTheme` unchanged.
+- Nothing else changed — navigation, labels, ordering, behavior all intact.
+
+**Validation**
+- `dart format`: passed
+- `flutter analyze`: 0 errors, 7 pre-existing infos (all in untouched files)
+- `flutter test`: **331 passed, 0 failed**
 
 ## Changes Made — Sticky "Add Item to Wardrobe" Button
 
