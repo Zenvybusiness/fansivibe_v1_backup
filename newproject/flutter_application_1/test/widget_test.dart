@@ -146,6 +146,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Tap the Hairstyle card.
+    await tester.ensureVisible(find.text('Hairstyle'));
+    await tester.pump();
     await tester.tap(find.text('Hairstyle'));
     for (var i = 0; i < 30; i++) {
       await tester.pump(const Duration(milliseconds: 16));
@@ -180,11 +182,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Scroll to make Event Planning card visible.
-    await tester.drag(
-      find.byType(SingleChildScrollView),
-      const Offset(0, -200),
-    );
-    await tester.pump();
+    await tester.ensureVisible(find.text('Event Planning'));
     await tester.pump();
 
     // Tap the Event Planning card.
@@ -225,6 +223,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Tap the Beard / Glasses card.
+    await tester.ensureVisible(find.text('Beard / Glasses'));
+    await tester.pump();
     await tester.tap(find.text('Beard / Glasses'));
     for (var i = 0; i < 30; i++) {
       await tester.pump(const Duration(milliseconds: 16));

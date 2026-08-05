@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/home/data/daily_outfit_mock_data.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -630,50 +631,55 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    component.name,
-                    style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: FansivibeColors.onSurface,
-                      fontSize: 13,
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        component.name,
+                        style: FansivibeTypography.titleLargeWithFamily
+                            .copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: FansivibeColors.onSurface,
+                              fontSize: 13,
+                            ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  SizedBox(height: FansivibeSpacing.xs + 2),
-                  Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: color,
+                    SizedBox(height: FansivibeSpacing.xs + 2),
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: color,
+                          ),
                         ),
-                      ),
-                      SizedBox(width: FansivibeSpacing.xs + 2),
-                      Flexible(
-                        child: Text(
-                          component.material == null
-                              ? component.color
-                              : '${component.color} \u2022 ${component.material}',
-                          style: FansivibeTypography.labelSmallWithFamily
-                              .copyWith(
-                                color: FansivibeColors.secondary,
-                                fontSize: 10,
-                              ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        SizedBox(width: FansivibeSpacing.xs + 2),
+                        Flexible(
+                          child: Text(
+                            component.material == null
+                                ? component.color
+                                : '${component.color} \u2022 ${component.material}',
+                            style: FansivibeTypography.labelSmallWithFamily
+                                .copyWith(
+                                  color: FansivibeColors.secondary,
+                                  fontSize: 10,
+                                ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -869,52 +875,62 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    alt.name,
-                    style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        alt.name,
+                        style: FansivibeTypography.titleLargeWithFamily
+                            .copyWith(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  SizedBox(height: FansivibeSpacing.xs - 2),
-                  Text(
-                    alt.styleName,
-                    style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                      color: FansivibeColors.secondary,
-                      fontSize: 10,
+                    SizedBox(height: FansivibeSpacing.xs - 2),
+                    Flexible(
+                      child: Text(
+                        alt.styleName,
+                        style: FansivibeTypography.labelSmallWithFamily
+                            .copyWith(
+                              color: FansivibeColors.secondary,
+                              fontSize: 10,
+                            ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                  SizedBox(height: FansivibeSpacing.sm),
-                  SizedBox(
-                    width: double.infinity,
-                    child: GestureDetector(
-                      onTap: () => _handleSeeDetails(context, alt),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Text(
-                          'See Details',
-                          style: FansivibeTypography.labelMediumWithFamily
-                              .copyWith(
-                                color: FansivibeColors.primary,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 12,
-                                letterSpacing: 0.5,
-                                decoration: TextDecoration.underline,
-                                decorationColor: FansivibeColors.primary,
-                                decorationThickness: 1,
-                              ),
+                    SizedBox(height: FansivibeSpacing.sm),
+                    SizedBox(
+                      width: double.infinity,
+                      child: GestureDetector(
+                        onTap: () => _handleSeeDetails(context, alt),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Text(
+                            'See Details',
+                            style: FansivibeTypography.labelMediumWithFamily
+                                .copyWith(
+                                  color: FansivibeColors.primary,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  letterSpacing: 0.5,
+                                  decoration: TextDecoration.underline,
+                                  decorationColor: FansivibeColors.primary,
+                                  decorationThickness: 1,
+                                ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],
@@ -1015,11 +1031,15 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                     color: FansivibeColors.onPrimary,
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    label,
-                    style: FansivibeTypography.bodyLargeWithFamily.copyWith(
-                      color: FansivibeColors.onPrimary,
-                      fontWeight: FontWeight.w600,
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: FansivibeTypography.bodyLargeWithFamily.copyWith(
+                        color: FansivibeColors.onPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
@@ -1149,6 +1169,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
   }
 
   void _handleSaveOutfit(BuildContext context) {
+    LearningService.instance.addSavedLook(DailyOutfitData.mock.title);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Outfit saved to your looks'),

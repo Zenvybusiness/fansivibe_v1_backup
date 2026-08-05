@@ -103,13 +103,18 @@ class _PlanCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                plan.name,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: FansivibeColors.textPrimary,
+              Flexible(
+                child: Text(
+                  plan.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: FansivibeColors.textPrimary,
+                  ),
                 ),
               ),
+              const SizedBox(width: 8),
               if (plan.isPopular)
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -135,19 +140,23 @@ class _PlanCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(
-                plan.price,
-                style: theme.textTheme.displayLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: FansivibeColors.accentGold,
-                  fontSize: 36,
+              Flexible(
+                child: Text(
+                  plan.price,
+                  style: theme.textTheme.displayLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: FansivibeColors.accentGold,
+                    fontSize: 36,
+                  ),
                 ),
               ),
               const SizedBox(width: 4),
-              Text(
-                plan.period,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: FansivibeColors.textSecondary,
+              Flexible(
+                child: Text(
+                  plan.period,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: FansivibeColors.textSecondary,
+                  ),
                 ),
               ),
             ],

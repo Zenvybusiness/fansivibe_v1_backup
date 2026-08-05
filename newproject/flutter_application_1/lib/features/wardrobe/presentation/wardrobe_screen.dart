@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/learning/data/models.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
@@ -9,6 +11,24 @@ import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+
+WardrobeEntry _toEntry(WardrobeItemData item) => WardrobeEntry(
+  id: item.id,
+  name: item.name,
+  category: item.category,
+  color: item.color,
+  material: item.material,
+  isFavorite: item.isFavorite,
+);
+
+WardrobeItemData _toItem(WardrobeEntry entry) => WardrobeItemData(
+  id: entry.id,
+  name: entry.name,
+  category: entry.category,
+  color: entry.color,
+  material: entry.material,
+  isFavorite: entry.isFavorite,
+);
 
 class WardrobeScreen extends StatefulWidget {
   const WardrobeScreen({super.key});
@@ -19,7 +39,28 @@ class WardrobeScreen extends StatefulWidget {
 
 class _WardrobeScreenState extends State<WardrobeScreen> {
   String _selectedCategory = 'all';
-  final List<WardrobeItemData> _localItems = List.from(WardrobeMockData.items);
+  late List<WardrobeEntry> _items;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = LearningService.instance.wardrobe;
+    LearningService.instance.addListener(_onLearningChanged);
+    LearningService.instance.load();
+  }
+
+  @override
+  void dispose() {
+    LearningService.instance.removeListener(_onLearningChanged);
+    super.dispose();
+  }
+
+  void _onLearningChanged() {
+    if (!mounted) return;
+    setState(() {
+      _items = LearningService.instance.wardrobe;
+    });
+  }
 
   void _selectCategory(String categoryId) {
     setState(() {
@@ -28,23 +69,50 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   }
 
   List<WardrobeItemData> get _filteredItems {
-    if (_selectedCategory == 'all') return _localItems;
-    return _localItems
-        .where((item) => item.category == _selectedCategory)
-        .toList();
+    final source = _selectedCategory == 'all'
+        ? _items
+        : _items.where((item) => item.category == _selectedCategory);
+    return source.map(_toItem).toList();
   }
 
-  int get _favoritesCount =>
-      _localItems.where((item) => item.isFavorite).length;
+  int get _favoritesCount => _items.where((item) => item.isFavorite).length;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final filteredItems = _filteredItems;
-    final totalItems = _localItems.length;
+    final totalItems = _items.length;
+
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isWide = screenWidth > 600;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          padding: EdgeInsets.fromLTRB(
+            isWide ? 48.0 : 20.0,
+            FansivibeSpacing.sm,
+            isWide ? 48.0 : 20.0,
+            FansivibeSpacing.md,
+          ),
+          color: theme.scaffoldBackgroundColor,
+          child: Center(
+            heightFactor: 1,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: isWide ? 520.0 : double.infinity,
+              ),
+              child: FansiButton.primary(
+                label: 'Add Item to Wardrobe',
+                icon: Icons.add_rounded,
+                onPressed: () => _handleAddItem(context),
+              ),
+            ),
+          ),
+        ),
+      ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -90,7 +158,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                               final cat = WardrobeMockData.categories[index];
                               final count = cat.id == 'all'
                                   ? totalItems
-                                  : _localItems
+                                  : _items
                                         .where(
                                           (item) => item.category == cat.id,
                                         )
@@ -136,12 +204,6 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                           context,
                           items: filteredItems,
                           crossAxisCount: crossAxisCount,
-                        ),
-                        const SizedBox(height: FansivibeSpacing.lg),
-                        FansiButton.primary(
-                          label: 'Add Item to Wardrobe',
-                          icon: Icons.add_rounded,
-                          onPressed: () => _handleAddItem(context),
                         ),
                         const SizedBox(height: FansivibeSpacing.lg),
                       ],
@@ -236,9 +298,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       RouteNames.wardrobeAddCategory,
     );
     if (result != null && context.mounted) {
-      setState(() {
-        _localItems.add(result);
-      });
+      LearningService.instance.addItem(_toEntry(result));
       UserSession.hasSavedWardrobeItem = true;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

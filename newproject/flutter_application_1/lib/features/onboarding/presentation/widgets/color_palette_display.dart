@@ -20,40 +20,50 @@ class ColorPaletteDisplay extends StatelessWidget {
           ),
         ),
         SizedBox(height: FansivibeSpacing.md),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            for (int i = 0; i < swatches.length; i++)
-              Padding(
-                padding: EdgeInsets.only(
-                  right: i < swatches.length - 1 ? FansivibeSpacing.sm + 4 : 0,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Color(swatches[i].color),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.1),
-                          width: 1,
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (int i = 0; i < swatches.length; i++)
+                Padding(
+                  padding: EdgeInsets.only(
+                    right: i < swatches.length - 1
+                        ? FansivibeSpacing.sm + 4
+                        : 0,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Color(swatches[i].color),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.1),
+                            width: 1,
+                          ),
                         ),
                       ),
-                    ),
-                    SizedBox(height: FansivibeSpacing.xs),
-                    Text(
-                      swatches[i].label,
-                      style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                        fontSize: 9,
+                      SizedBox(height: FansivibeSpacing.xs),
+                      SizedBox(
+                        width: 44,
+                        child: Text(
+                          swatches[i].label,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: FansivibeTypography.labelSmallWithFamily
+                              .copyWith(fontSize: 9),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ],
     );

@@ -88,7 +88,9 @@ class StylistScreen extends StatelessWidget {
                       children: [
                         const SizedBox(height: 8),
                         _buildHeader(context),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 24),
+                        _buildAssistantHero(context),
+                        const SizedBox(height: 24),
                         _buildActionGrid(context),
                         const SizedBox(height: 32),
                       ],
@@ -144,6 +146,78 @@ class StylistScreen extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildAssistantHero(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Semantics(
+      button: true,
+      child: InkWell(
+        onTap: () => context.pushNamed(RouteNames.assistant),
+        borderRadius: FansivibeRadius.lgBorder,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                FansivibeColors.primary.withValues(alpha: 0.28),
+                FansivibeColors.primaryContainer.withValues(alpha: 0.10),
+              ],
+            ),
+            borderRadius: FansivibeRadius.lgBorder,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: FansivibeColors.primary,
+                  borderRadius: FansivibeRadius.smBorder,
+                ),
+                child: const Icon(
+                  Icons.chat_bubble_rounded,
+                  color: FansivibeColors.onPrimary,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Ask the Assistant',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: FansivibeColors.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Chat with your AI stylist — it suggests, clarifies and takes you anywhere.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: FansivibeColors.secondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 16,
+                color: FansivibeColors.primary,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

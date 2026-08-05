@@ -119,32 +119,35 @@ class _CategoryCard extends StatelessWidget {
           fit: BoxFit.scaleDown,
           child: SizedBox(
             width: 120,
-            height: 140,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  _iconForCategory(category.iconName),
-                  size: 32,
-                  color: FansivibeColors.accentGold,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  category.name,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: FansivibeColors.textPrimary,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _iconForCategory(category.iconName),
+                    size: 32,
+                    color: FansivibeColors.accentGold,
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${category.types.length} types',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: FansivibeColors.textSecondary,
-                    fontSize: 12,
+                  const SizedBox(height: 10),
+                  Text(
+                    category.name,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: FansivibeColors.textPrimary,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4),
+                  Text(
+                    '${category.types.length} types',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: FansivibeColors.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

@@ -1,7 +1,204 @@
 # Fansivibe Current State
 
-Last Updated: 2026-08-02
-Updated By: opencode agent (Design consistency pass per DESIGN.md + audit)
+Last Updated: 2026-08-05
+Updated By: opencode agent (AI assistant + learning engine + FastAPI backend)
+
+## Changes Made — Sticky "Add Item to Wardrobe" Button
+
+`lib/features/wardrobe/presentation/wardrobe_screen.dart` — the "Add Item to
+Wardrobe" button now stays pinned to the bottom of the screen while the
+wardrobe list scrolls. Moved from the end of the scroll content into a
+`Scaffold.bottomNavigationBar` (`SafeArea` + `Container` + `Center(heightFactor: 1)`
++ `ConstrainedBox(maxWidth)`) so it reuses the same `FansiButton.primary` and
+matches the responsive 520px content width on wide screens. The button no longer
+sits at the bottom of the list.
+
+Bug fixed during validation: the initial `Center` (no `heightFactor`) expanded to
+the full available height (520px), collapsing the scroll viewport to zero height
+and making the whole list non-tappable — added `heightFactor: 1` to shrink-wrap
+the bar.
+
+**Tests:** `test/wardrobe_screen_test.dart` — 3 tests that tapped content now
+positioned under the sticky bar (Tops category tile, View Analysis, first grid
+item) were switched from `scrollUntilVisible` to `ensureVisible` before tapping.
+
+**Validation**
+- `dart format`: passed
+- `flutter analyze` (wardrobe screen + test): 0 issues
+- `flutter test`: **331 passed, 0 failed**
+
+## Changes Made — Chat Bot (Assistant) Bug Fixes
+
+Task: fix chat bot issues. No failing tests existed; the fixes target real
+runtime/logic bugs found by review.
+
+1. **Dispose crash guard** (`assistant/domain/assistant_service.dart`):
+   Navigating away while a reply was in-flight disposed the owned service,
+   then `send()`'s continuation called `notifyListeners()` on a disposed
+   `ChangeNotifier` → debug assertion (`A ChangeNotifier was used after being
+   disposed`). Added `_disposed` flag, `_safeNotify()`, and an early return
+   after the await; `dispose()` now marks it before closing the HTTP client.
+2. **Offline per-occasion outfit cards** (`assistant/data/offline_assistant.dart`):
+   `_outfit()` reused `OutfitRecommendation.mock` for every occasion, so "date"
+   produced the *Date Night Refined* title but listed the office components
+   (Navy Blazer etc.) under it. Replaced with a `_LookCard` per-occasion map
+   mirroring `backend/app/data/catalog.py` (office/date/party/travel/casual
+   each with matching items + score). Dropped the now-unused
+   `outfit_builder_mock_data.dart` import.
+3. **Offline `thanks` intent** (`offline_assistant.dart`): "thanks"/"thank"/
+   "thx" fell through to `_help()` offline while the backend returned
+   `INTENT_THANKS`. Added a thanks branch for online/offline parity.
+4. **Chat navigation crash (the reported bug)** (`assistant/presentation/assistant_screen.dart`):
+   Tapping the bot's "Open"/navigation button from the assistant (pushed on
+   top of the shell) used `context.pushNamed(...)`. Because the target routes
+   live inside the `StatefulShellRoute`, go_router duplicated the shell page
+   key → `'!keyReservation.contains(key)'` assertion → red error screen / crash.
+   Reproduced with a shell→FAB→assistant→navigate widget test; confirmed for
+   every target (wardrobe, discover, stylist, profile, today, hairstyle,
+   grooming, build-outfit, home). Fixed by using `context.goNamed(...)`, which
+   replaces the navigation stack and reuses the shell page — no key duplication.
+   Verified all 9 targets navigate with zero exceptions.
+
+**New tests:** `test/offline_assistant_test.dart` (8 cases — greeting, thanks,
+office/date/party/travel card contents, ambiguous-outfit clarification) and a
+regression test in `test/assistant_screen_test.dart` asserting shell-mounted
+chat navigation no longer throws.
+
+**Validation**
+- `dart format`: passed
+- `flutter analyze`: 0 errors, 7 pre-existing infos (all in untouched files)
+- `flutter test`: **331 passed, 0 failed** (was 324; +8 offline assistant tests
+  +1 navigation regression test)
+- backend `pytest`: **19 passed, 0 failed**
+
+## Changes Made — RenderFlex Overflow Hardening (all screens)
+
+Eliminated all `RenderFlex overflowed` layout errors across every screen at
+small viewport + large text scale. Verified with a temporary smoke harness
+(41 screens, 320x480, DPR 1.0, text scale 1.5, 6x300px scrolls, asserts no
+layout exception) that iterated failures down to 0 before being removed.
+
+Patterns applied (keep for future screens):
+- Row children → `Flexible` + `maxLines: 1` + `TextOverflow.ellipsis`.
+- Fixed-height cards → content wrapped in `Expanded`; inner text `Flexible`.
+- Non-flex siblings of a `Row` are measured with unbounded width — wrap the
+  widget itself in `Flexible` (e.g. `home_widgets.dart` streak pill, which
+  overflowed 88px because its own `Flexible` never received bounded width).
+- Do NOT put `Flexible`/`Expanded` inside a `FittedBox` (unbounded-width
+  layout error); prefer `FittedBox(fit: scaleDown)` around fixed-height
+  content Columns without flex children.
+- Icon+label pills / tags → keep label in `Flexible`.
+- Long inline rows (profile stats, progress, list tiles, plan cards,
+  eyebrow/eyewear recommendation headers) → wrap text in `Flexible`.
+
+Screens touched:
+- `onboarding/`: `your_analysis_screen.dart` (score FittedBox + subtitle
+  Row), `account_creation_screen.dart` (social buttons + "or continue with"
+  divider), `ai_capability_icon.dart`, `color_palette_display.dart`
+  (horizontal scroll for swatches)
+- `home/`: `home_widgets.dart` (streak pill + quick action + style score),
+  `daily_outfit_screen.dart` (component/alternative cards, CTA)
+- `discover/`: `discover_widgets.dart` (LookCard bottom content)
+- `outfit_scan/`: `outfit_scan_widgets.dart` (category text now `Flexible`)
+- `outfit_builder/`: `outfit_generation_screen.dart` (preference chips
+  Row→Wrap), `outfit_builder_widgets.dart`
+- `grooming/` + `hairstyle/`: result screens (profile rows, eyebrow
+  recommendation header)
+- `profile/`: `profile_widgets.dart` (level, stats, progress, achievements,
+  saved-look tiles), `subscription_screen.dart` (plan card)
+- `events/`: `event_details_screen.dart` (`_infoRow` in `Expanded`)
+- `wardrobe/`: widgets, add/with category, item details
+- `shared/components/fansi_chip.dart`
+
+Note: a temporary `test/_screen_smoke_test.dart` was used to drive this and
+has been deleted after success. Mock data labels (e.g. "Casual"/"Regular")
+vs lowercase option ids was a smoke-only concern, not a product bug.
+
+**Validation**
+- `flutter analyze`: 0 errors, 7 pre-existing infos (untouched files)
+- `flutter test`: **324 passed, 0 failed**
+
+## Changes Made — Learning Signals Wired Into Other Surfaces
+
+Phase 2 of the gradual-learning engine: the model now "learns" from real
+user actions across the app, not just the wardrobe and assistant.
+
+- `add_event_screen.dart` — adding an event records `addPreferredOccasion`
+  with the chosen `EventType.name` (Casual / Formal / Business / Date Night /
+  Party / Travel / Workout / Other).
+- `look_details_screen.dart` — `Save Look` records `addSavedLook(look.title)`.
+- `daily_outfit_screen.dart` — `Save Look` records `addSavedLook` with the
+  Today's Look title (`DailyOutfitData.mock.title`).
+- `outfit_analysis_screen.dart` — `Generate Look` ("Look saved to wardrobe")
+  records `addSavedLook` with the analysis title.
+
+Each surface calls `LearningService.instance` (the existing cross-feature
+pattern from `wardrobe_screen.dart`). `LocalStore` already swallows
+persistence errors, so the writes degrade gracefully in headless tests.
+
+**New test:** `look_details_screen_test.dart` — "records a learning signal
+when saving a look" verifies `savedLooks` and the `look_saved` signal.
+
+**Validation**
+- `flutter analyze`: 0 errors, 7 pre-existing infos (untouched files)
+- `flutter test`: **324 passed, 0 failed**
+
+## Changes Made — AI Assistant, Learning Engine & Backend
+
+Task: Fansivibe's "own AI" — server-side FastAPI orchestration (Ollama,
+default `llama3.1:8b`) + Flutter chat surface + gradual-learning engine
+(on-device user model, evolving wardrobe, grounded recommendations), with
+offline rules fallback for low-end devices.
+
+### Backend (`backend/`, new FastAPI service)
+- `app/main.py` — `/health` + `/v1/assistant/chat` (async, wraps engine)
+- `app/ai/engine.py` — own orchestration: intent → tools → dialogue → typed reply
+- `app/ai/intent.py` — deterministic rules classifier + occasion detector
+- `app/ai/tools.py` — recommendation tools grounded in user context (wardrobe)
+- `app/ai/llm_backend.py` — optional Ollama enrichment (server-side only,
+  never on client); engine falls back to rules when unavailable
+- `app/data/catalog.py` — mock catalog mirroring Flutter mocks
+- `app/models/schemas.py` — `AssistantReply`, `SuggestionCard`,
+  `ClarificationOption`, `NavigationRequest`, `UserContext` (mirrors Flutter DTOs)
+- `requirements.txt`, `docker-compose.yml`, `README.md`
+- **19 tests passing** (intent, engine routing, clarification policy,
+  wardrobe grounding, bare-occasion reply)
+
+### Client — `assistant/` feature
+- `data/models.dart` — DTOs mirroring backend schemas
+- `data/assistant_client.dart` — HTTP client (`ASSISTANT_BASE_URL` dart-define,
+  12s timeout)
+- `data/offline_assistant.dart` — deterministic rules fallback (greeting,
+  navigate, outfit/occasion, hairstyle, grooming, wardrobe), grounded in
+  mock data; bare occasion replies (e.g. "date") resolve to outfit cards
+- `domain/assistant_service.dart` — `ChangeNotifier`; attaches LearningService
+- `presentation/assistant_screen.dart` — chat UI, injectable service,
+  scrollable empty state (overflow-safe), suggestion prompts
+- `presentation/assistant_routes.dart` — action → route mapping
+- `presentation/widgets/assistant_widgets.dart` — bubbles, SuggestionCardView,
+  chips, nav button, typing dots
+
+### Client — `learning/` feature (gradual-learning engine)
+- `data/models.dart` — `WardrobeEntry`/`FaceProfile`/`LearningSignal`/`UserModel`
+- `data/local_store.dart` — SharedPreferences JSON persistence
+- `domain/learning_service.dart` — `ChangeNotifier` singleton, 24-item seeded
+  wardrobe, signals, styleScore; `@visibleForTesting resetForTest()`
+- `learning_repository.dart` — public contract (architecture decoupled)
+
+### Routing & integration
+- `/assistant` GoRoute + `RouteNames.assistant`; `FloatingAssistantButton`
+  in `router_shell.dart`; Stylist hero card opens Assistant
+- Wardrobe reads from `LearningService.instance.wardrobe` (listener + add)
+- Tests: `assistant_screen_test.dart` (6), `learning_service_test.dart`
+
+### Validation
+- `flutter analyze`: 0 errors, 7 pre-existing infos (untouched files only)
+- `flutter test`: **323 passed, 0 failed**
+- backend `pytest`: **19 passed, 0 failed**
+- Fixed 3 pre-existing `widget_test.dart` navigation tests broken by the new
+  Stylist assistant hero card pushing cards below the fold: switched to
+  `tester.ensureVisible` before tapping the Hairstyle / Event Planning /
+  Beard / Glasses cards.
 
 ## Changes Made — Design Consistency Pass (professional UI/UX)
 
@@ -407,15 +604,15 @@ preserve original data flow, navigation, and state. All use `FansivibeTypography
 - **Flutter project at**: `newproject/flutter_application_1`
 - **Dart files**: 62 (`lib/`) + 25 (`test/`)
 - **Total lines**: ~21,000
-- **Features**: 10 (`home`, `discover`, `stylist`, `wardrobe`, `outfit_scan`, `outfit_builder`, `hairstyle`, `grooming`, `events`, `profile`)
+- **Features**: 12 (`home`, `discover`, `stylist`, `wardrobe`, `outfit_scan`, `outfit_builder`, `hairstyle`, `grooming`, `events`, `profile`, `assistant`, `learning`)
 - **Mock data files**: 10 (`data/` directories across features)
-- **Shared widgets**: 7 files (`fansi_button.dart`, `fansi_badge.dart`, `fansi_chip.dart`, `fansivibe_card.dart`, `section_title.dart`, `score_colors.dart`, `icon_utils.dart`)
+- **Shared widgets**: 8 files (`fansi_button.dart`, `fansi_badge.dart`, `fansi_chip.dart`, `fansivibe_card.dart`, `section_title.dart`, `score_colors.dart`, `icon_utils.dart`, `floating_assistant_button.dart`)
 - **Home-specific widgets removed**: `HomeActionButton`, `OutfitItemChip`, `HomeProgressRing`, `StreakDayIndicator`
 - **Theme files**: 2 (`fansivibe_colors.dart`, `fansivibe_theme.dart`)
 - **Router**: `go_router` 17.2.3 with `StatefulShellRoute.indexedStack`, named routes in `RouteNames`, centralized in `app_router.dart`
-- **No state management**: All state is local `setState` in widgets
-- **No domain layer**: No `domain/` directory in any feature
-- **No assets**: No images, fonts, or asset directories configured
+- **State management**: mostly local `setState`; `assistant` and `learning` use `ChangeNotifier` services (`LearningService.instance`, `AssistantService`)
+- **Domain layer**: present in `assistant/` and `learning/` features only
+- **No assets**: No image assets or asset directories configured (fonts bundled in pubspec)
 
 ## Routing Architecture
 
@@ -667,6 +864,8 @@ Skill used: `dart-run-static-analysis`
     maintain test compatibility.
 9. **Naming inconsistency**: `FansiButton` vs `FansivibeCard` prefix mismatch (deferred).
 10. **Mega-widget files**: `home_widgets.dart` (1,277 lines) and others still need splitting (deferred).
+11. **AI integration**: Backend chat runs rules-only unless Ollama is running
+    locally (LLM enrichment is optional server-side). No auth on `/v1/assistant/chat` yet.
 
 ## Handoff
 

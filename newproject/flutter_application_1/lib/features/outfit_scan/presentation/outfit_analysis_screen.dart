@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/outfit_scan/data/outfit_scan_mock_data.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
@@ -256,6 +257,9 @@ class OutfitAnalysisScreen extends StatelessWidget {
             label: 'Generate Look',
             icon: Icons.auto_awesome_rounded,
             onPressed: () {
+              LearningService.instance.addSavedLook(
+                OutfitAnalysisData.mock.title,
+              );
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: const Text('Look saved to wardrobe'),

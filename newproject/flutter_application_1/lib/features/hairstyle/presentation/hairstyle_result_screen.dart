@@ -160,11 +160,15 @@ class HairstyleResultScreen extends StatelessWidget {
       children: [
         Icon(icon, size: 16, color: FansivibeColors.accentGold),
         const SizedBox(width: 10),
-        Text(
-          '$label: ',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: FansivibeColors.textSecondary,
-            fontWeight: FontWeight.w500,
+        Flexible(
+          child: Text(
+            '$label: ',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: FansivibeColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
         Expanded(

@@ -19,7 +19,7 @@ class AiCapabilityIcon extends StatelessWidget {
         width: size + 16,
         margin: EdgeInsets.only(right: FansivibeSpacing.sm),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: MainAxisSize.max,
           children: [
             Container(
               width: size,
@@ -49,30 +49,34 @@ class AiCapabilityIcon extends StatelessWidget {
               ),
             ),
             SizedBox(height: FansivibeSpacing.xs),
-            Text(
-              capability.name,
-              style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                color: capability.active
-                    ? FansivibeColors.primary
-                    : FansivibeColors.secondary.withValues(alpha: 0.6),
-                fontSize: 9,
+            Flexible(
+              child: Text(
+                capability.name,
+                style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                  color: capability.active
+                      ? FansivibeColors.primary
+                      : FansivibeColors.secondary.withValues(alpha: 0.6),
+                  fontSize: 9,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
             if (!capability.active && capability.unlockHint != null)
-              Padding(
-                padding: EdgeInsets.only(top: FansivibeSpacing.xs),
-                child: Text(
-                  capability.unlockHint!,
-                  style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                    fontSize: 7,
-                    color: FansivibeColors.secondary.withValues(alpha: 0.4),
+              Flexible(
+                child: Padding(
+                  padding: EdgeInsets.only(top: FansivibeSpacing.xs),
+                  child: Text(
+                    capability.unlockHint!,
+                    style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                      fontSize: 7,
+                      color: FansivibeColors.secondary.withValues(alpha: 0.4),
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
           ],

@@ -287,13 +287,15 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
           child: Row(
             children: [
               if (trailing != null) ...[trailing, const SizedBox(width: 8)],
-              Text(
-                value,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: valueColor ?? FansivibeColors.textPrimary,
-                  fontWeight: FontWeight.w500,
+              Flexible(
+                child: Text(
+                  value,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: valueColor ?? FansivibeColors.textPrimary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),

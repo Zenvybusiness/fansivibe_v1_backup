@@ -207,8 +207,11 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          Wrap(
+            spacing: 16,
+            runSpacing: 12,
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _buildPreferenceChip(
                 context,

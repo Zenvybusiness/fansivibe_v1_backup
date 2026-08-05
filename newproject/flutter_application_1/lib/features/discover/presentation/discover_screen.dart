@@ -360,20 +360,23 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Widget _buildTabs(BuildContext context) {
-    return Row(
-      children: DiscoverTabData.all.map((tabData) {
-        final isSelected = _selectedTab == tabData.tab;
-        return Padding(
-          padding: EdgeInsets.only(
-            right: tabData == DiscoverTabData.all.last ? 0 : 12,
-          ),
-          child: DiscoverTabButton(
-            data: tabData,
-            isSelected: isSelected,
-            onTap: () => _onTabChanged(tabData.tab),
-          ),
-        );
-      }).toList(),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: DiscoverTabData.all.map((tabData) {
+          final isSelected = _selectedTab == tabData.tab;
+          return Padding(
+            padding: EdgeInsets.only(
+              right: tabData == DiscoverTabData.all.last ? 0 : 12,
+            ),
+            child: DiscoverTabButton(
+              data: tabData,
+              isSelected: isSelected,
+              onTap: () => _onTabChanged(tabData.tab),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 

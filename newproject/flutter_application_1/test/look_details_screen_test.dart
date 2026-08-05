@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/presentation/look_details_screen.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/look_details_widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Widget _wrapScreen(DiscoverLookData look) {
   return MaterialApp(
@@ -105,6 +107,28 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('Sharing'), findsOneWidget);
+    });
+
+    testWidgets('records a learning signal when saving a look', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      LearningService.instance.resetForTest();
+
+      final look = DiscoverLookData.forYouMock.first;
+      await tester.pumpWidget(_wrapScreen(look));
+
+      await tester.scrollUntilVisible(find.text('Save Look'), 200);
+      await tester.tap(find.text('Save Look'));
+      await tester.pump();
+
+      expect(LearningService.instance.savedLooks, contains(look.title));
+      expect(
+        LearningService.instance.signals.any(
+          (s) => s.type == 'look_saved' && s.label == look.title,
+        ),
+        isTrue,
+      );
     });
 
     testWidgets('navigates back on back button tap', (

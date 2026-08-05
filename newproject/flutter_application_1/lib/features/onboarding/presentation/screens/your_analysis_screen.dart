@@ -217,18 +217,21 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                   stops: const [0.0, 1.0],
                 ),
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  AnimatedScoreCounter(targetScore: _mockScore, fontSize: 64),
-                  Text(
-                    'Style Score',
-                    style: FansivibeTypography.labelMediumWithFamily.copyWith(
-                      color: FansivibeColors.secondary,
-                      letterSpacing: 1.5,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    AnimatedScoreCounter(targetScore: _mockScore, fontSize: 64),
+                    Text(
+                      'Style Score',
+                      style: FansivibeTypography.labelMediumWithFamily.copyWith(
+                        color: FansivibeColors.secondary,
+                        letterSpacing: 1.5,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             SizedBox(height: FansivibeSpacing.sm),
@@ -258,11 +261,15 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                 color: FansivibeColors.primary,
               ),
               SizedBox(width: FansivibeSpacing.sm),
-              Text(
-                'Appearance Intelligence',
-                style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+              Flexible(
+                child: Text(
+                  'Appearance Intelligence',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],

@@ -407,8 +407,8 @@ class QuickActionCard extends StatelessWidget {
         borderRadius: FansivibeRadius.mdBorder,
         child: FansivibeCard(
           padding: EdgeInsets.zero,
-          child: SizedBox(
-            height: 76,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 76),
             child: Row(
               children: [
                 Container(
@@ -442,6 +442,8 @@ class QuickActionCard extends StatelessWidget {
                     children: [
                       Text(
                         data.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w600,
                           color: FansivibeColors.textPrimary,
@@ -450,6 +452,8 @@ class QuickActionCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         data.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: FansivibeColors.textSecondary,
                         ),
@@ -849,18 +853,26 @@ class StyleScoreCard extends StatelessWidget {
                         children: [
                           Icon(trendIcon, size: 16, color: trendColor),
                           const SizedBox(width: 4),
-                          Text(
-                            '${data.weeklyChange >= 0 ? '+' : ''}${data.weeklyChange} pts',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: trendColor,
-                              fontWeight: FontWeight.w600,
+                          Flexible(
+                            child: Text(
+                              '${data.weeklyChange >= 0 ? '+' : ''}${data.weeklyChange} pts',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: trendColor,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 4),
-                          Text(
-                            'this week',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: trendColor.withValues(alpha: 0.7),
+                          Flexible(
+                            child: Text(
+                              'this week',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: trendColor.withValues(alpha: 0.7),
+                              ),
                             ),
                           ),
                         ],
@@ -1048,32 +1060,38 @@ class StyleStreakCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: fireColor.withValues(alpha: 0.12),
-                  borderRadius: FansivibeRadius.fullBorder,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.local_fire_department_rounded,
-                      size: 18,
-                      color: fireColor,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '$streak-day streak',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: fireColor.withValues(alpha: 0.12),
+                    borderRadius: FansivibeRadius.fullBorder,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.local_fire_department_rounded,
+                        size: 18,
                         color: fireColor,
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '$streak-day streak',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: fireColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:fansivibe/shared/components/floating_assistant_button.dart';
+
 class RouterShell extends StatelessWidget {
   const RouterShell({required this.navigationShell, super.key});
 
@@ -12,6 +14,7 @@ class RouterShell extends StatelessWidget {
 
     return Scaffold(
       body: navigationShell,
+      floatingActionButton: const FloatingAssistantButton(),
       bottomNavigationBar: NavigationBar(
         selectedIndex: navigationShell.currentIndex,
         onDestinationSelected: (index) {

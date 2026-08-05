@@ -43,11 +43,15 @@ class FansiChip extends StatelessWidget {
             Icon(icon, size: 14, color: fgColor),
             const SizedBox(width: 6),
           ],
-          Text(
-            label,
-            style: FansivibeTypography.labelSmallWithFamily.copyWith(
-              color: fgColor,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                color: fgColor,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+              ),
             ),
           ),
         ],

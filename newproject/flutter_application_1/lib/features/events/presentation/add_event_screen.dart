@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -111,6 +112,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
       time: _selectedTime!,
       eventType: _selectedType!,
     );
+
+    LearningService.instance.addPreferredOccasion(event.eventType.name);
 
     Navigator.of(context).pop<UserEvent>(event);
   }

@@ -118,11 +118,15 @@ class CheckIndicator extends StatelessWidget {
           color: color,
         ),
         const SizedBox(width: 6),
-        Text(
-          label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: color,
-            fontWeight: isPassing ? FontWeight.w500 : FontWeight.normal,
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: color,
+              fontWeight: isPassing ? FontWeight.w500 : FontWeight.normal,
+            ),
           ),
         ),
       ],
@@ -338,10 +342,14 @@ class DetectedItemChip extends StatelessWidget {
                 const SizedBox(height: 2),
                 Row(
                   children: [
-                    Text(
-                      item.category,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: FansivibeColors.textSecondary,
+                    Flexible(
+                      child: Text(
+                        item.category,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: FansivibeColors.textSecondary,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -360,19 +368,27 @@ class DetectedItemChip extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      item.color,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: FansivibeColors.textSecondary,
+                    Flexible(
+                      child: Text(
+                        item.color,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: FansivibeColors.textSecondary,
+                        ),
                       ),
                     ),
                     if (item.material != null) ...[
                       const SizedBox(width: 8),
-                      Text(
-                        item.material!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: FansivibeColors.textSecondary.withValues(
-                            alpha: 0.7,
+                      Flexible(
+                        child: Text(
+                          item.material!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: FansivibeColors.textSecondary.withValues(
+                              alpha: 0.7,
+                            ),
                           ),
                         ),
                       ),

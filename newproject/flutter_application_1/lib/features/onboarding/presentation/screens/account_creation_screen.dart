@@ -364,14 +364,21 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
                       ),
                     ),
                   ),
-                  Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: FansivibeSpacing.md,
-                    ),
-                    child: Text(
-                      'or continue with',
-                      style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                        color: FansivibeColors.secondary.withValues(alpha: 0.5),
+                  Flexible(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: FansivibeSpacing.md,
+                      ),
+                      child: Text(
+                        'or continue with',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: FansivibeTypography.labelSmallWithFamily
+                            .copyWith(
+                              color: FansivibeColors.secondary.withValues(
+                                alpha: 0.5,
+                              ),
+                            ),
                       ),
                     ),
                   ),
@@ -393,6 +400,8 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
                       icon: const Icon(Icons.g_mobiledata_rounded, size: 22),
                       label: Text(
                         'Google',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
@@ -404,7 +413,10 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
                         shape: RoundedRectangleBorder(
                           borderRadius: FansivibeRadius.smBorder,
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -415,6 +427,8 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
                       icon: const Icon(Icons.apple, size: 22),
                       label: Text(
                         'Apple',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
@@ -426,7 +440,10 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
                         shape: RoundedRectangleBorder(
                           borderRadius: FansivibeRadius.smBorder,
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
                       ),
                     ),
                   ),

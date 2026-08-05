@@ -3,6 +3,7 @@ import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 
 class ProfileHeader extends StatelessWidget {
   const ProfileHeader({required this.data, super.key});
@@ -112,11 +113,15 @@ class ProfileHeroCard extends StatelessWidget {
                           color: FansivibeColors.accentGold,
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          data.stylistLevel.label,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: FansivibeColors.accentGold,
-                            fontWeight: FontWeight.w600,
+                        Flexible(
+                          child: Text(
+                            data.stylistLevel.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: FansivibeColors.accentGold,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -155,20 +160,29 @@ class ProfileHeroCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    data.styleProgress.label,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: FansivibeColors.textSecondary,
-                      fontSize: 11,
+                  Flexible(
+                    child: Text(
+                      data.styleProgress.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: FansivibeColors.textSecondary,
+                        fontSize: 11,
+                      ),
                     ),
                   ),
-                  Text(
-                    '${data.styleProgress.current} / ${data.styleProgress.next}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: FansivibeColors.accentGold,
-                      fontFamily: 'sans-serif',
-                      fontSize: 11,
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      '${data.styleProgress.current} / ${data.styleProgress.next}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: FansivibeColors.accentGold,
+                        fontFamily: 'sans-serif',
+                        fontSize: 11,
+                      ),
                     ),
                   ),
                 ],
@@ -211,12 +225,16 @@ class ProfileHeroCard extends StatelessWidget {
                             color: FansivibeColors.accentGold,
                           ),
                           const SizedBox(width: 4),
-                          Text(
-                            '${data.styleScore}',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: FansivibeColors.textPrimary,
-                              fontFamily: 'sans-serif',
+                          Flexible(
+                            child: Text(
+                              '${data.styleScore}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: FansivibeColors.textPrimary,
+                                fontFamily: 'sans-serif',
+                              ),
                             ),
                           ),
                         ],
@@ -252,12 +270,16 @@ class ProfileHeroCard extends StatelessWidget {
                             color: FansivibeColors.accentGold,
                           ),
                           const SizedBox(width: 4),
-                          Text(
-                            '#${data.globalRank.position}',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: FansivibeColors.textPrimary,
-                              fontFamily: 'sans-serif',
+                          Flexible(
+                            child: Text(
+                              '#${data.globalRank.position}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: FansivibeColors.textPrimary,
+                                fontFamily: 'sans-serif',
+                              ),
                             ),
                           ),
                         ],
@@ -444,18 +466,27 @@ class StyleProgressIndicator extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              data.label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: FansivibeColors.textSecondary,
+            Flexible(
+              child: Text(
+                data.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: FansivibeColors.textSecondary,
+                ),
               ),
             ),
-            Text(
-              '${data.current} / ${data.next}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: FansivibeColors.accentGold,
-                fontFamily: 'sans-serif',
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                '${data.current} / ${data.next}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: FansivibeColors.accentGold,
+                  fontFamily: 'sans-serif',
+                ),
               ),
             ),
           ],
@@ -580,11 +611,15 @@ class AchievementBar extends StatelessWidget {
               color: FansivibeColors.accentGold,
             ),
             const SizedBox(width: 8),
-            Text(
-              'Achievements',
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: FansivibeColors.textPrimary,
+            Flexible(
+              child: Text(
+                'Achievements',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: FansivibeColors.textPrimary,
+                ),
               ),
             ),
             const SizedBox(width: 8),
@@ -730,50 +765,53 @@ class SavedLooksRow extends StatelessWidget {
         color: FansivibeColors.surfaceContainerLow,
         borderRadius: FansivibeRadius.smdBorder,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-              borderRadius: FansivibeRadius.smBorder,
-            ),
-            child: Icon(
-              Icons.checkroom_rounded,
-              size: 18,
-              color: FansivibeColors.accentGold,
-            ),
-          ),
-          const Spacer(),
-          Text(
-            look.title,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: FansivibeColors.textPrimary,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 2),
-          Row(
-            children: [
-              Icon(Icons.star_rounded, size: 12, color: scoreColor),
-              const SizedBox(width: 4),
-              Text(
-                '${look.score}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: scoreColor,
-                  fontFamily: 'sans-serif',
-                  fontSize: 11,
-                ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.topLeft,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: FansivibeColors.accentGold.withValues(alpha: 0.15),
+                borderRadius: FansivibeRadius.smBorder,
               ),
-            ],
-          ),
-        ],
+              child: Icon(
+                Icons.checkroom_rounded,
+                size: 18,
+                color: FansivibeColors.accentGold,
+              ),
+            ),
+            SizedBox(height: FansivibeSpacing.xs),
+            Text(
+              look.title,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: FansivibeColors.textPrimary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                Icon(Icons.star_rounded, size: 12, color: scoreColor),
+                const SizedBox(width: 4),
+                Text(
+                  '${look.score}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: scoreColor,
+                    fontFamily: 'sans-serif',
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

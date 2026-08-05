@@ -56,13 +56,17 @@ class DiscoverTabButton extends StatelessWidget {
                     : FansivibeColors.textSecondary,
               ),
               const SizedBox(width: 8),
-              Text(
-                data.label,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: isSelected
-                      ? FansivibeColors.accentGold
-                      : FansivibeColors.textSecondary,
+              Flexible(
+                child: Text(
+                  data.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: isSelected
+                        ? FansivibeColors.accentGold
+                        : FansivibeColors.textSecondary,
+                  ),
                 ),
               ),
             ],
@@ -252,31 +256,33 @@ class LookCard extends StatelessWidget {
               ),
               Padding(
                 padding: const EdgeInsets.all(10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      data.title,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: FansivibeColors.textPrimary,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.calendar_today_rounded,
-                          size: 10,
-                          color: FansivibeColors.textSecondary.withValues(
-                            alpha: 0.6,
-                          ),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topLeft,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        data.title,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: FansivibeColors.textPrimary,
                         ),
-                        const SizedBox(width: 3),
-                        Flexible(
-                          child: Text(
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.calendar_today_rounded,
+                            size: 10,
+                            color: FansivibeColors.textSecondary.withValues(
+                              alpha: 0.6,
+                            ),
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
                             data.occasion,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: FansivibeColors.textSecondary,
@@ -285,60 +291,60 @@ class LookCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 3,
-                      children: [
-                        ...data.styleTags
-                            .take(2)
-                            .map((tag) => _buildTag(context, tag)),
-                        if (data.fitTags.isNotEmpty)
-                          _buildTag(context, data.fitTags.first, isFit: true),
-                      ],
-                    ),
-                    if (data.wardrobeMatchCount > 0) ...[
+                        ],
+                      ),
                       const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: FansivibeColors.accentGold.withValues(
-                            alpha: 0.1,
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 3,
+                        children: [
+                          ...data.styleTags
+                              .take(2)
+                              .map((tag) => _buildTag(context, tag)),
+                          if (data.fitTags.isNotEmpty)
+                            _buildTag(context, data.fitTags.first, isFit: true),
+                        ],
+                      ),
+                      if (data.wardrobeMatchCount > 0) ...[
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
                           ),
-                          borderRadius: FansivibeRadius.fullBorder,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.checkroom_rounded,
-                              size: 10,
-                              color: FansivibeColors.accentGold.withValues(
-                                alpha: 0.8,
-                              ),
+                          decoration: BoxDecoration(
+                            color: FansivibeColors.accentGold.withValues(
+                              alpha: 0.1,
                             ),
-                            const SizedBox(width: 3),
-                            Text(
-                              '${data.wardrobeMatchCount} in wardrobe',
-                              style: theme.textTheme.bodySmall?.copyWith(
+                            borderRadius: FansivibeRadius.fullBorder,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.checkroom_rounded,
+                                size: 10,
                                 color: FansivibeColors.accentGold.withValues(
                                   alpha: 0.8,
                                 ),
-                                fontWeight: FontWeight.w600,
-                                fontSize: 9,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 3),
+                              Text(
+                                '${data.wardrobeMatchCount} in wardrobe',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: FansivibeColors.accentGold.withValues(
+                                    alpha: 0.8,
+                                  ),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 9,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ],

@@ -6,6 +6,7 @@ import 'package:fansivibe/shared/components/fansi_error_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/splash_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/entry_screen.dart';
+import 'package:fansivibe/features/assistant/presentation/assistant_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/vibe_select_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/camera_permission_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/photo_capture_screen.dart';
@@ -110,6 +111,11 @@ final List<RouteBase> appRoutes = [
     path: '/onboarding/account',
     name: RouteNames.accountCreation,
     builder: (context, state) => const AccountCreationScreen(),
+  ),
+  GoRoute(
+    path: '/assistant',
+    name: RouteNames.assistant,
+    builder: (context, state) => const AssistantScreen(),
   ),
   StatefulShellRoute.indexedStack(
     builder: (context, state, navigationShell) {

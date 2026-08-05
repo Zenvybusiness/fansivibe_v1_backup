@@ -111,6 +111,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // Tap the Tops category filter
+      await tester.ensureVisible(find.text('Tops'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Tops'));
       await tester.pumpAndSettle();
 
@@ -133,11 +135,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Scroll to View Analysis button
-      await tester.scrollUntilVisible(
-        find.text('View Analysis'),
-        500.0,
-        scrollable: find.byType(Scrollable).first,
-      );
+      await tester.ensureVisible(find.text('View Analysis'));
       await tester.pumpAndSettle();
 
       // Tap the View Analysis button
@@ -191,11 +189,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Scroll down to make items visible
-      await tester.scrollUntilVisible(
-        find.text('Merino Crew Neck'),
-        500.0,
-        scrollable: find.byType(Scrollable).first,
-      );
+      await tester.ensureVisible(find.text('Merino Crew Neck'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Merino Crew Neck'));

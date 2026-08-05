@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/look_details_widgets.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -323,6 +324,7 @@ class LookDetailsScreen extends StatelessWidget {
   }
 
   void _handleSave(BuildContext context) {
+    LearningService.instance.addSavedLook(look.title);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${look.title} saved to your looks'),
