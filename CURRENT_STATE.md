@@ -3,6 +3,61 @@
 Last Updated: 2026-08-05
 Updated By: opencode agent
 
+## Changes Made — Reusable Card Design System (Hero / Mini / Insight)
+
+Task: build a shared, reusable card system on the Digital Atelier language and
+migrate **all named surfaces** to it. Image is always the hero — never shrink
+the image for text; navigate to detail pages instead of growing cards.
+
+### New shared components (`lib/shared/components/`)
+- `fansi_hero_card.dart` — Hero card, enforced 65/35 image/content split via
+  `LayoutBuilder`; 1:1 square image fallback (never shrinks) in unbounded
+  heights. Supports eyebrow over the image, `FansiBadge`, serif title +
+  subtitle, optional `onTap`.
+- `fansi_mini_card.dart` — Mini card, enforced 75/25 split with the same
+  bounded/unbounded `LayoutBuilder` pattern; compact label + meta.
+- `fansi_insight_card.dart` — Insight card, enforced 20/80 visual/content
+  split; icon, eyebrow, title, body, optional action. Uses a `_bounded()`
+  helper that applies `Flexible` to text only under bounded constraints so
+  it never throws "RenderFlex children have non-zero flex" in scroll
+  contexts.
+- `fansi_image_well.dart` — tonal icon/tint image placeholder used by the
+  cards.
+
+Key hardening pattern (applied to all three): inside a `LayoutBuilder`, when
+`constraints.maxHeight` is finite use the flex ratio split; when unbounded
+(vertical scroll) the image keeps its aspect ratio (square for hero/mini,
+1:1 for insight visual) and `mainAxisSize` becomes `min` — eliminating
+RenderFlex overflow crashes in scrollable result screens.
+
+### Surfaces migrated
+- **Home** `AIInsightCard` → FansiInsightCard (`home_widgets.dart`)
+- **Discover** looks grid → FansiHeroCard / FansiMiniCard mix (`discover_widgets.dart`)
+- **Saved Looks** `_SavedLookCard` → FansiHeroCard + FansiImageWell + FansiBadge
+  (`saved_looks_screen.dart`)
+- **Wardrobe** `WardrobeInsightCard` → FansiInsightCard; `ClothingItemCard`
+  → Stateless FansiMiniCard wrapper (kept category icon, favorite heart,
+  material pill) (`wardrobe_widgets.dart`)
+- **Hairstyle** `HairstyleCard` → FansiHeroCard wrapped in a bounded
+  `SizedBox(height: 240)` so the 65/35 split applies inside the scroll
+  (`hairstyle_widgets.dart`)
+- **Outfit Builder** `MetricCard` → FansiInsightCard; recommendation screen
+  header → FansiHeroCard; impact/improvement cards → FansiInsightCard
+- **Profile** `StyleDnaCard` → 4 stacked FansiInsightCards, un-nested from
+  `FansivibeCard` in `profile_screen.dart` (removed Divider)
+
+### Test updates (`test/hairstyle_result_screen_test.dart`)
+Hero cards are taller than the old compact rows, pushing tap targets below
+the 800x600 test viewport fold. Updated the top-recommendation tap test to
+drag the scrollable before tapping, and the Try Another test to
+`tester.ensureVisible` before tapping (kept the finite pump loop for the
+navigation animation, since the FaceScan camera screen never settles).
+
+### Validation
+- `dart format`: passed
+- `flutter analyze`: 0 errors, 7 pre-existing infos (all in untouched files)
+- `flutter test`: **342 passed, 0 failed** (was 331; +11 card-system tests)
+
 ## Changes Made — Nav Bar: Icon + Label Glow Only (no background pill)
 
 Task: in the bottom `NavigationBar`, only the selected icon and its label

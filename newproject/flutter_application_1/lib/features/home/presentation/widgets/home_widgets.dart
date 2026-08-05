@@ -3,10 +3,15 @@ import 'package:fansivibe/features/home/data/home_mock_data.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_chip.dart';
+import 'package:fansivibe/shared/components/fansi_hero_card.dart';
+import 'package:fansivibe/shared/components/fansi_image_well.dart';
+import 'package:fansivibe/shared/components/fansi_insight_card.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/components/section_title.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
+import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/icon_utils.dart';
 import 'package:fansivibe/shared/utils/score_colors.dart';
 
@@ -317,75 +322,16 @@ class AIInsightCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final accentColor = Color(data.accentColor);
-
-    return FansivibeCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.15),
-                  borderRadius: FansivibeRadius.smdBorder,
-                ),
-                child: Icon(
-                  _getIconData(data.iconName),
-                  color: accentColor,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      data.title,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: FansivibeColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'AI Insight',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: accentColor,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            data.insight,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: FansivibeColors.textPrimary,
-              height: 1.5,
-            ),
-          ),
-          if (onActionPressed != null) ...[
-            const SizedBox(height: 16),
-            FansiButton.secondary(
-              label: data.actionLabel,
-              icon: Icons.arrow_forward_rounded,
-              onPressed: onActionPressed,
-              expanded: false,
-            ),
-          ],
-        ],
-      ),
+    return FansiInsightCard(
+      icon: iconFromName(data.iconName),
+      title: data.title,
+      eyebrow: 'AI Insight',
+      body: data.insight,
+      accentColor: Color(data.accentColor),
+      actionLabel: data.actionLabel,
+      onActionPressed: onActionPressed,
     );
   }
-
-  IconData _getIconData(String iconName) => iconFromName(iconName);
 }
 
 /// Quick action card widget.
@@ -552,238 +498,69 @@ class TodaysLookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final imageHeight = constraints.maxWidth;
-
-        return ClipRRect(
-          borderRadius: FansivibeRadius.mdBorder,
-          child: Column(
-            children: [
-              _buildImageSection(theme, imageHeight),
-              _buildContentSection(theme),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildImageSection(ThemeData theme, double height) {
-    return SizedBox(
-      height: height,
-      width: double.infinity,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(
-            color: FansivibeColors.surface,
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Semantics(
-                    image: true,
-                    label: 'Outfit image placeholder',
-                    child: Icon(
-                      Icons.checkroom_rounded,
-                      size: 72,
-                      color: FansivibeColors.accentGold.withValues(alpha: 0.3),
+    return FansiHeroCard(
+      eyebrow: "TODAY'S LOOK",
+      image: FansiImageWell(
+        icon: Icons.checkroom_rounded,
+        color: FansivibeColors.accentGold,
+      ),
+      badge: FansiBadge(score: data.styleScore),
+      title: data.title,
+      subtitle: data.occasion,
+      footer: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          FansivibeSpacing.lg,
+          0,
+          FansivibeSpacing.lg,
+          FansivibeSpacing.lg,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              data.description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                color: FansivibeColors.textSecondary,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: FansivibeSpacing.md + 2),
+            Wrap(
+              spacing: FansivibeSpacing.sm,
+              runSpacing: FansivibeSpacing.sm,
+              children: data.items
+                  .map(
+                    (item) => FansiChip(
+                      label: item.name,
+                      icon: outfitCategoryIcon(item.category),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Outfit Image',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: FansivibeColors.textSecondary.withValues(
-                        alpha: 0.6,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                  )
+                  .toList(),
             ),
-          ),
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment.topCenter,
-                colors: [
-                  Colors.black.withValues(alpha: 0.85),
-                  Colors.black.withValues(alpha: 0.3),
-                  Colors.transparent,
-                  Colors.transparent,
-                ],
-                stops: const [0.0, 0.35, 0.7, 1.0],
-              ),
-            ),
-          ),
-          Positioned(
-            top: 16,
-            left: 16,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-                borderRadius: FansivibeRadius.xsBorder,
-              ),
-              child: Text(
-                'TODAY\'S LOOK',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: FansivibeColors.accentGold,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.8,
-                  fontSize: 11,
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 16,
-            right: 16,
-            child: FansiBadge(score: data.styleScore),
-          ),
-          Positioned(
-            bottom: 20,
-            left: 20,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: FansivibeSpacing.md + 6),
+            Row(
               children: [
-                Text(
-                  data.occasion,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: FansivibeColors.onSurface,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.3,
+                Expanded(
+                  child: FansiButton.primary(
+                    label: 'Try This Look',
+                    icon: Icons.check_circle_outline_rounded,
+                    onPressed: onTryThisLook,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.cloud_outlined,
-                      size: 14,
-                      color: FansivibeColors.onSurface.withValues(alpha: 0.7),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      data.weather,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: FansivibeColors.onSurface.withValues(alpha: 0.7),
-                      ),
-                    ),
-                  ],
+                const SizedBox(width: FansivibeSpacing.sm + 4),
+                Expanded(
+                  child: FansiButton.secondary(
+                    label: 'Change Style',
+                    icon: Icons.refresh_rounded,
+                    onPressed: onChangeStyle,
+                  ),
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildContentSection(ThemeData theme) {
-    final scoreColor = scoreColorFromDouble(data.styleScore / 100);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-      decoration: const BoxDecoration(color: FansivibeColors.surfaceContainer),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Text(
-                  data.title,
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: FansivibeColors.onSurface,
-                    fontFamily: 'serif',
-                    height: 1.1,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: scoreColor.withValues(alpha: 0.12),
-                  borderRadius: FansivibeRadius.smBorder,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.star_rounded, size: 14, color: scoreColor),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${data.styleScore}',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: scoreColor,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'sans-serif',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            data.description,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: FansivibeColors.textSecondary,
-              height: 1.4,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: data.items
-                .map(
-                  (item) => FansiChip(
-                    label: item.name,
-                    icon: outfitCategoryIcon(item.category),
-                  ),
-                )
-                .toList(),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: FansiButton.primary(
-                  label: 'Try This Look',
-                  icon: Icons.check_circle_outline_rounded,
-                  onPressed: onTryThisLook,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FansiButton.secondary(
-                  label: 'Change Style',
-                  icon: Icons.refresh_rounded,
-                  onPressed: onChangeStyle,
-                ),
-              ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/components/fansi_hero_card.dart';
+import 'package:fansivibe/shared/components/fansi_image_well.dart';
+import 'package:fansivibe/shared/components/fansi_insight_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
@@ -46,8 +49,17 @@ class OutfitRecommendationScreen extends StatelessWidget {
                       children: [
                         const SizedBox(height: 8),
 
-                        // Header
-                        _buildHeader(context, rec),
+                        // Header hero card
+                        FansiHeroCard(
+                          eyebrow: 'OUTFIT RECOMMENDATION',
+                          image: FansiImageWell(
+                            icon: Icons.checkroom_rounded,
+                            color: FansivibeColors.accentGold,
+                          ),
+                          title: rec.title,
+                          subtitle:
+                              '${rec.selectedOccasion} \u2022 ${rec.selectedMood} \u2022 ${rec.selectedColorPalette}',
+                        ),
                         const SizedBox(height: 24),
 
                         // Match Score
@@ -94,28 +106,21 @@ class OutfitRecommendationScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context, OutfitRecommendation rec) {
-    final theme = Theme.of(context);
+  Widget _buildImpactCard(BuildContext context, OutfitRecommendation rec) {
+    return FansiInsightCard(
+      icon: Icons.trending_up_rounded,
+      title: 'Style Score Impact',
+      body: rec.styleScoreImpact,
+      accentColor: FansivibeColors.accentGold,
+    );
+  }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          rec.title,
-          style: theme.textTheme.displayLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: FansivibeColors.textPrimary,
-            fontSize: 28,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '${rec.selectedOccasion} \u2022 ${rec.selectedMood} \u2022 ${rec.selectedColorPalette}',
-          style: theme.textTheme.bodyLarge?.copyWith(
-            color: FansivibeColors.textSecondary,
-          ),
-        ),
-      ],
+  Widget _buildImprovementCard(BuildContext context, OutfitRecommendation rec) {
+    return FansiInsightCard(
+      icon: Icons.lightbulb_outline_rounded,
+      title: 'Improvement Suggestion',
+      body: rec.improvementSuggestion,
+      accentColor: FansivibeColors.warning,
     );
   }
 
@@ -234,111 +239,6 @@ class OutfitRecommendationScreen extends StatelessWidget {
           accentColor: FansivibeColors.success,
         ),
       ],
-    );
-  }
-
-  Widget _buildImpactCard(BuildContext context, OutfitRecommendation rec) {
-    final theme = Theme.of(context);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: FansivibeColors.surfaceContainerLow,
-        borderRadius: FansivibeRadius.smdBorder,
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-              borderRadius: FansivibeRadius.smdBorder,
-            ),
-            child: const Icon(
-              Icons.trending_up_rounded,
-              size: 20,
-              color: FansivibeColors.accentGold,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Style Score Impact',
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: FansivibeColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  rec.styleScoreImpact,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: FansivibeColors.accentGold,
-                    height: 1.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildImprovementCard(BuildContext context, OutfitRecommendation rec) {
-    final theme = Theme.of(context);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: FansivibeColors.surfaceContainerLow,
-        borderRadius: FansivibeRadius.smdBorder,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: FansivibeColors.warning.withValues(alpha: 0.1),
-              borderRadius: FansivibeRadius.smdBorder,
-            ),
-            child: const Icon(
-              Icons.lightbulb_outline_rounded,
-              size: 20,
-              color: FansivibeColors.warning,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Improvement Suggestion',
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: FansivibeColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  rec.improvementSuggestion,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: FansivibeColors.textSecondary,
-                    height: 1.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 

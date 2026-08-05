@@ -40,56 +40,36 @@ class ProfileScreen extends StatelessWidget {
                         const SizedBox(height: 24),
                         AchievementBar(achievements: profile.achievements),
                         const SizedBox(height: 24),
-                        FansivibeCard(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              StyleDnaCard(data: profile.styleDna),
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 16),
-                                child: Divider(
-                                  height: 1,
-                                  color:
-                                      FansivibeColors.surfaceContainerHighest,
-                                ),
+                        StyleDnaCard(data: profile.styleDna),
+                        const SizedBox(height: 24),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Saved Looks',
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: FansivibeColors.textPrimary,
+                                    ),
                               ),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Saved Looks',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleSmall
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                            color: FansivibeColors.textPrimary,
-                                          ),
+                            ),
+                            GestureDetector(
+                              onTap: () =>
+                                  _handleMenuAction(context, 'saved_looks'),
+                              child: Text(
+                                'View All',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: FansivibeColors.accentGold,
+                                      fontWeight: FontWeight.w600,
                                     ),
-                                  ),
-                                  GestureDetector(
-                                    onTap: () => _handleMenuAction(
-                                      context,
-                                      'saved_looks',
-                                    ),
-                                    child: Text(
-                                      'View All',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                            color: FansivibeColors.accentGold,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                  ),
-                                ],
                               ),
-                              const SizedBox(height: 12),
-                              SavedLooksRow(looks: profile.savedLooks),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 12),
+                        SavedLooksRow(looks: profile.savedLooks),
                         const SizedBox(height: 24),
                         Text(
                           'Account',

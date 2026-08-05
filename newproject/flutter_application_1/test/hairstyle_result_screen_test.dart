@@ -96,6 +96,8 @@ void main() {
         MaterialApp.router(routerConfig: _freshHairstyleRouter()),
       );
 
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Textured Quiff'));
       await tester.pumpAndSettle();
 
@@ -127,8 +129,8 @@ void main() {
         MaterialApp.router(routerConfig: _freshHairstyleRouter()),
       );
 
-      await tester.drag(find.byType(Scrollable).first, const Offset(0, -1000));
-      await tester.pump();
+      await tester.ensureVisible(find.text('Try Another'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Try Another'));
       for (var i = 0; i < 30; i++) {
         await tester.pump(const Duration(milliseconds: 16));

@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_chip.dart';
-import 'package:fansivibe/shared/components/fansivibe_card.dart';
+import 'package:fansivibe/shared/components/fansi_hero_card.dart';
+import 'package:fansivibe/shared/components/fansi_image_well.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
+import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
 /// A tab button for Discover tabs (For You / Trending).
 class DiscoverTabButton extends StatelessWidget {
@@ -146,239 +149,62 @@ class LookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final tags = <String>[
+      ...data.styleTags.take(2),
+      if (data.fitTags.isNotEmpty) data.fitTags.first,
+    ];
 
-    return Semantics(
-      button: true,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: FansivibeRadius.mdBorder,
-        child: FansivibeCard(
-          padding: EdgeInsets.zero,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: SizedBox(
-                  width: double.infinity,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          color: FansivibeColors.surface,
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(FansivibeRadius.md),
-                          ),
-                        ),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Center(
-                              child: Icon(
-                                _categoryIcon(data.occasion),
-                                size: 32,
-                                color: FansivibeColors.accentGold.withValues(
-                                  alpha: 0.25,
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              bottom: 0,
-                              left: 0,
-                              right: 0,
-                              child: Container(
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  borderRadius: const BorderRadius.vertical(
-                                    bottom: Radius.circular(FansivibeRadius.md),
-                                  ),
-                                  gradient: LinearGradient(
-                                    begin: Alignment.bottomCenter,
-                                    end: Alignment.topCenter,
-                                    colors: [
-                                      FansivibeColors.background,
-                                      Colors.transparent,
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (showTrendingBadge)
-                        Positioned(
-                          top: 6,
-                          left: 6,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: FansivibeColors.accentGold,
-                              borderRadius: FansivibeRadius.fullBorder,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.trending_up_rounded,
-                                  size: 10,
-                                  color: FansivibeColors.onPrimary,
-                                ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  'Trending',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: FansivibeColors.onPrimary,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 9,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      if (showMatchBadge)
-                        Positioned(
-                          top: 6,
-                          right: 6,
-                          child: FansiBadge(
-                            score: data.matchScore,
-                            size: BadgeSize.compact,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(10),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.topLeft,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        data.title,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: FansivibeColors.textPrimary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_today_rounded,
-                            size: 10,
-                            color: FansivibeColors.textSecondary.withValues(
-                              alpha: 0.6,
-                            ),
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            data.occasion,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: FansivibeColors.textSecondary,
-                              fontSize: 10,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 3,
-                        children: [
-                          ...data.styleTags
-                              .take(2)
-                              .map((tag) => _buildTag(context, tag)),
-                          if (data.fitTags.isNotEmpty)
-                            _buildTag(context, data.fitTags.first, isFit: true),
-                        ],
-                      ),
-                      if (data.wardrobeMatchCount > 0) ...[
-                        const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: FansivibeColors.accentGold.withValues(
-                              alpha: 0.1,
-                            ),
-                            borderRadius: FansivibeRadius.fullBorder,
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.checkroom_rounded,
-                                size: 10,
-                                color: FansivibeColors.accentGold.withValues(
-                                  alpha: 0.8,
-                                ),
-                              ),
-                              const SizedBox(width: 3),
-                              Text(
-                                '${data.wardrobeMatchCount} in wardrobe',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: FansivibeColors.accentGold.withValues(
-                                    alpha: 0.8,
-                                  ),
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 9,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ],
+    return FansiHeroCard(
+      onTap: onTap,
+      image: Stack(
+        fit: StackFit.expand,
+        children: [
+          FansiImageWell(
+            icon: _categoryIcon(data.occasion),
+            color: FansivibeColors.accentGold,
           ),
-        ),
+          if (showTrendingBadge)
+            Positioned(
+              top: FansivibeSpacing.md,
+              left: FansivibeSpacing.md,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: FansivibeSpacing.sm + 2,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: FansivibeColors.accentGold,
+                  borderRadius: FansivibeRadius.fullBorder,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.trending_up_rounded,
+                      size: 12,
+                      color: FansivibeColors.onPrimary,
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      'Trending',
+                      style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                        color: FansivibeColors.onPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 9,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
-    );
-  }
-
-  Widget _buildTag(BuildContext context, String label, {bool isFit = false}) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: isFit
-            ? FansivibeColors.accentGold.withValues(alpha: 0.1)
-            : FansivibeColors.surfaceContainerLow,
-        borderRadius: FansivibeRadius.smBorder,
-        border: Border.all(
-          color: isFit
-              ? FansivibeColors.accentGold.withValues(alpha: 0.3)
-              : FansivibeColors.accentGold.withValues(alpha: 0.1),
-        ),
-      ),
-      child: Text(
-        label,
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: isFit
-              ? FansivibeColors.accentGold
-              : FansivibeColors.textSecondary,
-          fontWeight: FontWeight.w500,
-          fontSize: 10,
-        ),
-      ),
+      title: data.title,
+      subtitle: data.occasion,
+      tags: tags.take(2).toList(),
+      badge: showMatchBadge
+          ? FansiBadge(score: data.matchScore, size: BadgeSize.compact)
+          : null,
     );
   }
 

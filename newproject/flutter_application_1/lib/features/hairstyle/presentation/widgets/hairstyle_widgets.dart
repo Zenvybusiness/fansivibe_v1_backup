@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/shared/components/fansi_badge.dart';
+import 'package:fansivibe/shared/components/fansi_hero_card.dart';
+import 'package:fansivibe/shared/components/fansi_image_well.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
-import 'package:fansivibe/shared/utils/score_colors.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
@@ -219,151 +221,25 @@ class HairstyleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scoreColor = _scoreColor(recommendation.matchScore);
     final percentage = (recommendation.matchScore * 100).round();
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: FansivibeRadius.baseBorder,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 14),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: FansivibeColors.surfaceContainerLow,
-          borderRadius: FansivibeRadius.baseBorder,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-                    borderRadius: FansivibeRadius.smdBorder,
-                  ),
-                  child: Icon(
-                    recommendation.icon,
-                    size: 24,
-                    color: FansivibeColors.accentGold,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        recommendation.name,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: FansivibeColors.textPrimary,
-                        ),
-                      ),
-                      if (!isCompact) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          recommendation.bestFor,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: FansivibeColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: scoreColor.withValues(alpha: 0.15),
-                    borderRadius: FansivibeRadius.smBorder,
-                    border: Border.all(
-                      color: scoreColor.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Text(
-                    '$percentage%',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: scoreColor,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (!isCompact) ...[
-              const SizedBox(height: 12),
-              Text(
-                recommendation.description,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: FansivibeColors.textPrimary,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 10),
-              ...recommendation.reasons
-                  .take(2)
-                  .map(
-                    (reason) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '\u2022',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: FansivibeColors.accentGold,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              reason,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: FansivibeColors.textSecondary,
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Icon(
-                    Icons.content_cut_rounded,
-                    size: 12,
-                    color: FansivibeColors.accentGold.withValues(alpha: 0.7),
-                  ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      recommendation.maintenance,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: FansivibeColors.accentGold.withValues(
-                          alpha: 0.7,
-                        ),
-                        fontSize: 11,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: SizedBox(
+        height: 240,
+        child: FansiHeroCard(
+          onTap: onTap,
+          eyebrow: isCompact ? null : 'TOP RECOMMENDATION',
+          image: FansiImageWell(
+            icon: recommendation.icon,
+            color: FansivibeColors.accentGold,
+            iconSize: 44,
+          ),
+          badge: FansiBadge(score: percentage),
+          title: recommendation.name,
+          subtitle: isCompact ? null : recommendation.bestFor,
         ),
       ),
     );
   }
-
-  Color _scoreColor(double s) => scoreColorFromDouble(s);
 }

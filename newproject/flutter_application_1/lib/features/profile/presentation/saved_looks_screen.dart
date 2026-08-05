@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
-import 'package:fansivibe/shared/components/fansivibe_card.dart';
+import 'package:fansivibe/shared/components/fansi_hero_card.dart';
+import 'package:fansivibe/shared/components/fansi_image_well.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
-import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
+import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
 class SavedLooksScreen extends StatelessWidget {
   const SavedLooksScreen({super.key});
@@ -84,71 +86,31 @@ class _SavedLookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return FansivibeCard(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-              borderRadius: FansivibeRadius.smdBorder,
-            ),
-            child: Icon(
-              Icons.checkroom_rounded,
-              size: 24,
-              color: FansivibeColors.accentGold,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        look.title,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: FansivibeColors.textPrimary,
-                        ),
-                      ),
-                    ),
-                    FansiBadge(score: look.score, size: BadgeSize.compact),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  look.date,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: FansivibeColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  look.items.join(' · '),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: FansivibeColors.textSecondary.withValues(alpha: 0.8),
-                    fontSize: 12,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 4),
-          Icon(
-            Icons.chevron_right_rounded,
-            size: 20,
+    return FansiHeroCard(
+      eyebrow: 'SAVED LOOK',
+      image: FansiImageWell(
+        icon: Icons.checkroom_rounded,
+        color: FansivibeColors.accentGold,
+      ),
+      badge: FansiBadge(score: look.score),
+      title: look.title,
+      subtitle: look.date,
+      footer: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          FansivibeSpacing.lg,
+          0,
+          FansivibeSpacing.lg,
+          FansivibeSpacing.lg,
+        ),
+        child: Text(
+          look.items.join(' · '),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: FansivibeTypography.bodyMediumWithFamily.copyWith(
             color: FansivibeColors.textSecondary,
+            height: 1.4,
           ),
-        ],
+        ),
       ),
     );
   }

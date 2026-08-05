@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
+import 'package:fansivibe/shared/components/fansi_insight_card.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -825,24 +826,30 @@ class StyleDnaCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildDnaRow(
+        _buildDnaInsight(
           context,
           Icons.palette_rounded,
           'Skin Tone',
           data.skinTone,
         ),
-        const SizedBox(height: 12),
-        _buildDnaRow(context, Icons.face_rounded, 'Face Shape', data.faceShape),
-        const SizedBox(height: 12),
-        _buildDnaRow(
+        const SizedBox(height: 10),
+        _buildDnaInsight(
+          context,
+          Icons.face_rounded,
+          'Face Shape',
+          data.faceShape,
+        ),
+        const SizedBox(height: 10),
+        _buildDnaInsight(
           context,
           Icons.accessibility_rounded,
           'Body Type',
           data.bodyType,
         ),
-        const SizedBox(height: 12),
-        _buildDnaRow(
+        const SizedBox(height: 10),
+        _buildDnaInsight(
           context,
           Icons.style_rounded,
           'Style Type',
@@ -852,49 +859,17 @@ class StyleDnaCard extends StatelessWidget {
     );
   }
 
-  Widget _buildDnaRow(
+  Widget _buildDnaInsight(
     BuildContext context,
     IconData icon,
     String label,
     String value,
   ) {
-    final theme = Theme.of(context);
-
-    return Row(
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-            borderRadius: FansivibeRadius.smdBorder,
-          ),
-          child: Icon(icon, size: 18, color: FansivibeColors.accentGold),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: FansivibeColors.textSecondary,
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                value,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: FansivibeColors.textPrimary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+    return FansiInsightCard(
+      icon: icon,
+      title: label,
+      body: value,
+      accentColor: FansivibeColors.accentGold,
     );
   }
 }
