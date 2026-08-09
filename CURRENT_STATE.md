@@ -3,6 +3,663 @@
 Last Updated: 2026-08-09
 Updated By: opencode agent
 
+## STEP 4 — FINAL DATABASE DESIGN REVIEW (documentation only, no implementation)
+
+Task: produce the STEP 4 FINAL DATABASE DESIGN REVIEW. Cross-check all 11 STEP 4
+documents against each other, the STEP 3 canonical domain model, the STEP 2
+inventories, and the live source. Deliver `POSTGRESQL_SCHEMA_V1_REVIEW.md` with a
+findings table (severity, location, finding, resolution) and an 11-point
+conclusion (approved tables / rejected tables / tables requiring clarification /
+approved relationships / required constraints / required indexes / JSONB
+boundaries / media strategy / privacy strategy / migration considerations / open
+questions). Close with the "STEP 4 DATABASE DESIGN COMPLETE — READY FOR
+SQL/MIGRATION DESIGN" verdict only if internally consistent. Documentation only.
+
+### New file
+- `docs/database/POSTGRESQL_SCHEMA_V1_REVIEW.md` — §1 scope/method (the 11
+  documents under review, 12 cross-check dimensions); §2 source-of-truth
+  re-verification anchor facts (file:line evidence); §3 cross-check findings
+  (F1–F17, severity-classified); §4 the 11-point conclusion; §5 verdict.
+
+### Key findings
+- **No P0 (structural) defects.** The 23-table schema is internally consistent
+  and consistent with the STEP 3 domain model, STEP 2 inventories, and source.
+- **P1 seed-data responsibilities (not schema defects):** `looks` string `code`
+  PK — backend `SuggestionCard` (schemas.py:51-58) has NO id; stable codes must
+  be assigned to the 5 `OCCASION_TO_LOOK` looks in the migration seed (hairstyle/
+  grooming/wardrobe-insight/style-tip cards are assistant cards, NOT looks);
+  `wardrobe_categories` seed = the 5 canonical persisted values only (`shoes`/
+  `layers`/`all` are UI-layer aliases, wardrobe_mock_data.dart:310-323);
+  `colors`/`materials` seeds = union of add-item palette (18/16) + default-
+  wardrobe/backend values (e.g. `Light Wash`); `signal_types` seed = 8 total
+  (5 learning + 3 assistant); `styles` seed source = onboarding `StyleVibe`.
+- **P2 confirmations:** `occasions` (backend, 5) vs `event_types` (Flutter, 8)
+  are two distinct vocabularies — two tables is correct; `run_types` `face` is a
+  planned capacity, not a live feature; no auth / no feedback / no weather /
+  transient conversation correctly keep those tables absent or gated.
+
+### Validation
+- Re-read all 11 STEP 4 docs + `FANSIVIBE_DOMAIN_MODEL_V1.md`; re-verified source
+  facts against catalog.py, schemas.py, intent.py/engine.py, wardrobe/event/
+  learning/assistant mock data + models.dart, profile/onboarding/discover mocks.
+- FK cascade counts (12 CASCADE / 7 RESTRICT / 5 SET NULL), 14 indexes, BC-1…
+  BC-51, TRX-1…TRX-8, and JSONB boundary all re-checked — consistent.
+- git status: docs/database/POSTGRESQL_SCHEMA_V1_REVIEW.md added (untracked);
+  no code changed.
+
+### Remaining
+- All eleven STEP 4 deliverables + the Final Review are written. Await the
+  schema/migration step (next) to encode tables, constraints, append-only
+  grants, and transaction boundaries as versioned, forward-only SQL — using the
+  seed inputs captured in the review (look codes, vocabulary unions).
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design, subscription status vocabulary,
+  analysis_runs completion guard shape (confirmed in migration step).
+
+## STEP 4 — Transaction Boundaries (documentation only, no implementation)
+
+Task: identify operations that require PostgreSQL transactions (creating a
+wardrobe item and its media reference, creating an outfit and outfit items,
+saving a recommendation, creating a recommendation and its reasons, completing
+an analysis, updating current profile from an analysis, creating an event
+recommendation, account deletion). For every transaction: operation, tables
+involved, required atomicity, failure behavior, consistency requirement. Do not
+implement transactions yet.
+
+### New file
+- `docs/database/TRANSACTION_BOUNDARIES.md` — §1 purpose/method + scope; §2
+  atomicity model (what can/cannot join a DB transaction, two tiers of
+  atomicity, append-only rule, media/external outside); §3 master catalog
+  TRX-1…TRX-8 (wardrobe item, outfit+items, save recommendation, recommendation
+  + reasons, complete analysis, update profile from analysis, event
+  recommendation, account deletion) each with the 5 required attributes; §4
+  canonical single-row writes (no transaction needed); §5 deliberately non-
+  transactional operations; §6 transaction-vs-constraint interaction; §7
+  report; constraints honored.
+
+### Key decisions
+- **Two tiers:** single-row writes are trivially atomic (MVCC) — no explicit
+  transaction; true transactions are only multi-row/multi-table all-or-nothing
+  units. Non-table operations (outfits, recommendations, reasons) are single
+  JSONB snapshots, never invented multi-table transactions (PR-12).
+- **True transactions (TRX-3/TRX-6/TRX-8):** saving a look couples
+  `saved_looks` INSERT + `look_saved` signal (+ P3 `recommendation_history.
+  saved` flip); accepting an analysis couples `user_state` projection UPDATE
+  (version-guarded) + `analysis_updated` signal; account deletion is ONE
+  `DELETE users` cascade across all 12 children.
+- **TRX-5 completion is write-once:** `analysis_runs` completes via a single
+  guarded statement (status='completed' + completed_at + immutable result,
+  guard on status='pending'); the only permitted mutation of a run row.
+- **Blobs and external services never join a transaction:** upload-before-
+  insert, delete-after-commit by async cleanup job; payment/entitlement (R51)
+  compensating and idempotent post-commit.
+- **Boundary honored:** 12 single-row writes catalogued as non-transactions
+  (signals, scores, activity days, feedback, edits, catalog) since MVCC already
+  provides atomicity.
+
+### Validation
+- Every TRX-* table/column and BC-*/R#/§# cross-reference checked against
+  TABLE_DEFINITIONS.md, BUSINESS_CONSTRAINTS.md, RELATIONSHIP_CONSTRAINTS.md
+  §3/§5/§6, HISTORY_AND_VERSIONING.md §7, MEDIA_STORAGE_DESIGN.md §7,
+  SECURITY_PRIVACY_DESIGN.md §5. No new tables or columns invented; FK cascade
+  counts consistent (12 CASCADE / 7 RESTRICT / 5 SET NULL).
+- git status: docs/database/TRANSACTION_BOUNDARIES.md added (untracked); no
+  code changed.
+
+### Remaining
+- Eleven STEP 4 deliverables now written (rules, mapping, table definitions,
+  relationships, history/versioning, JSONB strategy, media design, index
+  strategy, security & privacy design, business constraints, transaction
+  boundaries). Await the schema/migration step to encode tables, constraints,
+  append-only grants, and these transaction boundaries as versioned,
+  forward-only SQL.
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design, subscription status vocabulary,
+  analysis_runs completion guard shape (confirmed in migration step).
+
+## STEP 4 — Business Constraints Catalog (documentation only, no implementation)
+
+Task: identify database-level business constraints required by Fansivibe
+(one primary profile per user, unique ownership relationships, one primary
+daily outfit per user per date, valid recommendation/outfit-item/wardrobe/
+feedback ownership, valid subscription/capability states, valid date/score/
+confidence ranges). For every constraint: table, rule, PostgreSQL mechanism
+(UNIQUE/CHECK/FOREIGN KEY/NOT NULL), reason. Do not put business logic into
+database constraints if it belongs in the domain/service layer.
+
+### New file
+- `docs/database/BUSINESS_CONSTRAINTS.md` — §1 purpose/method; §2 DB-vs-domain
+  boundary (5 conditions for a DB constraint, 6 reasons to delegate to
+  domain/service); §3 master catalog BC-1…BC-51 (5 UNIQUE, 12 CHECK, 12 CASCADE
+  FKs, 7 RESTRICT FKs, 5 SET NULL FKs, 9 NOT NULL groups, 2 deliberately-absent
+  FKs); §4 task-examples resolved table; §5 BC-52…BC-60 kept out of the DB;
+  §6 mechanism-count summary; §7 report; constraints honored.
+
+### Key decisions
+- **Boundary rule:** PostgreSQL enforces only constraints that are
+  unconditional, local, mechanically cheap (no triggers/functions), on stored
+  values, with a stable vocabulary. Confidence ranges (inside `analysis_runs.
+  result` JSONB), capability availability (derived config × subscription, R45),
+  recommendation correctness, outfit-item membership (JSONB value objects),
+  retention, and pending vocabularies (subscription status, feedback rating)
+  are documented domain/service-layer rules — not DB constraints.
+- **Ownership as the strongest invariant:** 12 CASCADE `user_id` FKs (BC-17…
+  BC-28) make the ownership boundary and account erasure structural; 7 RESTRICT
+  vocabulary FKs (BC-29…BC-35); 5 SET NULL cross-links (BC-36…BC-40) so saved
+  looks/feedback/history survive look deprecation and run retention.
+- **Cardinality via UNIQUE:** `user_state` 1:1 (PK), `subscriptions` 0..1
+  (UNIQUE user_id), `activity_days` + `today_look_records` one-per-user-per-date
+  (UNIQUE user_id, day); `saved_looks` deliberately allows repeat saves of the
+  same look (BC-6).
+- **No triggers/functions:** only UNIQUE/CHECK/FK/NOT NULL; score 0–100,
+  status enum, text bounds, version ≥ 0, sort_order ≥ 0.
+
+### Validation
+- Cross-checked every FK count/action against RELATIONSHIP_CONSTRAINTS.md §5.1
+  (12 CASCADE / 7 RESTRICT / 5 SET NULL) and every CHECK/UNIQUE against
+  TABLE_DEFINITIONS.md; the short list in DATABASE_DESIGN_RULES.md §11 expands
+  to the full BC-* catalog with no new columns invented.
+- git status: docs/database/BUSINESS_CONSTRAINTS.md added (untracked); no code
+  changed.
+
+### Remaining
+- Nine STEP 4 deliverables now written (rules, mapping, table definitions,
+  relationships, history/versioning, JSONB strategy, media design, index
+  strategy, security & privacy design, business constraints). Await the
+  schema/migration step to encode them as versioned, forward-only SQL.
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design, subscription status vocabulary.
+
+## STEP 4 — Security & Privacy Design (documentation only, no implementation)
+
+Task: design the database security & privacy model. For every sensitive data
+category: sensitivity, owner, who may access, deletion requirements, retention
+considerations, encrypted at rest?, access logged? Special attention: face
+analysis, appearance analysis, photos, wardrobe, grooming information, personal
+profile, assistant conversations, events, subscription information. Define the
+user ownership boundary (a user must never access another user's private
+records) and the account-deletion behavior. Do not implement auth/authz.
+
+### New file
+- `docs/database/SECURITY_PRIVACY_DESIGN.md` — §1 purpose/method (sensitivity
+  scale CRITICAL/HIGH/MEDIUM/LOW; privacy invariant); §2 user ownership boundary
+  (mandatory user_id scoping on all user-owned rows, no client-trusted identity,
+  enforcement-layer table, what a user may/may not access); §3 master matrix of
+  6 sensitive-data groups (identity, appearance/AI, personal content, assistant
+  conversations, subscription/external, knowledge) with the 7 required attributes
+  per category; §4 nine special-attention deep dives; §5 account deletion (full
+  CASCADE + object-storage cleanup + external cancellation, never-left-behind
+  list); §6 encryption-at-rest + access-logging policy (schema vs ops split);
+  §7 report + constraints.
+
+### Key decisions
+- **Ownership boundary (PR-10):** every user-owned table has a mandatory
+  `user_id` FK; identity comes from session context, never the client; blobs
+  namespaced `users/{user_id}/...`; history tables are user-scoped children with
+  no FK path to other users.
+- **Sensitivity classification:** face/appearance/photo/grooming data and
+  assistant context = CRITICAL (erasure obligations + access logging); identity
+  and subscription entitlement = HIGH; wardrobe/events/saved-looks/signals =
+  MEDIUM; knowledge/catalog/config = LOW (no user lifecycle).
+- **Account deletion = complete right to erasure:** full CASCADE over all 12
+  user-owned children (incl. AI history) + async blob cleanup of all
+  `users/{user_id}/...` blobs + external subscription cancellation (R51).
+  Rejected: SET NULL anonymization, soft-delete resurrection, retained history.
+- **Encryption at rest:** all user data (identity, profile, wardrobe, events,
+  signals, scores, analyses, subscriptions) + object storage blobs. Access
+  logging is metadata-only: never log tokens, context snapshots, scan images,
+  or conversation text; log access events for CRITICAL appearance data and
+  entitlement changes.
+- **Conversations/feedback/media (MS10.3) remain gated:** transient by default;
+  privacy policy precedes any media persistence; reference columns ship
+  regardless.
+
+### Validation
+- Cross-checked every category against DATA_OWNERSHIP.md, STORAGE_INVENTORY.md
+  (retention §§1.1–1.10), DOMAIN_RELATIONSHIPS.md (R3–R10, R51),
+  DATABASE_DESIGN_RULES.md (PR-4/PR-10/PR-12, §16), RELATIONSHIP_CONSTRAINTS.md
+  (§3 erasure), MEDIA_STORAGE_DESIGN.md (§7 cleanup, §8 retention),
+  TABLE_DEFINITIONS.md, and HISTORY_AND_VERSIONING.md.
+- git status: docs/database/SECURITY_PRIVACY_DESIGN.md added (untracked); no
+  code changed.
+
+### Remaining
+- All eight STEP 4 deliverables now written (rules, mapping, table definitions,
+  relationships, history/versioning, JSONB strategy, media design, index
+  strategy, security & privacy design). Await the schema/migration step
+  (next) to encode erasure semantics (§5), append-only grants, and the
+  ownership boundary (§2) into versioned, forward-only SQL migrations.
+- Open decisions unchanged and gate only specific tables/controls: User fields/
+  auth (AU11.1/AU11.2), Today'sLookRecord (P1), RecommendationHistory (P3),
+  conversation retention, K9.1 knowledge shape, media-privacy (MS10.3),
+  feedback design.
+
+## STEP 4 — Index Strategy (documentation only, no code changes)
+
+Task: design the PostgreSQL indexing strategy using actual access patterns
+discovered in FEATURE_DATA_MATRIX.md, ACTION_API_INVENTORY.md,
+DOMAIN_RELATIONSHIPS.md. For each index: table, columns, index type, query it
+accelerates, reason, expected selectivity, whether unique. Consider user-owned
+records, latest profile data, scans/recommendations by user/date, saved looks,
+wardrobe filtering, event lookup, feedback, assistant conversations,
+subscription status. Avoid speculative indexes. Do not create indexes.
+
+### New file
+- `docs/database/INDEX_STRATEGY.md` — discovered-access-patterns table (A1–A15,
+  each traced to a source doc); proposed catalog of 14 indexes (+ implicit PK/
+  code indexes); per-index detail with the 8 required attributes; unique-index
+  enforcement mapping; explicitly-NOT-indexed section (PR-12); indexing-vs-
+  JSONB boundary; report.
+
+### Key decisions
+- **Uniform shape:** composite btree with `user_id` leading + the date/taxonomy
+  column — matching the user-scoped, date-ordered access patterns.
+- **Proposed:** users(auth_provider, auth_subject) UNIQUE; wardrobe_items
+  (user_id) + (user_id, category_id); saved_looks (user_id, created_at);
+  learning_signals (user_id, occurred_at); style_score_records (user_id,
+  recorded_at); activity_days (user_id, day) UNIQUE; user_events (user_id,
+  event_date); analysis_runs (user_id, created_at) + (user_id, run_type,
+  created_at) [latest-wins provenance]; subscriptions (user_id) UNIQUE;
+  feedback_events (user_id, occurred_at) [feature-gated]; recommendation_history
+  (user_id, shown_at) [P3]; today_look_records (user_id, day) UNIQUE [P1].
+- **Latest profile data:** user_state is a PK point-read (no extra index);
+  current score/streak/today's-look are caches with no rows.
+- **Assistant conversations: NOT indexed** — no table exists (transient,
+  retention undecided); index added only with any future table.
+- **Rejected (PR-12):** no GIN on JSONB, no low-selectivity single-column
+  (status/type), no favorites index, conditional-table indexes only with their
+  tables, looks-tag GIN (promote-to-column instead).
+
+### Validation
+- Extracted every access pattern directly from the three named source docs
+  (wardrobe grid by category, saved-looks list, score trend, streak, scans,
+  subscription 0..1, etc.) and cross-checked against TABLE_DEFINITIONS.md,
+  RELATIONSHIP_CONSTRAINTS.md, HISTORY_AND_VERSIONING.md, JSONB_STRATEGY.md,
+  and DATABASE_DESIGN_RULES.md §12.
+- git status: docs/database/INDEX_STRATEGY.md added (untracked); no code
+  changed.
+
+### Remaining
+- Await the schema/migration step (next) implementing all seven STEP 4
+  deliverables (rules, mapping, definitions, relationships, history/versioning,
+  JSONB strategy, media design, index strategy) as versioned, forward-only SQL
+  migrations.
+- Open decisions unchanged and gate only specific tables/indexes: User fields/
+  auth, Today'sLookRecord (P1), RecommendationHistory (P3), conversation
+  retention, K9.1 knowledge shape, media-privacy (MS10.3), feedback design.
+
+## STEP 4 — Media Storage Design (documentation only, no implementation)
+
+Task: design the media storage model. DB must NOT store large image binaries.
+Define the PostgreSQL metadata model for: profile images, face scans, outfit
+scans, wardrobe item images, hairstyle reference images, generated images,
+discover images, other user-uploaded media. For each: owner, purpose, storage
+location, metadata, MIME type, dimensions, created_at, deletion behavior,
+retention considerations, relationship to domain entity. Assume object storage
+for binaries unless the domain model requires otherwise (it does not — all
+media resolves to MediaRef → object storage, R19/R29/R37).
+
+### New file
+- `docs/database/MEDIA_STORAGE_DESIGN.md` — core principle (references, never
+  bytes); MediaRef logical JSONB contract; object-storage prefix layout; 8-type
+  master matrix + per-type detail; deletion behavior (row + async blob-cleanup
+  job); retention (scan §1.6, catalog deprecate-not-delete, user lifecycle,
+  account erasure); domain-relationship summary; report.
+
+### Key decisions
+- **No media table, no BYTEA, no base64, no GIN** — PostgreSQL holds only
+  `MediaRef` JSONB (object_key, media_type, width/height, size_bytes,
+  content_hash, is_generated, uploaded_at, variants) on the owning row; no FK,
+  no join axis.
+- **Storage prefixes:** `users/{uid}/avatar` (future), `users/{uid}/scans/{run}`
+  (face/outfit), `users/{uid}/generated/{run}` (AI output), `users/{uid}/
+  wardrobe/{item}`, `users/{uid}/savedlooks/{id}`, `catalog/looks|hairstyles/`
+  (system) — user-scoped keys for safe cleanup (PR-10).
+- **Blob lifecycle follows the referencing row:** user blobs CASCADE-deleted
+  with entity/account + async cleanup job; scans retained per §1.6 (latest kept,
+  older pruned unless the user saved the look); catalog content deprecate-not-
+  delete; generated blobs follow the run/save; account erasure removes all
+  user blobs.
+- **Future/gated:** profile image and hairstyle reference images have NO column
+  in the finalized schema (auth/profile feature and P1 hair pipeline,
+  respectively); any new `MediaRef` column only when its feature lands (PR-12).
+- **Gate:** no media storage configured until MS10.3 (media privacy policy);
+  `MediaRef` reference columns ship regardless.
+
+### Validation
+- Grounded in `DATABASE_DESIGN_RULES.md` PR-8 + §9, `STORAGE_INVENTORY.md`
+  §1.6, `TABLE_DEFINITIONS.md` image_ref/input_media columns,
+  `RELATIONSHIP_CONSTRAINTS.md` CASCADE/erasure, `HISTORY_AND_VERSIONING.md`
+  retention, `JSONB_STRATEGY.md` §4.10.
+- git status: docs/database/MEDIA_STORAGE_DESIGN.md added (untracked); no code
+  changed.
+
+### Remaining
+- Await the schema/migration step (next) implementing all six STEP 4
+  deliverables (rules, mapping, definitions, relationships, history/versioning,
+  JSONB strategy, media design) as versioned, forward-only SQL migrations.
+- Open decisions unchanged and gate only specific tables/columns: User fields/
+  auth (profile image), Today'sLookRecord (P1), RecommendationHistory (P3),
+  conversation retention, K9.1 knowledge shape, media-privacy (MS10.3),
+  feedback design.
+
+## STEP 4 — JSONB Strategy (documentation only, no code changes)
+
+Task: determine where PostgreSQL JSONB should and should NOT be used. For every
+candidate JSON structure explain: why relational columns are insufficient,
+expected schema stability, query requirements, indexing requirements, whether
+AI-generated, whether historical, whether it needs relational references.
+Candidates: AI analysis payloads, AI recommendation metadata, model-specific
+output, flexible AI observations, decision context, assistant action payloads.
+Do NOT use JSONB for core relational concepts merely to simplify implementation.
+No SQL.
+
+### New file
+- `docs/database/JSONB_STRATEGY.md` — JSONB decision test (use/forbid); master
+  decision matrix for 21 candidates; detailed 7-attribute evaluations (§4.1–4.6
+  task candidates + schema columns); anti-pattern section (the "do NOT use
+  JSONB to simplify" rules); relational-only indexing policy (no GIN); report.
+
+### Key decisions
+- **USE (approved):** `analysis_runs.result` (immutable AI snapshot), and
+  `recommendation_history.snapshot` (P3, conditional) as AI payloads;
+  model-specific output and flexible AI observations nested inside the run
+  result — never top-level columns; `user_state.style_profile`/`preferences`/
+  `flags` (unit payloads); `saved_looks.snapshot`; MediaRef `image_ref`/
+  `input_media` (reference-only, never bytes); `looks.payload` (K9.1 content);
+  derived snapshots (`breakdown`, `summary`, `today_look_records.snapshot`);
+  `subscription_plans.features`.
+- **DO NOT STORE:** decision/assistant context (transient; optional frozen copy
+  in `learning_signals.context` only for auditability); assistant action
+  payloads (config; execution traced by signals).
+- **REJECT (anti-patterns):** JSONB for wardrobe/events/signals/saved-looks-list
+  (query/join/count axes), score/streak/today's-look as truth (caches), feedback
+  (typed columns), vocabulary-value embedding (ids only, K9.1), DTO/Flutter
+  model mirrors (DBR-0), base64 media (PR-8).
+- **Indexing:** no GIN on any JSONB — all approved payloads are non-query axes;
+  promote-to-column is the escape hatch for any future inner filter.
+
+### Validation
+- Cross-checked every verdict against `DATABASE_DESIGN_RULES.md` PR-9 + §8
+  matrix, `TABLE_DEFINITIONS.md` JSONB columns, and `HISTORY_AND_VERSIONING.md`
+  snapshot semantics.
+- git status: docs/database/JSONB_STRATEGY.md added (untracked); no code
+  changed.
+
+### Remaining
+- Await the schema/migration step (next) implementing all five STEP 4
+  deliverables (rules, mapping, definitions, relationships, history/versioning,
+  JSONB strategy) as versioned, forward-only SQL migrations.
+- Open decisions unchanged and gate only specific tables: User fields/auth,
+  Today'sLookRecord (P1), RecommendationHistory (P3), conversation retention,
+  K9.1 knowledge shape, media-privacy (MS10.3), feedback design.
+
+## STEP 4 — History & Versioning Strategy (documentation only, no code changes)
+
+Task: design the database strategy for CURRENT STATE vs HISTORICAL DATA from
+the finalized domain model. Classify every table as CURRENT_STATE /
+HISTORICAL_RECORD / EVENT / DERIVED_STATE / CACHE / TEMPORARY_PROCESSING.
+Special attention: face/hair/grooming/style analyses, Style DNA, Style Score,
+scans, recommendations, recommendation feedback, wardrobe usage, daily
+outfits, AI capability progress, AI model versions. Ensure historical AI
+results stay reproducible and newer analyses never silently destroy older ones.
+No implementation.
+
+### New file
+- `docs/database/HISTORY_AND_VERSIONING.md` — six-category framework (+
+  SYSTEM KNOWLEDGE called out separately for `looks`/reference tables); master
+  classification of all 23 tables; derived/cache cluster table; 13
+  special-attention deep dives; reproducibility contract matrix; the
+  "never silently destroy" write-path invariant; 4-layer versioning strategy
+  (engine/content/migration/contract); enforcement mapping to the prior STEP 4
+  grants and FKs.
+
+### Key decisions
+- **Never-overwrite invariant:** a new analysis INSERTs an `analysis_runs` row
+  (append-only, immutable) and UPDATEs only the current projection
+  (`user_state.style_profile`, replaced whole with new `source_run_id`). Old
+  runs, snapshots, and media refs are untouched; "latest wins" applies to the
+  projection (R15), never to history. Enforced by INSERT/SELECT-only grants,
+  immutable columns, acyclic FK graph, SET NULL cross-links.
+- **Reproducibility contract per result:** runs and saved-look snapshots exactly
+  reproducible (`input_media` + immutable `result`/`snapshot` + `engine_version`);
+  Style DNA and current values re-derivable; shown recommendations and past daily
+  looks exact only if `recommendation_history` (P3) / `today_look_records` (P1)
+  exist.
+- **Dual-form tables:** `saved_looks` = mutable list + immutable `snapshot`;
+  derived scores/streak/today's look = live CACHE (never truth) + immutable
+  snapshot HISTORY records.
+- **AI capability progress:** config only — no per-user rows until a P3 system;
+  AI model versions recorded per run as `analysis_runs.engine_version`.
+
+### Validation
+- Cross-checked every classification against `DOMAIN_STATE_AND_HISTORY.md`
+  (§1–§8), `DOMAIN_RELATIONSHIPS.md` R15/R39/R40, and prior STEP 4 docs
+  (PR-6/PR-7, §10, RELATIONSHIP_CONSTRAINTS grants/FKs).
+- git status: docs/database/HISTORY_AND_VERSIONING.md added (untracked); no
+  code changed.
+
+### Remaining
+- Await the schema/migration step (next) implementing all four STEP 4
+  deliverables (rules, mapping, definitions, relationships, history/versioning)
+  as versioned, forward-only SQL migrations.
+- Open decisions unchanged and gate only specific tables: User fields/auth,
+  Today'sLookRecord (P1), RecommendationHistory (P3), conversation retention,
+  K9.1 knowledge shape, media-privacy (MS10.3), feedback design.
+
+## STEP 4 — Relational Integrity Model (documentation only, no code changes)
+
+Task: define the relational integrity model from TABLE_DEFINITIONS.md +
+DOMAIN_RELATIONSHIPS.md. For every FK: source table/column, target
+table/column, cardinality, ON DELETE, ON UPDATE, nullability, and why the
+relationship exists. Evaluate CASCADE/RESTRICT/SET NULL/SET DEFAULT; special
+attention to user deletion and historical AI records. No SQL.
+
+### New file
+- `docs/database/RELATIONSHIP_CONSTRAINTS.md` — 24 hard FKs with all 8
+  required attributes each; the referential-action decision framework; the
+  special-attention section on account deletion + AI history; per-class detail
+  (composition/knowledge/cross-links); app-level JSONB refs; intentional
+  absences; report.
+
+### Integrity decisions
+- **CASCADE only** on the 12 `user_id` composition FKs from `users` —
+  including historical AI records (`learning_signals`, `style_score_records`,
+  `activity_days`, `analysis_runs` + conditional history): account deletion is
+  a complete right to erasure (composition R3–R9, PR-10 privacy, retention
+  matrix). Rejected: SET NULL "keep anonymized history" (no anonymization
+  pipeline defined, contradicts composition), soft-delete (PR-11 speculative).
+- **RESTRICT** on the 7 knowledge refs (category/color/material, event_type,
+  signal_type, plan_code, run_type): referenced vocab rows never deleted while
+  in use; soft-deactivate + add-new/deprecate-old is the removal path.
+- **SET NULL** on the 5 optional cross-links (`saved_looks.look_id` +
+  `source_run_id`, `feedback_events` targets, `recommendation_history.look_id`):
+  catalog deprecation and history retention never delete user saves; immutable
+  snapshots carry the frozen payload.
+- **SET DEFAULT rejected everywhere** (would require sentinel rows not in the
+  domain model and would falsify data).
+- **ON UPDATE NO ACTION everywhere** — uuid PKs and text codes are immutable by
+  design (PR-3); code renames are add-new + deprecate-old, not CASCADE events.
+- **No-FK-to-trigger rule:** `learning_signals` has no FK to
+  wardrobe_items/saved_looks/user_events — deleting current state never deletes
+  history. FK graph is acyclic; no deferred constraints needed.
+
+### Validation
+- Cross-checked every FK against TABLE_DEFINITIONS.md §7 (columns, nullability)
+  and DOMAIN_RELATIONSHIPS.md (R#s, lifecycle dependencies, cardinalities);
+  verified against DATABASE_DESIGN_RULES.md PR-4/PR-6/PR-10 and §10.
+- git status: docs/database/RELATIONSHIP_CONSTRAINTS.md added (untracked);
+  no code changed.
+
+### Remaining
+- Await the schema/migration step (next) implementing TABLE_DEFINITIONS +
+  RELATIONSHIP_CONSTRAINTS as versioned, forward-only SQL migrations.
+- Open decisions unchanged and gate only specific tables: User fields/auth,
+  Today'sLookRecord (P1), RecommendationHistory (P3), conversation retention,
+  K9.1 knowledge shape, media-privacy (MS10.3), feedback design.
+
+## STEP 4 — Logical Table Definitions (documentation only, no code changes)
+
+Task: using DOMAIN_TABLE_MAPPING.md, define the logical schema for every
+proposed PostgreSQL table: table name, purpose, primary key, columns with
+PostgreSQL types, null/default, unique/FK/CHECK constraints, generated/derived
+fields, created_at/updated_at. No SQL. Only tables supported by the finalized
+domain model.
+
+### New file
+- `docs/database/TABLE_DEFINITIONS.md` — 23 logical tables (no SQL): 14
+  entity/state (P0 `users`, `user_state`, `wardrobe_items`, `saved_looks`,
+  `learning_signals`, `looks`; P1 `user_events`, `style_score_records`,
+  `activity_days` + conditional `today_look_records`, `feedback_events`;
+  P2 `analysis_runs`, `subscriptions`; P3 conditional `recommendation_history`)
+  + 9 reference/config tables (`wardrobe_categories`, `colors`, `materials`,
+  `occasions`, `event_types`, `styles`, `signal_types`, `subscription_plans`,
+  `run_types`). Each entity table in the required format; reference tables share
+  one documented default shape + purpose/ref/FK matrix. Sections: conventions,
+  per-table definitions, relationships (CASCADE user composition / RESTRICT +
+  SET NULL knowledge / SET NULL cross-links / explicit absent FKs), and a
+  requested-concepts→home mapping (e.g. `face_profiles`→`user_state`
+  `style_profile`, `scans`→`analysis_runs`, `media_assets`→object storage via
+  `MediaRef`, `assistant`→no table).
+
+### Schema highlights
+- Keys: `uuid` PK `gen_random_uuid()` (user-owned, server-generated); `text`
+  `code` PK (reference tables, PR-3).
+- Constraints: `UNIQUE (auth_provider, auth_subject)` on `users`;
+  `UNIQUE (user_id)` on `subscriptions` (0..1); `UNIQUE (user_id, day)` on
+  `activity_days`/`today_look_records`; `CHECK (score BETWEEN 0 AND 100)`;
+  `CHECK (status IN ('pending','completed','failed'))` on `analysis_runs`.
+- FK lifecycle: `user_id → users CASCADE`; knowledge refs RESTRICT (NOT NULL or
+  nullable) / SET NULL for deprecated `look_id` and `source_run_id`.
+- Append-only history (`INSERT`/`SELECT` only): `learning_signals`,
+  `style_score_records`, `activity_days`, `analysis_runs` + conditional
+  history tables; current state keeps `updated_at`.
+- JSONB only where justified (rules §8); MediaRef reference columns, never
+  bytes (PR-8); derived facts (score/streak/today's look/entitlement) never
+  stored as truth.
+
+### Validation
+- Cross-checked every column and constraint against `DATABASE_DESIGN_RULES.md`
+  §6/§8/§9/§11 and `DOMAIN_TABLE_MAPPING.md` §4; honored "only tables supported
+  by the finalized domain model" — all 20 requested concepts mapped, non-table
+  concepts documented not dropped.
+- git status: docs/database/TABLE_DEFINITIONS.md added (untracked); no code
+  changed.
+
+### Remaining
+- Await the schema/migration step (next) implementing these definitions verbatim
+  as versioned, forward-only SQL migrations.
+- Open decisions unchanged and gate only specific tables: User fields/auth,
+  Today'sLookRecord (P1), RecommendationHistory (P3), conversation retention,
+  K9.1 knowledge shape, media-privacy (MS10.3), feedback design.
+
+## STEP 4 — Domain → Database Table Mapping (documentation only, no code changes)
+
+Task: create a DOMAIN → DATABASE TABLE mapping from the ten STEP 3 domain
+documents. For every domain concept determine: become a table? / value object?
+/ embedded? / JSONB? / derived not persisted? / stored externally? For every
+proposed table document: table name, domain entity, purpose, ownership,
+lifecycle, persistence reason. Also identify concepts that MUST NOT become
+tables and why. No SQL, no migrations, no code changes.
+
+### New file
+- `docs/database/DOMAIN_TABLE_MAPPING.md` — decision legend; master mapping
+  matrix (all concepts across 6 clusters: core E1–E10 + conditionals,
+  appearance, style/wardrobe, context, AI, value objects/misc); 14 proposed
+  entity/state tables + 9 reference/config tables detailed with the 6 required
+  attributes; a "must NOT become tables" section with per-concept reasoning.
+
+### Mapping summary
+- Tables: P0 `users`, `user_state`, `wardrobe_items`, `saved_looks`,
+  `learning_signals`, `looks`; P1 `user_events`, `style_score_records`,
+  `activity_days`, `today_look_records` (decision), `feedback_events`
+  (feature); P2 `analysis_runs`, `subscriptions`; P3 `recommendation_history`
+  (decision); references `wardrobe_categories`, `colors`, `materials`,
+  `occasions`, `event_types`, `styles`, `signal_types`, `subscription_plans`,
+  `run_types` (K9.1-dependent).
+- Non-tables resolve to: value objects embedded in owners (`FaceProfile`,
+  outfit/pieces, scores, reasons, `MediaRef`), JSONB payloads (`SavedLook.
+  snapshot`, `AnalysisRun.result`, `user_state`), derived caches (style DNA,
+  insights, current score/streak/today's look), or external storage (media
+  blobs, weather, auth). No AI-output table; only AI *events* get rows, each
+  carrying provenance.
+- Consistent with `DATABASE_DESIGN_RULES.md` (same names, phasing, JSONB
+  columns, lifecycle rules); verified against the ten STEP 3 docs.
+
+### Validation
+- Read all ten listed STEP 3 docs (DOMAIN_ENTITIES, DOMAIN_RELATIONSHIPS,
+  DOMAIN_STATE_AND_HISTORY, AI_DOMAIN_MODEL, STYLE_WARDROBE_DOMAIN_MODEL,
+  APPEARANCE_DOMAIN_MODEL, CONTEXT_DOMAIN_MODEL,
+  ACCOUNT_ASSISTANT_DOMAIN_MODEL, VALUE_OBJECTS, FANSIVIBE_DOMAIN_MODEL_V1)
+  and re-checked table names against DATABASE_DESIGN_RULES.md.
+- git status: M CURRENT_STATE.md + docs/database/ (DATABASE_DESIGN_RULES.md +
+  new DOMAIN_TABLE_MAPPING.md). No code changed.
+
+### Remaining
+- Await the schema/migration step implementing these tables verbatim.
+- Open decisions unchanged (gate specific tables only): User fields/auth design,
+  Today'sLookRecord, RecommendationHistory, conversation retention,
+  knowledge-source shape (K9.1), media-privacy policy (MS10.3), feedback design.
+
+## STEP 4 — PostgreSQL Database Design Rules (documentation only, no code changes)
+
+Task: translate the finalized Fansivibe domain model
+(`FANSIVIBE_DOMAIN_MODEL_V1.md`, STEP 3 FINAL) into a production-ready
+PostgreSQL database design as a rules document. DB design only — no database,
+no migrations, no SQL, no Flutter/backend/routing changes, no repositories,
+no endpoints, no dependencies, no deleted code.
+
+### New file
+- `docs/database/DATABASE_DESIGN_RULES.md` — 12 binding design principles
+  (PR-1…PR-12: relational-first, no duplication, UUID keys, FK lifecycle
+  semantics, DB-enforced constraints, historical-AI preservation, current-vs-
+  history split, media out of PostgreSQL, JSONB-guardrails, ownership/privacy,
+  future migrations, no premature complexity); naming/key policy; the target
+  table catalog for E1–E10 + conditionals phased P0/P1/P2/P3; the `UserModel`
+  blob split (P7.1) mapped field-by-field; JSONB allowed/forbidden matrix; media
+  `MediaRef` policy (MS10.3-gated); the 6 schema-enforcement rules; business
+  constraints; index strategy; migration rules; what stays OUT of PostgreSQL;
+  7 open decisions; closing report of principles + assumptions.
+
+### Design summary
+- Tables: P0 `users`, `user_state`, `wardrobe_items`, `saved_looks`,
+  `learning_signals`, `looks` + P0 vocab refs (`wardrobe_categories`, `colors`,
+  `materials`, `occasions`, `signal_types`); P1 `user_events`,
+  `style_score_records`, `activity_days`, `today_look_records` (decision),
+  `feedback_events` (feature); P2 `analysis_runs`, `subscriptions`; P3
+  `recommendation_history` (decision) — no speculative tables.
+- Keys: `uuid` PKs (server-generated) for user-owned entities; stable text
+  `code` PKs for knowledge/vocab reference tables. `user_id NOT NULL` FK on
+  every user-owned table; `CASCADE` only for user composition, `RESTRICT`/
+  `SET NULL` for knowledge + cross-links.
+- History vs state: append-only tables get INSERT/SELECT-only grants; deleting
+  current state never deletes history (signals carry no item/look FK);
+  `source_run_id` provenance on `user_state.style_profile`.
+- JSONB only for: `user_state.{style_profile,preferences,flags}`,
+  `saved_looks.snapshot`, `analysis_runs.result`, `learning_signals.context`,
+  `looks.payload`, and `image_ref` MediaRef metadata — never as a normalization
+  dodge. Media bytes live in object storage behind `MediaRef`.
+- Derived values (current score, streak, today's look, style DNA, match
+  scores) recompute; only their immutable snapshots persist.
+
+### Validation
+- Re-read `FANSIVIBE_DOMAIN_MODEL_V1.md`, `STORAGE_INVENTORY.md`,
+  `DOMAIN_RELATIONSHIPS.md`, `DOMAIN_STATE_AND_HISTORY.md` §8, `MVP_SCOPE.md`,
+  `DECISIONS.md`; re-verified source facts (score formula
+  learning_service.dart:228-229, 8 signal types, `UserModel` blob fields
+  models.dart:106-171, no auth, `setFace` uncalled, weather literal).
+- git status: M CURRENT_STATE.md + new docs/database/DATABASE_DESIGN_RULES.md.
+  No code changed.
+
+### Remaining
+- Await the schema/migration step, which must implement these rules verbatim.
+- Open decisions carried forward (gated tables only): `User` fields/auth design,
+  `Today'sLookRecord`, `RecommendationHistory`, conversation retention,
+  knowledge-source shape (K9.1), media-privacy policy (MS10.3), feedback design.
+
 ## STEP 3 FINAL — Consolidated Domain Model V1 (documentation only, no code changes)
 
 Task: cross-check all 10 STEP 3 documents against each other, against the real
