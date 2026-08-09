@@ -3,6 +3,494 @@
 Last Updated: 2026-08-09
 Updated By: opencode agent
 
+## STEP 3 FINAL — Consolidated Domain Model V1 (documentation only, no code changes)
+
+Task: cross-check all 10 STEP 3 documents against each other, against the real
+source, and against the STEP 2 inventory (feature inventory, data inventory,
+feature-data matrix, AI data flow, MVP scope). Resolve duplicates, conflicting
+names, unnecessary entities, missing relationships, incorrect ownership,
+history/state confusion, AI/domain confusion, and UI-model/domain-model
+confusion. Produce the single authoritative domain model for Step 4. No SQL.
+
+### New file
+- `docs/architecture/FANSIVIBE_DOMAIN_MODEL_V1.md` — the consolidated,
+  18-section domain model.
+
+### Final model summary
+- 10 true entities: User, WardrobeItem, UserEvent, SavedLook, Look,
+  AnalysisRun, LearningSignal, StyleScoreRecord, ActivityDay, Subscription.
+- 2 conditional entities: Today'sLookRecord (P1 decision),
+  RecommendationHistory (P3 decision).
+- All 11 value-object candidates are value objects; no value object gets a table.
+- No standalone Outfit entity; AI outputs/scores/reasons/insights are value
+  objects, never persisted as truth; history is append-only; the current
+  UserModel blob is a projection to split in Step 4.
+- Cross-check verified against source: score formula (learning_service.dart:228),
+  2-of-7 capabilities active, setFace uncalled, no feedback feature, event
+  context lost on Generate Outfit (event_details_screen.dart:316-318), weather
+  literal, mirrored assistant DTOs (KEEP A3.1).
+- Step 4 recommendation: relational rows for P0 entities first (users,
+  wardrobe_items, saved_looks, learning_signals, looks), JSONB for remaining
+  UserModel state, knowledge content for Look/vocabularies, object storage via
+  MediaRef (MS10.3 first), then P1+ entities per pending product decisions.
+
+### Validation
+- Re-verified key source facts (score formula, capabilities, setFace, event
+  generate navigation, weather literal, git status).
+- git status: M CURRENT_STATE.md + 11 untracked docs (10 STEP 3 + the new
+  FANSIVIBE_DOMAIN_MODEL_V1.md). No code changed.
+
+### Remaining
+- Await Step 4 (PostgreSQL schema design) per the closing recommendation.
+- Open questions carried into Step 4: User fields (auth design), Today'sLookRecord
+  persistence, RecommendationHistory, conversation retention, knowledge-source
+  shape (K9.1), media privacy policy (MS10.3), feedback design.
+
+## STEP 3 — Value Objects Review (documentation only, no code changes)
+
+Task: review all proposed domain entities and identify concepts that should be
+VALUE OBJECTS rather than independent entities (Color, Score, Confidence,
+Location, Money, Date Range, Style Vibe, Occasion, Clothing Attribute, Weather
+Snapshot, AI Reason). For each: why it is a value object, has identity?, can be
+shared?, should be embedded?, needs persistence?. No SQL.
+
+### New file
+- `docs/architecture/VALUE_OBJECTS.md` — value-object definition + identity
+  test; verdict table for the 11 candidates; per-candidate detail (5 questions
+  each, with current source representation); summary matrix; boundary cases
+  (when a value crosses into persistence/history: score→StyleScoreRecord,
+  reason/score→SavedLook payload, weather→cache, message→retained
+  conversation); "things that look like value objects but are NOT" (SavedLook,
+  Look, SubscriptionPlan, Model Version, WardrobeItem, UserEvent);
+  next-modeling report.
+
+### Key findings
+- **All 11 candidates are value objects** — none earns entity status. Common
+  reasons: no identity (Score, Confidence, AI Reason, Weather), vocabulary
+  reference semantics (Color, Occasion, Clothing Attribute, Style Vibe), or
+  attribute-only nature (Money, Location, Date Range).
+- **Recurring persistence pattern:** vocabularies = system-knowledge config;
+  chosen values = id columns on the owning entity; derived values persist only
+  as immutable snapshots (StyleScoreRecord, SavedLook payload). **No value
+  object gets its own table.**
+- **Three caveats:** Money is a display String (`SubscriptionPlan.price`,
+  profile_mocks.dart) with no math today; Location is not used anywhere in the
+  product (model only if a future feature needs it); Confidence is never
+  computed (scores are catalog constants — value shape defined for the future).
+- **Boundary cases are the design risk:** the only way these values reach
+  durable storage is inside a snapshot/history record (AI-output-never-truth
+  rule).
+
+### Validation
+- Verified: SubscriptionPlan.price String, StyleVibe enum (6 values, onboarding),
+  weather literals, no location data in events (grep), no confidence computed.
+- No SQL, no code/UI changes; documentation only.
+
+## STEP 3 — Account & Assistant Domain Model (documentation only, no code changes)
+
+Task: define domain boundaries for Authentication, User Account, Subscription,
+Subscription Plan, Feature Entitlement, Feature Usage, AI Assistant
+Conversation, Assistant Message, Assistant Action. Use Step 2 to distinguish
+what exists from future requirements. Do not force auth-provider implementation
+details into the domain model. No SQL.
+
+### New file
+- `docs/architecture/ACCOUNT_ASSISTANT_DOMAIN_MODEL.md` — verified
+  exists-vs-future table; verdict table (2 entities, 7 non-entities);
+  per-concept detail (purpose/ownership/lifecycle/relationships/persistent/
+  external/generated/historical); 11 relationships G1–G11 + cluster rules;
+  auth-boundary rule; exists-vs-future storage summary; next-modeling report.
+
+### Key findings
+- **Only two true entities:** `User` account (E1 aggregate root) and
+  `Subscription` (E10, P2). Authentication = external process (domain holds only
+  an opaque auth identity reference — provider flows/hashing/tokens stay in the
+  auth service per task rule); Subscription Plan + Assistant Action = system
+  config; Feature Entitlement = derived view (config × subscription, no rows
+  until P3); Feature Usage = the existing `LearningSignal` trace (E7) — no new
+  entity; Conversation + AssistantMessage = transient DTOs (retention is an
+  undecided privacy/product choice; if retained → JSONB history).
+- **Three today-vs-future gaps:** NO auth exists (all three account-creation
+  branches just `goNamed(home)` — account_creation_screen.dart:74-98), no
+  subscription entity (mock plans + stub purchase), conversation is ephemeral
+  (only signals persist).
+- **Assistant Action is already a controlled config:** 16 action ids
+  (`AssistantRoutes.routeFor`, assistant_routes.dart:8) mirrored by backend
+  NAVIGATION_MAP + quick-action configs (3 mirrors → one canonical source); the
+  AI never navigates itself — it emits an id, the client executes, and
+  `suggestion_opened`/`assistant_navigation` signals trace it.
+- Auth + anonymous→sync (AU11.1/11.2) is the prerequisite for every relational
+  write; conversation-retention is the single open choice that decides whether
+  AssistantMessage becomes history.
+
+### Validation
+- Verified: account_creation_screen three branches (no auth), SubscriptionPlan
+  mock, AssistantMessage/AssistantReply/SuggestionCard/NavigationRequest shapes,
+  AssistantRoutes action→route map (16 ids).
+- No SQL, no code/UI changes; documentation only.
+
+## STEP 3 — Context Domain Model (documentation only, no code changes)
+
+Task: define the domain concepts for Events, Event Styling, Daily Outfit,
+Weather Context, Discover Content, and Saved Discover Content. Use Step 2 to
+determine which are actually required; do not invent unnecessary entities. For
+each: purpose, ownership, lifecycle, relationships, persistent?, external?,
+generated?, historical?. No SQL.
+
+### New file
+- `docs/architecture/CONTEXT_DOMAIN_MODEL.md` — verified reality check (source
+  facts for all 6); verdict table (2 entities, 4 non-entities); per-concept
+  detail; 16 relationships C1–C16 + cluster rules; persistent/external/
+  generated/historical summary table; context flow diagram; "required vs
+  not-invented" section; next-modeling report.
+
+### Key findings
+- **Only two true entities in this cluster:** `UserEvent` (E3, widget-state
+  today — lost on restart) and `SavedLook` (E4, title-only today). Event
+  Styling = a capability+flow, Daily Outfit = derived snapshot, Weather =
+  external cache, Discover Content = knowledge `Look` catalog — inventing
+  entities (Weather table, EventStyling row, per-user DiscoverItem, DailyOutfit
+  persistence) would duplicate storage.
+- **Occasion is the connective tissue:** events, looks, and recommendations all
+  reference one canonical `EventType` vocabulary (8 types,
+  event_mock_data.dart:10); per-user `PreferredOccasions` is derived,
+  referencing its ids.
+- **Two Step 2 gaps shape the future:** "Generate Outfit" loses event context
+  (event_details_screen.dart:316-318 — pushes builder with NO event data; must
+  seed the occasion) and events are unpersisted; weather is a fake literal
+  ('68°F • Partly Cloudy', home_mock_data.dart:63 / daily_outfit_mock_data.dart:65),
+  cache-only, never a table; saved looks persist only titles.
+- **State split:** current = event + saved-look lists; derived = Daily Outfit
+  (regenerated daily; Today'sLookRecord P1-gated); external cache = Weather;
+  knowledge = Discover Content; history = saved-look save events/snapshots.
+
+### Validation
+- Verified: event_details_screen _generateOutfit (no event data), EventType
+  mockTypes, weather literals in both home mocks, DiscoverLookData feed,
+  look_details_screen.dart:327 save → addSavedLook.
+- No SQL, no code/UI changes; documentation only.
+
+## STEP 3 — Personal Appearance Domain Model (documentation only, no code changes)
+
+Task: model the personal-appearance domain (Face Profile, Hair Profile, Grooming
+Profile, Style Profile/Style DNA, Color Profile, Appearance Intelligence, AI
+Capability Progress, Appearance Analysis, Style Score). Determine for each:
+current profile state / historical analysis / derived information / user
+preference / AI-generated information, plus their relationships. Model only
+concepts supported by the actual product. No SQL, no UI changes.
+
+### New file
+- `docs/architecture/APPEARANCE_DOMAIN_MODEL.md` — verified reality check (what
+  exists vs planned, all source-verified); classification table for the 9
+  concepts; per-concept detail; 17 relationships P1–P17 + cluster rules;
+  current-vs-history-vs-derived table; AI-vs-user matrix; appearance pipeline
+  ASCII graph; next-modeling report.
+
+### Key findings
+- **Only 4 of 9 concepts have a real (dead/mock) data shape:** Face Profile
+  (value object, `setFace` never called), Style Profile/Style DNA (target +
+  disconnected mock), Appearance Analysis (dead `AnalysisResult` +
+  `OnboardingResult`, no runs), Style Score (computed formula; history mock).
+- **3 concepts are PLANNED, not implemented:** Hair Profile, Grooming Profile,
+  Color Profile exist only as `allCapabilities` flags (Hairstyle/Grooming
+  inactive; "Color Analysis" active = marketing copy, no computation) + mock
+  outputs. No tables/rows until a real pipeline writes attributes (P1).
+- **2 concepts are deliberately NOT data:** Appearance Intelligence is UI copy
+  (entry_screen.dart:203, your_analysis_screen.dart:266 — an umbrella narrative);
+  AI Capability Progress is static config + derived count ("2 of 7 active") —
+  **no per-user progress state exists**, none modeled (unlocks/events become
+  state/history only if a P3 capability system lands).
+- **One uniform pattern:** appearance attributes are AI-generated content
+  accepted into a user-owned current-profile projection, with the producing
+  `AnalysisRun` as immutable reproducible history + `source_run_id` provenance;
+  Style DNA and Style Score are derived, never stored as truth (only
+  `StyleScoreRecord` snapshots persist).
+
+### Validation
+- Verified: `setFace` uncalled, no HairProfile/ColorProfile classes (grep),
+  Appearance Intelligence = copy, 2-of-7 active label, style score formula
+  (learning_service.dart:224), dead AnalysisResult/OnboardingResult, mock
+  Hairstyle/GroomingAnalysisResult, StyleDnaData/StyleDnaContext 4-field shapes.
+- No SQL, no code/UI changes; documentation only.
+
+## STEP 3 — Style & Wardrobe Domain Model (documentation only, no code changes)
+
+Task: define the wardrobe/outfit domain model for 12 concepts (Wardrobe,
+Wardrobe Item, Clothing Category, Clothing Attribute, Outfit, Outfit Item, Saved
+Look, Outfit Recommendation, Outfit Feedback, Wardrobe Insight, Wardrobe Gap,
+Outfit Occasion): ownership, relationships, lifecycle, current vs historical
+state, AI-generated vs user-created. Do not assume every concept needs an
+entity; avoid duplication. No SQL, no Flutter changes.
+
+### New file
+- `docs/architecture/STYLE_WARDROBE_DOMAIN_MODEL.md` — 5 design principles;
+  verdict table for the 12 concepts; per-concept detail (ownership/lifecycle/
+  state/AI-vs-user, with source file:line refs); 25 relationships W1–W25 +
+  cluster rules; current-vs-history table; AI-vs-user matrix; the
+  wardrobe→outfit→save→feedback→learning flow; a "what was collapsed" table
+  (7 duplicate families → canonical concepts); next-modeling report.
+
+### Key findings
+- **Exactly three true entities in this cluster:** `WardrobeItem` (E2, canonical
+  of the 4 shapes), `SavedLook` (E4), and the knowledge `Look` (E5). Outfit,
+  Outfit Item, Clothing Category/Attribute, Occasion, Recommendation, Insight,
+  and Gap are **value objects or vocabularies**, not entities.
+- **Two concepts are deliberately NOT separate:** Wardrobe Gap = a *typed*
+  Wardrobe Insight (derived finding with a missing-piece payload — mock at
+  wardrobe_mock_data.dart:51) and Outfit Feedback = the wardrobe flavor of the
+  general Recommendation Feedback (one future historical record, one concept;
+  feature missing today).
+- **5 outfit-piece shapes → one value object** (OutfitItemData,
+  DailyOutfitComponent, EnsembleComponent, OutfitComponent, DetectedClothingItem);
+  **4 occasion vocabularies → one** canonical Outfit Occasion; **3 insight
+  shapes → one** Wardrobe Insight; 4 wardrobe-item shapes → `WardrobeItem`.
+- **Outfit is a value object, never an entity:** it exists only inside `Look`
+  (knowledge), OutfitRecommendation (AI output), or the SavedLook snapshot
+  (user-saved) — regenerated with its container, never stored standalone.
+- **Clean ownership:** user-owned = `WardrobeItem` + `SavedLook` + future
+  feedback events; AI-generated = recommendation/insight/gap/score payloads;
+  system-authored = category/attribute/occasion vocabularies + `Look` catalog.
+  AI output never persists as truth; only saves + events are durable
+  (`look_saved`-only trace confirmed).
+
+### Validation
+- Verified source shapes: WardrobeEntry (learning models.dart:4),
+  WardrobeItemData/WardrobeCategory/WardrobeInsightData (wardrobe_mock_data.dart),
+  OutfitRecommendation/OutfitComponent (outfit_builder_mock_data.dart:179/158),
+  EnsembleComponent/RecommendationReason/MatchScoreDetails (discover_mock_data.dart),
+  OutfitItemData (home_mock_data.dart), DailyOutfitComponent
+  (daily_outfit_mock_data.dart), DetectedClothingItem (outfit_scan_mock_data.dart).
+- No SQL, no code files changed; documentation only.
+
+## STEP 3 — AI Domain Model (documentation only, no code changes)
+
+Task: define the domain model around Fansivibe's AI system. Classify 10
+concepts (AI Analysis, AI Recommendation, Recommendation Reason, Recommendation
+Confidence, Recommendation Feedback, AI Capability, AI Model Version, User
+Preference Signal, AI Decision Context, AI-generated Insight) into ENTITY /
+VALUE OBJECT / HISTORICAL RECORD / DERIVED DATA / SYSTEM CONFIGURATION, and
+define their relationships. Must support the chain: User data + AI analysis +
+Knowledge + Decision → Recommendation → Explanation → User feedback → Future
+learning. No AI implemented, no DB tables.
+
+### New file
+- `docs/architecture/AI_DOMAIN_MODEL.md` — pipeline→concept mapping table;
+  5-category legend mapped to the 10-category taxonomy; classification table +
+  per-concept detail (with status today and STEP 2 refs); 21 relationships
+  R-A1…R-A21 (PRODUCES/DERIVED_FROM/COMPOSITION/REFERENCE/FEEDS/GATES) + 4
+  relationship rules; full pipeline ASCII graph; summary checklist table;
+  Step 4 guarantees; next-modeling report.
+
+### Key findings
+- **The 10 concepts classify with no ambiguity:** HISTORICAL RECORD = AI
+  Analysis run (realized as E6 `AnalysisRun`) + User Preference Signal
+  (`LearningSignal`) + Recommendation Feedback (future); DERIVED DATA = AI
+  Decision Context (`AssistantUserContext`, per-request snapshot, never stored);
+  VALUE OBJECT = AI Recommendation, Recommendation Reason, Recommendation
+  Confidence, AI-generated Insight, and the analysis result snapshot; SYSTEM
+  CONFIGURATION = AI Capability (`allCapabilities`) + AI Model Version
+  (optional Ollama `llama3.1:8b`).
+- **Two STEP 2 gaps confirmed:** no confidence is computed or transmitted (card
+  scores are catalog constants) and no structured reason/explanation field
+  exists (reasons live in reply prose) — AI_DATA_FLOW Part D.3/D.4.
+- **AI Capability is config that gates, not state:** 2-of-7 active is marketing
+  copy; no per-user capability rows until a real capability system lands (P3).
+  Feedback is a missing feature; when it lands it is immutable event history
+  that FEEDS the signal→derived-preference→next-context loop (R-A13→R-A16).
+- **AI output never a source of truth, but AI events stay reproducible:** every
+  durable run/history record references its AI Model Version (R-A3/R-A9/R-A12/
+  R-A18) and may freeze a serialized decision context (R-A11) — "what did the
+  product tell me and why" stays answerable.
+- Pipeline chain maps 1:1 to concepts; nothing invents behavior (all AI
+  surfaces except the assistant are mock, recorded as such).
+
+### Validation
+- Grounded in AI_DATA_FLOW (assistant engine + Ollama env vars, mock statuses),
+  STORAGE_INVENTORY §1.6/1.7, DATA_OWNERSHIP, DOMAIN_ENTITIES E6/E7 +
+  conditional entities, DOMAIN_RELATIONSHIPS R21–R27, R45/R46.
+- No code files changed; no DB tables; documentation only.
+
+## STEP 3 — Domain State vs. History (documentation only, no code changes)
+
+Task: classify every domain object as CURRENT STATE (the user's present,
+mutable world) or HISTORICAL (append-only, immutable trace), with the core
+principle "never overwrite history conceptually". For each entity determine:
+current state?, historical?, immutable?, mutable?, derived?, recalculable?,
+and whether previous AI results must stay reproducible. No SQL or code.
+
+### New file
+- `docs/architecture/DOMAIN_STATE_AND_HISTORY.md` — decision procedure
+  (event→HISTORICAL / present-world→CURRENT STATE / recomputable→DERIVED /
+  AI event→run-as-history + content-as-snapshot); master classification table
+  for all 10 entities + 4 conditional + 11 special-attention concepts
+  (7 binary columns each); why the current `UserModel` blob already breaks the
+  rule (signals + state in one mutable object); deep-dive for the 11 called-out
+  items (face/hair/grooming analysis, Style DNA, Style Score, Scans,
+  Recommendations, Recommendation Feedback, Wardrobe usage, Daily Outfit, AI
+  Capability Progress); a reproducibility policy table for previous AI results;
+  ASCII flows (Historical Analysis → Current Profile; Recommendation → Feedback
+  → User Preference Signal; scan → run → snapshot; signals → score/streak); 6
+  schema-enforcement rules; next-modeling report.
+
+### Key findings
+- **Two piles, one blob today:** history (`AnalysisRun`, `LearningSignal`,
+  `StyleScoreRecord`, `ActivityDay`, snapshots) and current state (`User`,
+  `StyleProfile`/`FaceProfile`, `Wardrobe`, `SavedLook` list, preferences,
+  `Subscription`) currently share ONE mutable `UserModel` JSON — the exact
+  conflation Step 4 must split (STORAGE_INVENTORY Part 4 #1).
+- **Analysis families share one pattern:** immutable `AnalysisRun` + result
+  snapshot = history; mutable profile projection = current state, with
+  `source_run_id` provenance; previous results reproducible via inputs +
+  snapshot + engine/config version (§6 policy).
+- **Two items are explicitly NOT history or state today:** AI Capability
+  Progress (static `allCapabilities` config, 2-of-7 active marketing copy — do
+  not model per-user rows until a real capability system lands) and
+  Recommendation Feedback (feature missing — when it lands it is immutable
+  event history that FEEDS a derived preference state).
+- **Derived/AI cluster never stored as truth:** Style Score (formula),
+  Style DNA (from FaceProfile), Today's Look, Recommendations — recomputable;
+  optional immutable snapshots (`StyleScoreRecord` required;
+  `Today'sLookRecord` P1; `RecommendationHistory` P3) supply recall.
+- **Do-not-overwrite rules:** deleting an item/event/saved look never deletes
+  its signals; new analysis = new run, never a rewrite; derived recompute never
+  edits past snapshots.
+
+### Validation
+- Verified source: `allCapabilities` 7 items / 2 active
+  (onboarding_data.dart:79, your_analysis_screen.dart:289), style-score formula
+  (learning_service.dart:224), `setFace` uncalled, no feedback UI, save stubs.
+- No code files changed; documentation only.
+
+## STEP 3 — Domain Relationships (documentation only, no code changes)
+
+Task: define the relationships between the domain entities identified in
+`DOMAIN_ENTITIES.md` (E1–E10 key). For every relationship specify Entity A,
+relationship type + cardinality, Entity B, ownership, lifecycle dependency, and
+mandatory vs optional. No SQL, no tables, no code.
+
+### New file
+- `docs/architecture/DOMAIN_RELATIONSHIPS.md` — relationship-type legend
+  (COMPOSITION / REFERENCE / DERIVED_FROM / GENERATED_FROM / FEEDS / PRODUCES ×
+  1:1/1:N/N:M); conceptual graph; master table **R1–R51** covering ~50
+  relationships; detailed section for the 16 specifically-called-out pairs
+  (User→Profile, User→Preferences, User→Style Profile, User→Scans, Scan→Analysis,
+  Analysis→Profile, User→Wardrobe, Wardrobe→Wardrobe Item, User→Outfits,
+  Outfit→Outfit Items, Recommendation→Reasons, Recommendation→Feedback,
+  User→Saved Looks, User→Events, User→AI Capabilities, AI Analysis→Current
+  Profile); lifecycle rules (composition cascade, reference independence,
+  derived recomputability, history append-only, generated on-demand, feeds
+  accumulation); next-modeling report.
+
+### Key findings
+- **~50 relationships**, ~30 from real behavior (persisted writes, signal
+  channels, assistant DTO linkage) + the future/derived set needed for STEP 4.
+- **Three honest corrections vs the task's example pairs:** (1) no standalone
+  `Outfit` entity — it decomposes into `SavedLook` (user-owned), recommendation
+  cards (AI output), and the catalog `Look` (knowledge); (2) Recommendation→
+  Feedback and (3) User→AI Capabilities are **future/prospective**, since no
+  rating UI and no persisted capability state exist today.
+- **Backbone:** E1 `User` root → owned sets (wardrobe items, events, saved looks,
+  analysis runs, subscriptions); `WardrobeItem`→`UserEvent` FEEDS
+  (outfit generation trigger); `AnalysisRun` GENERATED_FROM scan inputs +
+  PRODUCES snapshot profile attributes; `StyleScoreRecord` DERIVED_FROM the style
+  score formula (`60 + wardrobe.clamp(0,20) + savedLooks*2.clamp(0,20)`),
+  FEEDS `ActivityDay` streak; `LearningSignal` FEEDS scores/preferences.
+- **Lifecycle rules:** composition = deleted-with (user-owned children cascade
+  with User); reference = independent (catalog/`Look` never user-tied); derived
+  = recomputable, never persisted as truth; history = append-only.
+
+### Validation
+- Every relationship traces to `DOMAIN_ENTITIES.md` (E1–E10) and STEP 2 refs;
+  no new behavioral claims.
+- No code files changed; documentation only.
+
+## STEP 3 — Domain Entity Identification (documentation only, no code changes)
+
+Task: identify the actual domain entities from the real project + STEP 2
+inventory, and for every candidate determine purpose, owner, lifecycle,
+user/system-owned, AI-generated, historical, identity, independence, related
+features — separating true entities from UI models, DTOs, value objects,
+temporary objects, and API responses. No SQL or code.
+
+### New file
+- `docs/architecture/DOMAIN_ENTITIES.md` — 50-candidate verdict pool (from
+  DATA_MODEL_INVENTORY §19.2/19.3/19.4/19.6); **10 true domain entities**
+  detailed with the 11 requested attributes (`User`, `WardrobeItem`,
+  `UserEvent`, `SavedLook`, `Look`, `AnalysisRun`, `LearningSignal`,
+  `StyleScoreRecord`, `ActivityDay`, `Subscription`) + 2 conditional entities
+  (`Today'sLookRecord` P1, `RecommendationHistory` P3); 9 non-entity groups
+  with reasons; entity × feature matrix; next-modeling report.
+
+### Key findings
+- **10 real entities** passed the four tests (identity + lifecycle +
+  durability + product behavior); no Dart class promoted mechanically.
+- **Look family collapsed** to 2 entities (`Look` knowledge content +
+  `SavedLook` user entity); outfit-piece family → one value object; 4 wardrobe
+  shapes → `WardrobeItem`; analysis results → snapshot inside `AnalysisRun`.
+- **Deliberately excluded:** assistant DTOs (KEEP wire contract), UI/mock
+  models, processing stages, vocabularies (system knowledge), weather, media
+  bytes (`MediaRef` value object), achievements/XP (derived), dead onboarding
+  models.
+- **Only system-owned entity:** `Look`; all others user-owned off the `User`
+  root; `Subscription` P2, `AnalysisRun` from STORAGE_INVENTORY §1.6.
+- 2 entity decisions are product-gated (today's-look history, recommendation
+  history) and flagged for P1/P3.
+
+### Validation
+- Candidate pool traced to STEP 2 refs and real source (learning models,
+  events, discover, builder/hairstyle/grooming mocks, schemas, catalog).
+- No code files changed; documentation only.
+
+## STEP 3 — Domain Model Design (documentation only, no code changes)
+
+Task: define the business/domain entities and their relationships BEFORE
+designing the PostgreSQL database, using the real Fansivibe repository
+(`newproject/flutter_application_1` + `backend/`) and all 12 STEP 2 inventory
+documents as source of truth. No SQL, no migrations, no tables, no
+repositories, no FastAPI services, no Flutter/UI/routing changes, no
+dependencies, no code deleted.
+
+### New file
+- `docs/architecture/DOMAIN_MODEL_RULES.md` — 10-category taxonomy (domain
+  entity / value object / DTO / AI output / historical record / current profile
+  state / user preference / system knowledge / external data / temporary
+  processing state) with a classification decision procedure; the canonical
+  domain model (`User` aggregate root, `WardrobeItem`, `UserEvent`, `SavedLook`,
+  `AnalysisRun`, `StyleProfile`, historical records, AI outputs, knowledge
+  vocabularies, external data, DTOs); relationship graph + 7 rules; 7
+  invariants; full STEP 2 → category mapping table; resolutions to the 4 STEP 2
+  open questions; and a "what must be modeled next" report.
+
+### Key verified findings
+- **Domain core already exists implicitly** in `features/learning`
+  (`WardrobeEntry`, `FaceProfile`, `LearningSignal`, `UserModel`) but is one
+  merged blob, partly dead (`setFace` never called, `savedLooks` written but
+  never displayed).
+- **5 durable domain entities evidenced & modeled:** `User` (missing, required
+  — the aggregate root), `WardrobeItem` (canonical of the 4 shapes),
+  `UserEvent` (unpersisted today), `SavedLook` (title-only today, payload
+  missing), `AnalysisRun` (linkage required by STORAGE_INVENTORY §1.6).
+- **Everything else is classified:** system knowledge (vocabularies/catalogs,
+  3–4× duplicated → one canonical source per concept), AI output (all mock,
+  never a source of truth), derived values (recomputable), DTOs (the mirrored
+  assistant contract, KEEP), external data (weather, media/MediaRef, auth,
+  entitlements), temporary processing state (stages, chat, filters, route
+  extras). STEP 2 UI-only models (§19.2) excluded from the domain.
+- **Ownership ambiguities resolved at domain level:** saved looks (learning
+  owns, profile displays derived views), session flag (profile state derived
+  from wardrobe), vocabularies (single backend-owned source), event entity
+  (ownable user entity + outfit trigger), assistant context (derived DTO).
+- **Binding invariant:** AI output is never stored as truth; persist inputs +
+  user-saved snapshots.
+
+### Validation
+- Read all 12 STEP 2 docs + PROJECT_CONTEXT / DECISIONS / ARCHITECTURE /
+  PRODUCT_BLUEPRINT; re-verified source models (learning models.dart,
+  assistant DTOs, backend schemas.py, catalog.py, event_mock_data.dart,
+  learning_service.dart signals).
+- No code files changed; documentation only.
+- **STEP 3 complete — READY FOR STEP 4 (POSTGRESQL SCHEMA DESIGN).**
+
 ## STEP 2 — Final Audit Report (documentation only, no code changes)
 
 Task: cross-check all 12 STEP 2 inventory documents against real source
