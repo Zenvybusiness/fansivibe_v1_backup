@@ -3,6 +3,1001 @@
 Last Updated: 2026-08-09
 Updated By: opencode agent
 
+## STEP 5 — Backend Architecture Rules (documentation only, no implementation)
+
+Task: design the production FastAPI backend architecture that will expose the
+Fansivibe domain through the STEP 4 PostgreSQL schema — architecture design
+first. Modular monolith with clear boundaries between API / Application /
+Domain / Infrastructure; preferred flow HTTP → Router → Application Service /
+Use Case → Domain Logic / Decision Engine → Repository → PostgreSQL; external
+systems (AI, object storage, weather, knowledge) reached only through explicit
+interfaces. Do not rewrite the backend, delete endpoints, break the assistant
+API, modify Flutter/routing/UI, create migrations, connect production
+PostgreSQL, add dependencies, implement services, or introduce microservices.
+
+### New file
+- `docs/backend/BACKEND_ARCHITECTURE_RULES.md` — §1 purpose/scope + BAR-0
+  (backend represents the domain model, not the Flutter UI; assistant DTOs are
+  the KEEP mirror, A3.1); §2 source-of-truth + re-verified anchor facts
+  (assistant prototype only, 19 passing pytest cases, knowledge as static
+  catalog.py, no typed errors, DEC-004); §3 principles BA-1…BA-15 (modular
+  monolith, four layers, domain-center, typed-everything, external-interface
+  rule, AI-output-never-truth, user-scoping, append-only history, repositories
+  as only data path, single knowledge source K9.1, no premature complexity,
+  incremental non-breaking migration, minimal transactions, media-out-of-PG);
+  §4 module boundaries (api/application/domain/infrastructure responsibilities
+  + forbidden actions + target shapes); §5 binding dependency-direction diagram
+  + 6 rules (no cycles, feature isolation); §6 preferred conceptual flow +
+  assistant-live-contract + sync path (P7.1); §7 external-systems table
+  (AI/object-storage/weather/knowledge ports + adapters + status) + 4 rules;
+  §8 current-backend-limitations table L1–L12 with evidence; §9 migration
+  strategy M1–M6 (layers-first, typed errors, PostgreSQL infra local-only, P0
+  slice, P1/P2, P3) + non-negotiables; §10 open decisions carried forward
+  (unchanged 7); §11 report + constraints.
+
+### Key decisions
+- **Modular monolith, four layers, one dependency direction.** API →
+  Application → Domain, with Infrastructure implementing Domain-defined ports;
+  Domain is pure Python (no FastAPI/SQLAlchemy/httpx/I/O); no cycles, feature
+  isolation preserved.
+- **The assistant is a live contract throughout.** `POST /v1/assistant/chat`
+  + mirrored DTOs (`schemas.py` ↔ models.dart) and the rules engine move
+  *intact* into the Domain decision engine; only engine inputs change from
+  client-sent `UserContext` to repository-loaded state once auth/DB land.
+- **External systems behind explicit interfaces** (`AIProvider`,
+  `ObjectStorage`, `WeatherProvider`, `KnowledgeSource`): Domain depends on
+  the port, adapters live in Infrastructure; `llm_backend.py` becomes the AI
+  adapter; object storage/weather remain unbuilt (MS10.3 / weather feature
+  gates); `catalog.py` moves behind a knowledge port (K9.1).
+- **Migration is additive and non-breaking (M1–M6):** layers-first without
+  changing wire contract → typed error contract (A3.3/E13.1) → local-only
+  PostgreSQL infra → P0 slice (auth, sync P7.1, wardrobe CRUD, authenticated
+  assistant, knowledge K9.1) → P1/P2 per MVP_SCOPE → P3 gated. No big-bang,
+  no new deps until a real need.
+
+### Validation
+- Re-read backend source (main.py, engine.py, intent.py, tools.py,
+  llm_backend.py, catalog.py, schemas.py, tests), docs/ARCHITECTURE.md,
+  ARCHITECTURE_GAP_REPORT.md, ACTION_API_INVENTORY.md, MVP_SCOPE.md,
+  FANSIVIBE_DOMAIN_MODEL_V1.md, DATABASE_DESIGN_RULES.md, TABLE_DEFINITIONS.md,
+  TRANSACTION_BOUNDARIES.md, SECURITY_PRIVACY_DESIGN.md, DECISIONS.md.
+- `pytest -q`: 19 passed, 0 failed (unchanged).
+- git status: docs/backend/BACKEND_ARCHITECTURE_RULES.md added (untracked);
+  no code changed.
+
+### Remaining
+- STEP 5 design complete (two deliverables: architecture rules + module map).
+  Next steps (per BACKEND_ARCHITECTURE_RULES §9 M1–M6): establish the
+  four-layer structure without behavior change (M1), then the typed error
+  contract (M2), then the SQL/migration step that encodes the STEP 4 schema as
+  versioned, forward-only migrations (M3), then the P0 vertical slice (M4) once
+  auth/contract decisions land.
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — Backend Module Map (documentation only, no implementation)
+
+Task: define the backend module set for the production FastAPI backend per the
+module map deliverable — for each supported module its responsibility, owned
+domain concepts, application use cases, API routers, repositories, external
+dependencies, events/background jobs, and a P0/P1/P2 classification; include
+only modules the actual product and domain model support (BMM-0). No code, no
+schema, no endpoints, no dependencies — design documentation only.
+
+### New file
+- `docs/backend/BACKEND_MODULE_MAP.md` — §1 purpose/scope + module selection
+  rule BMM-0; §2 source-of-truth + re-verified anchor facts (14 Flutter
+  features, live assistant API only, 5 durable entities today, no
+  outfit/recommendation/appearance entities, assistant DTO mirror);
+  §3 candidate screening (18 candidates: 16 kept as modules + ai_engine
+  domain-only + media sealed; preferences/appearance/recommendations folded;
+  marketplace/social/weather rejected); §4 master inventory table M1–M16
+  (layer slice, phase, owned domain concepts, primary tables); §5 P0 module
+  definitions M1–M6 (auth, users, wardrobe, assistant, knowledge, ai_engine);
+  §6 P1 M7–M11 (saved_looks, events, daily_outfit, learning, feedback gated);
+  §7 P2 M12–M16 (analysis, outfits, discover, subscriptions, media sealed);
+  §8 cross-cutting seams (signals, errors, transactions, jobs, erasure);
+  §9 phasing summary (P0 slice M1–M6 first, P1, P2) + sequencing note per §9
+  M4/M5; §10 open decisions (unchanged 7); §11 report/assumptions/constraints.
+
+### Key decisions
+- **Module set (16 + 1 domain + 1 sealed).** P0: auth (M1), users (M2,
+  includes profile + preferences + appearance style profile in `user_state`),
+  wardrobe (M3), assistant (M4, live contract), knowledge (M5, K9.1),
+  ai_engine (M6, domain-layer decision engine owning AIProvider/KnowledgeSource
+  ports — the only module allowed to touch an AI provider, BA-8). P1:
+  saved_looks (M7), events (M8), daily_outfit (M9, WeatherProvider port),
+  learning (M10, sole writer of learning_signals), feedback (M11,
+  feature-gated). P2: analysis (M12, AnalysisRun), outfits (M13, generation
+  value object), discover (M14, read-only), subscriptions (M15, BillingProvider
+  port), media (M16, sealed until MS10.3).
+- **Module boundaries follow the domain model ownership (§7 of
+  FANSIVIBE_DOMAIN_MODEL_V1.md), not the Flutter feature tree.** Flutter
+  features are the consumer surface; `scan_center`/`stylist` launchers map to
+  no module. No module for value objects (outfit, appearance, preferences) —
+  they are folded into their owning module.
+- **Recommendations are not a module.** A recommendation is AI output, never a
+  source of truth (BAR-0); `recommendation_history` is P3-gated. Generation
+  rules live in ai_engine; surface modules (assistant/outfits/daily_outfit/
+  discover) present them.
+- **Sealed modules:** feedback (M11) has no code/router until the Flutter
+  feedback UI is accepted; media (M16) is sealed until MS10.3 lifts.
+
+### Validation
+- Cross-checked module P0/P1/P2 against MVP_SCOPE.md, entities/ownership from
+  FANSIVIBE_DOMAIN_MODEL_V1.md, tables from TABLE_DEFINITIONS.md, user actions
+  from ACTION_API_INVENTORY.md; grounded module names in the real Flutter
+  feature tree (verified 14 features).
+- git status: docs/backend/BACKEND_ARCHITECTURE_RULES.md +
+  BACKEND_MODULE_MAP.md added (untracked); no code changed.
+
+### Remaining
+- STEP 5 design complete (two deliverables). Next: M1 four-layer structure
+  without behavior change, then typed errors (M2), then SQL/migrations (M3),
+  then the P0 vertical slice (M4) once auth/contract decisions land.
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — Backend Folder Structure (documentation only, no implementation)
+
+Task: design the production FastAPI folder structure for the real Fansivibe
+backend — a modular monolith with strict separation between API / application /
+domain / infrastructure / database / AI / knowledge / shared configuration. For
+each folder: purpose, allowed dependencies, forbidden dependencies, example
+files. Emphasize dependency direction (API → Application → Domain;
+Infrastructure implements Domain interfaces). Derived from the real domain
+model, not copied from the reference project. Do not create directories or
+files.
+
+### New file
+- `docs/backend/BACKEND_FOLDER_STRUCTURE.md` — §1 purpose/scope (grounding
+  fact BAR-0: structure follows the domain model, not the 14 Flutter
+  features); §2 source-of-truth + re-verified backend facts (1 live API, no
+  auth/DB; engine/intent/tools → domain seeds, llm_backend → AI adapter,
+  catalog → knowledge source, schemas → DTO split); §3 principles table
+  (BA-2/3/6/8/10/14 → folders); §4 full target tree (app/{config,api,application,
+  domain,infrastructure} + tests, layer-first, one file per module per layer);
+  §5 dependency-direction diagram + import matrix (from→may→never) + §5.1 why
+  DB/AI/knowledge/config are concerns *inside* layers, not peer layers;
+  §6 per-folder definitions (purpose/allowed/forbidden/examples for all 16
+  folders incl. schemas, ports, db, repositories, external, events/jobs,
+  tests); §7 module↔folder mapping M1–M16; §8 current→target file mapping
+  (7 real files migrate without breaking the live contract, 19 tests move to
+  tests/unit unchanged); §9 open decisions (7, incl. Alembic-vs-SQL M3);
+  §10 report/assumptions/constraints.
+
+### Key decisions
+- **Four layers, not eight folders.** API / application / domain /
+  infrastructure are the top-level layers (BA-2). Database →
+  infrastructure/db + infrastructure/repositories; AI → domain/services
+  (engine+rules, BA-8) + infrastructure/external/ai.py (the only file allowed
+  to touch an AI provider); knowledge → domain/models + KnowledgeSource port
+  + infrastructure/external/knowledge.py + api/v1/knowledge.py (K9.1);
+  config → app/config leaf importable only by api/application/infrastructure,
+  never by domain. Making these peers would break dependency direction.
+- **Layer-first files, module-sliced.** Each module (M1–M16) contributes one
+  file per layer (v1/<module>.py, application/<module>.py, domain/models/*,
+  infrastructure/repositories/*) — consistent with BACKEND_ARCHITECTURE_RULES
+  §4 shapes, not folder-per-module.
+- **Composition root only in main.py.** api never instantiates repositories;
+  DI is wired solely in create_app(). No cycles (BA-5); domain imports stdlib
+  only (BA-3); repositories are the only data path (BA-10).
+
+### Validation
+- Mapped all 7 real backend files to target folders (§8); verified folder
+  names against module map M1–M16 and domain entities E1–E10 (§7); verified
+  import matrix against BA-2/3/5/6/8/10/14.
+- git status: docs/backend/ now holds BACKEND_ARCHITECTURE_RULES.md +
+  BACKEND_MODULE_MAP.md + BACKEND_FOLDER_STRUCTURE.md (all untracked); no
+  code, directories, or files created by this step.
+
+### Remaining
+- STEP 5 design complete (three deliverables). Next (per rules §9 M1–M6):
+  M1 create the folder skeleton without behavior change (move
+  engine/intent/tools/catalog/schemas into target folders behind a
+  composition root, keeping POST /v1/assistant/chat + 19 tests green), then
+  M2 typed errors, M3 SQL migrations (Alembic-vs-SQL to decide), M4 P0 slice
+  once auth/contract decisions land.
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — Backend Dependency Rules (documentation only, no implementation)
+
+Task: define explicit, enforceable dependency rules for the Fansivibe backend
+— document the allowed edges (API → Application → Domain; Infrastructure →
+Application/Domain interfaces; Repositories → Database; AI adapters → AI
+interfaces; Knowledge adapters → Knowledge interfaces), identify the forbidden
+dependencies (Domain must not import FastAPI/SQLAlchemy/HTTP; UI concepts must
+not enter the domain; DB models must not become API contracts automatically;
+AI provider-specific code must not leak), so the modular monolith's direction
+holds. Do not implement anything.
+
+### New file
+- `docs/backend/DEPENDENCY_RULES.md` — §1 purpose (answers "what may this file
+  import / what must it never import"; grounding fact BAR-0 + live contract);
+  §2 source-of-truth; §3 canonical dependency graph + master rule DR-0
+  (dependencies point inward; nothing points back up); §4 allowed rules
+  DR-1…DR-6 (API→Application; Application→Domain; Infrastructure→
+  Application/Domain interfaces; Repositories→Database; AI adapters→AI
+  interfaces; Knowledge adapters→Knowledge interfaces) each with statement,
+  meaning-in-code, code examples, forbidden pointer; §5 forbidden catalogue
+  F-1…F-13 (Domain↛FastAPI, Domain↛SQLAlchemy, Domain↛HTTP, Domain↛config/env,
+  UI concepts↛domain, DB models↛API contracts, AI provider↛leak, no
+  infra→api/application imports, no use-case concrete-repo imports, no
+  cross-feature internal access, no decision logic in routers/repos, no
+  external calls inside a transaction, assistant DTOs frozen) each with
+  rationale; §6 boundary-case table (allowed/forbidden edge cases incl.
+  schema→domain projection, domain exceptions→HTTP mapping); §7 enforcement
+  (import-linter CI, review checklist, composition-root rule, frozen-contract
+  unit test); §8 open decisions (unchanged 7); §9 report/assumptions/
+  constraints.
+
+### Key decisions
+- **DR-0 is the master rule:** dependencies point inward (API→Application→
+  Domain; Infrastructure points up at Domain ports + down at concretes);
+  any back-edge is a design violation requiring an architecture decision.
+- **Forbidden rules are merge-blocking invariants** (F-1…F-13), each mapped to
+  an accepted rule (BA-2/3/5/6/8/10/14, TRX-1…TRX-8, BAR-0) or the live
+  assistant contract (A3.1) — the doc adds the missing forbidden-catalogue,
+  no new concepts.
+- **Enforcement is automated at M1+:** import-linter layer contracts, code
+  review checklist, composition-root-only DI in main.py, and a unit test
+  freezing the AssistantReply shape (F-13).
+
+### Validation
+- Cross-checked DR-0…DR-6 against BACKEND_ARCHITECTURE_RULES.md §5 rules 1–6
+  and BACKEND_FOLDER_STRUCTURE.md §5 import matrix — no conflict; each F-1…F-13
+  maps to an accepted rule/constraint.
+- git status: docs/backend/ now holds BACKEND_ARCHITECTURE_RULES.md +
+  BACKEND_MODULE_MAP.md + BACKEND_FOLDER_STRUCTURE.md + DEPENDENCY_RULES.md
+  (all untracked); no code, directories, or files created by this step.
+
+### Remaining
+- STEP 5 design complete (four deliverables). Next (per rules §9 M1–M6):
+  M1 folder skeleton without behavior change (move engine/intent/tools/
+  catalog/schemas into target folders behind a composition root, keeping
+  POST /v1/assistant/chat + 19 tests green) — first place DEPENDENCY_RULES is
+  enforced (introduce import-linter in CI); then M2 typed errors, M3 SQL
+  migrations (Alembic-vs-SQL), M4 P0 slice once auth/contract decisions land.
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — Application Use Cases (documentation only, no implementation)
+
+Task: define the application use cases for Fansivibe from the STEP 2
+Action/API Inventory. For every major user action: use case name, input,
+required domain data, domain operations, repositories involved, external
+services involved, output, possible errors, transaction boundary. Do not
+implement.
+
+### New file
+- `docs/backend/APPLICATION_USE_CASES.md` — §1 purpose (application-layer
+  contract: routers call one use case DR-1, use cases depend only on domain
+  DR-2); §2 source-of-truth; §3 conventions (verb-first PascalCase names,
+  nine-field format, error vocabulary from ACTION_API Part 3); §4 master
+  inventory (33 use cases UC-1…UC-33 covering all 32 actions; actions 27 nav
+  and 4 save-locally folded into UC-22/UC-5/UC-9); §5 per-module definitions
+  grouped M1–M16 (auth UC-1…4, users UC-5…9, wardrobe UC-10…14, saved_looks
+  UC-15, daily_outfit UC-16/17, events UC-18…21, assistant UC-22/23,
+  analysis UC-24…27, outfits UC-28…30, discover UC-31, feedback UC-32 gated,
+  subscriptions UC-33); §6 cross-cutting notes (user_id scoping, append-only
+  history, external-after-commit, feature-gated UCs, assistant is the only
+  live UC); §7 report/assumptions/constraints.
+
+### Key decisions
+- **One use case per major action, clustered where STEP 2 consolidates:**
+  saved-look paths 12/14/17/22/24 → one `SaveRecommendation` (UC-15, TRX-3);
+  outfit generation 18/20 → CreateOutfit/RegenerateOutfit; analysis
+  16/21/23 → AnalyzeOutfit/AnalyzeAppearance/GenerateHairstyleRecommendations/
+  GenerateGroomingRecommendations. Example names from the task all present
+  (CompleteOnboarding UC-5, GetProfile UC-6, UpdatePreferences UC-8,
+  AnalyzeAppearance UC-25, GenerateHairstyleRecommendations UC-26,
+  SaveRecommendation UC-15, SubmitRecommendationFeedback UC-32,
+  AddWardrobeItem UC-10, CreateOutfit UC-28, GenerateDailyOutfit UC-16,
+  CreateEvent UC-18, GenerateEventOutfit UC-21, SendAssistantMessage UC-22).
+- **Transaction boundaries are cited per use case** from TRANSACTION_BOUNDARIES
+  (TRX-1 wardrobe item, TRX-3 saved look + signal true transaction,
+  TRX-5 run completion write-once, TRX-6 profile projection update,
+  TRX-7 event; single-row tier-1 vs non-transactional derived/computation).
+- **Assistant UC-22 is the live contract** (A3.1) — input/output shape frozen;
+  every other use case is a derived future requirement per ACTION_API Part 4.
+
+### Validation
+- Every use case traces to a STEP 2 action (master table covers actions
+  1–32); repository names match TABLE_DEFINITIONS.md tables and module map
+  M1–M16; external-service references go through domain ports (BA-6, F-7).
+- git status: docs/backend/ holds the four prior STEP 5 docs +
+  APPLICATION_USE_CASES.md (all untracked); no code, directories, or files
+  created by this step.
+
+### Remaining
+- STEP 5 design complete (five deliverables). Next (per rules §9 M1–M6):
+  M1 folder skeleton without behavior change (UC-22 moves first), then M2
+  typed errors, M3 SQL migrations (Alembic-vs-SQL), M4 P0 vertical slice
+  (UC-1…UC-14) once auth/contract decisions land.
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — Decision Engine Architecture (documentation only, no implementation)
+
+Task: design the Decision Engine architecture (M6 ai_engine) — the domain
+component between application services and AI/knowledge capabilities. Define
+the pipeline INPUT → Context Builder → Candidate Generation → Filtering →
+Scoring → Ranking → Explanation → Recommendation → Feedback; identify the role
+of user profile, preferences, appearance profile, wardrobe, occasion, weather,
+knowledge, AI model output, business rules, user feedback; decompose so it is
+NOT a giant class. Do not implement.
+
+### New file
+- `docs/backend/DECISION_ENGINE_ARCHITECTURE.md` — §1 purpose (pipeline
+  diagram; engine output is never truth BAR-0; pure domain BA-3); §2
+  source-of-truth; §3 position diagram (application services call it via
+  DR-1; reaches AI/knowledge only via ports BA-6/BA-8; never persists TRX-4/7)
+  + 4 positioning rules; §4 pipeline diagram + per-stage question/task
+  mapping; §5 stage definitions (responsibility/input/output/forbidden) for
+  all 8 stages; §6 role catalogue table (each input: stage entered, role,
+  never-allowed) + principle DE-0 (deterministic rules decide, AI enriches
+  text, feedback tunes, business rules bound); §7 decomposition
+  (domain/services files incl. pipeline.py, context.py, filters.py, scoring.py,
+  ranking.py, explanation.py, feedback.py, business_rules.py) + stage↔today's
+  code mapping (M1-safe); §8 two operating modes (rules-only default vs
+  LLM-enriched additive); §9 cross-cutting constraints (pure domain, validated
+  structured output, AI confined); §10 report/assumptions/constraints.
+
+### Key decisions
+- **Pipeline of small stateless stages, thin orchestrator.** `Pipeline.run`
+  has no logic — it composes per-task stages (assistant/outfit/today/analysis/
+  discover reuse the same stages). No giant class; adding a stage is a new
+  small file. Stages are pure and unit-testable like today's engine tests.
+- **Each input has a bounded role (DE-0):** deterministic rules decide; AI
+  may suggest candidates (validated against vocabulary) + enrich explanation
+  wording only; user feedback tunes scores via signals; business rules (config-
+  driven, single source) bound. No input can hijack the pipeline.
+- **Rules-only mode always works** — LLM enrichment is additive (preserves
+  today's llm_backend degrade + offline fallback, ACTION_API #25); structure,
+  scores, and DTO shape never change (BA-8, F-13).
+- **Engine never persists** — output is regenerable; saves happen in the
+  application layer (UC-15/UC-30, TRX-2/4/7).
+
+### Validation
+- Mapped every stage to the working code (engine.py/intent.py/tools.py/
+  llm_backend.py/catalog.py) and the accepted domain/services file list —
+  M1-safe (no behavior change); role table maps to domain entities
+  E1/E1.1/E2/E3/E5 and ports (AIProvider/KnowledgeSource/WeatherProvider).
+- git status: docs/backend/ holds the five prior STEP 5 docs +
+  DECISION_ENGINE_ARCHITECTURE.md (all untracked); no code, directories, or
+  files created by this step.
+
+### Remaining
+- STEP 5 design complete (six deliverables). Next (per rules §9 M1–M6):
+  M1 folder skeleton without behavior change (engine/intent/tools/catalog/
+  schemas move intact), M2 typed errors, then introduce the pipeline stage by
+  stage (context first, then split filtering/scoring/ranking/explanation out
+  of tools.py), keeping POST /v1/assistant/chat + 19 tests green; M3 SQL
+  migrations; M4 P0 slice once auth/contract decisions land.
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — AI Integration Architecture (documentation only, no implementation)
+
+Task: design how AI models integrate with Fansivibe. Separate AI provider /
+AI model / AI adapter / analysis / recommendation / decision engine /
+persistence. The application must not directly depend on a specific AI vendor.
+Define capability interfaces (FaceAnalysisProvider, HairAnalysisProvider,
+OutfitAnalysisProvider, RecommendationProvider, ImageAnalysisProvider); mark
+unimplemented capabilities as FUTURE (honesty rule AI-0). For each capability:
+input, output, confidence, model version, timeout, failure behavior, retry
+behavior, logging requirements. Do not implement AI providers.
+
+### New file
+- `docs/backend/AI_INTEGRATION_ARCHITECTURE.md` — §1 purpose/scope + AI-0
+  honesty rule (only TextEnrichment + AIProvider are NOW; all analysis
+  providers FUTURE); §2 source-of-truth (real llm_backend.py is the seed);
+  §3 separation model (layers diagram; concern table provider/model/adapter/
+  analysis/recommendation/decision engine/persistence; dependency matrix;
+  AI-1 vendor-agnostic selection); §4 shared seams that exist today
+  (AIProvider model-backend + TextEnrichmentProvider — both NOW, with the 8
+  required attributes each incl. degrade-on-failure, 8s timeout, privacy
+  logging); §5 capability interfaces (common CapabilityResult envelope;
+  FaceAnalysisProvider/HairAnalysisProvider/OutfitAnalysisProvider/
+  ImageAnalysisProvider all FUTURE, RecommendationProvider rules-NOW/
+  AI-FUTURE; each with input/output/confidence/model version/timeout/failure/
+  retry/logging); §5.6 status summary table; §6 vendor-agnostic wiring +
+  config keys (AI-2/AI-3/AI-4); §7 persistence boundary (analysis_runs result
+  + engine_version persisted TRX-5; recommendations regenerable; AI never
+  inside a DB transaction AI-5; provenance AI-6); §8 cross-cutting (privacy,
+  typed output, graceful degradation, mandatory timeouts); §9 report/
+  assumptions/constraints.
+
+### Key decisions
+- **Seven concerns separated** with strict dependency direction: application →
+  decision engine → capability interfaces → adapters → provider → model.
+  Adapter (`infrastructure/external/ai.py`) is the only file that knows a
+  vendor exists (F-7); vendors chosen by config at the composition root
+  (AI-1, AI-3); capabilities are independent and absent ones return
+  `no_result` (AI-4).
+- **Honesty rule AI-0:** only `TextEnrichmentProvider` + `AIProvider` are
+  marked NOW (the real Ollama text-enrichment seam); FaceAnalysisProvider,
+  HairAnalysisProvider, OutfitAnalysisProvider, ImageAnalysisProvider are
+  FUTURE; RecommendationProvider is rules-NOW/AI-FUTURE (today's engine
+  tools). No capability pretends to exist.
+- **Common CapabilityResult envelope** (status/output/confidence/model_version/
+  warnings/raw_provider) so the engine handles all capabilities uniformly;
+  model_version recorded on every persisted analysis for provenance (TRX-5/6).
+- **AI never inside a DB transaction** (AI-5) and provider calls degrade to
+  rules always — preserving today's offline-safe behavior.
+
+### Validation
+- Each capability traced to real/FUTURE domain need (UC-24/25/26, R15,
+  TRX-5/6); shared seams map 1:1 to working llm_backend.py; verified against
+  DR-5/F-7/F-13, F-3, BA-8, TRX-5, MS10.3.
+- git status: docs/backend/ holds the six prior STEP 5 docs +
+  AI_INTEGRATION_ARCHITECTURE.md (all untracked); no code, directories, or
+  files created by this step.
+
+### Remaining
+- STEP 5 design complete (seven deliverables). Next (per rules §9 M1–M6):
+  M1 folder skeleton without behavior change, M2 typed errors, M3 SQL
+  migrations, then capability interfaces + pipeline stage by stage; FUTURE
+  capabilities gate on their feature modules (M12 analysis, M16 media/MS10.3).
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — Knowledge Architecture (documentation only, no implementation)
+
+Task: design the Fansivibe knowledge integration architecture — the knowledge
+system must stay separate from user-generated data. Define knowledge source,
+knowledge repository, knowledge validation, knowledge version, knowledge
+lookup, knowledge retrieval, and the relationship with the Decision Engine.
+Knowledge may include style rules, color rules, face-shape guidance,
+hairstyle/grooming/clothing knowledge, outfit principles. Determine which
+knowledge is static / versioned / database-backed / file-backed / cached. Do
+not blindly use the separate project's implementation. Do not implement.
+
+### New file
+- `docs/backend/KNOWLEDGE_ARCHITECTURE.md` — §1 purpose/scope (grounding:
+  today all knowledge is one static catalog.py; M5 owns E5 Look + vocab
+  tables, system-owned, never deleted TRX-8); §2 source-of-truth; §3
+  knowledge concepts (source=KnowledgeSource port K9.1/BA-11; repository=
+  looks+vocab tables, system-owned no user_id KN-0; validation=stable codes
+  PR-3/enum/content policy; version=schema/content/engine three-way;
+  lookup=exact keyed; retrieval=filtered/derived; decision-engine
+  relationship=port-only, stages 2/3/4/6); §4 knowledge types + storage
+  decision table (style/color/face-shape rules static+versioned file-backed;
+  hairstyle/grooming/clothing DB-backed+versioned; outfit principles static
+  rule table; nav map static) + KN-1 storage-by-lifecycle rule + five-mode
+  detail + DB-backed today/later (P0 vocab subset, P2 looks); §5 versioning
+  + persistence rules KN-2…KN-8 (system-owned, stable codes deprecate-not-
+  delete, immutable-to-history, read-grants, no user writes, cache on content
+  version, cache optional read-through); §6 separation from user data
+  (hard guarantee table + KN-9 boundary: no knowledge op reads user data, no
+  user op writes knowledge; provenance links not ownership); §7 end-to-end
+  flow (KnowledgeService → adapter: static rules/DB repos/cache → engine) +
+  KN-10 lookup-vs-retrieve; §8 report/assumptions/constraints.
+
+### Key decisions
+- **KN-1 storage-by-lifecycle:** rare/semantic knowledge (codes, rules,
+  guidance) is static + file-backed + versioned; curated content with many
+  rows (looks, items, vocab) is DB-backed + versioned; hot reads cached keyed
+  by knowledge_version. One versioned interface makes the choice swappable.
+- **Hard separation (KN-0/KN-9):** knowledge tables have no user_id;
+  knowledge never deleted (TRX-8), user data cascaded; knowledge writes only
+  via the knowledge service (seed/admin P2), user writes only via use cases;
+  knowledge cache holds no user data. Provenance links (saved_looks.look_id →
+  looks) are references, not ownership.
+- **Three-way versioning:** schema_version (M3 migrations) / knowledge_version
+  (content, drives cache invalidation + API header) / engine_version (rules
+  code, provenance alongside model_version in analysis TRX-5).
+- **catalog.py becomes the seed file** behind the KnowledgeSource adapter
+  (DR-6); content preserved, no rewrite; DB vocab populated at M3.
+
+### Validation
+- Every concept maps to accepted docs (K9.1/BA-11, DR-6, M5, STEP 4 tables,
+  TRX-8); every knowledge type from the task maps to real catalog.py content
+  with an explicit storage decision; separation is grounded in schema
+  ownership/erasure/grants, not asserted.
+- git status: docs/backend/ holds the seven prior STEP 5 docs +
+  KNOWLEDGE_ARCHITECTURE.md (all untracked); no code, directories, or files
+  created by this step.
+
+### Remaining
+- STEP 5 design complete (eight deliverables). Next (per rules §9 M1–M6):
+  M1 folder skeleton without behavior change, M2 typed errors, M3 SQL
+  migrations (knowledge vocab seeded per KN-1), M4 P0 slice; knowledge
+  caching details are M4/P2 concerns (KN-7/KN-8).
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — HTTP API Layer Architecture (documentation only, no implementation)
+
+Task: design the HTTP API layer conventions for Fansivibe: versioning,
+authentication, authorization, request validation, response envelopes,
+pagination, filtering, sorting, errors, status codes, idempotency where
+needed, file uploads, asynchronous processing. Do not write endpoint
+implementations; do not modify Flutter.
+
+### New file
+- `docs/backend/API_LAYER_ARCHITECTURE.md` — §1 purpose/scope (grounding:
+  today only GET /health + POST /v1/assistant/chat; all 32 actions future
+  auth; API is thin projection DR-1/F-6); §2 source-of-truth; §3 versioning
+  (path /v1 API-1, additive-only API-2, Accept header API-3, breaking-change
+  process API-4); §4 authentication (Bearer API-5, deps.py resolves token →
+  user_id API-6, public endpoints list API-7, anonymous mode API-8, privacy
+  API-9); §5 authorization (user_id scoping 404-not-403 API-10, admin roles
+  API-11, feature gates/sealed modules not mounted API-12); §6 request
+  validation (typed schemas API-13, controlled-vocab API-14, not-found-vs-
+  invalid API-15, media 413/422 API-16); §7 response envelopes (no envelope
+  for single resources — assistant unchanged API-17; list envelope
+  items/page/page_size/total API-18; camelCase API-19); §8 pagination (offset
+  API-20, cursor for feeds API-21, page-size bounds API-22); §9 filtering
+  (typed query params API-23, server-side API-24, no free-form API-25);
+  §10 sorting (typed keys API-26, engine-ranked scores not re-sorted
+  API-27); §11 errors (typed contract error/code/message/details API-28,
+  domain-exception mapping API-29, field errors API-30, fallback API-31);
+  §12 status-code table (200…503 per ACTION_API Part 3 + UC vocabulary) +
+  API-32; §13 idempotency (Idempotency-Key where needed API-33/34/35 —
+  saves/sync/webhooks, not reads); §14 file uploads (multipart API-36,
+  upload-then-insert TRX-1 API-37, validate-before-upload API-38, private
+  API-39); §15 async (sync-by-default API-40, 202 + run_id polling for
+  analysis TRX-5 API-41/42, jobs outside API API-43, timeouts API-44);
+  §16 report/assumptions/constraints.
+
+### Key decisions
+- **Envelope policy (API-17/18):** single resources return the DTO directly
+  (the frozen AssistantReply stays un-enveloped — F-13); only list endpoints
+  wrap items in {items, page, page_size, total}.
+- **Auth/authorization (API-5/7/10):** Bearer tokens resolved by deps.py;
+  only auth endpoints + GET /knowledge/* are public; all user data scoped to
+  user_id, and a not-yours id returns 404 (no existence leak); sealed
+  feature-gated modules (feedback/media) are not mounted at all.
+- **Typed error contract (API-28, A3.3/E13.1):** one error shape
+  {error:{code,message,details}}; routers raise only typed domain
+  exceptions mapped in errors.py; 4xx caller / 5xx ours-external; clients
+  switch on stable error.code.
+- **Async only where needed (API-40/41):** sync-by-default; image analysis
+  returns 202 + run_id with pending→completed|failed polling (TRX-5
+  write-once). No background jobs in routers (API-43).
+- **Assistant contract preserved:** POST /v1/assistant/chat unchanged (no
+  envelope, no auth today, shape frozen).
+
+### Validation
+- Every convention traces to accepted docs (DR-1, F-6, F-13, A3.3/E13.1,
+  BA-8, TRX-1/5, ACTION_API Part 3); status-code table matches use-case
+  error vocabulary UC-1…33; live assistant contract preserved.
+- git status: docs/backend/ holds the eight prior STEP 5 docs +
+  API_LAYER_ARCHITECTURE.md (all untracked); no code, directories, or files
+  created by this step.
+
+### Remaining
+- STEP 5 design complete (nine deliverables). Next (per rules §9 M1–M6):
+  M1 folder skeleton without behavior change, M2 typed errors (first place
+  API-28/29/30 implemented), M3 SQL migrations, M4 P0 slice; envelope/polling/
+  idempotency details set with each use-case implementation.
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — Error Handling System (documentation only, no implementation)
+
+Task: design a consistent error-handling system for Fansivibe. Classify
+errors: VALIDATION_ERROR, AUTHENTICATION_ERROR, AUTHORIZATION_ERROR,
+NOT_FOUND, CONFLICT, RATE_LIMITED, AI_FAILURE, MEDIA_FAILURE,
+DATABASE_FAILURE, EXTERNAL_SERVICE_FAILURE, PROCESSING_FAILURE,
+INSUFFICIENT_USER_DATA. For each: internal exception, domain error,
+application error, API response, HTTP status, safe client message, internal
+logging. Sensitive implementation details must never leak to Flutter. Do not
+implement.
+
+### New file
+- `docs/backend/ERROR_HANDLING.md` — §1 purpose/scope (A3.3/E13.1 +
+  API-28…31 grounding; safe-client-message rule); §2 source-of-truth; §3
+  propagation model (domain raises typed DomainError F-3 → application wraps
+  w/ context → api/errors.py single mapper → Flutter sees only code/message/
+  allow-listed details) + 4 rules; §4 wire contract {error:{code,message,
+  details}} + field rules; §5 taxonomy — all 12 requested categories, each
+  with internal exception/domain error/application error/API response/HTTP
+  status/safe client message/internal logging (details incl. 422 field errors,
+  401 WWW-Authenticate, 429 Retry-After, AI degrade note, media 413/422/503,
+  INSUFFICIENT_USER_DATA 200+needs_data vs 422 decision); §6 leak prevention
+  (ER-0 never-leaks list, ER-1 details allow-list, ER-2 single message builder,
+  ER-3 one mapper + frozen taxonomy); §7 logging policy (level table + never-
+  logged list incl. tokens/images/user text); §8 mapping summary table; §9
+  report/assumptions/constraints.
+
+### Key decisions
+- **One mapper, one wire shape:** api/errors.py is the only place domain/
+  application errors become HTTP; routers/use cases/repos never build error
+  bodies or safe messages (DR-1, A3.3). Errors are typed exceptions
+  (DomainError) from the domain; application wraps with resource context only.
+- **Safe client message + allow-listed details (ER-0/1):** Flutter sees only
+  code + message + {request_id, run_id, field names, allowed values, missing,
+  kind, retry_after}; never stack traces, SQL, provider/model names, tokens,
+  user content, or raw AI output.
+- **Taxonomy frozen once shipped** (additive-only, like F-13): clients switch
+  on stable error.code values identical to the category names.
+- **INSUFFICIENT_USER_DATA distinct from empty result:** empty wardrobe for
+  outfit generation is 200 + needs_data (or per-use-case 422 for hard-gated
+  flows), not an error — decided per use case at implementation.
+
+### Validation
+- Every category maps to a real failure source: ACTION_API Part 3, TRX-1/5,
+  AI integration (AI_FAILURE + degrade), use-case vocabulary UC-1…33;
+  consistent with A3.3/E13.1, API-28…31, DR-1, F-3, API-10.
+- git status: docs/backend/ holds the nine prior STEP 5 docs +
+  ERROR_HANDLING.md (all untracked); no code, directories, or files created
+  by this step.
+
+### Remaining
+- STEP 5 design complete (ten deliverables). Next (per rules §9 M1–M6):
+  M1 folder skeleton without behavior change, M2 typed error contract
+  (errors.py mapper, exception bases, taxonomy registry, allow-listed
+  details, logging config — per this doc), M3 SQL migrations, M4 P0 slice.
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — Background Job Architecture (documentation only, no implementation)
+
+Task: determine which Fansivibe operations are synchronous vs asynchronous.
+Evaluate face analysis, outfit image analysis, wardrobe image processing,
+recommendation generation, generated images, daily outfit generation, event
+recommendations, large media processing. For each: SYNC / ASYNC / OPTIONAL
+ASYNC. Define job creation, job status, retry, timeout, failure, result
+persistence. Do not introduce Celery, Redis, queues, or other infrastructure
+unless the actual requirements justify them.
+
+### New file
+- `docs/backend/BACKGROUND_JOB_ARCHITECTURE.md` — §1 purpose/scope (grounding:
+  current backend is a single sync FastAPI process, no queues/Redis/Celery —
+  verified in requirements.txt + docker-compose.yml; BA-10 no-premature-
+  complexity); §2 source-of-truth; §3 decision framework BJ-0 (async only for
+  real latency/IO needs: long blocking work, post-commit side effects, heavy
+  repeated IO); §4 operation classification — face analysis ASYNC (30s vision,
+  TRX-5 run), outfit image analysis ASYNC, wardrobe image processing OPTIONAL
+  ASYNC (M16-gated), recommendation generation SYNC (rules-instant, AI
+  additive/degrade), generated images ASYNC (FUTURE), daily outfit generation
+  SYNC (rules-instant, derived), event recommendations SYNC (delegates to
+  sync generation), large media processing ASYNC (M16-gated); §4.9 summary
+  table; §5 job lifecycle (creation 202+run_id+upload-then-insert TRX-1,
+  status pending→completed|failed write-once TRX-5, retry 1x transient-only
+  never invalid-input, timeout per capability 20-30s, failure safe error.code,
+  result persistence once w/ engine_version provenance PR-6, no image bytes in
+  PG PR-8); §6 infrastructure decision (in-process async runner +
+  DB-row-as-job YES; Celery/Redis/queue/worker NO — BJ-1 defer until measured
+  need); §7 report/assumptions/constraints.
+
+### Key decisions
+- **Sync-by-default (BJ-0):** only real latency/IO needs get async — the only
+  immediate ASYNC set is face + outfit image analysis (30s vision runs,
+  TRX-5); recommendation/daily-outfit/event generation stay SYNC (rules are
+  instant; AI is additive and degrades to rules). Wardrobe image + large
+  media processing are ASYNC but gated on M16/MS10.3; generated images are a
+  FUTURE capability classified now (AI-0 honesty).
+- **Job = DB row:** the analysis_runs row IS the job record (TRX-5); status
+  is always derived from the row (restart-safe), never in-memory; polling per
+  API-41 (202 + run_id, pending→completed|failed).
+- **No queue infra (BJ-1):** Celery/Redis/message queues/worker process are
+  explicitly rejected until a measured need (throughput, cross-process
+  durability, multi-instance) — matching the current repo (no queue exists)
+  and BA-10; an in-process async runner in infrastructure/jobs.py + the DB
+  row suffices.
+
+### Validation
+- Every operation classified against real latency/IO needs; job lifecycle
+  maps to TRX-5, API-41, ERROR_HANDLING, AI doc timeouts/retries;
+  infrastructure decision grounded in the actual repo (no queue infra).
+- git status: docs/backend/ holds the ten prior STEP 5 docs +
+  BACKGROUND_JOB_ARCHITECTURE.md (all untracked); no code, directories, or
+  files created by this step.
+
+### Remaining
+- STEP 5 design complete (eleven deliverables). Next (per rules §9 M1–M6):
+  M1 folder skeleton without behavior change, M2 typed error contract, M3 SQL
+  migrations, M4 P0 slice; in-process runner + polling implemented with M12
+  analysis and M16 media.
+- Open decisions unchanged: User fields/auth, Today'sLookRecord (P1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — Auth & Authorization Architecture (documentation only, no implementation)
+
+Task: design authentication and authorization boundaries for Fansivibe.
+Define authentication provider, access token validation, user identity,
+current-user resolution, authorization, resource ownership, admin/system
+access. Every user-owned resource must be scoped to the authenticated user.
+Examples: Wardrobe, Scans, Photos, Recommendations, Saved Looks, Feedback,
+Events, Assistant Conversations. Do not implement authentication yet.
+
+### New file
+- `docs/backend/AUTH_AUTHORIZATION_ARCHITECTURE.md` — §1 purpose/scope
+  (auth module M1 is P0 but provider is an open decision; contract + seams
+  defined here); §2 source-of-truth (verified `backend/app/main.py` — live
+  assistant endpoint is unauthenticated); §3 definitions (authenticated
+  user, principal, resource owner, scope, identity = user_id only);
+  §4.1 auth provider (delegated/external, seam `verify_access_token ->
+  Principal` in infrastructure/auth, backend never stores passwords/refresh
+  secrets, decision D-AUTH-1); §4.2 token validation (Bearer in api/deps.py:
+  signature/format, revocation, expiry/audience → 401 + WWW-Authenticate, no
+  token logging); §4.3 user identity (users.user_id UUID is the only identity
+  into domain, FK on user-owned tables, profile lives in M2); §4.4 current-
+  user resolution (get_current_user_id dependency, per-request, threaded
+  through application → domain, no singleton); §4.5 authorization (two
+  layers: identity/scope → 401/403, resource ownership → 404-not-403; 403
+  reserved for authenticated-but-disallowed like user calling admin path);
+  §4.6 resource ownership (OW-1 invariant: insert/query/write/cascade all
+  strictly under authenticated user_id, never client-supplied; child/parent
+  chains inherit ownership); §4.7 admin/system access (separate principal,
+  require_admin dependency, service principal for workers, default closed,
+  audited); §5 resource scope map (all eight required examples with owner
+  column + scope mechanism); §6 current state/sequencing (assistant stays
+  unauthenticated through M1, auth waits on D-AUTH-1 + UC-1/2, no user-owned
+  resource exposed until OW-1 in place); §7 report/assumptions/constraints.
+
+### Key decisions
+- **Identity = user_id only (F-3):** domain logic never sees email, name, or
+  tokens; `users.user_id` is the only identity passed and the FK on every
+  user-owned table (PR-4).
+- **404-not-403 (API-10):** every resource query filters by user_id; another
+  user's resource returns NOT_FOUND (never reveals existence). 403 is
+  reserved for authenticated-but-disallowed (admin path from a user token);
+  401 for unauthenticated.
+- **Auth provider is an open seam (D-AUTH-1):** delegated/external identity,
+  replaceable adapter behind `verify_access_token -> Principal`; backend
+  never stores passwords or refresh secrets. Not implemented until decision
+  + UC-1/UC-2 land.
+- **Admin/system access bounded and audited:** separate require_admin
+  dependency + service principal (worker) with own audience; default closed;
+  system never impersonates a user and never touches user-owned rows outside
+  the ownership-guarded application use cases.
+
+### Validation
+- Ownership invariant OW-1 mapped to every user-owned resource including all
+  eight required examples (Wardrobe wardrobe_items.user_id, Scans
+  analysis_runs.user_id, Photos media.user_id/M16, Recommendations
+  recommendations.user_id/P3, Saved Looks saved_looks.user_id, Feedback
+  feedback.user_id, Events events.user_id, Assistant Conversations
+  conversations.user_id/M4).
+- Consistent with API-9/10, M1 module, ERROR_HANDLING codes, MS10.3, PR-4.
+- git status: docs/backend/ holds the eleven prior STEP 5 docs +
+  AUTH_AUTHORIZATION_ARCHITECTURE.md (all untracked); no code, directories,
+  or files created by this step.
+
+### Remaining
+- STEP 5 design complete (twelve deliverables). Next (per rules §9 M1–M6):
+  M1 folder skeleton without behavior change, M2 typed error contract, M3 SQL
+  migrations, M4 P0 slice; auth module ships with D-AUTH-1 + UC-1/2.
+- Open decisions unchanged: User fields/auth (D-AUTH-1 provider), Today'sLookRecord
+  (P1), RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — Media Upload Architecture (documentation only, no implementation)
+
+Task: design the image/media upload flow for Fansivibe. The backend should
+not unnecessarily proxy large image files through application memory. Flow:
+Flutter → Upload authorization → Object Storage → Media Asset → FastAPI → AI
+Processing (if required) → Domain Result. Consider upload authorization,
+file validation, MIME type, size limits, ownership, processing status,
+deletion, signed URLs, private media, public media. Do not implement.
+
+### New file
+- `docs/backend/MEDIA_UPLOAD_ARCHITECTURE.md` — §1 purpose/scope (PR-8
+  invariant: FastAPI never streams large files through RAM; upload is a
+  direct signed PUT from Flutter to object storage; verified current repo has
+  no media/object-storage code and TABLE_DEFINITIONS records media_assets as
+  a non-table with MediaRef JSONB); §2 source-of-truth; §3 end-to-end flow
+  (POST /v1/media/uploads → signed PUT URL → Flutter PUTs bytes to object
+  storage (zero FastAPI RAM) → POST /complete verifies blob via HEAD/size/
+  hash + inserts MediaRef (TRX-1) → optional async AI processing → domain
+  result); §4 decisions: 4.1 upload authorization (purpose allow-list, owner-
+  scoped signed URL, key prefix users/{user_id}/…, uploads never completed
+  without authenticated owner); 4.2 file validation (two-phase: declared at
+  authorization + post-upload HEAD/checksum verification, never buffered);
+  4.3 MIME allow-list (jpeg/png/webp/heic; client MIME must match verified
+  blob type); 4.4 per-purpose size limits (config-driven, enforced declared +
+  verified via HEAD, oversize → reject + orphan sweep); 4.5 ownership (OW-1,
+  user_id namespaced keys, 404-not-403, children inherit); 4.6 processing
+  status (row-derived lifecycle pending_upload → uploaded → processing →
+  ready|failed, write-once TRX-5, error.code MEDIA/AI/PROCESSING_FAILURE, AI
+  job created only "if required"); 4.7 deletion (owner-scoped logical
+  tombstone + async byte-delete sweep + orphan sweep for aborted/rejected/
+  failed blobs; MS10.3 erasure deletes bytes); 4.8 signed URLs (short-lived
+  PUT at issuance, per-request GET minted by owner, never stored in DB —
+  MediaRef holds key not URL); 4.9 private media (default private, owner-only
+  + audited admin + system service principal, no public CDN, no URLs in
+  logs); 4.10 public media (exception, explicit opt-in for generated output
+  or whitelisted shareable purposes, bytes stay in object storage, revocable);
+  §5 current state/sequencing (no media code today; flow ships only with M16,
+  which is sealed until MS10.3; MediaRef columns exist in schema but no
+  upload endpoints until M16); §6 report/assumptions/constraints.
+
+### Key decisions
+- **No app-memory proxy (PR-8):** large files go direct Flutter → object
+  storage via a pre-authorized signed PUT; FastAPI only mints/validates URLs,
+  does HEAD/size/hash metadata verification at /complete, and records a
+  MediaRef — never buffers bytes.
+- **MediaAsset = non-table:** bytes live in object storage behind MediaRef
+  JSONB columns (PR-8); media_assets is metadata-only, never a first-class
+  table.
+- **Upload-then-insert (TRX-1):** blob placed before DB reference; aborted/
+  rejected/failed blobs are swept by the async orphan-sweep job.
+- **Private by default (MS10.3):** every user media ref is private; signed
+  URLs are short-lived, owner-scoped, minted per-request, never persisted;
+  public media is an explicit, whitelisted, revocable exception (generated
+  output only).
+- **Storage provider is an open seam:** S3-compatible assumed for the
+  adapter; concrete provider + SDK land with M16 (no dependency added now).
+
+### Validation
+- Flow follows the required chain and satisfies "no unnecessary proxying of
+  large images through application memory" (direct signed PUT; FastAPI does
+  metadata-only checks).
+- All ten requested considerations addressed in §4.1–§4.10.
+- Consistent with PR-8, TRX-1, API-44, OW-1, MS10.3, BACKGROUND_JOB_
+  ARCHITECTURE (async processing + sweep, row-derived status).
+- git status: docs/backend/ holds the twelve prior STEP 5 docs +
+  MEDIA_UPLOAD_ARCHITECTURE.md (all untracked); no code, directories, or
+  files created by this step.
+
+### Remaining
+- STEP 5 design complete (thirteen deliverables). Next (per rules §9 M1–M6):
+  M1 folder skeleton without behavior change, M2 typed error contract, M3 SQL
+  migrations, M4 P0 slice; media flow ships with M16 once MS10.3 lands.
+- Open decisions unchanged: User fields/auth (D-AUTH-1 provider), Today'sLookRecord
+  (P1), RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 — Observability (documentation only, no implementation)
+
+Task: design basic observability requirements for Fansivibe. Define logging
+and tracing for request ID, user ID where appropriate, use case, AI
+operation, model version, processing duration, database operation failures,
+external service failures, background jobs. Never log passwords,
+authentication tokens, raw private images, unnecessary sensitive appearance
+data. Do not implement.
+
+### New file
+- `docs/backend/OBSERVABILITY.md` — §1 purpose/scope (structured JSON logs +
+  correlation by request_id; privacy by default MS10.3; verified current
+  backend has no logging at all); §2 source-of-truth; §3 log record envelope
+  (ts, level, request_id, span_id, service, use_case, user_id, job_id/run_id,
+  event, status, duration_ms, allow-listed detail; envelope always complete,
+  optional fields omitted); §4 required events: 4.1 request ID (assigned at
+  API boundary, X-Request-ID honored bounded, threaded explicitly DR-1, span
+  IDs = tracing, no external system); 4.2 user ID where appropriate (user-
+  scoped events only, never with appearance data in same record); 4.3 use
+  case (UC-1…33 enum string + status + duration_ms, INFO/WARN/ERROR, stable
+  enum not free-form); 4.4 AI operation (ai.called/succeeded/failed,
+  capability + model_version + input/output shapes + confidence bucket +
+  failure mode + retry + duration; raw input/output never logged); 4.5 model
+  version (captured at AI seam + analysis run provenance, on every ai.* and
+  job.completed); 4.6 processing duration (duration_ms on every completed op
+  + slow-op WARN threshold); 4.7 DB operation failures (operation name +
+  safe code + request_id; never SQL/params/rows); 4.8 external service
+  failures (service category + failure code + safe status + retry; never
+  URLs/keys/bodies); 4.9 background jobs (job.created/started/retry/
+  completed/failed with job_id/run_id, type, attempt, duration, failure
+  code; never payload; ERROR links owning request_id); §5 levels table
+  (DEBUG/INFO/WARN/ERROR, no FATAL); §6 never-logged absolute boundary ER-4
+  (passwords, auth tokens, raw private images, unnecessary sensitive
+  appearance data + existing ER-0…3 exclusions; enforcement via allow-list-
+  only detail object, structural not aspirational); §7 current state/
+  sequencing (no logging today; M2 ships structured logging config, events
+  per module M4+; no external tracing system); §8 report/assumptions/
+  constraints.
+
+### Key decisions
+- **Request-ID correlation is the tracing model:** one request_id threads
+  through API → application → domain → infrastructure (explicit, DR-1),
+  span_id marks sub-ops; no OTel/Jaeger/external tracing system introduced
+  (BJ-1 philosophy — revisit on measured need).
+- **Allow-list-only detail:** the structured `detail` object drops any field
+  not on the allow-list at the logging layer — the never-logged boundary is
+  structural, not convention.
+- **AI logs shapes, never content:** capability + model_version + token/
+  byte counts + confidence bucket + failure mode + duration; raw input/
+  output, prompts, and images never logged.
+- **user_id loggable only with non-sensitive diagnostics:** never paired
+  with appearance/image data in the same record (no profiling via logs).
+- **Logging config ships at M2** (with typed error contract per
+  ERROR_HANDLING); per-module events at M4+; transport-agnostic JSON format.
+
+### Validation
+- Every required logging subject defined in §4.1–§4.9; never-logged list
+  matches the task exactly (passwords, auth tokens, raw private images,
+  unnecessary sensitive appearance data) + ER-0…3 exclusions.
+- Consistent with ERROR_HANDLING.md (ER-0…3, levels), AI doc (model version,
+  shapes not content), AUTH doc (tokens never), MEDIA doc (no URLs/bytes),
+  JOB doc (row-derived status, no payloads), MS10.3.
+- git status: docs/backend/ holds the thirteen prior STEP 5 docs +
+  OBSERVABILITY.md (all untracked); no code, directories, or files created
+  by this step.
+
+### Remaining
+- STEP 5 design complete (fourteen deliverables). Next (per rules §9 M1–M6):
+  M1 folder skeleton without behavior change, M2 typed error contract +
+  structured logging config, M3 SQL migrations, M4 P0 slice.
+- Open decisions unchanged: User fields/auth (D-AUTH-1 provider), Today'sLookRecord
+  (P1), RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 5 FINAL REVIEW — FastAPI Architecture V1 (documentation only, no implementation)
+
+Task: review all STEP 5 docs, cross-check against STEP 2 (Feature + Data
+Inventory), STEP 3 (Domain Model), STEP 4 (PostgreSQL Design), and the real
+repo. Identify architecture contradictions, unnecessary/missing modules,
+dependency violations, domain/database/AI-provider leakage, API/domain
+coupling, over-engineering, missing security/transaction/background
+boundaries. Do NOT modify the app or implement. Create
+docs/backend/FASTAPI_ARCHITECTURE_V1.md with 19 required sections; conclude
+"STEP 5 COMPLETE — READY FOR API CONTRACT DESIGN" only if internally
+consistent.
+
+### New file
+- `docs/backend/FASTAPI_ARCHITECTURE_V1.md` — §0 cross-check findings
+  (consistency table: layers, DR/F, 33 UC↔32 actions, module↔table
+  ownership, AI-0 honesty vs real llm_backend.py, A3.1 DTO freeze, 12-category
+  errors, TRX-1…8, jobs BJ-0/1, media PR-8, auth OW-1, observability ER-4,
+  migration M1–M6); findings F-1…F-5 (REPOSITORY_ARCHITECTURE.md missing —
+  never created; knowledge-table definition/naming gap categories vs
+  wardrobe_categories between module map M5 and STEP 4 TABLE_DEFINITIONS;
+  R51-note tables sessions/assistant_messages undefined pending decisions;
+  M13 cross-module writes; assistant endpoint unauthenticated); over-
+  engineering audit (none; no Celery/Redis/tracing/empty layers); security-
+  boundary audit (complete); §1 architecture overview (modular monolith, 4
+  layers, invariants K9.1/BAR-0/AI-5/PR-8/OW-1); §2 module map M1–M16 table
+  with owned tables; §3 folder structure tree; §4 dependency direction DR-0…6
+  + F-1…13 + enforcement; §5 repository architecture (F-1: consolidated here —
+  repositories only data path, owner-scoped queries, TRX-5 write-once,
+  knowledge via KnowledgeSource port); §6 application use cases UC-1…33; §7
+  decision engine pipeline; §8 AI integration status table (NOW/FUTURE); §9
+  knowledge integration KN-1 storage-by-lifecycle + F-2; §10 API architecture
+  API-1…44; §11 error handling 12 categories + ER-0…3; §12 background jobs
+  SYNC/ASYNC/OPTIONAL + DB-row jobs + no queues; §13 auth/authorization
+  (D-AUTH-1 seam, 401/403/404, OW-1 all 8 examples, admin/system); §14 media
+  architecture (no app-memory proxy, private-by-default, M16 sealed); §15
+  observability (structured logs, request-ID tracing, ER-4 never-log); §16 P0
+  backend scope (M1–M6, UC-1…14+22); §17 P1 (M7–M11, UC-15…21/23/30/31); §18
+  P2 (M12–M16, UC-24…29/32/33); §19 migration M1–M6 with real file mapping +
+  19 tests; consistency verdict + conclusion line.
+
+### Key decisions
+- **STEP 5 review conclusion: internally consistent** — no contradictions,
+  no unnecessary modules, no dependency violations, no domain/database/
+  AI-provider leakage, no API/domain coupling, no over-engineering, no
+  missing security/transaction/background boundaries found.
+- **Four non-blocking follow-ups to close during contract/M3:** F-1 create
+  the missing REPOSITORY_ARCHITECTURE.md standalone doc (consolidated in §5
+  for now); F-2 finalize knowledge vocabulary table set + naming at M3 (STEP
+  4 defines no knowledge vocab tables though module map M5 owns them); F-3
+  sessions/assistant_messages pending D-AUTH-1 + conversation-retention
+  decisions; F-4 enforce public contracts for M13 cross-module writes.
+- **Conclusion line reached and written:** "STEP 5 COMPLETE — READY FOR API
+  CONTRACT DESIGN".
+
+### Validation
+- Cross-checked against real repo (backend/app: engine/intent/tools/
+  llm_backend/catalog/schemas; 2 endpoints; 19 tests) and STEP 2/3/4 docs
+  (32 actions, 14 tables, TRX-1…8, MS10.3, E1–E10). No app code modified;
+  no backend changes implemented.
+- git status: docs/backend/ holds the fourteen prior STEP 5 docs +
+  FASTAPI_ARCHITECTURE_V1.md (all untracked); no code, directories, or files
+  created by this step.
+
+### Remaining
+- STEP 5 COMPLETE. Next phase: **API Contract Design** (STEP 6), preceded by
+  M1 folder skeleton if implementation order is followed.
+- Open decisions unchanged: User fields/auth (D-AUTH-1 provider), Today'sLookRecord
+  (P1), RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design. Plus follow-ups F-1…F-4 above.
+
 ## STEP 4 — FINAL DATABASE DESIGN REVIEW (documentation only, no implementation)
 
 Task: produce the STEP 4 FINAL DATABASE DESIGN REVIEW. Cross-check all 11 STEP 4
