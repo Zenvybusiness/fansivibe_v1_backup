@@ -1,7 +1,528 @@
 # Fansivibe Current State
 
-Last Updated: 2026-08-05
+Last Updated: 2026-08-09
 Updated By: opencode agent
+
+## STEP 2 — Final Audit Report (documentation only, no code changes)
+
+Task: cross-check all 12 STEP 2 inventory documents against real source
+(app_router.dart, learning_service.dart, onboarding_data.dart, catalog.py, mock
+data files) and consolidate into one final report for the domain-model phase.
+
+### New file
+- `docs/architecture/STEP_2_FINAL_REPORT.md` — 14 sections (feature map, screen
+  map, data map, feature→data relationships, ownership, AI data flow, storage,
+  API, state/edge cases, UI/UX changes, architecture gaps, P0/P1/P2, open
+  questions, Step 3 recommendations) + audit summary.
+
+### Audit verification (all spot-checks passed against source)
+- Style score formula: `60 + wardrobe.length.clamp(0,20) + savedLooks.length*2
+  .clamp(0,20)` (learning_service.dart).
+- 24-item wardrobe mirrors across defaultWardrobe / WardrobeMockData / catalog.py.
+- allCapabilities: Face Analysis active:true (:83), Color Analysis active:true
+  (:94); others false — marketing copy only, no computation.
+- 8 signal types (5 literal in learning_service `_mutate`, 3 via assistant).
+- mockEvents = 4; splash registered but unreachable; savedLooks: List<String>;
+  inline first-visit home branches; greeting default name 'Alex'.
+
+### Erratum (reported, not silently fixed)
+- Docs claimed **7** routes render FansiErrorView; the router has **8** fallback
+  sites (app_router.dart :158, :212, :277, :294, :313, :339, :367, :377).
+  hairstyle-details uses blank SizedBox (:257). Count-only error, no scope
+  impact; flag in section 13 for correction on next doc edit.
+
+### Validation
+- 12/12 inventory documents present and structured; high-risk claims re-verified.
+- No code files changed; documentation only.
+- **STEP 2 complete — READY FOR DOMAIN MODEL DESIGN.**
+
+## STEP 2 — Data Model Inventory (documentation only, no code changes)
+
+Task: inventory every data/model representation in the real Fansivibe project
+(Dart models, DTOs, request/response models, local objects, mock data,
+repositories, services, backend Pydantic schemas, catalog JSON) before
+designing the production database/backend.
+
+### New file
+- `docs/architecture/DATA_MODEL_INVENTORY.md` — complete inventory of all ~90
+  data/model representations across 18 sections: per-object name, path, purpose,
+  fields, types, required/optional, owner, source, flags (UI-only/domain/API/
+  persisted/AI-generated/historical/ephemeral/seed), related features, and
+  duplicates. Ends with the requested 7-category final analysis (duplicated
+  concepts, UI-only models, domain-like models, API DTOs, mock-only models,
+  missing data concepts, ambiguous ownership).
+
+### Key verified findings
+- **Only persistence:** `UserModel` JSON blob (SharedPreferences key
+  `fansivibe.user_model.v1`) via `LocalStore`; seeded with `defaultWardrobe`.
+- **Only remote API:** Assistant → FastAPI `/v1/assistant/chat`; DTOs in
+  `assistant/data/models.dart` mirror `backend/app/models/schemas.py` 1:1.
+- **Only repository abstraction:** `LearningRepository` → `LearningService`.
+- **Dead code:** `AnalysisResult` + `OnboardingResult` (onboarding_data.dart)
+  are defined but never referenced (verified by grep).
+- **UserEvent is unpersisted** — held in EventListScreen state, lost on restart.
+- **SavedLooksScreen shows `ProfileMockData.savedLooks`, not persisted
+  `UserModel.savedLooks`** (3 saved-look shapes, none reading the persisted list).
+- **Cross-codebase mirrors:** the 24-item wardrobe exists 3× (defaultWardrobe,
+  WardrobeMockData.items, backend catalog.WARDROBE); the same 5 looks exist in 4
+  shapes (Flutter UI mocks, offline _LookCard, backend catalog); the rules engine
+  exists twice (OfflineAssistant vs backend engine/intent/tools).
+- 4 overlapping occasion vocabularies and 4 style vocabularies; no shared config.
+- Profile screen shows mock StyleDnaData disconnected from persisted FaceProfile.
+
+### Validation
+- All entries verified against source (fields, line numbers, usage).
+- No code files changed; documentation only.
+
+## STEP 2 — Screen Data Inventory (documentation only, no code changes)
+
+Task: complete the per-screen inventory for the real Fansivibe app (Flutter
+source at `newproject/flutter_application_1`) before designing the production
+database/backend.
+
+### New file
+- `docs/architecture/SCREEN_DATA_INVENTORY.md` — complete inventory of all 43
+  screens + RouterShell + route-level missing-data fallbacks. Per screen:
+  file path, route name/path, entry point + `state.extra`, main purpose,
+  widgets/components, data displayed, user actions, current data source
+  (mock/local/remote/ephemeral/route extra), loading/empty/error states,
+  navigation destinations, widget tests, cross-feature dependencies — plus the
+  requested arrow structure (Screen → User action → Data displayed → Data
+  source → Required future backend data → Related domain entities).
+
+### Key verified findings
+- **43 routed/inline screens** across 13 features + 5-tab `RouterShell`.
+- **Only remote data screen:** Assistant (`POST $ASSISTANT_BASE_URL/
+  v1/assistant/chat`, default `http://localhost:8000`, offline fallback).
+- **Only direct Local read:** WardrobeScreen (`LearningService.instance.wardrobe`).
+- **Route extras carry live data** (looks, items, events, prefs, recs); 7 routes
+  render a shared `FansiErrorView` fallback when `extra` is null; `hairstyle-details`
+  returns `SizedBox` instead.
+- **Most screens have no loading/empty/error states** (static mock); loading only
+  in timer-driven `*ProcessingScreen`s + `AiAnalysisScreen`; empty states only on
+  Discover, Wardrobe grid, EventList.
+- **Many "save" actions are SnackBar-only** (item edit/delete, hairstyle/grooming
+  save, outfit save/regenerate, sign out). Real saves = learning signals only.
+- **Profile data disconnected** from `UserModel`; SavedLooksScreen shows mock
+  `ProfileMockData.savedLooks`, not persisted `savedLooks`.
+- **First-time screens are inline HomeScreen branches** (not routed);
+  `/splash` is registered but unreachable.
+- **Test gaps:** onboarding screens, FirstTimeHomeScreen, StylistScreen have no
+  dedicated widget tests (baseline 342 passing unchanged).
+
+### Validation
+- Verified claims against source (splash unreachable, no FirstTimeHome/Stylist
+  test files, assistant base URL default, SavedLooks mock source).
+- No code files changed; documentation only.
+
+## STEP 2 — Feature Data Matrix (documentation only, no code changes)
+
+Task: for every major feature answer the 12 data questions (display /
+user-create / user-modify / AI-consume / AI-generate / persist / temporary /
+cross-feature / external / PostgreSQL / object-storage / cache-only) and
+produce a summary matrix.
+
+### New file
+- `docs/architecture/FEATURE_DATA_MATRIX.md` — 13 features (Onboarding, Home,
+  Wardrobe, Assistant, Stylist, Discover, Outfit Scan, Outfit Builder,
+  Hairstyle, Grooming, Events, Profile + sub-features, Learning core) × 12
+  questions, plus a summary matrix, a consolidated future storage mapping
+  (PostgreSQL / object storage / cache-only), and cross-feature ownership notes.
+
+### Key verified findings (all checked against source)
+- **Only 3 feature → Learning write channels exist today:** `addItem`
+  (Wardrobe:301), `addPreferredOccasion` (Events:116), `addSavedLook`
+  (Discover:327, OutfitScan:260, Home DailyOutfit:1172). Assistant writes only
+  `recordSignal` (3 kinds). Everything else persists nothing.
+- **`setFace`/`setStyleType` are declared but never called** by any screen —
+  FaceProfile is never populated; Hairstyle/Grooming/Profile style DNA all
+  consume empty/mock face data.
+- **Only user flag:** `UserSession.hasSavedWardrobeItem` written by Wardrobe,
+  read by Home for the first-visit gate.
+- **Outfit Builder saves nothing** — "Save Outfit" is snackbar-only, unlike
+  Discover/Outfit Scan/Home which call `addSavedLook`.
+- **Events persist only the occasion vocabulary**, not the event rows
+  (widget state only, lost on restart).
+- Consolidated targets: PostgreSQL = split the UserModel blob + events + scan/
+  recommendation results + score/streak history + conversations; object storage =
+  wardrobe/look/face/outfit/avatar images; cache-only = processing stages,
+  filters, static catalogs, offline engine outputs.
+
+### Validation
+- All `LearningService` call sites re-grepped this step; every persist claim
+  has a file:line reference.
+- No code files changed; documentation only.
+
+## STEP 2 — Data Ownership Analysis (documentation only, no code changes)
+
+Task: for every important data concept determine who owns/creates/modifies/reads
+it, whether it is user-specific/system-wide, AI-generated, knowledge, external,
+historical, deletable, and what references it — and classify each entity into
+one of USER_OWNED / SYSTEM_OWNED / AI_GENERATED / KNOWLEDGE / EXTERNAL /
+DERIVED / HISTORICAL.
+
+### New file
+- `docs/architecture/DATA_OWNERSHIP.md` — master classification table for all
+  entities, full 12-question detail blocks for the domain entities (UserModel,
+  WardrobeEntry, FaceProfile, LearningSignal, UserEvent, looks family, saved
+  looks, AssistantUserContext, AssistantMessage, backend DTOs, backend catalog),
+  compact per-feature ownership tables for the UI-only/mock/config models, and
+  cross-cutting ownership rules (single persistence owner, user-vs-system split,
+  AI-output-never-truth, history-vs-snapshot, derived-is-recomputable,
+  deletion matrix) + missing-concepts and ambiguous-ownership sections.
+
+### Key verified findings
+- **Only one durable owner today:** `features/learning` (the `UserModel` blob).
+  Everything else is mock-reader or `LearningService` writer.
+- **Classification highlights:** UserModel/WardrobeEntry/FaceProfile/UserEvent/
+  savedLooks = USER_OWNED; LearningSignal = HISTORICAL (only append-only data);
+  catalogs/options/vocabularies/plans = KNOWLEDGE; recommendations/insights/
+  analysis/matches = AI_GENERATED (never a source of truth — persist inputs +
+  outcomes, keep analysis cache-only); styleScore/StyleDnaData/WardrobeContext/
+  ranks/saved-look previews = DERIVED (recomputable → resolves many duplicate
+  families); schemas/catalog-dup/FaceScanCheck/processing-stages/UserSession
+  flag = SYSTEM_OWNED.
+- **Deletion matrix:** USER_OWNED deletable (no UI today), HISTORICAL
+  append-only, KNOWLEDGE via content mgmt, DERIVED/AI_GENERATED never persisted.
+- **Missing concepts** (pending DB design): User/auth, score/streak history,
+  event rows, achievements, image/media, recommendation history, subscription,
+  saved-look payload, today's-look snapshot — classifications assigned for the
+  future design.
+- **Ambiguous ownership** carried forward from the data inventory: UserSession
+  flag, UserEvent, saved-look 3-shape split, 4× vocabularies, offline-vs-backend
+  engine dup, AssistantUserContext DTO, dead AnalysisResult/OnboardingResult.
+
+### Validation
+- Every classification cross-checked against `DATA_MODEL_INVENTORY.md` refs and
+  the verified call sites; no new claims about behavior.
+- No code files changed; documentation only.
+
+## STEP 2 — AI Data Flow (documentation only, no code changes)
+
+Task: map INPUT → PROCESSING → KNOWLEDGE → DECISION → OUTPUT → EXPLANATION →
+USER ACTION → FEEDBACK for every AI-related feature, distinguishing IMPLEMENTED
+vs MOCKED vs PLANNED vs BACKEND PROTOTYPE behavior (nothing claimed without
+verification), and document the 10 requirement dimensions per AI feature.
+
+### New file
+- `docs/architecture/AI_DATA_FLOW.md` — Part A: the assistant (the only
+  implemented pipeline, backend rules engine + offline mirror + optional
+  Ollama text enrichment) with full flow + requirements table; Part B: 9
+  mocked/planned AI features (outfit scan, outfit builder, hairstyle, grooming,
+  discover matching, home cards, wardrobe insight, profile style DNA,
+  onboarding analysis) each with flow + requirements; Part C: consolidated
+  11-row requirements matrix; Part D: verified-facts caveats.
+
+### Key verified findings (all from source)
+- **Only implemented AI behavior = the Assistant**: backend `engine.py` →
+  `intent.py` classify/detect_occasion → `tools.py` (catalog-backed) →
+  dialogue policy; optional Ollama (`llama3.1:8b`) rewrites reply **text only**
+  (`llm_backend.py`), off by default; on-device `OfflineAssistant` mirrors the
+  rules when the backend is unreachable. Feedback = signals only
+  (`assistant_message`, `suggestion_opened`, `assistant_navigation`); no rating
+  UI exists.
+- **Everything else is static mock** — outfit scan/builder, hairstyle,
+  grooming, discover matching, today's look/score/streak/insight, style DNA:
+  verified no computation, no model, no confidence behind the fields.
+- **`allCapabilities` claims Face/Color Analysis are "active" — no such
+  computation exists** (marketing config only).
+- **No confidence or structured explanation is ever computed/transmitted**; card
+  scores are catalog constants; explanation is prose/static reason lists.
+- **FaceProfile is never written** (`setFace` uncalled) → all face-dependent
+  AI paths (hairstyle/grooming/assistant branch/style DNA) run on defaults/mocks.
+- **Media never persists** (transient file paths only); **historical gaps**
+  (score/streak/rec history, event rows, saved-look payload) block any future
+  real model.
+
+### Validation
+- Re-read backend `engine.py`, `intent.py`, `tools.py`, `llm_backend.py`,
+  `assistant_client.dart`, `assistant_service.dart`, `offline_assistant.dart`
+  this step; every status claim traces to code.
+- No code files changed; documentation only.
+
+## STEP 2 — Storage Inventory (documentation only, no code changes)
+
+Task: for every important data object assign a future storage category
+(PostgreSQL relational / PostgreSQL JSONB / object storage / cache / external
+service / temporary processing / static knowledge), record current location,
+reason, and retention — with special attention to photos, scans, images,
+generated images, AI analysis results, recommendations, knowledge data, weather,
+and assistant conversations.
+
+### New file
+- `docs/architecture/STORAGE_INVENTORY.md` — 7-category legend; Part 1: full
+  treatment of the 10 special-attention objects; Part 2: master table
+  (Data | Current Location | Future Storage | Reason | Retention) covering ~40
+  objects; Part 3: category consolidation; Part 4: 7 design implications.
+
+### Key verified findings (all from source)
+- **No real images anywhere:** `FansiImageWell` is a gradient placeholder; the
+  only `imageUrl`s are bundled `assets/images/...` strings (discover). Captured
+  camera images are transient `xFile.path` locals (outfit_scan:199) — nothing is
+  stored, so object storage has zero real data today.
+- **Weather is a fake literal** ('68°F • Partly Cloudy', home_mock_data:63,
+  daily_outfit_mock_data:65) — no API; classified external-service + cache, never
+  a DB table.
+- **Conversations are transient** (`AssistantService._messages`, clear() drops
+  them); only signals persist. Persisting them is an undecided privacy/product
+  choice (JSONB if retained, else processing-temporary).
+- **UserModel blob mixes categories** — future split: JSONB aggregate + relational
+  rows (wardrobe/events/signals/saved-look refs) + object storage (images).
+- **Knowledge/catalog is the natural category-7 home** for the 3–4× duplicated
+  vocabularies/catalogs, resolving the duplicate-family problem without a DB.
+- **AI analysis results are recomputable snapshots** (JSONB linked to image+run)
+  or cache-only unless the user saves them; durable inputs = user data + catalog +
+  source image.
+- **Retention principle:** blobs follow user lifecycle; derived = evictable;
+  history = append-only with rules; content = versioned, never user-tied.
+
+### Validation
+- Re-verified image handling (FansiImageWell, discover asset paths, camera
+  path), weather literals, and conversation lifecycle this step.
+- No code files changed; documentation only.
+
+## STEP 2 — Action → Backend API Inventory (documentation only, no code changes)
+
+Task: map important user actions to future backend operations. For each action:
+screen, user action, required input, data read, data written, backend
+responsibility, expected response, error conditions, authentication requirement.
+
+### New file
+- `docs/architecture/ACTION_API_INVENTORY.md` — current-state annotations
+  (NOW = local/stub/mock, AUTH none today); Part 1: master matrix of 32 actions
+  → future backend operation; Part 2: per-action detail (all 9 fields);
+  Part 3: cross-action error-condition summary; Part 4: 7 derived requirements.
+
+### Key verified findings (all from source)
+- **Only one remote call exists** (`POST /v1/assistant/chat`); all other
+  actions are local (LearningService/UserModel) or snackbar stubs; no auth
+  anywhere (account creation just navigates home, account_creation_screen.dart:74).
+- **Four clusters collapse to shared future endpoints:** saved looks
+  (DailyOutfit:1172, LookDetails:327, OutfitAnalysis:260, Hairstyle/Grooming
+  Save Style stubs → POST /looks/saved), outfit generation (EventDetails:317,
+  Builder generate/regenerate → POST /outfits/generate), analysis (scan/
+  hairstyle/grooming → POST /analysis/*), profile (Preferences/Settings →
+  PATCH /users/me + PUT preferences).
+- **Stubs that write nothing today:** edit/delete wardrobe item, edit/delete
+  event ("coming soon"), Save Outfit, Save Style (hairstyle/grooming), Sign
+  Out, profile/preferences/settings, subscribe/upgrade.
+- **Event "Generate Outfit" loses context** — it navigates to the builder with
+  NO event data (event_details_screen.dart:317); future endpoint must seed the
+  occasion.
+- **Feedback is a missing feature** — no rating/feedback UI exists; documented
+  as a requirement gap (the task's example action), not observed behavior.
+- **Auth is a prerequisite for every future relational write**; until it lands
+  the on-device UserModel blob stays the source of truth.
+
+### Validation
+- Re-read add_event_screen (inputs + only addPreferredOccasion persisted),
+  account_creation_screen (mock create/social/local), wardrobe add-item
+  handler, event details generate/edit this step; every action tagged
+  local/stub/mock against a file:line.
+- No code files changed; documentation only.
+
+## STEP 2 — State & Edge-Case Inventory (documentation only, no code changes)
+
+Task: for each major feature identify the 10 UI states (initial/loading/
+success/empty/error/offline/unauthorized/permission-denied/partial/retry), the
+camera/AI edge cases, and for each edge case record current UI behavior,
+required future backend behavior, and whether a UI change is necessary.
+
+### New file
+- `docs/architecture/STATE_EDGE_CASE_INVENTORY.md` — verified current-state
+  baseline; Part 1: per-feature state tables (13 features × 10 states with
+  current/future/UI-change columns); Part 2: camera/AI edge-case table (9
+  cases); Part 3: required-change summary (UI changes only — no redesign).
+
+### Key verified findings (all from source)
+- **Only OutfitScanScreen has a real camera** with a full state machine
+  (initial/loading/ready/permissionDenied/unavailable/error,
+  outfit_scan_screen.dart:19). Hairstyle `FaceScanScreen` is a StatelessWidget
+  with a placeholder + button that just navigates (face_scan_screen.dart:136);
+  onboarding `PhotoCaptureScreen` is simulated capture with a fake photoPath
+  (photo_capture_screen.dart:47). No camera, no permission flow in either.
+- **Capture failure silently proceeds:** OutfitScan's `_handleCapture` catch
+  still navigates to processing, losing the image (outfit_scan_screen.dart:202).
+- **No loading/error/empty states** on most screens (static mocks); loading only
+  in timer-driven Processing/AiAnalysis screens + camera; empty only on
+  Discover/Wardrobe/EventList; error only via FansiErrorView (7 routes, null
+  extra) + camera + add-item.
+- **Only Assistant handles offline** (OfflineAssistant fallback); no auth
+  anywhere (unauthorized = n/a); no explicit retry UI; FaceProfile never written
+  → hairstyle/grooming/assistant silently use defaults (insufficient-data case).
+- **No confidence computed anywhere** → low-confidence edge case is purely
+  future; AI processing "cannot fail" today (fixed timers).
+- Required UI changes identified (stubs to wire, empty/loading/error/retry
+  states, capture-block, camera for face/onboarding, event persistence,
+  feedback gap) — none implemented.
+
+### Validation
+- Re-read outfit_scan_screen (camera state machine + capture), face_scan_screen
+  (no camera), photo_capture_screen (simulated), router FansiErrorView
+  fallbacks, add-wardrobe-item error this step; all claims trace to source.
+- No code files changed; documentation only.
+
+## STEP 2 — UI/UX Gap Report (documentation only, no code changes)
+
+Task: review the real UI/UX against the Feature + Data Inventory and report only
+genuine gaps that could prevent the real product from working. For each issue:
+screen, component, problem, why it matters, required change, scope, component-
+vs-screen, priority (UI_CHANGE_REQUIRED / UI_CHANGE_RECOMMENDED /
+NO_UI_CHANGE). No redesign; local changes only.
+
+### New file
+- `docs/architecture/UI_UX_GAP_REPORT.md` — priority legend (required/recommended/
+  no-change), summary table of 23 issues, per-issue detail blocks, grouped notes.
+  9 required, 11 recommended, 3 no-change.
+
+### Key verified findings
+- **Required (9):** capture failure in Outfit Scan silently proceeds without the
+  image (outfit_scan_screen.dart:202); Save Outfit / Save Style / edit-delete
+  item / edit-delete event are SnackBar/"coming soon" stubs; Profile dashboard
+  and Saved Looks show mocks disconnected from the persisted UserModel; FaceScan
+  has no camera (StatelessWidget + placeholder); onboarding PhotoCapture is
+  simulated with a fake photoPath; hairstyle-details renders a blank SizedBox on
+  missing extra (not FansiErrorView).
+- **Recommended (11):** fake weather/insight literals with no data slot; image
+  wells can't render imageUrl; invisible assistant offline fallback; greeting
+  default name; session-flag first-visit gate; missing loading/empty/error/retry
+  states (tie to each backend binding); no feedback/rating feature; no privacy
+  explanation on capture flows; hardcoded "facts" (match %, insight stats)
+  presented as real; route-extra-only detail screens block deep links/fetch-by-id.
+- **No change (3):** duplicated quick-action config (consistent today), 4
+  identical processing-stage widgets (work correctly), design-system tokens used
+  consistently (no violations found).
+- **No full-app restructuring is recommended anywhere** — every fix is local
+  (component) or whole-screen within one feature.
+
+### Validation
+- Re-checked capture handler, router fallbacks, saved-looks source, profile mock
+  source, settings feedback toggle this step; each issue traces to file:line.
+- No code files changed; documentation only.
+
+## STEP 2 — Architecture Gap Report (documentation only, no code changes)
+
+Task: analyze the real architecture against the discovered feature/data
+requirements across 13 areas (Flutter data flow, model/API/repository/domain
+boundaries, backend services, persistence, AI, knowledge, media storage, auth,
+authorization, error handling). Classify every finding KEEP / CHANGE_LATER /
+REQUIRED_BEFORE_BACKEND / FUTURE. No changes, no replacement, no dependencies.
+
+### New file
+- `docs/architecture/ARCHITECTURE_GAP_REPORT.md` — Part 1: 42 findings across
+  the 13 areas (8 KEEP, 15 REQUIRED_BEFORE_BACKEND, 12 CHANGE_LATER, 7 FUTURE);
+  Part 2: 8 significant findings in detail; Part 3: consolidated classification;
+  Part 4: sequencing guidance (before / with-after backend / later).
+
+### Key verified findings (synthesis of the whole inventory)
+- **KEEP:** single persistence owner (learning), mirrored DTO contract, repo
+  pattern, boundary conversion, feature-first structure, backend as prototype,
+  honest AI status, UI-only duplicates that work.
+- **REQUIRED_BEFORE_BACKEND (15):** ownership of session flag/events/saved looks
+  (F1.4/D6.2); canonical domain models (M2.1 — 11 duplicate families); API +
+  typed-error contract (A3.2/A3.3/E13.1); per-feature repository interfaces
+  (R4.2); blob split (P7.1); backend = single knowledge source (K9.1); media
+  privacy policy (MS10.3); auth + anonymous→sync (AU11.1/AU11.2); user scoping
+  (AZ12.3); LocalStore/store failure handling (F1.6/E13.3).
+- **CHANGE_LATER (12):** screens→repos, route extras→repos, screen/service
+  decoupling, dead models, AssistantUserContext, view models, engine dedup, face
+  pipeline, knowledge-vs-AI blur, versioned config, blob migration, UI states.
+- **FUTURE (7):** contract versioning, service boundaries, new entities (events/
+  history/saved-look payload), confidence/explanation, media pipeline + object
+  storage, image refs, multi-device authorization.
+- **Sequencing:** decisions before backend; screen migration with backend
+  bindings; new capabilities later. No full-app restructure recommended.
+
+### Validation
+- Each finding cross-references the companion inventory it derives from;
+  counts verified against the finding list.
+- No code files changed; documentation only.
+
+## STEP 2 — MVP Scope & Priority Map (documentation only, no code changes)
+
+Task: synthesize all inventory documents into a final implementation priority
+map (P0–P3), plus what must not be built, what stays mocked, what can be
+postponed, what blocks the backend, and what can be developed independently.
+Prioritization by core value / dependencies / user journey / architecture
+validation / data foundations / existing UI / actual product scope — not by
+technical convenience.
+
+### New file
+- `docs/architecture/MVP_SCOPE.md` — Part 1: P0 vertical slice ("Sign in → my
+  wardrobe → my personalized assistant"); Part 2: P1 next-core; Part 3: P2
+  supporting; Part 4: P3 future; Part 5: build/not-build lists (5 categories);
+  Part 6: sequencing summary.
+
+### P0 vertical slice (first production vertical slice)
+- Auth (register/login/social + anonymous→sync); canonical persisted domain
+  models; typed API + error contract; user-model sync API (blob → JSONB +
+  relational split); per-feature repository interfaces (learning/wardrobe/
+  assistant); wardrobe CRUD to server; authenticated assistant endpoint;
+  backend = knowledge source for P0 vocabularies; ownership fixes (session flag
+  → user model); LocalStore failure path.
+- Rationale: delivers core value with already-working UI (Wardrobe, Assistant)
+  and validates every REQUIRED_BEFORE_BACKEND finding in one slice.
+
+### Key decision points
+- **P1:** saved looks end-to-end, events CRUD, profile to real data, today's
+  look, full knowledge rollout, capture integrity + privacy copy, feedback
+  actions, score/streak history, face-profile pipeline.
+- **P2:** discover feed, analysis contract, builder generation, insights,
+  settings, offline queue, media pipeline, screen states, subscription, cleanup.
+- **P3 (future/optional):** real AI models, generated images, real matching,
+  weather, multi-device/sharing, versioning, XP/achievements, recommendation
+  analytics, onboarding face AI.
+- **Must NOT build yet:** real AI, media pipeline/object storage, weather,
+  multi-device authz, contract versioning, speculative UI states, non-P0
+  entities.
+- **Stays mocked:** AI analysis results, streak/score/rank/XP, weather literal,
+  plans/topics/settings lists, generated images.
+- **Blocks backend:** the 9-decision prerequisite set (auth, canonical models,
+  contract, repositories, ownership, storage split, knowledge source, media
+  privacy, user scoping).
+- **Independent (non-blocking):** local UI gap fixes (capture block, edit/delete
+  stubs, Save stubs, saved-looks read, blank fallback, offline notice, privacy
+  copy, neutral copy, greeting), dead-model cleanup, engine spec dedup, camera
+  hardening, tests, repository interface definitions.
+
+### Validation
+- Priorities cross-checked against ACTION_API_INVENTORY, ARCHITECTURE_GAP_REPORT
+  (REQUIRED_BEFORE_BACKEND set), STORAGE_INVENTORY, and UI_UX_GAP_REPORT.
+- No code files changed; documentation only.
+- **STEP 2 (feature + data inventory) complete:** 12 documents produced in
+  docs/architecture/. Next phase (per MVP_SCOPE.md) begins with the P0
+  decision set, not implementation.
+
+## STEP 2 — Feature + Data Inventory (documentation only, no code changes)
+
+Task: inventory every feature that actually exists in the repo (Flutter app +
+backend) before designing the production database/backend.
+
+### New file
+- `docs/architecture/FEATURE_INVENTORY.md` — complete inventory of the 14
+  verified features (15 with the empty Scan Center scaffolding) + cross-cutting
+  layers (router, theme, shared components). Per feature: purpose, status,
+  screens, widgets, models, services, repositories, API/backend, tests, data
+  usage (mock/local/remote/ephemeral), limitations, dependencies. Classified
+  P0/P1/P2/P3. Ends with "exists vs documented-but-absent" classification.
+
+### Key verified findings (source of truth for the DB/backend phase)
+- Only persisted data: `UserModel` blob (SharedPreferences) in `features/learning`.
+- Only remote data: Assistant → FastAPI `/v1/assistant/chat`; offline rules fallback.
+- Everything else is static `const` mock data or ephemeral widget state.
+- Backend has **no DB, no auth, no user store**; catalog is a static mirror of
+  Flutter mocks.
+- Duplicate models to reconcile before DB design: wardrobe item ×3, style DNA ×3,
+  processing stage ×4, saved look ×3, today's-look ×2, occasion vocabulary ×4.
+- `features/scan_center/` is empty scaffolding (not routed).
+- `lib/app/main_shell.dart` no longer exists (CURRENT_STATE doc was stale).
+- Docs-only, not implemented: `core/` layer, `auth/`, `style_profile/`,
+  PostgreSQL (DEC-004 accepted direction), feature flags, future product areas.
+
+### Validation
+- `flutter analyze`: 0 errors, 7 pre-existing infos (untouched files)
+- 342 test declarations (matches documented 342 passing baseline)
+- No code files changed.
 
 ## Changes Made — Reusable Card Design System (Hero / Mini / Insight)
 

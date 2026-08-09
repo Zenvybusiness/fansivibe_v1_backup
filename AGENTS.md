@@ -64,6 +64,43 @@ Do not read every document for every small task.
 - Feature widgets stay in their feature.
 - Move widgets to `shared/` only when reuse is real.
 
+## UI Change Safety Rule
+
+This project contains a deliberately designed and tested UI. Never perform
+broad UI refactoring.
+
+If a UI/UX issue is discovered:
+
+1. Identify the exact screen.
+2. Identify the exact component.
+3. Explain why the change is necessary.
+4. Modify only that component/screen.
+5. Preserve all surrounding layout and behavior.
+6. Preserve navigation.
+7. Preserve reusable components.
+8. Preserve design tokens.
+9. Preserve the 65% image / 35% content card rule.
+10. Preserve the Digital Atelier design system.
+11. Run the relevant existing tests.
+12. Do not modify unrelated screens.
+
+If the issue can be solved without changing UI, do not change UI.
+
+## Card Design Rule
+
+Fansivibe visual recommendation cards use approximately:
+
+- 65% visual/image area
+- 35% content area
+
+Do not change this proportion unless the specific component genuinely requires
+a different card family.
+
+Do not globally modify card proportions.
+
+If a card requires more information, move the additional information to a
+detail screen rather than making the card content-heavy.
+
 ## Safety
 
 Never:
