@@ -4,6 +4,7 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -29,7 +30,8 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
     if (provided != null) {
       _service = provided;
     } else {
-      _service = HairstyleService();
+      _service =
+          HairstyleService()..attachLearning(LearningService.instance);
       _ownsService = true;
     }
     _service.addListener(_onServiceChanged);

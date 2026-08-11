@@ -137,6 +137,57 @@ void main() {
     });
   });
 
+  group('HairstyleClient.listRuns', () {
+    test('parses the list envelope', () async {
+      final client = HairstyleClient(
+        client: MockClient((request) async {
+          expect(request.url.path, '/v1/analysis/runs');
+          return http.Response(
+            jsonEncode({
+              'items': [
+                {
+                  'run_id': 'run-1',
+                  'run_type': 'hairstyle',
+                  'status': 'completed',
+                  'created_at': '2026-08-11T10:00:00Z',
+                },
+                {
+                  'run_id': 'run-2',
+                  'run_type': 'hairstyle',
+                  'status': 'pending',
+                  'created_at': '2026-08-11T11:00:00Z',
+                },
+              ],
+              'page': 1,
+              'page_size': 20,
+              'total': 2,
+            }),
+            200,
+          );
+        }),
+      );
+
+      final page = await client.listRuns();
+
+      expect(page, isNotNull);
+      expect(page!.items.length, 2);
+      expect(page.items.first.runId, 'run-1');
+      expect(page.items.first.isCompleted, isTrue);
+      expect(page.items.last.isCompleted, isFalse);
+      expect(page.total, 2);
+    });
+
+    test('returns null on failure', () async {
+      final client = HairstyleClient(
+        client: MockClient((request) async => http.Response('', 500)),
+      );
+
+      final page = await client.listRuns();
+
+      expect(page, isNull);
+    });
+  });
+
   group('HairstyleClient.saveLook', () {
     test('returns true on 201 and sends idempotency key', () async {
       final client = HairstyleClient(

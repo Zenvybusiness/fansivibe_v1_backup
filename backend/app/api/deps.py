@@ -9,7 +9,6 @@ contract change.
 
 from __future__ import annotations
 
-import os
 from uuid import UUID
 
 from fastapi import Depends
@@ -17,10 +16,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.errors import ApiError, authentication_error
+from app.config.settings import get_settings
 from app.infrastructure.db.models import UserState, Users
 from app.infrastructure.db.session import get_db
 
-DEV_TOKEN = os.environ.get("FANSIVIBE_DEV_TOKEN", "dev")
+DEV_TOKEN = get_settings().dev_token
 _DEV_PROVIDER = "dev"
 _DEV_SUBJECT = "dev-user"
 _DEV_DISPLAY_NAME = "Dev User"

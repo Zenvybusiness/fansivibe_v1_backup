@@ -11,7 +11,7 @@ from fastapi import FastAPI
 
 from app.ai import engine
 from app.api import errors
-from app.api.routers import analysis, looks
+from app.api.routers import analysis, looks, users
 from app.models.schemas import AssistantReply, AssistantRequest
 
 app = FastAPI(title="Fansivibe AI", version="0.1.0")
@@ -19,6 +19,7 @@ app = FastAPI(title="Fansivibe AI", version="0.1.0")
 errors.register_error_handlers(app)
 app.include_router(analysis.router)
 app.include_router(looks.router)
+app.include_router(users.router)
 
 
 @app.get("/health")

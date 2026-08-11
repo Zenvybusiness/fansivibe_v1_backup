@@ -86,6 +86,14 @@ class HairstyleService extends ChangeNotifier {
     return resolved;
   }
 
+  /// Lists the user's analysis runs (summary rows).
+  ///
+  /// Returns an empty list when the backend is unreachable.
+  Future<List<AnalysisRun>> listRuns() async {
+    final page = await _client.listRuns();
+    return page?.items ?? const [];
+  }
+
   /// Saves a recommendation to the user's saved looks.
   ///
   /// Uses an idempotency key so retries never create duplicates. Returns true

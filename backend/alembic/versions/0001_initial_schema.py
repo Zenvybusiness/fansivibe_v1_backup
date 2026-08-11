@@ -216,6 +216,16 @@ def _tables() -> None:
             name="ck_analysis_runs_status",
         ),
     )
+    op.create_index(
+        "ix_analysis_runs_user_id_created_at",
+        "analysis_runs",
+        ["user_id", "created_at"],
+    )
+    op.create_index(
+        "ix_analysis_runs_user_id_run_type_created_at",
+        "analysis_runs",
+        ["user_id", "run_type", "created_at"],
+    )
     op.create_table(
         "saved_looks",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
@@ -234,6 +244,11 @@ def _tables() -> None:
         sa.CheckConstraint("char_length(title) BETWEEN 1 AND 200", name="ck_saved_looks_title_len"),
         sa.UniqueConstraint("user_id", "idempotency_key", name="uq_saved_looks_idempotency"),
     )
+    op.create_index(
+        "ix_saved_looks_user_id_created_at",
+        "saved_looks",
+        ["user_id", "created_at"],
+    )
     op.create_table(
         "learning_signals",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
@@ -243,6 +258,11 @@ def _tables() -> None:
         sa.Column("context", JSONB(), nullable=True),
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.CheckConstraint("char_length(label) BETWEEN 1 AND 200", name="ck_learning_signals_label_len"),
+    )
+    op.create_index(
+        "ix_learning_signals_user_id_occurred_at",
+        "learning_signals",
+        ["user_id", "occurred_at"],
     )
 
 
@@ -307,8 +327,12 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute(sa.text("DROP FUNCTION IF EXISTS complete_analysis_run(uuid, uuid, text, jsonb)"))
+    op.drop_index("ix_learning_signals_user_id_occurred_at", table_name="learning_signals")
     op.drop_table("learning_signals")
+    op.drop_index("ix_saved_looks_user_id_created_at", table_name="saved_looks")
     op.drop_table("saved_looks")
+    op.drop_index("ix_analysis_runs_user_id_run_type_created_at", table_name="analysis_runs")
+    op.drop_index("ix_analysis_runs_user_id_created_at", table_name="analysis_runs")
     op.drop_table("analysis_runs")
     op.drop_table("signal_types")
     op.drop_table("run_types")

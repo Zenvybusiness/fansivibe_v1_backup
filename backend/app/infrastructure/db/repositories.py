@@ -16,12 +16,14 @@ from app.domain.ports.repositories import (
     AnalysisRunRecord,
     AnalysisRunSummary,
     SavedLookRecord,
+    UserProfileRecord,
 )
 from app.infrastructure.db.models import (
     AnalysisRuns,
     LearningSignals,
     SavedLooks,
     UserState,
+    Users,
 )
 
 _ENGINE_VERSION = "rules-v1"
@@ -120,6 +122,25 @@ class UserStateRepositorySQL:
             select(UserState.style_profile).where(UserState.user_id == user_id)
         ).scalar_one_or_none()
         return row or None
+
+    def get_profile(self, *, user_id: UUID) -> Optional[UserProfileRecord]:
+        row = self._session.execute(
+            select(Users, UserState)
+            .join(UserState, UserState.user_id == Users.id)
+            .where(UserState.user_id == user_id)
+        ).one_or_none()
+        if row is None:
+            return None
+        user, state = row
+        return UserProfileRecord(
+            user_id=user.id,
+            display_name=user.display_name,
+            style_profile=state.style_profile or {},
+            preferences=state.preferences or {},
+            settings={},
+            flags=state.flags or {},
+            version=state.version,
+        )
 
 
 class SavedLookRepositorySQL:

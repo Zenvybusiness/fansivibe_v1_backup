@@ -101,6 +101,36 @@ void main() {
     });
   });
 
+  group('AnalysisRunPage', () {
+    test('parses the list envelope', () {
+      final page = AnalysisRunPage.fromJson({
+        'items': [
+          {'run_id': 'run-1', 'run_type': 'hairstyle', 'status': 'completed'},
+        ],
+        'page': 1,
+        'page_size': 20,
+        'total': 1,
+      });
+
+      expect(page.items.single.runId, 'run-1');
+      expect(page.page, 1);
+      expect(page.pageSize, 20);
+      expect(page.total, 1);
+      expect(page.isEmpty, isFalse);
+    });
+
+    test('is empty when no items are returned', () {
+      final page = AnalysisRunPage.fromJson({
+        'items': <Map<String, dynamic>>[],
+        'page': 1,
+        'page_size': 20,
+        'total': 0,
+      });
+
+      expect(page.isEmpty, isTrue);
+    });
+  });
+
   group('hairstyleResultFromRun', () {
     test('parses the run result when present', () {
       final run = AnalysisRun.fromJson(<String, dynamic>{

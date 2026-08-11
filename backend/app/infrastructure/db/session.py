@@ -1,7 +1,8 @@
 """Database engine/session setup for the Fansivibe backend.
 
-Reads the connection URL from the ``DATABASE_URL`` environment variable
-(default ``postgresql+psycopg://fansivibe:fansivibe_dev@localhost:5432/fansivibe``).
+Reads the connection URL from the configured ``Settings.database_url``
+(``DATABASE_URL`` env var, default
+``postgresql+psycopg://fansivibe:fansivibe_dev@localhost:5432/fansivibe``).
 
 This module is intentionally the only place that knows how to build a
 connection. Application code depends on the ``get_db`` generator (FastAPI
@@ -10,17 +11,13 @@ dependency) or on a session factory for tests.
 
 from __future__ import annotations
 
-import os
-
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-DEFAULT_DATABASE_URL = (
-    "postgresql+psycopg://fansivibe:fansivibe_dev@localhost:5432/fansivibe"
-)
+from app.config.settings import get_settings
 
-DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
+DATABASE_URL = get_settings().database_url
 
 
 class Base(DeclarativeBase):

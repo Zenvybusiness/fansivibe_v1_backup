@@ -101,6 +101,30 @@ class HairstyleClient {
     return null;
   }
 
+  /// Lists completed analysis runs (summary rows — no `result`).
+  ///
+  /// Returns null when the backend is unreachable.
+  Future<AnalysisRunPage?> listRuns() async {
+    try {
+      final response = await _client
+          .get(
+            Uri.parse('$baseUrl/v1/analysis/runs'),
+            headers: {'Authorization': 'Bearer $_devToken'},
+          )
+          .timeout(_timeout);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return AnalysisRunPage.fromJson(decoded);
+      }
+      debugPrint(
+        'Hairstyle list responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Hairstyle backend unreachable during list: $error');
+    }
+    return null;
+  }
+
   /// Saves a look with an idempotency key so retries never duplicate.
   ///
   /// Returns true when the save succeeded.

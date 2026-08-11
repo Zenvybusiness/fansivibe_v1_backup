@@ -24,6 +24,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Text,
     UniqueConstraint,
@@ -124,6 +125,13 @@ class AnalysisRuns(Base):
             "status IN ('pending', 'completed', 'failed')",
             name="ck_analysis_runs_status",
         ),
+        Index("ix_analysis_runs_user_id_created_at", "user_id", "created_at"),
+        Index(
+            "ix_analysis_runs_user_id_run_type_created_at",
+            "user_id",
+            "run_type",
+            "created_at",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -148,6 +156,7 @@ class SavedLooks(Base):
     __table_args__ = (
         CheckConstraint("char_length(title) BETWEEN 1 AND 200", name="ck_saved_looks_title_len"),
         UniqueConstraint("user_id", "idempotency_key", name="uq_saved_looks_idempotency"),
+        Index("ix_saved_looks_user_id_created_at", "user_id", "created_at"),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -172,6 +181,7 @@ class LearningSignals(Base):
     __tablename__ = "learning_signals"
     __table_args__ = (
         CheckConstraint("char_length(label) BETWEEN 1 AND 200", name="ck_learning_signals_label_len"),
+        Index("ix_learning_signals_user_id_occurred_at", "user_id", "occurred_at"),
     )
 
     id: Mapped[UUID] = mapped_column(

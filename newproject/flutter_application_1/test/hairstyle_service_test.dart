@@ -9,9 +9,11 @@ import 'package:fansivibe/features/learning/learning_repository.dart';
 class _FakeHairstyleClient extends HairstyleClient {
   String? submitResult;
   AnalysisRun? pollResult;
+  AnalysisRunPage? listResult;
   bool saveResult = true;
   int submitCalls = 0;
   int saveCalls = 0;
+  int listCalls = 0;
   final List<String> savedLookIds = [];
   final List<String> savedTitles = [];
 
@@ -26,6 +28,12 @@ class _FakeHairstyleClient extends HairstyleClient {
   @override
   Future<AnalysisRun?> pollAnalysisRun({required String runId}) async =>
       pollResult;
+
+  @override
+  Future<AnalysisRunPage?> listRuns() async {
+    listCalls++;
+    return listResult;
+  }
 
   @override
   Future<bool> saveLook({
@@ -175,6 +183,41 @@ void main() {
       final result = await service.runAnalysis();
 
       expect(result.faceShape, HairstyleAnalysisResult.mock.faceShape);
+    });
+  });
+
+  group('HairstyleService.listRuns', () {
+    test('returns the run list from the client', () async {
+      final client = _FakeHairstyleClient()
+        ..listResult = AnalysisRunPage(
+          items: [
+            AnalysisRun(
+              runId: 'run-1',
+              runType: 'hairstyle',
+              status: 'completed',
+            ),
+          ],
+          page: 1,
+          pageSize: 20,
+          total: 1,
+        );
+      final service = HairstyleService(client: client);
+      addTearDown(service.dispose);
+
+      final runs = await service.listRuns();
+
+      expect(client.listCalls, 1);
+      expect(runs.single.runId, 'run-1');
+    });
+
+    test('returns an empty list when the client fails', () async {
+      final client = _FakeHairstyleClient()..listResult = null;
+      final service = HairstyleService(client: client);
+      addTearDown(service.dispose);
+
+      final runs = await service.listRuns();
+
+      expect(runs, isEmpty);
     });
   });
 

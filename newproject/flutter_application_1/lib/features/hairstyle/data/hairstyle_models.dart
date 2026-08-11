@@ -29,6 +29,32 @@ class AnalysisRun {
   );
 }
 
+class AnalysisRunPage {
+  const AnalysisRunPage({
+    required this.items,
+    required this.page,
+    required this.pageSize,
+    required this.total,
+  });
+
+  final List<AnalysisRun> items;
+  final int page;
+  final int pageSize;
+  final int total;
+
+  bool get isEmpty => items.isEmpty;
+
+  factory AnalysisRunPage.fromJson(Map<String, dynamic> json) =>
+      AnalysisRunPage(
+        items: (json['items'] as List<dynamic>? ?? const [])
+            .map((e) => AnalysisRun.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        page: json['page'] as int? ?? 1,
+        pageSize: json['page_size'] as int? ?? 0,
+        total: json['total'] as int? ?? 0,
+      );
+}
+
 class SavedLook {
   const SavedLook({
     required this.id,

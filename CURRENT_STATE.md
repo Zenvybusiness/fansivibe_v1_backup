@@ -3,6 +3,124 @@
 Last Updated: 2026-08-11
 Updated By: opencode agent
 
+## STEP 7 — FastAPI Backend Foundation (Hairstyle Vertical Slice) — COMPLETE
+
+Task: implement ONLY the FastAPI backend foundation required by the hairstyle
+vertical slice, per `docs/backend/FASTAPI_ARCHITECTURE_V1.md`,
+`docs/api/FANSIVIBE_API_CONTRACT_V1.md`, and
+`docs/architecture/FANSIVIBE_DOMAIN_MODEL_V1.md`. No unrelated features, no
+assistant-API rewrite, no Flutter changes. The foundation was largely present
+(committed with the Stage 0–5 slice); this step closed the remaining checklist
+gap and verified everything.
+
+### What exists / was verified (all checklist items)
+- **Configuration — NEW.** `app/config/settings.py` (`Settings(BaseSettings)`,
+  env-driven via pydantic-settings) + `app/config/__init__.py`. Leaf module
+  (stdlib + `pydantic_settings` only — `BACKEND_FOLDER_STRUCTURE.md` §6.2);
+  `get_settings()` lru-cached singleton. `DATABASE_URL` (default
+  `postgresql+psycopg://fansivibe:fansivibe_dev@localhost:5432/fansivibe`) and
+  `FANSIVIBE_DEV_TOKEN` (default `dev`) now load here.
+- **Database connection** — `app/infrastructure/db/session.py` (engine,
+  `SessionLocal`, `Base`, `get_db` dependency) wired to `Settings.database_url`
+  (inline `os.environ` read replaced).
+- **Dependency injection** — `app/api/deps.py` (dev auth seam → seeded dev
+  `user_id`, D-AUTH-1 placeholder; `FANSIVIBE_DEV_TOKEN` now via Settings) +
+  `get_db` FastAPI dependency.
+- **Required domain entities** — `app/domain/value_objects.py`
+  (`HairstyleRecommendation`, `AppearanceProfile`, `HairstyleResult` +
+  `to_snapshot`), `app/domain/services/analysis_rules.py` (rules-first engine);
+  ORM models `app/infrastructure/db/models.py` (8 slice tables).
+- **Required repository interfaces** — `app/domain/ports/repositories.py`
+  (AnalysisRun/UserState/SavedLook/LearningSignal protocols + records),
+  `app/domain/ports/external.py` (`KnowledgeSource` protocol).
+- **PostgreSQL repository implementations** — `app/infrastructure/db/repositories.py`
+  (SQL repos incl. TRX-5 write-once `complete_analysis_run` guard).
+- **Application use cases required by Hairstyle** — `app/application/analysis.py`
+  (UC-25/26 submit/poll/list), `app/application/saved_looks.py` (UC-15 save +
+  TRX-3 + Idempotency replay), `app/application/enrichment.py` (wording-only
+  LLM enrichment, degrade-safe).
+- **API router structure** — `app/api/routers/analysis.py` (#37/#39/#40),
+  `app/api/routers/looks.py` (#23), schemas, `app/api/errors.py` (12-category
+  mapper), mounted in `main.py` alongside the untouched `GET /health` +
+  `POST /v1/assistant/chat`.
+
+### New this step
+- `backend/app/config/__init__.py`, `backend/app/config/settings.py`
+- `backend/tests/test_db_session.py` — plan §11 item 4 (session factory,
+  `upgrade head` idempotency, `looks`/`run_types`/`signal_types` seed rows);
+  DB-backed, skips cleanly when PostgreSQL is unreachable.
+- `backend/requirements.txt` — added `pydantic-settings>=2.3.0`.
+
+### Validation
+- `pytest -q` → **32 passed, 21 skipped** (21 DB-backed tests — 17 prior +
+  4 new — skip cleanly; PostgreSQL unreachable in this environment). No
+  regression vs the 32/17 baseline.
+- `pyflakes` clean on all changed files (`app/config/`, `session.py`,
+  `deps.py`, `test_db_session.py`); pre-existing warnings in untouched
+  `app/__init__.py`/`llm_backend.py` unchanged.
+- `alembic upgrade --sql head` → clean offline DDL (8 tables + seeds + function,
+  exit 0); all 6 OpenAPI paths mounted correctly (`/health`,
+  `/v1/assistant/chat`, `/v1/analysis/*`, `/v1/looks/saved`).
+
+### Remaining
+- Live `alembic upgrade head` + the 21 DB-backed tests require a reachable
+  PostgreSQL (`cd backend && docker compose up postgres` then
+  `.venv/bin/alembic upgrade head`); they skip/block cleanly here — not faked.
+- Flutter untouched (per task); Stage 6–7 Flutter work remains uncommitted in
+  the working tree from the prior session.
+
+---
+
+## STEP 7 — PostgreSQL Foundation (Hairstyle Vertical Slice) — COMPLETE
+
+Task: implement ONLY the PostgreSQL foundation required by the approved
+hairstyle vertical slice, from the finalized STEP 4 design
+(`docs/database/POSTGRESQL_SCHEMA_V1_REVIEW.md` verdict). No unrelated tables,
+no recommendation logic, no Flutter changes, no unrelated backend features.
+
+### What exists / was verified
+- **Migration `0001_initial_schema.py`** (single foundation revision): 8 slice
+  tables — `users`, `user_state`, `looks`, `run_types`, `signal_types`,
+  `analysis_runs`, `saved_looks`, `learning_signals` — with the exact approved
+  columns/types/defaults/CHECK/UNIQUE/FK shapes; seeds (4 hairstyle `looks`,
+  `run_types('hairstyle')`, `signal_types('look_saved'|'analysis_updated')`);
+  and the server-side TRX-5 write-once guard `complete_analysis_run`.
+- **Approved indexes now complete:** added the 4 btree indexes that were
+  missing from the committed foundation — `ix_analysis_runs_user_id_created_at`,
+  `ix_analysis_runs_user_id_run_type_created_at`,
+  `ix_saved_looks_user_id_created_at`,
+  `ix_learning_signals_user_id_occurred_at` — in the migration (upgrade +
+  downgrade) and mirrored in the ORM (`app/infrastructure/db/models.py`) so
+  metadata ↔ migration stay in sync. Together with `uq_users_auth_pair` and
+  `uq_saved_looks_idempotency` these are exactly the slice's approved indexes
+  (`INDEX_STRATEGY.md` §3: A1/A5/A6/A10; no GIN, no low-selectivity singles).
+- **Ownership/history/media/JSONB honored:** all user tables `user_id`-scoped
+  + CASCADE (OW-1/PR-4); `analysis_runs` + `learning_signals` append-only
+  (PR-5/TRX-5 write-once, `saved_looks` immutable R31); `MediaRef`-only refs
+  (PR-8); JSONB only on approved non-query-axis payloads (PR-9).
+
+### New file
+- `docs/implementation/STEP_7_DATABASE_IMPLEMENTATION.md` — the exact record of
+  what was created (tables/constraints/FKs/indexes), the approved sources, the
+  verification performed, and the live-migration command.
+
+### Validation
+- `alembic upgrade --sql head` → clean offline DDL (8 tables, 8 CHECK, 2
+  UNIQUE, 8 FKs, 5 indexes, seeds, function; exit 0); every element
+  cross-checked against `TABLE_DEFINITIONS.md`/`INDEX_STRATEGY.md`.
+- ORM metadata renders the identical 4 btree indexes (mock-engine compare) — no
+  migration drift.
+- `pytest -q` → **32 passed, 17 skipped** (unchanged baseline; the 17 DB-backed
+  tests skip cleanly — PostgreSQL unreachable in this environment). `pyflakes`
+  clean on changed files.
+
+### Remaining
+- Live `alembic upgrade head` + the 17 DB-backed tests require a reachable
+  PostgreSQL (`cd backend && docker compose up postgres` then
+  `.venv/bin/alembic upgrade head`); both skip/block cleanly here — not faked.
+- Seeded vocab is slice-scoped by design (plan §12): remaining `run_types`
+  (outfit/face/grooming) + 6 signal types seed at their feature milestones.
+
 ## STEP 7 — First Production Vertical Slice: Hairstyle Recommendation — COMPLETE
 
 Task: implement the first production vertical slice — hairstyle recommendation —
@@ -38,22 +156,25 @@ across Flutter → FastAPI → PostgreSQL → Decision Engine → recommendation
 - **Data**: `hairstyle_mock_data.dart` gained `fromJson`/`toJson` on
   `HairstyleRecommendation` + `fromRunResult`/`toJson` on
   `HairstyleAnalysisResult`; new `hairstyle_models.dart` (`AnalysisRun`,
-  `SavedLook`, `hairstyleResultFromRun`); `hairstyle_client.dart` (submit via
-  multipart `faceProfileRef` + Bearer dev, `pollAnalysisRun` w/ injectable
-  interval, `getAnalysisRun`, `saveLook` with `Idempotency-Key`; null on
-  failure → offline fallback); `hairstyle_service.dart` (ChangeNotifier:
-  `runAnalysis` submits→polls→maps run or falls back to offline mock,
-  `saveLook` records `look_saved` signal, `completedStageCount` driven by real
-  transitions, `@visibleForTesting completeWith`).
+  `AnalysisRunPage`, `SavedLook`, `hairstyleResultFromRun`);
+  `hairstyle_client.dart` (submit via multipart `faceProfileRef` + Bearer dev,
+  `pollAnalysisRun` w/ injectable interval, `getAnalysisRun`, `listRuns`,
+  `saveLook` with `Idempotency-Key`; null on failure → offline fallback);
+  `hairstyle_service.dart` (ChangeNotifier: `runAnalysis` submits→polls→maps
+  run or falls back to offline mock, `listRuns`, `saveLook` records
+  `look_saved` signal, `completedStageCount` driven by real transitions,
+  `@visibleForTesting completeWith`).
 - **Presentation wiring** (UI-safe, additive only): `face_processing_screen.dart`
-  now runs the real service (keeps AppBar, spinner circle, 5 stage indicators,
-  View Results, back button); `hairstyle_result_screen.dart` renders the
-  passed-in/fallback result + wires Save Style through the service (snackbar
-  success/error); `hairstyle_details_screen.dart` wires Try This Style through
-  the service; `app_router.dart` passes `state.extra` result into
+  now runs the real service — when no service is injected it attaches
+  `LearningService.instance` so a stored face profile drives a live backend
+  analysis (mirrors the assistant pattern; keeps AppBar, spinner circle, 5
+  stage indicators, View Results, back button); `hairstyle_result_screen.dart`
+  renders the passed-in/fallback result + wires Save Style through the service
+  (snackbar success/error); `hairstyle_details_screen.dart` wires Try This
+  Style through the service; `app_router.dart` passes `state.extra` result into
   `HairstyleResultScreen`.
 - **Flutter validation**: `flutter analyze` clean (only pre-existing infos);
-  **366 tests pass**, incl. new `hairstyle_models_test.dart`,
+  **372 tests pass**, incl. new `hairstyle_models_test.dart`,
   `hairstyle_client_test.dart` (MockClient), `hairstyle_service_test.dart`, and
   updated `hairstyle_processing_screen_test.dart` / `hairstyle_scan_screen_test.dart`
   (shared `test/support/controllable_hairstyle_service.dart`).

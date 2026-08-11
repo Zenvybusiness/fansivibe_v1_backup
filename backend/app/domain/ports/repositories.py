@@ -51,6 +51,24 @@ class SavedLookRecord:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class UserProfileRecord:
+    """The owner's current profile projection (UC-6 `GET /v1/users/me`).
+
+    ``settings`` is the contract's sparse container; no `settings` column
+    exists in `user_state` yet (controlled keys arrive with the M2 module),
+    so the SQL adapter returns an empty dict — never fabricated data.
+    """
+
+    user_id: UUID
+    display_name: str
+    style_profile: dict
+    preferences: dict
+    settings: dict
+    flags: dict
+    version: int
+
+
 class AnalysisRunRepository(Protocol):
     def create(
         self,
@@ -74,6 +92,8 @@ class AnalysisRunRepository(Protocol):
 
 class UserStateRepository(Protocol):
     def get_style_profile(self, *, user_id: UUID) -> Optional[dict]: ...
+
+    def get_profile(self, *, user_id: UUID) -> Optional[UserProfileRecord]: ...
 
 
 class SavedLookRepository(Protocol):
