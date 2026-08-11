@@ -83,6 +83,31 @@ class HairstyleRecommendation {
   final String maintenance;
   final String bestFor;
   final IconData icon;
+
+  factory HairstyleRecommendation.fromJson(Map<String, dynamic> json) =>
+      HairstyleRecommendation(
+        id: json['id'] as String? ?? '',
+        name: json['name'] as String? ?? '',
+        description: json['description'] as String? ?? '',
+        matchScore: (json['matchScore'] as num? ?? 0).toDouble(),
+        reasons: (json['reasons'] as List<dynamic>? ?? [])
+            .map((e) => e as String)
+            .toList(),
+        stylingTips: json['stylingTips'] as String? ?? '',
+        maintenance: json['maintenance'] as String? ?? '',
+        bestFor: json['bestFor'] as String? ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'description': description,
+    'matchScore': matchScore,
+    'reasons': reasons,
+    'stylingTips': stylingTips,
+    'maintenance': maintenance,
+    'bestFor': bestFor,
+  };
 }
 
 class HairstyleAnalysisResult {
@@ -99,6 +124,38 @@ class HairstyleAnalysisResult {
   final String styleDna;
   final HairstyleRecommendation topRecommendation;
   final List<HairstyleRecommendation> alternatives;
+
+  factory HairstyleAnalysisResult.fromRunResult(Map<String, dynamic> result) {
+    final appearance =
+        result['appearance'] as Map<String, dynamic>? ?? const {};
+    final recommendations =
+        result['recommendations'] as Map<String, dynamic>? ?? const {};
+    final top = recommendations['top'] as Map<String, dynamic>? ?? const {};
+    final alternatives =
+        recommendations['alternatives'] as List<dynamic>? ?? const [];
+
+    return HairstyleAnalysisResult(
+      faceShape: appearance['faceShape'] as String? ?? '',
+      skinTone: appearance['skinTone'] as String? ?? '',
+      styleDna: appearance['styleType'] as String? ?? '',
+      topRecommendation: HairstyleRecommendation.fromJson(top),
+      alternatives: alternatives
+          .map((e) => HairstyleRecommendation.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'appearance': {
+      'faceShape': faceShape,
+      'skinTone': skinTone,
+      'styleType': styleDna,
+    },
+    'recommendations': {
+      'top': topRecommendation.toJson(),
+      'alternatives': alternatives.map((e) => e.toJson()).toList(),
+    },
+  };
 
   static const HairstyleAnalysisResult mock = HairstyleAnalysisResult(
     faceShape: 'Oval',

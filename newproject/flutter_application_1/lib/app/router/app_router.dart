@@ -243,8 +243,10 @@ final List<RouteBase> appRoutes = [
                       GoRoute(
                         path: 'result',
                         name: RouteNames.hairstyleResult,
-                        builder: (context, state) =>
-                            const HairstyleResultScreen(),
+                        builder: (context, state) {
+                          final result = state.extra as HairstyleAnalysisResult?;
+                          return HairstyleResultScreen(result: result);
+                        },
                         routes: [
                           GoRoute(
                             path: 'details',

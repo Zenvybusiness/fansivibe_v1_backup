@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
+import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class HairstyleDetailsScreen extends StatelessWidget {
-  const HairstyleDetailsScreen({required this.recommendation, super.key});
+  const HairstyleDetailsScreen({
+    required this.recommendation,
+    this.service,
+    super.key,
+  });
 
   final HairstyleRecommendation recommendation;
+
+  /// Injectable for tests; when null a temporary service is created on save.
+  final HairstyleService? service;
 
   @override
   Widget build(BuildContext context) {
@@ -323,18 +331,39 @@ class HairstyleDetailsScreen extends StatelessWidget {
     return FansiButton.primary(
       label: 'Try This Style',
       icon: Icons.auto_awesome_rounded,
-      onPressed: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${recommendation.name} saved to profile'),
-            backgroundColor: FansivibeColors.accentGold,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: FansivibeRadius.smdBorder,
-            ),
-          ),
-        );
-      },
+      onPressed: () => _saveStyle(context),
     );
+  }
+
+  Future<void> _saveStyle(BuildContext context) async {
+    final owned = service == null;
+    final svc = service ?? HairstyleService();
+    try {
+      final ok = await svc.saveLook(
+        recommendation: recommendation,
+        title: recommendation.name,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok
+                ? '${recommendation.name} saved to profile'
+                : 'Could not save hairstyle',
+          ),
+          backgroundColor: ok
+              ? FansivibeColors.accentGold
+              : FansivibeColors.surfaceContainerHigh,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: FansivibeRadius.smdBorder,
+          ),
+        ),
+      );
+    } finally {
+      if (owned) {
+        svc.dispose();
+      }
+    }
   }
 }

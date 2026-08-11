@@ -102,6 +102,106 @@ CLASSIC_POMPADOUR = SuggestionCard(
 )
 
 # ---------------------------------------------------------------------------
+# Hairstyle knowledge catalog (K9.1) — mirrors `looks` table payload and
+# `hairstyle_mock_data.dart`. Each entry maps to the wire
+# `HairstyleRecommendation` fields plus the deterministic `scoreSeed` used by
+# the Scoring stage. `code` is the stable catalog id (looks.code, PR-3).
+# ---------------------------------------------------------------------------
+
+HAIRSTYLE_LOOKS: list[dict] = [
+    {
+        "code": "textured_quiff",
+        "title": "Textured Quiff",
+        "description": (
+            "A modern take on the classic quiff with added texture and "
+            "movement. The volume on top complements oval face shapes by "
+            "adding vertical dimension while the textured finish keeps it "
+            "effortless and contemporary."
+        ),
+        "reasons": [
+            "Oval face shapes benefit from volume on top, which the quiff provides naturally",
+            "Textured finish softens the structured silhouette for a modern, approachable look",
+            "Works exceptionally well with warm medium skin tones and adds contrast",
+            "Aligns with your Modern Classic Style DNA for a cohesive appearance",
+        ],
+        "stylingTips": (
+            "Apply a volumizing mousse to damp hair, blow-dry upward using a "
+            "round brush, then finish with a light-hold matte clay. Use fingers "
+            "to create separation and texture."
+        ),
+        "maintenance": "Medium \u2022 Trim every 4-5 weeks",
+        "bestFor": "Oval, Heart, and Rectangle face shapes",
+        "scoreSeed": 0.94,
+    },
+    {
+        "code": "classic_pompadour",
+        "title": "Classic Pompadour",
+        "description": (
+            "A timeless pompadour with swept-back volume and clean sides. "
+            "Offers a more polished, formal alternative while maintaining "
+            "the vertical emphasis that suits your face shape."
+        ),
+        "reasons": [
+            "Provides elegant volume that elongates and balances facial features",
+            "Clean sides keep the silhouette sharp and intentional",
+            "Pairs naturally with structured, tailored wardrobe pieces",
+        ],
+        "stylingTips": (
+            "Use a strong-hold pomade on towel-dried hair, blow-dry back "
+            "and up, then comb into place. Finish with a light hairspray "
+            "for all-day hold."
+        ),
+        "maintenance": "High \u2022 Trim every 3-4 weeks",
+        "bestFor": "Oval, Round, and Square face shapes",
+        "scoreSeed": 0.87,
+    },
+    {
+        "code": "side_part",
+        "title": "Side Part",
+        "description": (
+            "A refined side part with medium length on top and tapered "
+            "sides. A versatile, professional option that works across "
+            "settings while maintaining a clean, structured appearance."
+        ),
+        "reasons": [
+            "Creates asymmetry that adds visual interest to symmetrical face shapes",
+            "Tapered sides prevent the silhouette from feeling too wide",
+            "Easy to transition from professional to casual settings",
+        ],
+        "stylingTips": (
+            "Apply a styling cream to damp hair, create a deep side part, "
+            "and blow-dry in place. Finish with a light-hold wax for "
+            "natural movement."
+        ),
+        "maintenance": "Low \u2022 Trim every 5-6 weeks",
+        "bestFor": "Oval, Square, and Diamond face shapes",
+        "scoreSeed": 0.82,
+    },
+    {
+        "code": "brushed_up_undercut",
+        "title": "Brushed Up Undercut",
+        "description": (
+            "A contemporary undercut with brushed-up length on top. "
+            "Provides maximum contrast between the longer top and faded "
+            "sides for a bold, fashion-forward statement."
+        ),
+        "reasons": [
+            "High contrast silhouette makes a strong style statement",
+            "Undercut keeps the look clean and low-maintenance on the sides",
+            "Brushed-up top adds height that complements oval face proportions",
+        ],
+        "stylingTips": (
+            "Apply a sea salt spray for texture, blow-dry forward and up, "
+            "then use a matte paste to shape. Keep the sides faded every "
+            "2-3 weeks."
+        ),
+        "maintenance": "Medium \u2022 Trim every 3-4 weeks",
+        "bestFor": "Oval, Heart, and Diamond face shapes",
+        "scoreSeed": 0.78,
+    },
+]
+
+# ---------------------------------------------------------------------------
 # Grooming (mirrors GroomingAnalysisResult.mock)
 # ---------------------------------------------------------------------------
 

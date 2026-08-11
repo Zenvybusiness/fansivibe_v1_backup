@@ -102,3 +102,39 @@ Routes are declared centrally using `package:go_router` with
 
 This replaces raw `Navigator.push(MaterialPageRoute(...))` calls spread across
 all screen files.
+
+---
+
+## DEC-009 — STEP 7 Hairstyle Vertical Slice: Mounting + Gating Decisions (D1–D5)
+
+Status: Accepted
+
+The first production vertical slice (hairstyle recommendation) is implemented
+end-to-end (Flutter → FastAPI → PostgreSQL → rules engine → save → feedback
+signal) per `docs/implementation/STEP_7_HAIRSTYLE_IMPLEMENTATION_PLAN.md`. The
+five gating decisions were approved before implementation:
+
+- **D1 — Dev auth seam.** Until D-AUTH-1 lands, `app/api/deps.py` maps a Bearer
+  token (`FANSIVIBE_DEV_TOKEN`, default `dev`) to the seeded dev user. Owner
+  scoping (404-not-403) is fully enforced; real auth swaps in additively behind
+  the same seam.
+- **D2 — Profile-only pass.** Analysis submits `faceProfileRef` only; face-image
+  upload is deferred behind sealed MS10.3. No fake analysis: no stored face
+  shape → `422 INSUFFICIENT_USER_DATA` (client falls back to the offline mock).
+- **D3 — Database layer.** SQLAlchemy 2.0 + `psycopg` (binary) + Alembic; a
+  `postgres` service was added to `docker-compose.yml`. Minimal STEP-4 table
+  subset (8 models) with a server-side `complete_analysis_run` SQL function
+  (TRX-5 write-once guard).
+- **D4 — AI enrichment scope.** The rules-only decision engine is the
+  deliverable; optional LLM wording enrichment of `description` reuses the
+  `llm_backend.py` seam (never structure/scores) and degrades safely.
+- **D5 — Save behavior.** "Save Style"/"Try This Style" POST `#23`
+  (`POST /v1/looks/saved`) with an `Idempotency-Key` (replay → original/409);
+  TRX-3 commits save + `look_saved` signal together; the existing snackbar
+  confirmation is preserved.
+
+Also accepted (documented deviations kept honest): mounting analysis before
+D-AUTH-1/MS10.3 is a documented, dev-seam-only deviation (no fake 200s); the
+analysis run contract, `{error:{code,message,details}}` taxonomy, and the
+202-`{run_id}` never-idempotent submit follow
+`docs/api/FANSIVIBE_API_CONTRACT_V1.md`.

@@ -1,7 +1,1594 @@
 # Fansivibe Current State
 
-Last Updated: 2026-08-09
+Last Updated: 2026-08-11
 Updated By: opencode agent
+
+## STEP 7 — First Production Vertical Slice: Hairstyle Recommendation — COMPLETE
+
+Task: implement the first production vertical slice — hairstyle recommendation —
+across Flutter → FastAPI → PostgreSQL → Decision Engine → recommendation → save
+→ feedback signal, per `docs/implementation/STEP_7_HAIRSTYLE_IMPLEMENTATION_PLAN.md`
+(approved; five gating decisions D1–D5 all accepted).
+
+### Stage 0–5 (backend) — COMPLETE
+- **Infra**: `docker-compose.yml` postgres:16 service; `app/infrastructure/db/`
+  (`Base`, engine, `SessionLocal`, `get_db`); 8 models (Users, UserState, Looks,
+  RunTypes, SignalTypes, AnalysisRuns, SavedLooks, LearningSignals); Alembic
+  scaffold + `0001_initial_schema.py` (tables + seeds + server-side
+  `complete_analysis_run` write-once guard).
+- **Data/domain**: `app/data/catalog.py` `HAIRSTYLE_LOOKS` (4 looks);
+  `app/infrastructure/external/knowledge.py` (`CatalogKnowledgeSource`);
+  `app/domain/value_objects.py` (`HairstyleRecommendation`, `AppearanceProfile`,
+  `HairstyleResult` + `to_snapshot()`); `app/domain/ports/external.py`
+  (`KnowledgeSource` Protocol); `app/domain/services/analysis_rules.py`
+  (rules-only engine; pompadour-first round/square/rectangle, quiff-first
+  otherwise).
+- **API/application**: `app/api/errors.py` (frozen 12-category mapper);
+  `app/api/deps.py` (dev auth seam, `FANSIVIBE_DEV_TOKEN` default `dev`);
+  `app/api/schemas/{analysis,saved_looks}.py`; `app/api/routers/{analysis,
+  looks}.py` (#37/#39/#40 submit/get/list + #23 save); `app/application/
+  {analysis,saved_looks,enrichment}.py` (submit, poll-read, save w/ TRX-3 +
+  Idempotency-Key replay→409, wording-only LLM enrichment w/ safe fallback);
+  `app/infrastructure/db/repositories.py` (SQL repos incl. write-once
+  `complete`); `main.py` mounts error handlers + routers.
+- **Backend validation**: 32 passed, 17 skipped (DB tests skip cleanly —
+  PostgreSQL unreachable in this environment). Pyflakes clean for new code.
+
+### Stage 6–7 (Flutter) — COMPLETE
+- **Data**: `hairstyle_mock_data.dart` gained `fromJson`/`toJson` on
+  `HairstyleRecommendation` + `fromRunResult`/`toJson` on
+  `HairstyleAnalysisResult`; new `hairstyle_models.dart` (`AnalysisRun`,
+  `SavedLook`, `hairstyleResultFromRun`); `hairstyle_client.dart` (submit via
+  multipart `faceProfileRef` + Bearer dev, `pollAnalysisRun` w/ injectable
+  interval, `getAnalysisRun`, `saveLook` with `Idempotency-Key`; null on
+  failure → offline fallback); `hairstyle_service.dart` (ChangeNotifier:
+  `runAnalysis` submits→polls→maps run or falls back to offline mock,
+  `saveLook` records `look_saved` signal, `completedStageCount` driven by real
+  transitions, `@visibleForTesting completeWith`).
+- **Presentation wiring** (UI-safe, additive only): `face_processing_screen.dart`
+  now runs the real service (keeps AppBar, spinner circle, 5 stage indicators,
+  View Results, back button); `hairstyle_result_screen.dart` renders the
+  passed-in/fallback result + wires Save Style through the service (snackbar
+  success/error); `hairstyle_details_screen.dart` wires Try This Style through
+  the service; `app_router.dart` passes `state.extra` result into
+  `HairstyleResultScreen`.
+- **Flutter validation**: `flutter analyze` clean (only pre-existing infos);
+  **366 tests pass**, incl. new `hairstyle_models_test.dart`,
+  `hairstyle_client_test.dart` (MockClient), `hairstyle_service_test.dart`, and
+  updated `hairstyle_processing_screen_test.dart` / `hairstyle_scan_screen_test.dart`
+  (shared `test/support/controllable_hairstyle_service.dart`).
+
+### Key decisions applied (all pre-approved)
+- D1 dev auth seam (Bearer `dev` → seeded dev user), D2 profile-only pass
+  (`faceProfileRef`, no image; MS10.3 sealed), D3 SQLAlchemy 2.0 + psycopg +
+  Alembic + Postgres service, D4 rules-only engine with optional LLM wording
+  enrichment, D5 `POST /v1/looks/saved` + `Idempotency-Key` (snackbar kept).
+- Never idempotent analysis submit (202 `{run_id}`); TRX-5 write-once
+  `complete_analysis_run`; TRX-3 save+signal commit; owner scoping 404-not-403.
+
+### Remaining issues
+- DB-backed tests (17) skip in this environment (no Docker daemon / local
+  Postgres); run via `docker compose up postgres` or `DATABASE_URL` where
+  Postgres is reachable. Postgres infra verified via `alembic upgrade --sql`
+  (clean offline SQL).
+- `face_processing` with no stored face profile resolves instantly to the
+  offline mock (honest: no profile → no server analysis).
+
+---
+
+## STEP 6 — API Contract: FINAL REVIEW (single source of truth) — COMPLETE
+
+Task: perform the STEP 6 final API contract review — cross-check all 18
+STEP 6 API contract documents in `docs/api/` against the STEP 2–5 accepted
+designs, the real Flutter project (`newproject/flutter_application_1/`), and
+the live FastAPI backend, and produce the single source of truth. Conclude
+"STEP 6 COMPLETE — READY FOR IMPLEMENTATION" only if the contract is
+internally consistent. Do not implement.
+
+### New file
+- `docs/api/FANSIVIBE_API_CONTRACT_V1.md` — the consolidated single source of
+  truth: 16 binding principles (C-1…C-16), frozen cross-cutting conventions
+  (response/error/pagination/async shapes, headers, auth, idempotency),
+  the canonical **48-endpoint set** + additive/gated + system surfaces, the
+  async analysis pattern, frozen P0 DTO sketches, versioning/security
+  summaries, and the **findings register (¶7)** with canonical resolutions.
+
+### Verdict — STEP 6 COMPLETE — READY FOR IMPLEMENTATION
+The contract is internally consistent after ¶7 resolutions. Cross-checking
+produced **one field-level wire discrepancy** and minor doc-level notes, all
+resolved in the final document:
+
+- **I-1 (WIRE, resolved):** `AnalysisRun.input_media` omitted from
+  APPEARANCE_API §4.3 but present in SCAN/HAIRSTYLE/RECOMMENDATION and in the
+  DB column `analysis_runs.input_media` (`TABLE_DEFINITIONS.md:466`).
+  Canonical: **include `input_media?: MediaRef`** in the run DTO; align
+  APPEARANCE_API at M12 implementation.
+- **I-2 (DOC):** `styleDna` (PATCH request) vs `styleProfile` (entity/read) —
+  accepted naming, already documented in PROFILE_ONBOARDING_API.
+- **I-3 (DOC):** endpoint 17 error set — inventory says "401 only"; canonical
+  = **204; 401; 422; 429** (widen `API_INVENTORY.md:502` when next touched).
+- **I-4 (DOC):** endpoint 35 auth hedge → canonical = **auth** (OW-1).
+- **I-5/I-6 (DOC):** `run_type` vocab comment and list-envelope type names —
+  cosmetic, same intent/shape.
+- **I-7 (DOC):** task lists `OUTFIT_API.md` but it does not exist; the outfit
+  surface is fully covered by RECOMMENDATION_API §4.3 + API_CONTRACT_RULES
+  §12.12 + DAILY_OUTFIT_EVENTS_API §4.4 — no missing contract content.
+- **I-8 (DOC):** chat error set 422-only vs additive 401/429 — not a conflict.
+
+### Key decisions
+- **Single source of truth.** `FANSIVIBE_API_CONTRACT_V1.md` is canonical;
+  where a sibling doc diverges, its ¶7 resolution wins.
+- **48-endpoint set verified 1:1** against `API_INVENTORY.md` §4 and
+  `API_CONTRACT_RULES.md` §12; additive/gated (A-3/4/5, W-2, E-3) and
+  non-client-facing (webhook, admin seed, erasure) surfaces traced.
+- **Live contract preserved:** `GET /health` + `POST /v1/assistant/chat`
+  verbatim, envelope-free, frozen DTOs (F-13) — verified against
+  `backend/app/main.py`, `schemas.py`, `assistant_client.dart`, `models.dart`,
+  `pubspec.yaml` (1.0.0+1).
+- **Cross-check dimensions all covered:** missing/duplicate endpoints, request/
+  response-model conflicts, domain/database leakage, security, naming, errors,
+  pagination, unsupported features, unimplementable endpoints — no new gaps.
+
+### Validation
+- All 18 API docs read and cross-referenced; STEP 2–5 sources and live repo
+  verified (TABLE_DEFINITIONS `input_media`, ERROR_HANDLING 12-category
+  taxonomy, ACTION_API 32 actions, FANSIVIBE_DOMAIN_MODEL_V1 E1–E10).
+- `git status --short`: docs/api/ now 19 untracked docs (FANSIVIBE_API_CONTRACT_V1.md
+  added) + modified CURRENT_STATE.md; no code, directories, or files created.
+- No `pytest`/`flutter test` run needed (no code changed).
+
+### Remaining
+- M12 implementation: align APPEARANCE_API §4.3 run DTO with canonical
+  `input_media`. Widen inventory endpoint-17 error set (I-3). Open decisions
+  from API_CONTRACT_RULES §16 / module §8 lists land at their milestones with
+  no contract change. No DECISIONS.md entry needed (no accepted architectural
+  decision made; findings are documentation resolutions).
+
+---
+
+## STEP 6 — API Contract: Versioning & Compatibility Rules (documentation only, no implementation)
+
+Task: define API versioning and compatibility rules for Fansivibe — versioning
+strategy, breaking-change policy, deprecated endpoints, response compatibility,
+migration strategy, and mobile-app backward compatibility (mobile apps remain on
+older versions after a backend update). Do not implement.
+
+### New file
+- `docs/api/API_VERSIONING.md` — §1 purpose/scope + grounding facts (live
+  surface `main.py:18,23`; path `/vN` API-1; additive-only API-2/C-14; Accept
+  pin API-3; new-major + window API-4; three version concepts §11 of
+  API_RESPONSE_CONVENTIONS); §2 **versioning strategy** (two-part model: path
+  major `/vN` + optional minor pin `Accept: application/json; version=N.M`;
+  default = latest minor of current major; pinning freezes a client's field
+  set; `GET /health` versionless API-4); §3 frozen in-version guarantees
+  (additive responses, frozen assistant DTOs F-13, stable status codes
+  API-32/C-9, frozen 12-category error taxonomy, stable path/method/ownership);
+  §4 **breaking-change policy** (classification table — removal/rename/retype/
+  reorder/semantic/status-mapping/error-shape/auth-change = breaking; additive
+  endpoint/optional-field/gated-module-mount/data-level bumps = not breaking;
+  forbidden outright for F-13 + /health; gated modules additive by construction
+  API-12); §5 **deprecation** (Deprecation + RFC 8594 Sunset headers, health
+  list, frozen minor pin, security-only backports, sunset → `410 Gone` as
+  distinct signal); §6 **migration strategy** (side-by-side majors via pure
+  prefix split, shared use cases DR-1, free rollback, window = ≥90 days AND
+  fleet telemetry, data compat across majors, forward tolerance both
+  directions); §7 version discovery (`GET /health` extended additively,
+  optional `X-API-Version`, `422` unsupported / `410` sunset); §8 **mobile app
+  backward compatibility** (app/API pairing rule: supported server surface
+  always covers API versions used by supported-range app builds; at least two
+  majors mounted; client negotiation — tolerate unknown fields/vocab, pin for
+  frozen builds; retirement = ≥90 days AND no supported-range build calls it;
+  per-signal client behaviors table; protects no-forced-upgrade, no-latest-wins
+  surprises, no orphaned data, contract tests per major); §9 validation
+  reference; §10 report.
+
+### Key decisions
+- **Two-part version model.** Path major `/vN` is authoritative (API-1); the
+  optional minor pin (API-3) exists so a mobile build can freeze its exact
+  field set. Default response = latest minor of the current major (superset by
+  API-2), so an old well-formed client is never broken by additive growth.
+- **Breaking changes are classified, not vibes.** Removal/rename/retype/
+  reorder/semantic/status-mapping/error-shape/auth-change → new major; additive
+  endpoint/optional field/gated-module mount/data-level version bumps → not
+  breaking. F-13 assistant DTOs and `GET /health` have **no breaking-change
+  path at all** (a genuinely different assistant shape = new endpoint, never a
+  mutation of the live one).
+- **Deprecation is explicit and sunset is a distinct signal.** `Deprecation:
+  true` + `Sunset` (RFC 8594) headers on every old-major response; the old
+  major keeps full guarantees (security-only backports); sunset unmounts it →
+  `410 Gone` (never `404`, so "moved" ≠ "never existed"). Client maps `410`/
+  `422`-unsupported to an update-required flow.
+- **Migration is non-breaking by construction.** `/v2` deploys additively via
+  pure prefix routing split, shares the same use cases (DR-1), rollback never
+  touches `/v1`; live endpoints verbatim through M1–M6 (19 tests green).
+  Coexistence window = **≥90 days AND no supported-range app build still calls
+  the old major** (calendar + fleet telemetry together).
+- **Mobile backward compatibility is a first-class rule, not an afterthought.**
+  The supported server surface always covers every API version used by an app
+  build in the supported-app range; the server keeps ≥2 majors mounted; the
+  current app `fansivibe 1.0.0+1` (pubspec) targets API v1 default minor. No
+  backend release ever requires all installed builds to update; a build that
+  pinned `1.0` is served exactly `1.0`'s field set for its supported life.
+
+### Validation
+- Every rule cites an accepted source (API-1…4, C-14, F-13, ER-0…3, API-12,
+  M1–M6, OW-1); no new endpoint, DTO, header, or wire shape introduced — policy
+  only on top of the accepted rules.
+- Live `GET /health` + `POST /v1/assistant/chat` preserved verbatim; `GET
+  /health` versionless (API-4); 0 code fences.
+- `git status --short`: docs/api/ holds 18 untracked API docs (API_VERSIONING.md
+  added) + modified CURRENT_STATE.md; no code, directories, or files created —
+  no `pytest` run needed.
+
+### Remaining
+- STEP 6 design continues (versioning complete). Fleet-telemetry retirement
+  signal (§8.3) depends on `OBSERVABILITY.md` + the product's
+  minimum-supported-app-build policy; optional `X-API-Version` emission is
+  finalized when the observability middleware lands.
+- Carried gates unchanged: D-AUTH-1, quantified rate-limit thresholds (F-2),
+  MS10.3, conversation retention (G6/G7), PR-12 feedback rating vocab,
+  snapshot-provenance (F-4), save-snapshot decision, User fields,
+  Today'sLookRecord (P1), RecommendationHistory (P3), `subscriptions.status`
+  vocabulary, K9.1 shape.
+
+## STEP 6 — API Contract: Security Review of Every Proposed API (review only, no fixes)
+
+Task: review every proposed Fansivibe API for security — authentication,
+authorization, user ownership, input validation, file validation, rate-limiting
+requirements, sensitive-data exposure, ID-enumeration risk, mass-assignment
+risk, excessive-response data, AI prompt/data leakage — especially protecting
+user photos, face data, grooming data, wardrobe, events, assistant
+conversations, subscription data. Do not implement fixes.
+
+### New file
+- `docs/api/API_SECURITY_REVIEW.md` — §1 purpose/scope + method + grounding
+  facts (only live surface = `GET /health` + `POST /v1/assistant/chat`,
+  main.py:18/23, chat unauthenticated today ASSISTANT_API §3; security
+  architecture already accepted: Bearer/OW-1/404-not-403, ER-0…3, M16 sealed
+  until MS10.3, frozen 12-category errors); §2 source-of-truth; §3 executive
+  summary (11-dimension posture table + 5 headline findings + what holds);
+  §4 protected assets & threat model (7 categories + sensitivity + surfaces +
+  primary risks); §5 the eleven-dimension review (5.1 auth, 5.2 authorization/
+  ownership, 5.3 input validation, 5.4 file/media validation, 5.5 rate
+  limiting, 5.6 sensitive-data exposure, 5.7 ID enumeration, 5.8 mass
+  assignment, 5.9 excessive response data, 5.10 AI prompt/data leakage);
+  §6 the seven protected-data deep-dives (photos, face, grooming, wardrobe,
+  events, conversations, subscriptions); §7 per-endpoint security matrix (all
+  48 inventory endpoints + additive/gated A-3/4/5, W-2, E-3 + non-client-facing
+  webhook/knowledge-seed/erasure); §8 findings register F-1…F-9 (severity,
+  surface, controls present, gap, recommended future control, trace);
+  §9 verified strengths (12 that hold with no finding); §10 validation
+  reference; §11 security-relevant open decisions; §12 report.
+
+### Key decisions
+- **The contract is verified strong by construction** — ownership
+  (OW-1 + 404-not-403) on every user-owned endpoint with no exception; UUID
+  server-generated identifiers (C-13); typed/vocab validation → 422 with
+  allowed values; ER-0/ER-1/ER-2 leak prevention; token hygiene (never
+  stored/logged, provider token discarded); MediaRef-only private-by-default
+  media with owner-scoped short-lived signed URLs; AI internals never on the
+  wire (C-8, degraded boolean only, engine_version the only provenance);
+  summary-only lists (no run `result`, no conversation previews, bounded
+  top/alternatives); idempotency on all double-write-prone saves; complete
+  erasure (CASCADE + blob cleanup + external cancel, cancel-first 409);
+  gating discipline (no fake 200). These are recorded as verified strengths
+  (§9), not findings.
+- **The residual gap set is small and honest (F-1…F-9).** F-1 HIGH
+  (current-state only): live assistant chat is public + client-trusted context
+  + unbounded input — target resolves via additive auth, server-wins R47, caps
+  (≤2000 chars/≤50 turns). F-2 HIGH: rate limiting exists as the `429
+  RATE_LIMITED` + `Retry-After` category everywhere but **no quantified
+  thresholds** anywhere — public chat/auth/AI surfaces are unmetered in the
+  contract. F-3 MEDIUM: media validation covers MIME + size (declared +
+  HEAD-verified) but no dimension bounds / deep content inspection. F-4
+  MEDIUM: save-snapshot (`/v1/looks/saved`, `/v1/outfits/saved`,
+  `/v1/looks/today/save`) is structurally validated but not provenance-
+  verified → self-fabricated "AI" content in history (no cross-user vector).
+  F-5 MEDIUM: login inherits a 404 branch — contract requires uniform 401.
+  F-6 MEDIUM: AI data minimization to providers not quantified. F-7/F-8 LOW
+  accepted: assistant-feedback and wardrobe/event create not idempotency-keyed
+  (documented trade-offs). F-9 LOW: any client-supplied `X-Conversation-Id`
+  must be ownership-validated when the gated family mounts.
+- **No contract change is proposed; fixes are not implemented.** Every
+  recommended control lands at an existing milestone (M1 auth/rate-limit,
+  M4 assistant auth+caps, M7 snapshot provenance, M16 media + MS10.3,
+  AI-integration minimization) — no new endpoint, header, DTO field, or wire
+  shape. Gated/sealed surfaces (M11 feedback, M16 media, A-3/4/5, P2 analysis/
+  generation/subscriptions) stay unmounted (API-12).
+- **Current-vs-target honesty.** The only live endpoints are `GET /health` +
+  `POST /v1/assistant/chat` (verified `backend/app/main.py:18,23`); the review
+  separates current-state gaps (F-1) from contract gaps and traces every claim
+  by `file:line` to the accepted docs.
+
+### Validation
+- Every matrix row traces to `API_INVENTORY.md` §4 (lines 114–161, verified
+  1:1 against `API_CONTRACT_RULES.md` §12.1–12.16) and the module contracts;
+  every control claim cited to an accepted source (AUTH_AUTHORIZATION OW-1,
+  ERROR_HANDLING/API_ERROR_CONTRACT ER-0…3, MEDIA_UPLOAD §4, SECURITY_PRIVACY
+  §3–§5, AI_INTEGRATION §8, API_LAYER API-5/6/13…16/33…39).
+- 0 code fences (no inline examples with fences); `git status --short`:
+  docs/api/ holds 17 untracked API docs (API_SECURITY_REVIEW.md added) +
+  modified CURRENT_STATE.md; no code, directories, or files created — no
+  `pytest` run needed.
+
+### Remaining
+- STEP 6 design continues (security review complete). Security controls land
+  at their milestones (M1 auth/rate-limit thresholds, M4 assistant auth+caps,
+  M7 snapshot provenance, M16 media + dimension/deep-inspection under MS10.3,
+  AI-integration minimization) — this review is the checklist those
+  implementations will be validated against.
+- Security-relevant open gates: D-AUTH-1 (auth provider), quantified rate-limit
+  thresholds (F-2), MS10.3 (media privacy), conversation retention (G6/G7),
+  feedback design (PR-12 rating vocab), AI provider + minimization policy,
+  save-snapshot provenance decision (F-4); unchanged project-wide: User fields,
+  Today'sLookRecord (P1), RecommendationHistory (P3), `subscriptions.status`
+  vocabulary, K9.1 shape.
+
+## STEP 6 — API Contract: Pagination, Filtering & Sorting (documentation only, no implementation)
+
+Task: define pagination, filtering and sorting conventions for Fansivibe APIs.
+Apply them only to collections that actually need them — wardrobe, outfits,
+saved looks, recommendations, events, assistant conversations, discover
+content. Define page-or-cursor strategy, default limit, maximum limit,
+sorting, filtering, response metadata. Avoid pagination where it provides no
+value. Do not implement.
+
+### New file
+- `docs/api/PAGINATION_FILTERING.md` — §1 purpose/scope + grounding facts (one
+  envelope family API-18; offset default API-20/22 `{items,page,page_size,
+  total}` page 1-based default 20 max 100; cursor for feeds API-21; filters
+  typed + server-validated API-23/24/25; sort `?sort=&order=` API-26/27 never
+  re-sort engine output; empty-is-200 §8.4; owner-only OW-1); §2 source-of-
+  truth; §3 **the strategy decision** (offset for stable user-owned
+  collections w/ meaningful total, cursor for deep/engine-ranked feeds, none
+  for single/bounded/vocab) applied to the accepted inventory; §4 offset
+  contract (params, envelope, bounds); §5 cursor contract (opaque
+  server-generated cursor, `{items,next_cursor,has_more}`, **no total** on
+  feeds, default 20 / max 50 — finalized here, resolving API_RESPONSE_
+  CONVENTIONS §14.2); §6 sorting (documented keys, defaults, API-26/27); §7
+  filtering (vocab-validated, no `?filter=json`, additive-only); §8 response
+  metadata (summary rows, no message previews, empty semantics); §9
+  **per-collection table + subsections** (9.1 wardrobe 11 offset
+  category/color createdAt|updatedAt|name; 9.2 outfits = value objects, NO
+  list — saved outfits ride saved-looks, no invented `/v1/outfits`; 9.3 saved
+  looks 24 offset createdAt, `sourceContext` additive; 9.4 recommendations =
+  bounded value objects, never paginated, durable surfaces = saved looks +
+  run history, no `/v1/recommendations/*`; 9.5 events 27 offset `from`
+  eventDate asc; 9.6 conversations A-3 offset updatedAt **additive + gated**;
+  9.7 discover 43 **cursor** occasion/style/fit engine-ranked; 9.8 knowledge
+  looks 18 offset; 9.9 run history 40 offset runType createdAt); §10 **the
+  no-pagination list** (single resources, fixed sets, tiny vocabularies
+  returned bare); §11 validation reference; §12 open decisions; §13 report.
+
+### Key decisions
+- **Strategy follows the collection (API-20/21): offset for stable user-owned
+  collections, cursor for the discover feed, none elsewhere.** Wardrobe,
+  saved looks, events, conversations, run history, and the knowledge catalog
+  use offset (meaningful `total` from the same query); `GET /v1/looks`
+  (UC-31) uses cursor (engine-ranked, unstable total, heavy DTOs); generated
+  outfits/recommendations, today's look, insight, learning summary,
+  subscription, detail reads, and the knowledge vocabularies use **no
+  pagination**.
+- **Outfits and recommendations honestly have NO standalone list endpoints.**
+  Generated outfits/event outfits are single `OutfitRecommendation` value
+  objects (endpoints 41/30); a saved outfit is a `SavedLook` snapshot
+  (`POST /v1/outfits/saved` → `SavedLook`, UC-30, TRX-3) listed via
+  `GET /v1/looks/saved`; recommendation history = saved looks + `GET
+  /v1/analysis/runs`. No `/v1/outfits` list, no `/v1/recommendations/*`
+  (RECOMMENDATION_API §3.3) — none invented (API-2/API-12).
+- **Cursor metadata finalized here:** `{items, next_cursor, has_more}` —
+  `next_cursor` opaque server-generated token, `has_more` boolean, **no
+  `total`** on feeds; `limit` default 20 / max 50 (tighter than offset's 100
+  because feed DTOs are heavy); stable secondary sort key = item `id`
+  (API-21). Resolves API_RESPONSE_CONVENTIONS §14.2/§14.3.
+- **Filters/sorts are server-validated vocabulary (API-23…27):** unknown
+  filter value / unknown sort key / out-of-bounds limit → `422
+  VALIDATION_ERROR` with field errors + allowed values (API_ERROR_CONTRACT
+  §6); engine-ranked ordering is never re-sorted (API-27); additive-only
+  filters (`material`/`isFavorite`/`q`, saved-looks `sourceContext`, events
+  `eventType`/date-range) are documented, not mounted.
+- **Per-collection limits** — offset default 20 / max 100 everywhere;
+  conversations A-3 is defined but **gated on retention (G6/G7)** and NOT
+  mounted (no fake 200, API-12); run-history rows are summaries with no
+  `result`; conversation summaries carry `messageCount` only (no user content
+  in lists).
+
+### Validation
+- Every collection traces to the accepted inventory — wardrobe→11, saved
+  looks→24, events→27, runs→40, discover→43, knowledge→18; outfits/
+  recommendations resolve to value objects + existing collections (no invented
+  endpoints); A-3 additive + gated (API-12).
+- Conventions identical to source docs — offset per API-20/22 (envelope
+  unchanged), cursor per API-21, filters/sort per API-23…27, 422 field errors
+  per API_ERROR_CONTRACT §6, empty-is-200 per §8.4; only the open cursor
+  metadata names were finalized (API_RESPONSE_CONVENTIONS §14.2).
+- 2 code fences balanced; `git status --short`: docs/api/ holds 16 untracked
+  API docs (PAGINATION_FILTERING.md added) + modified CURRENT_STATE.md; no
+  code, directories, or files created (no `pytest` run needed).
+
+### Remaining
+- STEP 6 design continues (pagination/filtering/sorting conventions complete).
+  Remaining feature-module contracts and the media/outfits surface must apply
+  these conventions (offset vs cursor, default/max limits, server-validated
+  filters/sorts, the two envelopes) with no new wrapper and no pagination
+  where none adds value.
+- Open decisions: additive filters (each a product decision), conversation
+  list mounts only with retention (G6/G7), `recommendation_history` (P3)
+  reuses offset conventions; unchanged project-wide: auth provider (D-AUTH-1),
+  K9.1 shape, MS10.3, feedback design (PR-12), User fields, Today'sLookRecord
+  (P1).
+
+## STEP 6 — API Contract: Public HTTP Error Contract (documentation only, no implementation)
+
+Task: define the public HTTP error contract for Fansivibe — map application
+errors to HTTP status, error code, safe message, optional field errors, and
+request ID. Cover VALIDATION_ERROR / UNAUTHORIZED / FORBIDDEN / NOT_FOUND /
+CONFLICT / RATE_LIMITED / AI_FAILURE / MEDIA_FAILURE / PROCESSING_FAILURE /
+EXTERNAL_SERVICE_FAILURE / INTERNAL_ERROR. Do not expose stack traces, SQL
+errors, provider secrets, or internal implementation details. Do not implement.
+
+### New file
+- `docs/api/API_ERROR_CONTRACT.md` — §1 purpose/scope + grounding facts (one
+  shape C-5/API-28; taxonomy frozen 12-category ER-3; `api/errors.py` single
+  mapper ER-2/3 + DR-1/F-3; unhandled → `500 INTERNAL_ERROR` API-31; leak
+  prevention ER-0/1; ownership 404-not-403 OW-1; live contract has NO typed
+  error yet); §2 source-of-truth; §3 the wire contract `{error:{code,message,
+  details}}` + status-code principle API-32 + empty-is-not-error; §4 **the
+  task→taxonomy mapping table** (UNAUTHORIZED→AUTHENTICATION_ERROR 401,
+  FORBIDDEN→AUTHORIZATION_ERROR 403, INTERNAL_ERROR→DATABASE_FAILURE +
+  INTERNAL_ERROR catch-all 500, all others same name; 12th frozen category
+  INSUFFICIENT_USER_DATA retained); §5 the per-category contract for all 12 +
+  the catch-all (HTTP status / `error.code` / safe `message` / field errors /
+  `request_id` + a wire example each); §6 the `422` field-errors detail shape
+  `[{field,error,allowed?}]`; §7 request-id correlation (header echo + body on
+  `5xx`); §8 error headers (WWW-Authenticate 401, Retry-After 429);
+  §9 leak prevention ER-0/1/2/3; §10 logging policy per category; §11
+  validation reference; §12 open decisions; §13 report.
+
+### Key decisions
+- **Canonical `error.code` stays the frozen 12-category taxonomy; the task's
+  names are mapped, not renamed (user-confirmed).** `UNAUTHORIZED` →
+  `AUTHENTICATION_ERROR` (401 + WWW-Authenticate), `FORBIDDEN` →
+  `AUTHORIZATION_ERROR` (403, admin-only; not-yours is 404 OW-1),
+  `INTERNAL_ERROR` → `DATABASE_FAILURE` (specific 500/503) **and** the
+  unhandled-`500` `INTERNAL_ERROR` catch-all (API-31) — both carry
+  `details.request_id` only. The 11 task categories plus the 12th frozen
+  `INSUFFICIENT_USER_DATA` (200+needs_data / 422) are all covered in §4/§5.
+- **One wire shape everywhere (C-5/API-28), statuses per API-32.** Every
+  non-2xx is `{error:{code,message,details}}`; 4xx = caller, 5xx = our/external;
+  the safe `message` strings match `ERROR_HANDLING.md` §5 verbatim (ER-2);
+  `details` is allow-list-only (ER-1): `request_id`, `run_id`, caller-owned
+  ids, field errors, `kind`, `missing`, neutral `retry_after`.
+- **Field errors are a concrete `details.field_errors` array** `[{field,error,
+  allowed?}]` (API-30), the canonical multi-field form of the
+  `details.field`/`details.allowed` shorthand used in sibling docs; DTO field
+  names only, never table/column names (C-7), never echoes raw user text.
+- **Leak prevention is structural (ER-0):** stack traces, SQL/constraint text,
+  provider/model names, prompts, tokens, connection strings, exception class
+  names, user content, and internal `EXTERNAL_SERVICE_FAILURE.source` are
+  never serialized; internals live only in server logs (§10).
+- **Request ID: header echo on every response + `details.request_id` required
+  on `5xx`** (API-31, OBSERVABILITY §4.1); optional on 4xx; never a data
+  carrier/token/rate-limit key.
+- **Async `PROCESSING_FAILURE` embeds the same shape** in the failed run DTO
+  (`status=failed` + `error`, API-42); `MEDIA_FAILURE` maps 413/422/503 by
+  kind; `AI_FAILURE` degrades to none with `details.degraded=true` when the
+  rules fallback served.
+
+### Validation
+- Every category table traces 1:1 to accepted values — `ERROR_HANDLING.md` §5
+  (12 codes + safe messages verbatim), §6 (ER-0/1/2/3), §8 (status mapping);
+  `API_CONTRACT_RULES.md` §9.1/§9.2; `API_RESPONSE_CONVENTIONS.md` §5.1;
+  `API_LAYER_ARCHITECTURE.md` §11 (API-28…31) + §12 (API-32);
+  `OBSERVABILITY.md` §4.1; `APPLICATION_USE_CASES.md` §3.3; OW-1.
+- No taxonomy change (user-confirmed "keep frozen names + mapping table"), no
+  new wire shape, no code — no `pytest` run needed.
+- 16 code fences balanced; `git status --short`: docs/api/ holds 14 untracked
+  API docs (API_ERROR_CONTRACT.md added) + modified CURRENT_STATE.md; no code,
+  directories, or files created.
+
+### Remaining
+- STEP 6 design continues (public error contract complete). Remaining
+  feature-module contracts and the media/outfits surface must apply this
+  contract (frozen `error.code` set, allow-listed `details`, body `request_id`
+  on 5xx, `{field,error,allowed?}` field errors) with no new category or shape.
+- Open decisions: auth provider (D-AUTH-1, gates 401/403), `details.field_errors`
+  key name (finalized at M2 with `errors.py`), INSUFFICIENT_USER_DATA 200-vs-422
+  per use case, `X-Request-Id` client-supplied format bound (M1); unchanged
+  project-wide: K9.1 shape, MS10.3, feedback design (PR-12), User fields,
+  Today'sLookRecord (P1), RecommendationHistory (P3), `subscriptions.status`
+  vocabulary.
+
+## STEP 6 — API Contract: Common Response Conventions (documentation only, no implementation)
+
+Task: define the common API response conventions for Fansivibe — success
+response format, error response format, pagination format, async operation
+format, resource identifiers, timestamps, nullable fields, version fields,
+request IDs — and decide direct resource responses vs standard envelopes,
+choosing one consistent approach based on simplicity and actual project
+requirements. Do not implement.
+
+### New file
+- `docs/api/API_RESPONSE_CONVENTIONS.md` — §1 purpose/scope + grounding facts
+  (conventions already accepted in API_CONTRACT_RULES/API_LAYER/ERROR_HANDLING;
+  live contract = `GET /health` + `POST /v1/assistant/chat` both envelope-free,
+  F-13); §2 source-of-truth; §3 **the envelope decision — direct resource
+  responses** (bare DTO for single resources; the ONLY wrapper is the list
+  envelope `{items,page,page_size,total}`; fixed error
+  `{error:{code,message,details}}` and async-accept `{run_id}` shapes; rationale
+  = F-13 live contract, one teachable rule, errors first-class, simple Flutter
+  client, small ~48-endpoint surface); §4 success format (200/201/204/202,
+  bare DTO, empty-derived `needs_data`/204); §5 error format (the frozen
+  12-category taxonomy + allow-list `details` + safe `message` from
+  `api/errors.py`, API-32 status principle, 404-not-403); §6 pagination
+  (offset `{items,page,page_size,total}` page 1-based page_size [1,100] → 422,
+  cursor for deep/feed, filters/sorting API-23…27); §7 async (202 + `{run_id}`
+  → poll `GET /v1/analysis/runs/{run_id}`, `pending→completed|failed`
+  write-once, `failed` carries `error`, no background jobs in API layer, API-44
+  timeouts); §8 identifiers (UUIDs for user-owned, stable text codes for
+  knowledge, C-13); §9 timestamps (ISO-8601 UTC, date-only `YYYY-MM-DD`,
+  camelCase); §10 nullable fields (optional omitted, `null` only where the
+  frozen DTO requires it, F-13); §11 version fields (path `/v1` + additive-only
+  API-1…4, `user_state.version` optimistic-concurrency → 409,
+  `content_version`/`engine_version` PR-6, `X-Knowledge-Version`); §12 request
+  IDs (`X-Request-Id` echoed on every response, `details.request_id` on 500,
+  threaded application→domain, never a data carrier); §13 validation reference;
+  §14 open decisions; §15 report.
+
+### Key decisions
+- **Direct resource responses — chosen.** Single resource returns its DTO
+  bare (no `{data:...}` wrapper); the list envelope `{items,page,page_size,
+  total}` is the only wrapper and only on list endpoints; errors and
+  async-accept are their own fixed shapes. This is a **codification** of the
+  already-accepted C-4/API-17/18/28 approach, driven by the frozen bare
+  contract (F-13) and a small resource-oriented API — no new wire shape.
+- **One response shape per response kind, everywhere (C-4).** Single → bare
+  DTO; list → `{items,page,page_size,total}`; error →
+  `{error:{code,message,details}}`; async-accept → `{run_id}`; 204 for
+  delete/logout/ack. No module may invent its own envelope or naming.
+- **Clients switch on stable machine-readable values, never on HTTP alone
+  (API-32).** `error.code` (the frozen 12-category taxonomy) and DTO field
+  names are the stable contract; HTTP is a second signal.
+- **Response fields are DTO-only domain projections (C-7, F-6)** — no ORM
+  rows, no table/column names, no SQL; `details` allow-list-only (ER-0/ER-1);
+  safe messages built in `api/errors.py` (ER-2).
+- **The live contract is unchanged.** `GET /health` (versionless,
+  envelope-free, API-4) and `POST /v1/assistant/chat` (bare `AssistantReply`,
+  F-13) preserved verbatim; every convention traces to API-17/18, API-28…31,
+  API-20…22, API-40…44, C-13, API-1…4, OBSERVABILITY §4.1.
+
+### Validation
+- Every convention traced to an accepted rule with identical wire shapes:
+  API-17/18 (bare/list), API-28…31 (errors), API-20…22 (pagination),
+  API-40…44 (async), C-13 (identifiers), API-19 + §4.3 (timestamps/naming),
+  API-1…4 (versioning), OBSERVABILITY §4.1 (request-id), TABLE_DEFINITIONS
+  (nullability + resource version fields).
+- Envelope decision is a codification, not a redesign — live contract
+  unchanged and envelope-free.
+- `git status --short`: docs/api/ holds 14 untracked API docs
+  (API_RESPONSE_CONVENTIONS.md added) + modified CURRENT_STATE.md; no code,
+  directories, or files created.
+
+### Remaining
+- STEP 6 design continues (common response conventions complete). Remaining
+  feature-module contracts and the media/outfits surface must apply the
+  conventions in the new doc (§3–§12) with no new envelope.
+- Open decisions: request-optional `null` vs omission tightening, cursor
+  envelope metadata (finalize with discover UC-31), `X-Request-Id`
+  client-supplied format bound (M1); unchanged project-wide: D-AUTH-1, K9.1,
+  MS10.3, feedback design (PR-12), User fields, Today'sLookRecord (P1),
+  RecommendationHistory (P3), `subscriptions.status` vocabulary.
+
+## STEP 6 — API Contract: Subscriptions & Feature Entitlements (documentation only, no implementation)
+
+Task: define API contracts for Fansivibe subscriptions and feature
+entitlements. Cover only requirements supported by the product/domain model.
+Potential operations: get current subscription, list plans, start subscription,
+cancel subscription, restore subscription, get feature entitlements, get
+feature usage. Do not integrate a payment provider yet. Do not implement
+billing. Clearly distinguish CURRENT from TARGET.
+
+### New file
+- `docs/api/SUBSCRIPTION_API.md` — §1 purpose/scope + grounding facts
+  (**no backend subscription code exists** in `backend/app/`; Flutter
+  SubscriptionScreen stub reads `ProfileMockData.plans` — Free $0 / Premium
+  $9.99 Popular / Elite $19.99, all CTAs no-op `onPressed: () {}`,
+  `SubscriptionPlan` has no planCode, `allCapabilities` flags are marketing
+  copy, no auth); §2 source-of-truth; §3 **CURRENT** surface as it exists today
+  (§3.1 no endpoint — nothing to preserve, §3.2 no request model, §3.3 mock
+  data model, §3.4 behavior, §3.5 the 7-limitation table L1–L7) — a verified
+  snapshot; §4 **TARGET** (§4.1 preserve-accepted-inventory intent, §4.2
+  operation selection A-1…A-7, §4.3 shared semantics auth OW-1 /
+  derived-entitlement R45 / errors-idempotency / provider webhook R51, §4.4
+  honest dispositions for list-plans/cancel/restore/entitlements/usage); §5
+  two operation contracts (A-1 `GET /v1/subscriptions/me` endpoint 45; A-2
+  `POST /v1/subscriptions` endpoint 46 UC-33, Idempotency-Key required); §6
+  validation reference; §7 error reference; §8 open decisions; §9 report.
+
+### Key decisions
+- **Only the two accepted inventory operations are defined (A-1/A-2 → 45/46);
+  every other candidate is external / existing-contract / knowledge / derived
+  — none invented as mounted endpoints (API-2/API-12).** A-3 list plans = system
+  knowledge content (K9.1), finalized at M3 (`subscription_plans`), served by
+  the knowledge surface, not the subscription module; A-4 cancel = external
+  provider lifecycle (R51), reflected via the server-to-server webhook; A-5
+  restore = rides `POST /v1/users/me/sync` (UC-9) + the A-1 server read; A-6
+  feature entitlements = **derived** (R45/R-A20), never stored, no per-user rows
+  until P3 (G11); A-7 feature usage = the existing `LearningSignal` trace (E7,
+  8 types, M10 sole writer) — no new entity/endpoint.
+- **Entitlement is derived state, never stored (R45, PR-2).** No entitlement
+  column, no entitlement endpoint; `CapabilityAvailability` recomputed at read
+  time from plan config × the `subscriptions` row; the `Subscription` DTO
+  exposes only `planCode`/status/dates — the inputs to derive, not a stored list.
+- **Payment and billing are an external seam (R51), not a backend feature.**
+  **No payment provider integrated, no billing** (this task). Provider webhook
+  is server-to-server, idempotent, never inside a DB transaction; payment call
+  after commit (UC-33); payment details never stored; the backend keeps only
+  entitlement state. Cancellation is likewise external; account erasure returns
+  409 cancel-first (`AUTH_API.md:388`).
+- **CURRENT vs TARGET clearly distinguished and honest.** §3 documents only
+  what actually exists (verified: `backend/app/` has no subscription route/DTO/
+  repository; `subscription_screen.dart:13,197,218`, `profile_mocks.dart:31-45,
+  160-199`, `profile_screen.dart:128-129`, `app_router.dart:402-404`,
+  `onboarding_data.dart:79-119`), incl. 7 real limitations (no endpoint, no
+  plan identity, no-op subscribe, no gating, no auth, no state, no lifecycle).
+  §4/§5 define the target without inventing endpoints.
+- **A-1/A-2 trace 1:1 to the accepted inventory.** A-1→endpoint 45
+  (`GET /v1/subscriptions/me`, auth, owner OW-1, bare `Subscription`
+  `{planCode,status,startedAt,renewsAt}`, 404 when no subscription); A-2→
+  endpoint 46/UC-33 (`POST /v1/subscriptions`, `SubscribeRequest {planCode}`,
+  `Idempotency-Key` required, 200/201; errors 402/424 payment outcome, 404 plan,
+  503 store unreachable, 409 replay) — identical to API_CONTRACT_RULES §12.14
+  and API_INVENTORY §5.15. Both **NOT mounted** until D-AUTH-1 / M15 (API-12).
+
+### Validation
+- CURRENT is a verified snapshot: `backend/app/` has no subscription code;
+  screen/data/route/entry traced to the exact Flutter files + line numbers;
+  `subscriptions` table (`TABLE_DEFINITIONS.md:483-505`) is current-state,
+  0..1 per user (R10), entitlement derived (R45); `subscription_plans` is a
+  referenced knowledge table finalized at M3 (`TABLE_DEFINITIONS.md:576-582`).
+- Every TARGET operation traces to accepted docs — A-1→45, A-2→46/UC-33 (paths/
+  methods/auth/UC/errors identical to API_CONTRACT_RULES §12.14 and
+  API_INVENTORY §5.15 lines 158-159, 1058-1097); no invented endpoints (API-2/
+  API-12); `Idempotency-Key` required on POST (API_CONTRACT_RULES:377); derived
+  entitlement (R45/PR-2); payment external (R51, UC-33); erasure cancel-first
+  (AUTH_API.md:388).
+- `git status --short`: docs/api/ holds 13 untracked API docs
+  (SUBSCRIPTION_API.md added) + modified CURRENT_STATE.md; no code,
+  directories, or files created.
+
+### Remaining
+- STEP 6 design continues (subscriptions + feature entitlements contract
+  complete; next candidates include the remaining feature modules and the
+  media/outfits surface). A-1/A-2 NOT mounted until D-AUTH-1 / M15 (API-12);
+  no fake 200 before then.
+- Open decisions: auth provider (D-AUTH-1), `subscriptions.status` vocabulary
+  (set only with billing integration), `subscription_plans` catalog + plan
+  codes (M3), payment provider choice (R51 seam), client-facing cancel UX
+  (currently NOT defined), capability gating (G11, P3), `external_ref` on the
+  wire (default omitted); unchanged project-wide: K9.1 shape, MS10.3, feedback
+  design, User fields, Today'sLookRecord (P1), RecommendationHistory (P3).
+
+## STEP 6 — API Contract: Assistant (documentation only, no implementation)
+
+Task: review the EXISTING Fansivibe assistant API (do not delete/redesign it
+blindly) and document its current endpoint, request model, response model,
+behavior, and limitations; then define the production assistant API contract
+based on the finalized domain model — supporting conversations, messages,
+assistant actions, context, and conversation history where appropriate, so the
+assistant uses structured domain data without exposing database implementation
+details. Clearly distinguish CURRENT API from TARGET API. Do not implement.
+
+### New file
+- `docs/api/ASSISTANT_API.md` — §1 purpose/scope + grounding facts (live
+  contract `POST /v1/assistant/chat` + `GET /health` only; DTOs frozen A3.1/
+  F-13 mirrored 1:1 `schemas.py` ↔ `models.dart`; rules engine + optional
+  Ollama text enrichment degrade-safe; conversation transient, retention
+  undecided G6/G7/§1.10; `assistant_messages` R51-note table does NOT exist;
+  R47 context snapshot never stored; M10 sole writer of learning_signals PR-7,
+  only client signal input = `POST /v1/assistant/feedback` UC-23; 16-id action
+  vocab 3 mirrors G9); §2 source-of-truth; §3 **CURRENT API** as it exists
+  today (§3.1 endpoint, §3.2 request model, §3.3 response model, §3.4 behavior,
+  §3.5 the 12-limitation table L1–L12) — a verified snapshot, not a proposal;
+  §4 **TARGET API** (§4.1 preserve-contract-extend-surface intent, §4.2
+  operation selection A-1…A-5 + explicitly excluded signal-submit/preference-
+  write/media, §4.3 shared semantics auth/context/errors/idempotency/offline,
+  §4.4 structured domain grounding — stable `Look` codes PR-3, derived R47
+  context, one action vocabulary, §4.5 conversations/messages/history additive
+  + gated); §5 five operation contracts (A-1 chat live+frozen UC-22 endpoint
+  16; A-2 card feedback UC-23 endpoint 17; A-3 list / A-4 transcript / A-5
+  delete conversations **additive, gated on retention**, NOT mounted); §6
+  validation reference; §7 error reference; §8 open decisions; §9 report.
+
+### Key decisions
+- **The live assistant contract is frozen (A3.1/F-13); the TARGET extends
+  around it, never into it.** `AssistantRequest`/`AssistantReply` field names/
+  order/types never change; behavior-only additions (auth once D-AUTH-1,
+  typed errors, repository-loaded context) plus **new endpoints/headers** only —
+  conversation association rides an additive `X-Conversation-Id` header, never
+  a DTO field.
+- **CURRENT vs TARGET clearly distinguished and honest.** §3 documents only
+  what actually exists (verified in `main.py:23`, `schemas.py`, `engine.py`,
+  `intent.py`, `tools.py`, `catalog.py`, `assistant_client.dart`,
+  `offline_assistant.dart`, `assistant_service.dart`, `assistant_routes.dart`)
+  incl. 12 real limitations (no auth, no persistence, client-trusted context,
+  no typed errors, local-only card signals, dead `preferredOccasions`/face
+  fields, no stable card ids, triplicated action vocab, unbounded input,
+  offline parity, no history surface). §4/§5 define the target and resolve
+  each limitation without changing the frozen wire.
+- **A-1/A-2 trace 1:1 to the accepted inventory; A-3/A-4/A-5 are additive +
+  gated.** A-1→endpoint 16/UC-22 (live), A-2→endpoint 17/UC-23 (the only
+  client-facing signal input, `opened`→`suggestion_opened`, `navigated`→
+  `assistant_navigation`, M10 sole writer PR-7); the conversation-history
+  family is defined now but **NOT mounted** until the undecided retention
+  decision lands (G6/G7, STORAGE_INVENTORY §1.10) — no fake 200 (API-12).
+- **Learning is backend-owned; the client never names a signal_type.** No
+  signal-submit endpoint; no direct preference/profile writes via the
+  assistant (owned by M2); `assistant_message` becomes backend-written via the
+  M10 seam once persistence lands, replacing today's client-local
+  `recordSignal` (`assistant_service.dart:55`).
+- **Structured domain data without DB internals (C-7/C-8/ER-0).** DTO-only
+  responses; cards reference canonical `Look` codes (PR-3); context is the
+  derived R47 `AssistantUserContext` loaded via repository ports (server wins
+  on precedence — open §8.5); assistant actions are one controlled 16-id
+  vocabulary (G9, client executes, never the AI); `details.degraded` boolean
+  only; 404-not-403 for foreign conversation ids (OW-1).
+
+### Validation
+- CURRENT section is a verified snapshot: endpoint/request/response/behavior
+  traced to the real backend + Flutter files and line numbers; limitations
+  cross-checked against F-5, R47, G6/G7, STORAGE_INVENTORY §1.10,
+  FEATURE_INVENTORY §12, FASTAPI_ARCHITECTURE_V1 F-3.
+- Every TARGET operation traces to accepted docs — A-1→16/UC-22, A-2→17/UC-23;
+  paths/methods/auth/UC/errors identical to API_CONTRACT_RULES §12.4 and
+  API_INVENTORY §5.5; `AssistantCardFeedback` identical to FEEDBACK_LEARNING
+  §5.2/§4.4; retained messages are the frozen `AssistantMessage` DTO content
+  (G7); frozen DTOs unchanged (§13.4), no field added (F-13); 19 pytest cases
+  + assistant widget/service tests stay green (no code touched).
+- 5 code fences balanced; `git status --short`: docs/api/ holds 12 untracked
+  API docs (ASSISTANT_API.md added) + modified CURRENT_STATE.md; no code,
+  directories, or files created.
+
+### Remaining
+- STEP 6 design continues (assistant contract complete; feedback+learning,
+  daily-outfit+events, wardrobe, common-recommendation, scan-system,
+  hairstyle-recommendation, appearance, profile + auth contracts complete).
+  A-2 and the gated conversation-history family NOT mounted until D-AUTH-1 /
+  the retention decision (API-12); no fake 200 before then.
+- Open decisions: auth provider (D-AUTH-1), conversation retention + storage
+  shape (G6/G7, resolved before M3), conversation association mechanism
+  (recommended `X-Conversation-Id` header), `assistant_message` provenance,
+  context precedence (server-wins default), canonical action-vocabulary source
+  (G9), rules single-sourcing for offline parity (L11), rate-limit/request-id
+  infra; unchanged project-wide: K9.1 shape, MS10.3, feedback design, User
+  fields, Today'sLookRecord (P1), RecommendationHistory (P3).
+
+## STEP 6 — API Contract: Recommendation Feedback & Personalization Signals (documentation only, no implementation)
+
+Task: define the API contracts for recommendation feedback and personalization
+signals — supporting only the feedback actions actually identified in STEP 2
+(action inventory) and STEP 3 (domain model); separate raw user feedback from
+derived preference signals; define endpoints/request/response/validation/
+ownership/idempotency/personalization effect for each. Do not implement.
+
+### New file
+- `docs/api/FEEDBACK_LEARNING_API.md` — §1 purpose/scope + grounding facts
+  (no feedback UI today — ACTION_API #31/UI_UX_GAP_REPORT #17, `POST
+  /v1/feedback` is feature-gated M11 and NOT mounted; `learning_signals` P0
+  append-only 8 types with **no FK to the triggering entity** BC-41;
+  `feedback_events`* P1 feature-gated; M10 **sole writer** of signals PR-7;
+  SAVE = the real feedback action TRX-3; REGENERATE = generation, no signal;
+  DECISION_ENGINE Stage 8 Feedback, R-A13→R-A16); §2 source-of-truth; §3
+  operation selection (F-1 POST `/v1/feedback` 35/UC-32 **gated**, F-2 POST
+  `/v1/assistant/feedback` 17/UC-23 — the only client-facing signal input,
+  F-3 GET `/v1/learning/summary` 34 referenced, F-4 SAVE 23/42/33 referenced,
+  F-5 REGENERATE 32/41 referenced — generation not feedback; IGNORE/WEAR/
+  SHARE explicitly excluded); §4 shared semantics incl. §4.2 the **raw
+  feedback vs derived preference signal split** (feedback_events raw vs
+  learning_signals derived vs derived preference state, PR-7), §4.3 the 8
+  signal types + excluded actions, §4.4 wire DTOs, §4.5 idempotency, §4.8
+  personalization effect; §5 five operation contracts (method/path/request/
+  response/validation/auth/errors + security/side-effects/entities +
+  ownership/idempotency/personalization effect); §6 validation; §7 errors;
+  §8 open decisions; §9 report.
+
+### Key decisions
+- **Raw user feedback and derived preference signals are separate.** F-1
+  writes append-only `feedback_events` (raw reactions: rating + reason? +
+  at most one owned target) that **FEED** the derived-preference aggregation
+  (R-A14→R-A15) — never stored as state. `learning_signals` are
+  backend-written evidence (M10 sole writer, PR-7); `user_state.preferences`/
+  style profile is the mutable derived projection. The wire never accepts a
+  "preference" or a raw signal from the client.
+- **M10 is the sole writer of `learning_signals`; no signal-submit endpoint.**
+  `POST /v1/assistant/feedback` (UC-23, card interactions `opened`/
+  `navigated` → `suggestion_opened`/`assistant_navigation`) is the **only**
+  client-facing signal input. The 8 seeded signal types stay the vocabulary;
+  the client never names a `signal_type`.
+- **LIKE/DISLIKE are rating values, not endpoints or signal types.** They map
+  to `POST /v1/feedback` `rating`, whose exact vocabulary is **pending the
+  feedback design** (BC-38/39, PR-12) — deliberately not frozen. **SAVE** is
+  the only fully supported feedback action today (actions 12/14/17/19/22/24 →
+  `look_saved` signal, TRX-3, referenced from M7).
+- **REGENERATE is not a feedback write** — it is a generation action
+  (endpoints 32/41, TRX-2), no signal written on generation; kept out of the
+  surface's write set.
+- **IGNORE / WEAR / SHARE explicitly excluded** — no action, UI, signal type,
+  or endpoint exists in STEP 2/3 (verified); no invented contract (API-2).
+- **Personalization is gradual, never a single-event flip.** SAVE boosts
+  scoring/ranking; card interactions tune assistant suggestions; raw reactions
+  aggregate into derived preference state read by the next decision context
+  (R-A16). Stage 8 forbids writing history itself (TRX-3), over-correcting,
+  and storing raw comments in the engine.
+
+### Validation
+- Every operation traces 1:1 to the accepted inventory — F-1→35/UC-32 (gated),
+  F-2→17/UC-23, F-3→34, F-4→23/42/33/UC-15 (referenced), F-5→32/41/UC-16/29
+  (referenced); paths/methods/auth/UC/errors identical to API_CONTRACT_RULES
+  §12.9/§12.10 and API_INVENTORY §5.10/§5.11/§5.7/§5.13; no invented endpoints
+  (IGNORE/WEAR/SHARE, signal-submit, preference-write excluded and documented
+  §3/§8).
+- Wire shapes match the accepted sketches AND the real product —
+  `FeedbackCreate`/`AssistantCardFeedback` from §12.10/§12.3 and
+  `assistant_service.dart` signals (:91/:95); `LearningSummary` from §12.9 and
+  `learning_service.dart` math (60 base, +1/item ≤20, +2/saved ≤20); rating
+  vocabulary honestly pending the feedback design (PR-12).
+- All protected endpoints auth + owner-only (OW-1, 404-not-403); frozen
+  12-category errors; `POST /v1/feedback` keyed **when it ships**, save keyed
+  (TRX-3), F-2 not keyed (recorded §8.4), regenerate never idempotent (§11).
+- 12 code fences balanced; `git status --short`: `docs/api/` holds 11
+  untracked API docs + modified `CURRENT_STATE.md`; no code changed — no
+  `pytest` run needed.
+
+### Remaining / open
+- Not mounted: `POST /v1/feedback` until the Flutter feedback UI is accepted
+  (API-12, M11 sealed); F-2/F-3 until D-AUTH-1.
+- Additive/open: rating vocabulary, F-2 idempotency, `reason` retention,
+  regenerate-as-signal, IGNORE/WEAR/SHARE (each a product + schema decision),
+  `recommendation_history` P3.
+
+## STEP 6 — API Contract: Daily Outfit & Events (documentation only, no implementation)
+
+Task: define the API contracts for the daily-outfit and events surfaces — for
+daily outfit define get today's outfit and regenerate if supported; for events
+define create/update/delete/get/list + generate event outfit recommendation;
+define weather/context data where required; do not invent unsupported
+features. Do not implement.
+
+### New file
+- `docs/api/DAILY_OUTFIT_EVENTS_API.md` — §1 purpose/scope + grounding facts
+  (events are P1 `user_events` current-state rows, TRX-7; today's look + event
+  outfit are derived regenerable value objects TRX-2/7; weather is a backend
+  hint via `WeatherProvider` port BA-6, never a client input or API resource;
+  `eventType` is a vocab code; no archive; `today_look_records` P1
+  conditional); §2 source-of-truth; §3 operation selection (D-1 GET
+  `/v1/looks/today` 31/UC-17, D-2 POST `/v1/looks/today` 32/UC-16 regenerate
+  **supported**, D-3 POST `/v1/looks/today/save` 33 referenced, E-1 POST
+  `/v1/events` 26/UC-18, E-2 GET `/v1/events` 27, E-3 GET single event
+  flagged additive, E-4 PUT 28/UC-19, E-5 DELETE 29/UC-20, E-6 POST
+  `/v1/events/{id}/outfit` 30/UC-21); §4 shared semantics incl. §4.2
+  weather/context (output-only hint; event context seeds R35 + feeds R36),
+  §4.4 frozen `TodayLook`/`OutfitRecommendation` families
+  (RECOMMENDATION_API §4.3), §4.5 `UserEvent`/`EventCreate`/`EventUpdate` DTOs,
+  §4.6 filters/sort/pagination; §5 eight operation contracts (method/path/
+  request/response/validation/auth/errors + security/side-effects/entities,
+  shapes identical to the real mock data + §13 sketches); §6 validation
+  reference; §7 error reference; §8 open decisions; §9 report.
+
+### Key decisions
+- **Every task operation maps 1:1 to the accepted inventory; nothing invented.**
+  D-1→31/UC-17, D-2→32/UC-16, D-3→33 (referenced, owned by M7), E-1→26/UC-18,
+  E-2→27, E-4→28/UC-19, E-5→29/UC-20, E-6→30/UC-21; E-3 single-event GET
+  defined but **flagged additive** (not in the 48-endpoint inventory; the
+  details screen is served from the list today). Weather/forecast API, event
+  archive, per-event outfit save, and event-outfit status explicitly excluded
+  (§3/§8).
+- **Regenerate today's outfit IS supported** — `POST /v1/looks/today` (UC-16,
+  action 13) re-derives a fresh `TodayLook` per `?seed=`; the daily look is a
+  regenerable value object (TRX-2), not a stored record until the P1
+  `today_look_records` decision lands.
+- **Weather is a hint, never authoritative or a client input.** The daily look
+  derives an output-only `weather` display string via the `WeatherProvider`
+  port (BA-6); the client never sends weather and no weather/forecast API
+  exists. Events carry user-provided occasion context (type/date/time/location/
+  notes) that seeds event-outfit generation (R35) and feeds
+  `preferred_occasions` (R36).
+- **The event outfit reuses the frozen ensemble-family DTO.** E-6 returns the
+  **same** bare `OutfitRecommendation` as `POST /v1/outfits/generate` (only
+  the seeding occasion differs — RECOMMENDATION_API §3.1/§4.3); no separate
+  event-outfit shape, never a stored child of the event (TRX-7); regenerable,
+  only an explicit save persists it (TRX-3).
+- **Events are owner-scoped current state with delete-only removal.** All
+  endpoints auth + owner-only (OW-1, 404-not-403); `user_events` has no
+  archive column — delete is the only removal; history untouched (BC-41: the
+  `occasion_preferred`/`look_saved` signals have no FK to the event).
+
+### Validation
+- Every operation traces 1:1 to the accepted inventory — D-1→31, D-2→32,
+  D-3→33, E-1→26, E-2→27, E-4→28, E-5→29, E-6→30; vocab→21; paths/methods/
+  auth/UC/errors identical to API_CONTRACT_RULES §12.7/§12.8 and API_INVENTORY
+  §5.8/§5.9; no invented endpoints (E-3 additive + weather/archive/per-event
+  save excluded and documented §3/§8).
+- Wire shapes match the accepted sketches AND the real product — `UserEvent`/
+  `EventCreate`/`EventUpdate` field names from `user_events` columns and
+  `event_mock_data.dart`; `eventType` carries vocab codes (K9.1) never free
+  strings; `TodayLook`/`OutfitRecommendation` identical to the two frozen
+  families (RECOMMENDATION_API §4.3) and `daily_outfit_mock_data.dart`/
+  `outfit_builder_mock_data.dart`; score scales family-frozen (0–100 int vs
+  0..1 float); `confidence`/`tradeOffs`/`expiresAt` honestly absent (AI-0).
+- Weather/context handled where the domain supports it (BA-6 hint, output-only;
+  event context seeds R35/R36); auth/authorization/errors consistent (OW-1,
+  404-not-403, frozen 12-category errors; D-3 keyed TRX-3, D-2/E-6 never
+  idempotent, PUT/DELETE/reads naturally idempotent §11).
+- `git status --short`: docs/api/ now holds API_CONTRACT_RULES.md +
+  API_INVENTORY.md + AUTH_API.md + PROFILE_ONBOARDING_API.md + APPEARANCE_API.md
+  + SCAN_API.md + HAIRSTYLE_RECOMMENDATION_API.md + RECOMMENDATION_API.md +
+  WARDROBE_API.md + DAILY_OUTFIT_EVENTS_API.md (untracked) + CURRENT_STATE.md;
+  no code, directories, or files created.
+
+### Remaining
+- STEP 6 design continues (daily-outfit + events contract complete; wardrobe,
+  common-recommendation, scan-system, hairstyle-recommendation, appearance,
+  profile + auth contracts complete). P1 events + daily-outfit endpoints NOT
+  mounted until D-AUTH-1 (API-12).
+- Open decisions: E-3 single-event GET + `time` persistence on events +
+  event-create idempotency + `hasOutfitRecommendation` server status + event
+  archive (additive), `Today'sLookRecord` (P1), auth provider (D-AUTH-1),
+  RecommendationHistory (P3), conversation retention, K9.1 knowledge shape,
+  media-privacy (MS10.3), feedback design.
+
+## STEP 6 — API Contract: Wardrobe (documentation only, no implementation)
+
+Task: define the API contract for the wardrobe surface — for each wardrobe
+operation define list, retrieve, create, update, delete as appropriate; define
+request + response schemas; cover categories, filters, sorting, pagination, and
+the wardrobe insight. Do not implement.
+
+### New file
+- `docs/api/WARDROBE_API.md` — §1 purpose/scope + grounding facts (source of
+  truth = the real `WardrobeEntry`/`WardrobeItemData` shapes + `wardrobe_items`
+  columns; archive NOT supported — delete is the only removal; `all` is a
+  client-side chip; vocab codes not display strings); §2 source-of-truth; §3
+  operation selection (W-1 list UC-11/12 endpoint 11, W-2 single-item GET UC-10
+  flagged additive, W-3 create UC-10, W-4 update PATCH UC-11/12/13 favorite,
+  W-5 delete UC-13/14, W-6 categories/vocab referenced knowledge 19/20, W-7
+  wardrobe insight UC-14 endpoint 15, image/media separate §4.2/§5.8); §4 shared
+  semantics incl. §4.2 media separated from JSON (`imageRef: MediaRef` only,
+  bytes via M16 signed-URL flow sealed until MS10.3), §4.3 item/category/insight
+  DTOs + `MediaRef` frozen to §13.3 and the real mock shapes, §4.4
+  filters/sorting/pagination; §5 seven operation contracts (method/path/
+  request/response/validation/auth/errors + security/side-effects/entities,
+  shapes identical to RECOMMENDATION_API §4.3 and the real mock data); §6
+  validation reference; §7 error reference; §8 open decisions; §9 report.
+
+### Key decisions
+- **Every task operation maps 1:1 to the accepted inventory; archive is
+  excluded.** W-1→endpoint 11, W-3→UC-10, W-4→UC-11/12/13 (PATCH partial incl.
+  `isFavorite`), W-5→UC-13/14 (no archive — no column/status/UC; delete only),
+  W-7→UC-14/15. W-2 single-item GET is defined but **flagged additive** (not in
+  the 48-endpoint inventory; the details screen is served from the list today)
+  — no invented endpoints.
+- **Image/media is structurally separated from JSON data.** Item endpoints
+  carry only `imageRef: MediaRef` (PR-8); bytes move via the M16 signed-URL
+  flow (endpoints 47/48, referenced and sealed until MS10.3); no multipart, no
+  base64, no URLs in JSON. On item delete the DB row and its object-storage
+  bytes are both removed (out-of-DB deletion).
+- **Item/insight wire shapes frozen to the accepted contract and the real
+  product.** DTOs identical to API_CONTRACT_RULES §13.3 (`WardrobeItem`/
+  `Create`/`Patch`/`WardrobeInsight`/`MediaRef`); field names from
+  `wardrobe_items` columns and `wardrobe_mock_data.dart`; `category`/`color`/
+  `material` carry vocab codes (K9.1) resolved client-side, never free strings.
+- **W-7 is the insight family of the common recommendation contract, not a
+  scored recommendation.** `WardrobeInsight { title*, insight*, action?,
+  route? }` — no `score`/`reasons[]` today (§13.3, RECOMMENDATION_API §4.3);
+  the home "Wardrobe Gap Detected" and wardrobe "Wardrobe Health" cards render
+  it; `204` when the wardrobe is empty (empty is not an error, §12.3).
+- **Categories are a client-side `all` chip + referenced knowledge reads.**
+  Category/color/material lists are served by the public knowledge endpoints
+  (19/20, referenced — not redefined here); category counts and favorites are
+  client-derived from the list (no server-side count/favorite endpoints).
+
+### Validation
+- Every operation traces 1:1 to the accepted inventory — W-1→11, W-3→UC-10/12,
+  W-4→UC-11/12/13, W-5→UC-13/14, W-7→UC-14/15; W-6→knowledge 19/20; media→
+  47/48 (sealed); paths/methods/auth/UC/errors identical to API_CONTRACT_RULES
+  §12.3/§12.5 and API_INVENTORY §5.4/§5.6/§5.16; no invented endpoints (W-2
+  additive + archive/media excluded and documented §3/§5.5).
+- Wire shapes match the accepted sketches AND the real product — item DTOs
+  identical to §13.3; field names from `wardrobe_items` columns and
+  `wardrobe_mock_data.dart`; `WardrobeInsightData.mock` variants ("Wardrobe
+  Gap Detected" / "Wardrobe Health") mapped at §4.3/§5.7; category/color/
+  material carry vocab codes (K9.1).
+- Image/media separation verified against PR-8, MEDIA_UPLOAD_ARCHITECTURE M16
+  flow + MS10.3; auth/authorization/errors consistent (all item endpoints auth
+  + owner-only OW-1, 404-not-403; frozen 12-category errors; PATCH/DELETE
+  naturally idempotent §11).
+- `git status --short`: docs/api/ now holds API_CONTRACT_RULES.md +
+  API_INVENTORY.md + AUTH_API.md + PROFILE_ONBOARDING_API.md + APPEARANCE_API.md
+  + SCAN_API.md + HAIRSTYLE_RECOMMENDATION_API.md + RECOMMENDATION_API.md +
+  WARDROBE_API.md (untracked) + CURRENT_STATE.md; no code, directories, or
+  files created.
+
+### Remaining
+- STEP 6 design continues (wardrobe contract complete; common recommendation,
+  scan-system, hairstyle-recommendation, appearance, profile + auth contracts
+  complete). P0 wardrobe endpoints NOT mounted until D-AUTH-1; item images wait
+  on MS10.3/M16; no fake 200 before then (API-12).
+- Open decisions: W-2 single-item GET + archive + create-idempotency +
+  server-side counts + materials read (additive), auth provider (D-AUTH-1),
+  MS10.3 media seal, wardrobe media purpose, User fields, Today'sLookRecord
+  (P1), RecommendationHistory (P3), conversation retention, K9.1 knowledge
+  shape, media-privacy, feedback design.
+
+## STEP 6 — API Contract: Common Recommendation Contract (documentation only, no implementation)
+
+Task: define the common recommendation API contract for Fansivibe — determine
+which recommendation types can share common API structures (hairstyle, grooming,
+outfit, wardrobe, event styling, daily outfit), define the common fields
+(recommendation ID, type, title, description, score, confidence, reasons,
+warnings/trade-offs, created_at, expires_at where applicable), determine which
+fields are type-specific, and avoid creating completely separate incompatible
+API formats for every recommendation type. Do not implement.
+
+### New file
+- `docs/api/RECOMMENDATION_API.md` — §1 purpose/scope + grounding facts (6 task
+  types + discover look → **4 DTO families over 1 envelope**; no `Recommendation`
+  table/resource BAR-0; durable forms = run result TRX-5 / saved-look snapshot
+  TRX-3 / P3 history; confidence NEVER computed AI-0; tradeOffs + expiresAt not
+  modeled; score in 2 accepted scales 0..1 vs 0-100); §2 source-of-truth; §3 type
+  matrix (each type → surface/endpoint/sync-async/DTO/family; outfit analysis +
+  assistant SuggestionCard explicitly NOT `Recommendation`; §3.3 no
+  `/v1/recommendations/*`, no per-type save/feedback endpoints); §4 the common
+  contract (§4.1 the `Recommendation` envelope = the 10 semantic common fields;
+  §4.2 the task's common fields → frozen wire mapping table; §4.3 type-specific
+  extension table per family; §4.4 score/confidence dual scale; §4.5 reasons +
+  tradeOffs additive-only; §4.6 type derived + `sourceContext` stamp, createdAt
+  container-level, expiresAt not modeled); §4.7 the two shared delivery shapes
+  (Shape A async run `{context, recommendations{top,alternatives}}`, Shape B
+  sync value object); §4.8 type-agnostic save/feedback/history; §4.9 auth +
+  no-internals); §5 endpoint-catalog mapping (reference) + §5.1 the common flow;
+  §6 validation reference; §7 error reference; §8 open decisions; §9 report.
+
+### Key decisions
+- **One envelope, four families — the concrete anti-fragmentation design.**
+  The task's six types + the discover look resolve to **four wire shapes**
+  (analysis: hairstyle/grooming, grooming = hairstyle + 4 fields; ensemble:
+  outfit generation + event styling share the **same** `OutfitRecommendation`
+  DTO; derived-look: daily outfit + discover look; insight: wardrobe
+  `WardrobeInsight`), and all four **satisfy one `Recommendation` envelope**
+  (§4.1) carrying the ten common semantic fields. No type gets a private
+  format.
+- **The envelope is a semantic translation, never a rename.** §4.2 maps each
+  task common field (ID/type/title/description/score/confidence/reasons/
+  warnings/created_at/expires_at) to its frozen wire field per type — e.g.
+  title → `name` (analysis family) vs `title` (ensemble/daily), score →
+  `matchScore` 0..1 vs 0-100, reasons → `reasons[]` vs structured
+  `recommendationReasons[]`. Frozen shapes stay identical to APPEARANCE_API
+  §5.1/§5.2, the catalog, and the real mock data (API-2); nothing renamed.
+- **Honesty rule (AI-0) extends to the common fields.** `confidence` never
+  computed today; `tradeOffs`/warnings + `expiresAt` not modeled (additive-only,
+  absent) — the envelope reserves them so all families adopt them later without
+  a format change; wardrobe insight has no score today. No fabricated values.
+- **Type is derived + stamped, not a stored per-DTO field.** `type` = the
+  surface (`run_type` / endpoint); at save it travels as `sourceContext` (the
+  §3.1 vocabulary) so history is uniform across types (§4.6/§4.8).
+  `createdAt` is container-level (run `created_at` / `SavedLook.createdAt`);
+  regenerable sync values have no timestamp (TRX-2/7).
+- **Save/feedback/history are type-agnostic — the mechanism that prevents
+  incompatible formats.** `POST /v1/looks/saved` snapshots **any** family DTO
+  verbatim + `sourceContext` (TRX-3); `POST /v1/feedback` targets by
+  `targetLookId`/`targetSavedLookId`; P3 history snapshots the same shape.
+  No per-type save/feedback endpoints (§3.3).
+
+### Validation
+- Every type traces 1:1 to a real surface + an accepted endpoint
+  (hairstyle→37, grooming→38, outfit analysis→36/39, outfit generation→41,
+  event→30, daily→31/32, look→43/44, wardrobe→15, save→23, feedback→35 gated);
+  paths/methods/auth/UC/errors identical to API_CONTRACT_RULES §12 and
+  API_INVENTORY §5.7/§5.8/§5.9/§5.12/§5.13/§5.14; no invented endpoints.
+- Common core (`id`/title/description/score/reasons) verified present in every
+  family's real mock DTO (`hairstyle_mock_data.dart`, `grooming_mock_data.dart`,
+  `outfit_builder_mock_data.dart`, `outfit_scan_mock_data.dart`,
+  `daily_outfit_mock_data.dart`, `discover_mock_data.dart`,
+  `wardrobe_mock_data.dart`); envelope mapping is a translation table, not a
+  rename; `confidence`/`tradeOffs`/`expiresAt` honestly absent (AI-0).
+- No-internals (C-8/ER-0/AI-0) and AI-output-never-truth (BAR-0) structurally
+  enforced; auth + owner-only (OW-1, 404-not-403); frozen 12-category errors.
+- `git status --short`: docs/api/ now holds API_CONTRACT_RULES.md +
+  API_INVENTORY.md + AUTH_API.md + PROFILE_ONBOARDING_API.md + APPEARANCE_API.md
+  + SCAN_API.md + HAIRSTYLE_RECOMMENDATION_API.md + RECOMMENDATION_API.md
+  (untracked) + CURRENT_STATE.md; no code, directories, or files created.
+
+### Remaining
+- STEP 6 design continues (common recommendation contract complete; scan-system
+  + hairstyle-recommendation + appearance + profile + auth contracts complete).
+  M12/M13/M14/M9/M8 recommendation surfaces NOT mounted until D-AUTH-1 +
+  MS10.3 media seal + a real analysis pipeline land; no fake 200 before then
+  (API-12).
+- Open decisions: auth provider (D-AUTH-1), MS10.3 media seal, feedback design
+  + rating vocab, trade-offs/warnings catalog, score-scale normalization
+  (0..1 vs 0-100), expiresAt/content validity, `sourceContext`/`type` vocabulary
+  shape, per-item createdAt, `recommendation_history` (P3), `face` run_type
+  endpoint, outfit "typed fields" keys, auto-accept-vs-explicit-save,
+  analysis-derived vocab codes, scan retention windows, User fields,
+  Today'sLookRecord (P1), conversation retention, K9.1 knowledge shape,
+  media-privacy.
+
+## STEP 6 — API Contract: Scan System (documentation only, no implementation)
+
+Task: define the API contracts for the Fansivibe scan system covering only the
+scan types the finalized domain model supports — for each scan operation
+define create scan, upload/associate media, processing status, retrieve
+result, retry failed processing, delete if supported; define POST/GET/DELETE
+where appropriate; for async scans define CREATED / PROCESSING / COMPLETED /
+FAILED; define request + response schemas. Do not implement scanning.
+
+### New file
+- `docs/api/SCAN_API.md` — §1 purpose/scope + grounding facts (a scan IS the
+  E6 `analysis_runs` row — no separate scan resource; run_type vocab
+  outfit/face/hairstyle/grooming with `face` reserved no endpoint; status
+  `pending|completed|failed` CHECK + write-once TRX-5; append-only PR-5/6;
+  scan media = MediaRef PR-8, raw blobs auto-expire unless saved; retry =
+  automatic 1x transient + new submission, no retry endpoint; runs deletable
+  only by erasure TRX-8, no DELETE endpoint); §2 source-of-truth; §3 operation
+  selection (S-1 outfit `POST /v1/analysis/outfit` UC-24/36, S-2 face→hairstyle
+  `POST /v1/analysis/hairstyle` UC-25/26/37, S-3 grooming `POST
+  /v1/analysis/grooming` UC-27/38, S-4 media upload inline multipart + M16
+  referenced/sealed, S-5/S-6 status+result `GET /v1/analysis/runs/{run_id}`/39,
+  S-7 retry pattern no endpoint, S-8 delete not-supported, S-9 history `GET
+  /v1/analysis/runs`/40; `face` endpoint + cancel + scan-resource family all
+  NOT defined §3.2); §4 shared semantics incl. §4.2 the four-state lifecycle
+  (CREATED/PROCESSING→wire `pending`, COMPLETED, FAILED — task states mapped
+  to the frozen three-value status, no invented wire state) + §4.3 AnalysisRun
+  DTO + §4.4 media association (inline image part API-36 upload-then-insert
+  TRX-1; M16 signed-URL flow referenced gated MS10.3); §5 nine operation
+  contracts (method/path/request/response/auth/validation/errors/async +
+  security/side-effects/entities, shapes identical to APPEARANCE_API §5.1/5.2
+  and the real mock data) + §5.9 scan flow; §6 validation reference; §7 error
+  reference; §8 open decisions; §9 report/assumptions/constraints.
+
+### Key decisions
+- **A scan is the immutable AnalysisRun — the contract is lifecycle reads +
+  new submissions.** Creating a scan = inserting an `analysis_runs` row
+  (TRX-1 blob first, then row); processing = the row's state machine; result =
+  the immutable `result` snapshot + `engine_version` (TRX-5 write-once);
+  re-scan/regenerate is always a **new** run (append-only, PR-5/6). No
+  `/scans/*` resource family exists.
+- **Only three scan types get endpoints; `face` is reserved.** outfit
+  (`/analysis/outfit`), face→hairstyle (`/analysis/hairstyle`), grooming
+  (`/analysis/grooming`); `face` run_type is seeded but has no endpoint —
+  face analysis mounts on run_type `hairstyle` (F6, APPEARANCE_API §8.3).
+- **Retry has NO endpoint.** Retry = the job runner's automatic 1x transient
+  retry (BJ §5.3; never on no-face/no-clothing/invalid inputs) + a client
+  re-submission that creates a new run; the failed run stays as immutable
+  history with the typed error. `POST /runs/{id}/retry` would overwrite
+  append-only history — not invented.
+- **Delete is NOT supported for runs.** `analysis_runs` is append-only
+  (PR-5/6); a run dies only by account erasure (TRX-8); raw scan media
+  auto-expires unless saved (face after analysis, outfit e.g. 30 days) via a
+  retention job, not a DELETE endpoint. No `DELETE /analysis/runs/{run_id}`.
+- **The task's four states are mapped honestly to the wire.** CREATED and
+  PROCESSING both surface as `pending` (row-derived status, BJ §5.2; the CHECK
+  constraint forbids a fourth value); COMPLETED = `completed`, FAILED =
+  `failed`. Documented, not invented as a wire state.
+- **Wire shapes frozen to the accepted contract.** Paths/methods/auth/UC/errors
+  identical to API_CONTRACT_RULES §12.11 and API_INVENTORY §5.12/§5.15; the
+  hairstyle/grooming request + result shapes identical to APPEARANCE_API §5.1/
+  §5.2; result snapshots mirror outfit_scan_mock_data.dart /
+  hairstyle_mock_data.dart / grooming_mock_data.dart. Face scans write the
+  profile projection (TRX-6, referenced); outfit + grooming write history only.
+
+### Sibling contract — hairstyle recommendation surface
+- `docs/api/HAIRSTYLE_RECOMMENDATION_API.md` — the hairstyle recommendation
+  contract, sibling to SCAN_API.md (H-1 `POST /v1/analysis/hairstyle` =
+  SCAN_API S-2; run lifecycle reads re-stated, owned by SCAN_API §5.5/5.6).
+  7 operations (H-1 create UC-25/26, H-2 status, H-3 retrieve completed run,
+  H-4 details within the run result — no separate endpoint, H-5 save
+  `POST /v1/looks/saved` UC-15 referenced, H-6 feedback `POST /v1/feedback`
+  UC-32 referenced gated, H-7 regenerate = new submission no endpoint);
+  §4.3 the recommendation DTO mirrors `HairstyleRecommendation`
+  (`hairstyle_mock_data.dart:64-86`) — `id`=catalog look code PR-3,
+  `name`, `description` (explanation), `matchScore`, `reasons[]`,
+  `stylingTips`, `maintenance`, `bestFor`; `confidence` NOT computed today
+  (AI-0, absent, never fabricated), `tradeOffs` NOT modeled (additive-only);
+  §4.5 profile context carried at run level (`appearance` + `faceProfileRef` +
+  current `StyleProfile` R-1) + `engine_version` exposed but internal
+  `model_version` never surfaced (C-8); §4.8 no-internals rule (no prompts,
+  provider/model names, raw provider output on the wire); §5.8 flow; §8 open
+  decisions; §9 report.
+
+### Validation
+- Every operation traces 1:1 to the accepted inventory — S-1→UC-24/36,
+  S-2→UC-25/26/37, S-3→UC-27/38, S-5/S-6→39, S-9→40, S-4→47/48 (referenced,
+  sealed); paths/methods/auth/UC/errors identical to API_CONTRACT_RULES §12.11
+  and API_INVENTORY §5.12/§5.15; async 202 + run_id + poll matches §8.3 and
+  API-41/42; no invented endpoints (retry/delete/cancel/face explicitly
+  excluded and documented §3.2).
+- Wire shapes match the accepted sketches — `AnalysisRun`, `AsyncAccepted`,
+  `ListEnvelope` identical to §8.3/§13; hairstyle/grooming shapes identical to
+  APPEARANCE_API §5.1/§5.2 (no field renamed/removed/retyped); result snapshots
+  mirror the real mock shapes. Hairstyle recommendation DTO mirrors
+  `HairstyleRecommendation` (`hairstyle_mock_data.dart:64-86`) field-for-field
+  with `confidence`/`tradeOffs` honestly absent (AI-0).
+- Product grounding re-verified: run_types seed (POSTGRESQL_SCHEMA_V1_REVIEW
+  F6 — outfit/face/hairstyle/grooming, face planned), scan retention
+  (STORAGE_INVENTORY §1.2/§1.3), retry semantics (BACKGROUND_JOB §5.3),
+  media flow (MEDIA_UPLOAD_ARCHITECTURE, M16 sealed), the three live scan
+  features (outfit_scan / hairstyle / grooming mock data).
+- `git status --short`: docs/api/ now holds API_CONTRACT_RULES.md +
+  API_INVENTORY.md + AUTH_API.md + PROFILE_ONBOARDING_API.md + APPEARANCE_API.md
+  + SCAN_API.md + HAIRSTYLE_RECOMMENDATION_API.md (untracked) + CURRENT_STATE.md;
+  no code, directories, or files created.
+
+### Remaining
+- STEP 6 design continues (scan-system + hairstyle-recommendation contracts
+  complete; appearance, profile + auth contracts complete). M12 scan endpoints
+  NOT mounted until D-AUTH-1 + MS10.3 media seal + a real analysis pipeline
+  land; no fake 200 before then (API-12).
+- Open decisions: auth provider (D-AUTH-1), MS10.3 media seal, `face` run_type
+  endpoint, outfit "typed fields" keys, auto-accept-vs-explicit-save,
+  analysis-derived vocab codes, CREATED-vs-PROCESSING on the wire (mapped to
+  `pending` today), scan retention windows (config-driven), User fields,
+  Today'sLookRecord (P1), RecommendationHistory (P3), conversation retention,
+  K9.1 knowledge shape, media-privacy, feedback design.
+
+## STEP 6 — API Contract: Appearance Intelligence (documentation only, no implementation)
+
+Task: define the API contracts for Fansivibe's appearance-intelligence surface
+(face profile, hair profile, grooming profile, style DNA, appearance analysis,
+appearance score, capability progress) covering only capabilities the finalized
+domain model supports — for each endpoint method, path, request, response,
+authentication, validation, errors, and async behavior where applicable;
+**historical AI analyses must remain distinguishable from current profile
+state**. Do not implement.
+
+### New file
+- `docs/api/APPEARANCE_API.md` — §1 purpose/scope + grounding facts (only 4 of
+  9 appearance concepts have a data shape; hair/grooming/color = PLANNED no
+  tables; runs append-only; all analysis providers FUTURE; no confidence today;
+  style DNA derived; style score = learning surface; capability = config; FaceData
+  frozen in assistant DTO) + the binding current-vs-history rule; §2 source-of-
+  truth; §3 operation selection (A-1 AnalyzeAppearance+Hairstyle `POST
+  /v1/analysis/hairstyle` UC-25/26 endpoint 37; A-2 Grooming `POST
+  /v1/analysis/grooming` UC-27 endpoint 38; A-3 GetAnalysisRun `GET
+  /v1/analysis/runs/{run_id}` endpoint 39; A-4 ListAnalysisRuns endpoint 40;
+  R-1/R-2 GetProfile/UpdateProfile referenced; R-3 learning summary referenced;
+  outfit analysis out-of-scope; hair/grooming/color profile, capability progress,
+  "Appearance Intelligence", style-DNA write, confidence all NOT defined);
+  §4 shared semantics incl. §4.4 historical-vs-current distinguishing contract
+  (two disjoint resource families /users/me vs /analysis/runs*, provenance
+  sourceRunId, write-once TRX-5, separate projection TRX-6); §5 four operation
+  contracts (method/path/request/response/auth/validation/errors/async +
+  security/side-effects/entities) + R-1…R-3 references + §5.7 flow diagram;
+  §6 validation reference; §7 error reference; §8 open decisions; §9
+  report/assumptions/constraints.
+
+### Key decisions
+- **Analysis is async, history is immutable.** All four submission/read ops
+  follow the frozen 202+run_id→poll pattern (API-41/42, §8.3); submission is
+  never idempotent (each call = new run); completion is write-once (TRX-5);
+  failed runs stay as historical rows with the typed error, no result.
+- **Face analysis writes the current projection; grooming does not.** A-1
+  completion applies attributes to `user_state.style_profile` in a separate
+  TRX-6 (latest-wins, source_run_id provenance); A-2 produces recommendations
+  only (projection changes only if a style is explicitly accepted via saved-look).
+- **Four topics explicitly NOT APIs** (domain-grounded, consistent with
+  PROFILE_ONBOARDING_API §3): hair/grooming/color profile (PLANNED, no tables),
+  capability progress (config-only, client-computed, forward /v1/knowledge/*),
+  "Appearance Intelligence" (narrative), style-DNA write + confidence (derived /
+  not computed). No invented endpoints.
+- **Current-vs-history is structurally enforced** (§4.4): current = /users/me
+  (mutable, sourceRunId provenance); history = /analysis/runs* (append-only,
+  engine_version); disjoint DTOs; acceptance never mutates a run.
+
+### Validation
+- A-1→UC-25/26 endpoint 37, A-2→UC-27/38, A-3→39, A-4→40, R-1/R-2→06/07,
+  R-3→34; paths/methods/auth/UC/errors identical to API_CONTRACT_RULES §12.11
+  and API_INVENTORY §5.12/§5.3/§5.10; run/result wire shapes match §8.3/§13.2
+  and the real mock shapes (hairstyle/grooming).
+- Product grounding re-verified: allCapabilities config (onboarding_data.dart:79),
+  grooming option vocab (grooming_mock_data.dart:16), hairstyle/grooming result
+  shapes, no confidence computed (AI_DATA_FLOW Part D.3), style score formula
+  (learning_service.dart:224), no hair/grooming/color model classes.
+- `git status --short`: docs/api/ now holds API_CONTRACT_RULES.md +
+  API_INVENTORY.md + AUTH_API.md + PROFILE_ONBOARDING_API.md + APPEARANCE_API.md
+  (untracked) + CURRENT_STATE.md; no code, directories, or files created.
+
+### Remaining
+- STEP 6 design continues (appearance contract complete; profile + auth
+  contracts complete). M12 analysis endpoints NOT mounted until D-AUTH-1 +
+  MS10.3 media seal + sync pipeline land; no fake 200 before then (API-12).
+- Open decisions: auth provider (D-AUTH-1), MS10.3 media seal, `face` run_type
+  endpoint, auto-accept-vs-explicit-save, analysis-derived vocab codes, hair/
+  grooming/color profiles + capability progress as open non-features, User
+  fields, Today'sLookRecord (P1), RecommendationHistory (P3), conversation
+  retention, K9.1 knowledge shape, media-privacy, feedback design.
+
+## STEP 6 — API Contract: Profile, Preferences & Onboarding (documentation only, no implementation)
+
+Task: define the API contracts for the user-profile, preferences, goals,
+style-preferences and appearance-capability surface from the actual Fansivibe
+product requirements — define only the required operations (onboarding,
+user profile, preferences, goals, style preferences, appearance capability
+progress). For each: method, path, request schema, response schema,
+authentication requirements, validation, errors, security considerations. Do
+not implement.
+
+### New file
+- `docs/api/PROFILE_ONBOARDING_API.md` — §1 purpose/scope + grounding facts
+  (onboarding vibe+analysis both optional/skippable; nothing persisted today;
+  `StyleVibe` 6-value enum; palette = display-only analysis output;
+  PreferencesScreen 4 sections but only styleType + preferredOccasions
+  persisted; `weeklyGoal` = UI-only streak constant; capability progress =
+  static config, no per-user rows); §2 source-of-truth; §3 operation selection
+  (P-1 GetProfile referenced → AUTH_API §5.5; P-2 UpdateProfile PATCH /users/me;
+  P-3 UpdatePreferences PUT /users/me/preferences;   P-4 SyncLocalData POST
+  /users/me/sync = UC-9/UC-5 onboarding completion; P-5 UpdateSettings
+  referenced; plus §3.1 goals, §3.2 onboarding swatches, §3.3 appearance
+  capability progress each explicitly NOT defined as an API with a forward
+  contract); §4 shared semantics (If-Match versioning, frozen error body,
+  OW-1/404-not-403, CRITICAL styleProfile); §5 operation contracts (each with
+  the full 10-attribute set: method/path/request/response/validation/auth/
+  authorization/errors/side-effects/domain-entities, per the STEP 6 task) +
+  §5.6 onboarding flow (Path A targeted writes, Path B post-account sync;
+  zero-data onboarding allowed; completion is client-side, no server flag);
+  §6 shared validation reference; §7 error reference; §8 open decisions; §9
+  report/assumptions/constraints.
+
+### Key decisions
+- **Five required, three excluded.** Required: `PATCH /v1/users/me` (UC-7,
+  `styleDna` merge patch; `styleType` self-reported WITHOUT `sourceRunId` —
+  offline/instant onboarding path; analysis-derived fields require
+  `sourceRunId`), `PUT /v1/users/me/preferences` (UC-8, sparse vocab-validated
+  JSONB; Occasion Focus → preferredOccasions; Style Vibe → styleType via P-2;
+  Color Palette / Fit Preference = display-only mock, no key), `POST
+  /v1/users/me/sync` (UC-9 / UC-5 onboarding completion, Idempotency-Key, one
+  true transaction TRX-3/6 → SyncReceipt; designed but NOT mounted until auth +
+  sync pipeline). GetProfile/UpdateSettings referenced, not re-defined.
+- **Goals — NOT an API.** `weeklyGoal` is a UI-only static streak-card
+  constant (home_mock_data.dart:239-244, DATA_MODEL_INVENTORY "UI-only"); no
+  goals entity/table/UC/action/endpoint exists. If user-set goals ship later,
+  they fold into a controlled preferences/settings key — no new endpoint or
+  table (PR-12); never placed in `flags` (server-derived projection).
+- **Onboarding swatches endpoint — rejected** (§3.2). No swatch picker exists;
+  the palette is simulated analysis display output with no stored field
+  (StyleProfile/Preferences have no palette key); the vibe is captured by
+  P-2 without a full blob. `POST /v1/users/me/swatches` would be an invented
+  API.
+- **Appearance capability progress — config-only, no API** (§3.3).
+  `allCapabilities` is static config (7, 2 active); HISTORY_AND_VERSIONING
+  §5.12 / APPEARANCE_DOMAIN_MODEL = SYSTEM CONFIGURATION, no per-user rows.
+  Status is client-computed (config × user's own data); server is transparent;
+  ProfileView has no capabilities field. Forward: catalog under /v1/knowledge/*
+  (M5 additive) if ever server-served — still no per-user rows.
+- **Wire shapes frozen to §13.2** — ProfileView/StyleProfile/Preferences/
+  SyncRequest/SyncReceipt/Conflict identical to the sketches; PATCH uses the
+  catalog's literal `styleDna` field name (§12.6) with the styleDna-vs-
+  styleProfile naming reconciliation recorded as an open decision; If-Match
+  version guard (409 kind="version"); 12-category frozen errors.
+
+### Validation
+- Every operation traces 1:1 to UC-5/6/7/8/9 + inventory endpoints 06–10;
+  paths/methods/auth/UC/errors identical to API_CONTRACT_RULES §12.6 and
+  API_INVENTORY §5.3; no invented endpoints (goals/swatches/capability
+  explicitly excluded; sync is the inventory's own UC-9/UC-5 path); DTO
+  shapes identical to §13.2 sketches.
+- Product grounding re-verified in the real repo: vibe + analysis optional
+  (`vibe_select_screen.dart:90-96`, entry "Explore Without Scanning");
+  `weeklyGoal` UI-only (home_mock_data.dart, DATA_MODEL_INVENTORY:307);
+  capability = static config (APPEARANCE_DOMAIN_MODEL row 7,
+  HISTORY_AND_VERSIONING §5.12); only styleType + preferredOccasions persisted
+  in UserModel.
+- Every contract carries the task's full 10-attribute set — side effects and
+  domain entities per operation now explicit and consistent with
+  API_INVENTORY §5.3 "related domain entities" (E1/E1.1/E2/E3/E4/E6/E7) and
+  TRX-3/TRX-6 boundaries.
+- `git status --short`: docs/api/ now holds API_CONTRACT_RULES.md +
+  API_INVENTORY.md + AUTH_API.md + PROFILE_ONBOARDING_API.md (untracked) +
+  CURRENT_STATE.md; no code, directories, or files created.
+
+### Remaining
+- STEP 6 design continues (profile/preferences/onboarding contract complete;
+  auth contract complete). PATCH/PUT/sync write endpoints NOT mounted until
+  D-AUTH-1 + sync pipeline land; sync must not fake 200 before then (API-12).
+- Open decisions unchanged: auth provider (D-AUTH-1) incl. refresh-session
+  conditional, styleDna-vs-styleProfile naming (§8.2), analysis-derived vocab
+  codes (§8.6), avatar-media gating (MS10.3), goals + capability progress as
+  open non-features, User fields, Today'sLookRecord (P1), RecommendationHistory
+  (P3), conversation retention, K9.1 knowledge shape, media-privacy, feedback
+  design.
+
+## STEP 6 — API Contract: Auth & Account Identity (documentation only, no implementation)
+
+Task: define the API contracts for authentication and account identity from
+the actual Fansivibe product requirements — define only the required
+operations (sign in, sign up, refresh session, sign out, current user, account
+deletion). For each: method, path, request schema, response schema,
+authentication requirements, validation, errors, security considerations. Do
+not implement authentication.
+
+### New file
+- `docs/api/AUTH_API.md` — §1 purpose/scope + grounding facts (backend has no
+  auth; `users` has no email/password columns — auth pair IS the stored
+  identity; D-AUTH-1 seam; R51 session store; TRX-8 erasure); §2 source-of-
+  truth; §3 operation selection (six required: register/social/login/logout/
+  users-me/delete-account — one gated; refresh session explicitly NOT required
+  now, §3.1); §4 shared auth semantics (headers, tokens, frozen error body,
+  public-vs-auth matrix); §5 six operation contracts (each with the 8 required
+  fields: method/path/request schema/response schema/auth requirements/
+  validation/errors/security); §6 shared validation reference; §7 error
+  reference for the surface; §8 open decisions; §9 report/assumptions/
+  constraints.
+
+### Key decisions
+- **Six operations defined, one excluded.** Required: `POST /v1/auth/register`
+  (UC-1, Idempotency-Key), `POST /v1/auth/social` (UC-2, upsert 200/201),
+  `POST /v1/auth/login` (UC-3, uniform-401 recommended), `POST /v1/auth/logout`
+  (UC-4, auth, idempotent 401), `GET /v1/users/me` (UC-6, identity read),
+  `DELETE /v1/users/me` (TRX-8 erasure — **documented but NOT mounted**,
+  API-12, per inventory §6.4 "user's own path").
+- **Refresh session is NOT designed now** — backend never stores refresh
+  secrets and D-AUTH-1 (provider) is open; a refresh endpoint would be an
+  invented API. Recorded as an open decision, added additively if/when the
+  provider needs it (API-2).
+- **Wire shapes frozen to the accepted sketches** — `AuthResponse`,
+  `RegisterRequest`, `LoginRequest`, `SocialSignIn`, `ProfileView` identical
+  to API_CONTRACT_RULES §13.1/§13.2; error codes are the frozen 12-category
+  taxonomy; public/auth + OW-1 owner-scoping match API-7/API-10; no passwords
+  or refresh secrets stored (AUTH_AUTHORIZATION §4.1).
+
+### Validation
+- Every operation traces 1:1 to UC-1/2/3/4/6 + TRX-8 erasure and to inventory
+  endpoints 02–05/06; paths/methods/auth/UC/errors identical to the canonical
+  catalog §12 and API_INVENTORY §5.2/§5.3/§6.4; no invented endpoints (refresh
+  excluded; erasure gated not-mounted); DTO shapes identical to §13 sketches.
+- `git status --short`: docs/api/ now holds API_CONTRACT_RULES.md +
+  API_INVENTORY.md + AUTH_API.md (untracked) + CURRENT_STATE.md; no code,
+  directories, or files created.
+
+### Remaining
+- STEP 6 design continues (auth/identity contract complete). Auth module (M1)
+  ships at M4 with `deps.py` + UC-1…UC-4 once D-AUTH-1 lands; login `404`
+  (UC-3) should collapse to a uniform `401` at implementation.
+- Open decisions unchanged: auth provider (D-AUTH-1) incl. refresh-session
+  conditional, User fields, Today'sLookRecord (P1), RecommendationHistory
+  (P3), conversation retention, K9.1 knowledge shape, media-privacy (MS10.3),
+  feedback design.
+
+## STEP 6 — API Inventory (documentation only, no implementation)
+
+Task: using the completed STEP 2/3/4/5 documents, create the complete API
+INVENTORY for Fansivibe. For every required API identify: API name, HTTP
+method, path, feature, purpose, authentication requirement, authorization
+requirement, synchronous/asynchronous, input data, output data, errors,
+related domain entities, priority P0/P1/P2. No endpoint implementation, no
+code changes, no invented APIs unsupported by the Feature/Data Inventory.
+
+### New file
+- `docs/api/API_INVENTORY.md` — §1 purpose/scope (13 fields per API; scope
+  rules: inventory covers only APIs supported by the 32 actions / 33 use
+  cases / M1–M16; live contract fixed; sealed modules inventoried but NOT
+  mounted); §2 source-of-truth; §3 conventions (naming from UC-*, paths under
+  /v1, auth public|auth, authorization none|owner|admin, sync/async,
+  frozen 12-category errors, entities E1–E10, priority = module phase);
+  §4 master inventory (48 endpoints, one row each: name/method/path/feature/
+  module/UC/priority); §5 per-endpoint detail (all 48, grouped M1–M16 +
+  health, each with all 13 fields); §6 cross-cutting summary (auth matrix,
+  authorization matrix, sync/async matrix, server-to-server/non-Flutter
+  endpoints incl. subscriptions webhook + admin knowledge seed + erasure,
+  Idempotency-Key list); §7 report/assumptions/constraints.
+
+### Key decisions
+- **48 client-facing endpoints** (+ health) cover all 32 actions and all 33
+  use cases; every endpoint traced to a screen/action/UC/entity — no invented
+  APIs.
+- **Live contract preserved:** `GET /health` (endpoint 01) and
+  `POST /v1/assistant/chat` (endpoint 16, public today F-5, frozen DTOs).
+- **Sealed modules inventoried but NOT mounted** (API-12): M11 `feedback`
+  (endpoint 35) and M16 `media` (endpoints 47/48) — routes do not exist until
+  their gates lift.
+- **Async only for image analysis** (endpoints 36/37/38, 202 + run_id
+  polling); everything else sync (API-40/41). Analysis never idempotent;
+  saves/sync/register/subscribe require Idempotency-Key.
+- **Server-to-server / non-Flutter endpoints documented but excluded from the
+  client catalog:** subscriptions billing webhook (M15), admin knowledge seed
+  (M5 P2), account erasure.
+
+### Validation
+- Master table §4 ↔ detail §5 cross-checked 1:1 (48 + 48); paths, methods,
+  auth, UC, sync/async, idempotency, and error codes identical to
+  API_CONTRACT_RULES §12; priorities match BACKEND_MODULE_MAP phases
+  (P0 M1–M6, P1 M7–M11, P2 M12–M16); every action 1–32 and UC-1–33 mapped;
+  OW-1 owner-scoping and the 12-category error taxonomy verified against
+  ERROR_HANDLING/AUTH docs.
+- `git status --short`: docs/api/ now holds API_CONTRACT_RULES.md +
+  API_INVENTORY.md (untracked); no code, directories, or files created.
+
+### Remaining
+- STEP 6 design complete (two deliverables: contract rules + inventory).
+  Field-level DTO definitions beyond the P0 sketch are set at M2/M4
+  implementation; sealed modules stay unmounted until their gates lift.
+- Open decisions unchanged: auth provider (D-AUTH-1), User fields, Today's
+  LookRecord (P1), RecommendationHistory (P3), conversation retention, K9.1
+  knowledge shape, media-privacy (MS10.3), feedback design.
+
+## STEP 6 — API Contract Design (documentation only, no implementation)
+
+Task: define the complete HTTP API contract between the Flutter app and the
+FastAPI backend, derived from actual product behavior and the finalized domain
+model. Contract design only — no endpoints, no Flutter, no routing, no UI, no
+migrations, no repositories, no services, no dependencies, no deleted
+endpoints. Version APIs, resource-oriented naming, consistent methods/
+responses/errors, validate inputs, never expose DB or AI/provider internals,
+enforce authenticated ownership, distinguish sync vs async, pagination,
+idempotency, stable ids, backward compatibility.
+
+### New file
+- `docs/api/API_CONTRACT_RULES.md` — §1 purpose/scope + grounding facts
+  (only GET /health + POST /v1/assistant/chat live; no auth; frozen A3.1
+  DTOs); §2 source-of-truth; §3 contract principles C-1…C-16 (each grounded
+  in API-*/ER-*/OW-*/TRX-*); §4 global conventions (base URL, headers incl.
+  Idempotency-Key/X-Request-Id/X-Knowledge-Version, camelCase, ISO-8601 UTC,
+  UUID vs stable-code ids, MediaRef); §5 auth/authorization (Bearer, public
+  endpoint list, anonymous sync-only, 404-not-403, admin, sealed modules not
+  mounted); §6 HTTP method semantics; §7 resource URI map + path-collision
+  guard (`/v1/looks/*` ordering); §8 response structures (no envelope for
+  singles — assistant frozen bare; list envelope; 202+run_id async object;
+  204/needs_data empties); §9 error contract (frozen {error:{code,message,
+  details}}, 12-category taxonomy table, status-code principle);
+  §10 pagination/filtering/sorting; §11 idempotency table (saves/sync/
+  register/subscribe/webhook; never for chat/analysis); §12 full endpoint
+  catalog grouped M1–M16 + health (method/path/auth/UC/sync/request→response/
+  errors); §13 P0 DTO sketches (auth, profile/preferences, wardrobe + MediaRef,
+  frozen assistant DTOs verbatim, knowledge, shared types); §14 privacy &
+  never-expose guarantees (C-7/C-8, CRITICAL appearance data, erasure);
+  §15 backward compatibility (additive-only, F-13 frozen, M1–M6 keeps 19
+  tests green); §16 open decisions (unchanged 8); §17 report/assumptions/
+  constraints.
+
+### Key decisions
+- **16 binding principles C-1…C-16** map every API principle to an accepted
+  rule (versioning API-1…4, resource naming §7, envelopes API-17…19, errors
+  API-28…31 + 12-category taxonomy, validation API-13…16, no DB leaks F-6/
+  ER-0, no AI/provider leaks AI-0/ER-0/F-7, ownership OW-1/API-10, sync-vs-
+  async API-40…44, pagination API-20…22, idempotency API-33…35, stable ids
+  PR-3, backward compatibility API-2…4, auth-not-in-domain F-3/DR-1,
+  AI-output-never-truth BAR-0/TRX-7).
+- **Complete endpoint catalog = 32 actions / 33 use cases → ~40 endpoints**
+  across M1–M16 (+ versionless `GET /health`), every one with method, path
+  (all under `/v1`), auth, UC, sync/async, idempotency, request→response,
+  and the frozen error codes it can return.
+- **Live contract preserved unchanged:** `POST /v1/assistant/chat` stays
+  envelope-free, unauthenticated-today (F-5), DTOs frozen verbatim (F-13);
+  `GET /health` versionless.
+- **Async only for image analysis** (202 + run_id polling, TRX-5 write-once);
+  grooming stays on the run model; generation/today's-look sync (BJ-0).
+- **Idempotency required** on register, `/users/me/sync`, saved-look saves,
+  `/outfits/saved`, `/feedback` (when live), `/subscriptions`; never on
+  `/assistant/chat` or `/analysis/*` (each call is a new exchange/run).
+- **Sealed/gated modules not mounted:** `POST /v1/feedback` (M11) and
+  `/v1/media/uploads*` (M16, MS10.3) have no live routes until their gates
+  lift — no fake 200 (API-12).
+
+### Validation
+- Cross-checked every endpoint against ACTION_API_INVENTORY (actions 1–32,
+  27=AssistantReply.navigation, 4=sync precondition), APPLICATION_USE_CASES
+  (UC-1…33 all mapped), MODULE_MAP routers (M1–M16 paths match), API_LAYER
+  API-1…44, ERROR_HANDLING 12 codes (identical values), AUTH OW-1,
+  BACKGROUND_JOB SYNC/ASYNC, MEDIA_UPLOAD flow, TABLE_DEFINITIONS field
+  names; live schemas.py + assistant_client.dart re-read.
+- `git status --short`: only docs/api/API_CONTRACT_RULES.md (untracked) +
+  CURRENT_STATE.md; no code, directories, or files created by this step.
+
+### Remaining
+- STEP 6 design complete. Contract lands in implementation via M1 (folder
+  skeleton, UC-22 first), M2 (typed errors + error mapper per §9), M3 (SQL
+  migrations), M4 (P0 slice UC-1…14+22 — first place §12/§13 P0 endpoints and
+  DTOs are implemented behind deps.py once D-AUTH-1 lands).
+- Open decisions unchanged: auth provider (D-AUTH-1), User fields, Today's
+  LookRecord (P1), RecommendationHistory (P3), conversation retention, K9.1
+  knowledge shape, media-privacy (MS10.3), feedback design. Plus STEP 5
+  follow-ups F-1…F-4.
 
 ## STEP 5 — Backend Architecture Rules (documentation only, no implementation)
 

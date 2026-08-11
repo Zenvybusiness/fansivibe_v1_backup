@@ -4,25 +4,9 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/presentation/face_processing_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/face_scan_screen.dart';
+import 'package:fansivibe/features/hairstyle/presentation/hairstyle_result_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
-
-final GoRouter _hairstyleScanRouter = GoRouter(
-  initialLocation: '/',
-  routes: [
-    GoRoute(
-      path: '/',
-      name: RouteNames.hairstyle,
-      builder: (_, __) => const FaceScanScreen(),
-      routes: [
-        GoRoute(
-          path: 'processing',
-          name: RouteNames.hairstyleProcessing,
-          builder: (_, __) => const FaceProcessingScreen(),
-        ),
-      ],
-    ),
-  ],
-);
+import 'support/controllable_hairstyle_service.dart';
 
 void main() {
   group('FaceScanScreen Widget Tests', () {
@@ -80,15 +64,40 @@ void main() {
     testWidgets('start scan navigates to processing screen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(
-        MaterialApp.router(routerConfig: _hairstyleScanRouter),
+      final service = ControllableHairstyleService();
+      addTearDown(service.dispose);
+      final router = GoRouter(
+        initialLocation: '/',
+        routes: [
+          GoRoute(
+            path: '/',
+            name: RouteNames.hairstyle,
+            builder: (_, __) => const FaceScanScreen(),
+            routes: [
+              GoRoute(
+                path: 'processing',
+                name: RouteNames.hairstyleProcessing,
+                builder: (_, __) =>
+                    FaceProcessingScreen(service: service),
+                routes: [
+                  GoRoute(
+                    path: 'result',
+                    name: RouteNames.hairstyleResult,
+                    builder: (_, __) => const HairstyleResultScreen(),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
       );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
 
       await tester.tap(find.text('Scan Face'));
-      for (var i = 0; i < 30; i++) {
-        await tester.pump(const Duration(milliseconds: 16));
-      }
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
+      expect(service.started, isTrue);
       expect(find.text('Analyzing Face'), findsOneWidget);
       expect(find.text('Detecting face features'), findsOneWidget);
     });

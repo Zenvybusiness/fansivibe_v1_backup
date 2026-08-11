@@ -1,70 +1,73 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
+import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class FaceProcessingScreen extends StatefulWidget {
-  const FaceProcessingScreen({super.key});
+  const FaceProcessingScreen({super.key, this.service});
+
+  /// Injectable for tests; when null the screen owns a real [HairstyleService].
+  final HairstyleService? service;
 
   @override
   State<FaceProcessingScreen> createState() => _FaceProcessingScreenState();
 }
 
 class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
-  int _currentStageIndex = 0;
-  final List<bool> _completedStages = [];
-  Timer? _timer;
+  late final HairstyleService _service;
+  bool _ownsService = false;
+  bool _navigated = false;
 
   @override
   void initState() {
     super.initState();
-    _completedStages.addAll(
-      List.filled(HairstyleProcessingStage.mockStages.length, false),
-    );
-    _startProcessing();
+    final provided = widget.service;
+    if (provided != null) {
+      _service = provided;
+    } else {
+      _service = HairstyleService();
+      _ownsService = true;
+    }
+    _service.addListener(_onServiceChanged);
+    _start();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _service.removeListener(_onServiceChanged);
+    if (_ownsService) {
+      _service.dispose();
+    }
     super.dispose();
   }
 
-  void _startProcessing() {
-    _processNextStage();
-  }
-
-  void _processNextStage() {
-    if (_currentStageIndex >= HairstyleProcessingStage.mockStages.length) {
-      _navigateToResult();
-      return;
-    }
-
-    final stage = HairstyleProcessingStage.mockStages[_currentStageIndex];
-    _timer = Timer(stage.duration, () {
-      if (!mounted) return;
-      setState(() {
-        _completedStages[_currentStageIndex] = true;
-        _currentStageIndex++;
-      });
-      _processNextStage();
-    });
-  }
-
-  void _navigateToResult() {
+  void _onServiceChanged() {
     if (!mounted) return;
-    context.replaceNamed(RouteNames.hairstyleResult);
+    setState(() {});
+  }
+
+  Future<void> _start() async {
+    final result = await _service.runAnalysis();
+    if (!mounted) return;
+    _navigateToResult(result);
+  }
+
+  void _navigateToResult(HairstyleAnalysisResult? result) {
+    if (_navigated) return;
+    _navigated = true;
+    context.replaceNamed(RouteNames.hairstyleResult, extra: result);
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final allComplete =
-        _currentStageIndex >= HairstyleProcessingStage.mockStages.length;
+    final completedStages = _service.completedStageCount;
+    final totalStages = HairstyleService.totalStages;
+    final allComplete = completedStages >= totalStages;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -144,8 +147,8 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
                               final stage = entry.value;
                               return HairstyleStageIndicator(
                                 stage: stage,
-                                isActive: index == _currentStageIndex,
-                                isComplete: _completedStages[index],
+                                isActive: index == completedStages,
+                                isComplete: index < completedStages,
                               );
                             }),
 
@@ -155,7 +158,9 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
                           FansiButton.primary(
                             label: 'View Results',
                             icon: Icons.check_circle_outline,
-                            onPressed: _navigateToResult,
+                            onPressed: _navigated
+                                ? null
+                                : () => _navigateToResult(_service.result),
                           ),
 
                         const SizedBox(height: 32),

@@ -2,18 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
+import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class HairstyleResultScreen extends StatelessWidget {
-  const HairstyleResultScreen({super.key});
+  const HairstyleResultScreen({super.key, this.result, this.service});
+
+  /// The analysis result to render; falls back to the offline mock when null.
+  final HairstyleAnalysisResult? result;
+
+  /// Injectable for tests; when null a temporary service is created on save.
+  final HairstyleService? service;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final result = HairstyleAnalysisResult.mock;
+    final resolved = result ?? HairstyleAnalysisResult.mock;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -48,19 +55,19 @@ class HairstyleResultScreen extends StatelessWidget {
                       children: [
                         const SizedBox(height: 8),
 
-                        _buildHeader(context, result),
+                        _buildHeader(context, resolved),
                         const SizedBox(height: 24),
 
-                        _buildStyleProfile(context, result),
+                        _buildStyleProfile(context, resolved),
                         const SizedBox(height: 24),
 
-                        _buildTopRecommendation(context, result),
+                        _buildTopRecommendation(context, resolved),
                         const SizedBox(height: 24),
 
-                        _buildAlternativesSection(context, result),
+                        _buildAlternativesSection(context, resolved),
                         const SizedBox(height: 24),
 
-                        _buildActions(context),
+                        _buildActions(context, resolved),
                         const SizedBox(height: 32),
                       ],
                     ),
@@ -269,7 +276,9 @@ class HairstyleResultScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildActions(BuildContext context) {
+  Widget _buildActions(BuildContext context, HairstyleAnalysisResult result) {
+    final top = result.topRecommendation;
+
     return Column(
       children: [
         FansiButton.secondary(
@@ -283,21 +292,43 @@ class HairstyleResultScreen extends StatelessWidget {
         FansiButton.primary(
           label: 'Save Style',
           icon: Icons.favorite_rounded,
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('Hairstyle saved to profile'),
-                backgroundColor: FansivibeColors.accentGold,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: FansivibeRadius.smdBorder,
-                ),
-              ),
-            );
-          },
+          onPressed: () => _saveStyle(context, top),
         ),
       ],
     );
+  }
+
+  Future<void> _saveStyle(
+    BuildContext context,
+    HairstyleRecommendation recommendation,
+  ) async {
+    final owned = service == null;
+    final svc = service ?? HairstyleService();
+    try {
+      final ok = await svc.saveLook(
+        recommendation: recommendation,
+        title: recommendation.name,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok ? 'Hairstyle saved to profile' : 'Could not save hairstyle',
+          ),
+          backgroundColor: ok
+              ? FansivibeColors.accentGold
+              : FansivibeColors.surfaceContainerHigh,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: FansivibeRadius.smdBorder,
+          ),
+        ),
+      );
+    } finally {
+      if (owned) {
+        svc.dispose();
+      }
+    }
   }
 
   void _openDetails(BuildContext context, HairstyleRecommendation rec) {
