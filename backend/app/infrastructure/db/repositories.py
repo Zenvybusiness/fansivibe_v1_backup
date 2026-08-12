@@ -86,6 +86,14 @@ class AnalysisRunRepositorySQL:
         self._session.commit()
         return bool(outcome)
 
+    def fail(self, *, run_id: UUID, user_id: UUID, error: Optional[dict]) -> bool:
+        """Mark a pending run `failed` with its frozen error body (TRX-5)."""
+        outcome = self._session.execute(
+            select(func.fail_analysis_run(run_id, user_id, error))
+        ).scalar_one()
+        self._session.commit()
+        return bool(outcome)
+
     @staticmethod
     def _to_record(row: AnalysisRuns) -> AnalysisRunRecord:
         return AnalysisRunRecord(
@@ -97,7 +105,7 @@ class AnalysisRunRepositorySQL:
             completed_at=row.completed_at,
             input_media=row.input_media,
             result=row.result,
-            error=None,
+            error=row.error,
         )
 
     @staticmethod

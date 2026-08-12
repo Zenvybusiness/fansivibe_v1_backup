@@ -3,21 +3,30 @@
 Implements the engine stages from `DECISION_ENGINE_ARCHITECTURE.md` for the
 hairstyle task only (no empty framework — per-task composition):
 
-  1. ContextBuilder     — profile × knowledge
-  2. CandidateGeneration — the hairstyle look catalog
-  3. Scoring            — deterministic face-shape weights over the seed score
-  4. Ranking            — top + alternatives
-  5. Explanation        — grounded reasons + description from the catalog
+  1. ContextBuilder       — appearance + preferences → DecisionContext
+  2. CandidateGeneration  — the hairstyle look catalog (KnowledgeSource port)
+  3. Filtering            — hard rules: excluded looks (preferences)
+  4. Scoring              — weighted signals (seed + face-shape + preference)
+  5. Ranking              — score-descending order, top + alternatives
+  6. Explanation          — grounded reasons from the catalog (never invented)
+  7. Recommendation       — typed HairstyleResult + derived confidence
 
+Confidence is a derived, deterministic run-level value in [0, 1]
+(`AI_DOMAIN_MODEL.md` §4.4) from data completeness × top-pick decisiveness; a
+sparse profile sets `needs_more_data` instead of fabricating inputs (AI-0).
 The LLM (when wired) may only rewrite *wording* — never structure or scores
 (BA-8, AI-0). Scores are capped at 1.0 and stay in [0, 1].
 """
 
 from __future__ import annotations
 
-from app.domain.ports.external import KnowledgeSource
+from dataclasses import dataclass, field
+from typing import Optional
+
+from app.domain.ports.external import KnowledgeError, KnowledgeSource
 from app.domain.value_objects import (
     AppearanceProfile,
+    HairstylePreferences,
     HairstyleRecommendation,
     HairstyleResult,
 )
@@ -30,48 +39,278 @@ _BOOSTS: dict[str, dict[str, float]] = {
     "brushed_up_undercut": {"oval": 0.04, "heart": 0.04, "diamond": 0.05, "square": 0.02},
 }
 
+# Soft preference boost for a look the user marked as preferred.
+_PREFERENCE_BOOST = 0.03
 
-def _score(look: HairstyleRecommendation, face_shape: str) -> float:
-    boost = _BOOSTS.get(look.id, {}).get(face_shape, 0.0)
-    return min(1.0, look.matchScore + boost)
+# Appearance signals that count toward profile completeness.
+_APPEARANCE_SIGNALS = ("faceShape", "skinTone", "bodyType", "styleType")
+
+# Score gap (0.0..0.1) that is treated as a fully decisive top pick.
+_DECISIVE_GAP = 0.1
+
+_DEFAULT_FACE_SHAPE = "oval"
 
 
-def _as_scored(look: HairstyleRecommendation, score: float) -> HairstyleRecommendation:
+@dataclass(frozen=True)
+class DecisionContext:
+    """Stage-1 output — the single object all later stages read.
+
+    ``completeness`` is the fraction of non-empty appearance signals (0.0..1.0);
+    ``knowledge_version`` is provenance (KN-1), passed through from the port.
+    """
+
+    appearance: AppearanceProfile
+    preferences: HairstylePreferences
+    completeness: float
+    knowledge_version: str = ""
+
+
+@dataclass(frozen=True)
+class ScoredCandidate:
+    """Stage-4 output — a candidate with its score and per-signal breakdown."""
+
+    id: str
+    score: float
+    signals: dict[str, float]
+    look: HairstyleRecommendation
+
+
+@dataclass(frozen=True)
+class Explanation:
+    """Stage-6 output — grounded reasons for one ranked candidate.
+
+    ``reasons`` come from the validated reason catalog (never invented);
+    ``summary`` is the catalog's description, the "why this suits you" text.
+    """
+
+    id: str
+    title: str
+    summary: str
+    reasons: list[str] = field(default_factory=list)
+
+
+def _face_shape(appearance: AppearanceProfile) -> str:
+    raw = (appearance.faceShape or "").strip().lower()
+    return raw or _DEFAULT_FACE_SHAPE
+
+
+def _completeness(appearance: AppearanceProfile) -> float:
+    present = sum(1 for signal in _APPEARANCE_SIGNALS if getattr(appearance, signal, ""))
+    return present / len(_APPEARANCE_SIGNALS)
+
+
+# --- Stage 1 — Context Builder ---------------------------------------------
+
+
+def build_context(
+    appearance: AppearanceProfile,
+    preferences: Optional[HairstylePreferences] = None,
+    knowledge_version: str = "",
+) -> DecisionContext:
+    """Assemble the typed context the later stages read (stage 1)."""
+    return DecisionContext(
+        appearance=appearance,
+        preferences=preferences or HairstylePreferences(),
+        completeness=_completeness(appearance),
+        knowledge_version=knowledge_version,
+    )
+
+
+# --- Stage 2 — Candidate Generation ----------------------------------------
+
+
+def generate_candidates(
+    knowledge: KnowledgeSource, context: DecisionContext
+) -> list[HairstyleRecommendation]:
+    """Retrieve the candidate set from the knowledge source (stage 2).
+
+    The engine never hardcodes candidates (BA-11); the port's deprecated
+    filtering (KN-3) already applies before the engine sees them.
+    """
+    candidates = knowledge.retrieve_hairstyle_looks()
+    if not candidates:
+        raise KnowledgeError("knowledge source returned no hairstyle looks")
+    return candidates
+
+
+# --- Stage 3 — Filtering ----------------------------------------------------
+
+
+def filter_candidates(
+    candidates: list[HairstyleRecommendation], context: DecisionContext
+) -> list[HairstyleRecommendation]:
+    """Apply hard exclusion rules (stage 3).
+
+    Binary keep/drop and deterministic (BA-3): candidates whose id the user
+    excluded are dropped; nothing is scored or reordered here.
+    """
+    excluded = context.preferences.excludedLookIds
+    if not excluded:
+        return list(candidates)
+    return [look for look in candidates if look.id not in excluded]
+
+
+# --- Stage 4 — Scoring ------------------------------------------------------
+
+
+def score_candidates(
+    candidates: list[HairstyleRecommendation], context: DecisionContext
+) -> list[ScoredCandidate]:
+    """Compose weighted scoring signals per candidate (stage 4).
+
+    score = min(1.0, seed + face_shape_boost + preference_boost). The
+    per-signal breakdown feeds the Explanation stage (truthful "why this").
+    """
+    face = _face_shape(context.appearance)
+    preferred = context.preferences.preferredLookIds
+
+    scored: list[ScoredCandidate] = []
+    for look in candidates:
+        face_boost = _BOOSTS.get(look.id, {}).get(face, 0.0)
+        preference_boost = _PREFERENCE_BOOST if look.id in preferred else 0.0
+        score = min(1.0, look.matchScore + face_boost + preference_boost)
+        scored.append(
+            ScoredCandidate(
+                id=look.id,
+                score=round(score, 2),
+                signals={
+                    "seed": look.matchScore,
+                    "face_shape": face_boost,
+                    "preference": preference_boost,
+                },
+                look=look,
+            )
+        )
+    return scored
+
+
+# --- Stage 5 — Ranking ------------------------------------------------------
+
+
+def rank_candidates(scored: list[ScoredCandidate]) -> list[ScoredCandidate]:
+    """Order candidates by score, top pick first (stage 5).
+
+    Ordering-only: scores are never recomputed here. Ties keep catalog order
+    (stable sort), so ranking is deterministic for deterministic inputs.
+    """
+    return sorted(scored, key=lambda candidate: candidate.score, reverse=True)
+
+
+# --- Stage 6 — Explanation --------------------------------------------------
+
+
+def build_explanations(
+    ranked: list[ScoredCandidate], context: DecisionContext
+) -> list[Explanation]:
+    """Produce grounded human reasons for each ranked candidate (stage 6).
+
+    Reasons come verbatim from the validated catalog reason catalog and the
+    score-signal breakdown — never invented, never LLM-authored structure.
+    """
+    face = _face_shape(context.appearance)
+    explanations: list[Explanation] = []
+    for candidate in ranked:
+        face_reason = _face_match_reason(candidate, face)
+        reasons = list(candidate.look.reasons)
+        if face_reason and face_reason not in reasons:
+            reasons = [face_reason] + reasons
+        explanations.append(
+            Explanation(
+                id=candidate.id,
+                title=candidate.look.name,
+                summary=candidate.look.description,
+                reasons=reasons,
+            )
+        )
+    return explanations
+
+
+def _face_match_reason(candidate: ScoredCandidate, face_shape: str) -> Optional[str]:
+    boost = candidate.signals.get("face_shape", 0.0)
+    if boost <= 0.0:
+        return None
+    return (
+        f"Strongest match for your {face_shape} face shape "
+        f"(+{boost:0.2f} face-shape fit)."
+    )
+
+
+# --- Confidence (derived, deterministic) -------------------------------------
+
+
+def derive_confidence(
+    context: DecisionContext, ranked: list[ScoredCandidate]
+) -> float:
+    """Derive the run-level confidence in [0, 1] (deterministic).
+
+    50% data completeness + 50% top-pick decisiveness (how clearly the top
+    beats the runner-up). Sparse grounding or a tight ranking lowers it
+    without ever fabricating a result (AI-0, AI_INTEGRATION_ARCHITECTURE §8).
+    """
+    completeness = context.completeness
+    if len(ranked) >= 2:
+        gap = ranked[0].score - ranked[1].score
+        decisiveness = min(1.0, max(0.0, gap / _DECISIVE_GAP))
+    else:
+        decisiveness = 1.0
+    return round(0.5 * completeness + 0.5 * decisiveness, 2)
+
+
+# --- Stage 7 — Recommendation ------------------------------------------------
+
+
+def _as_recommendation(
+    candidate: ScoredCandidate, explanation: Optional[Explanation] = None
+) -> HairstyleRecommendation:
+    reasons = (
+        list(explanation.reasons)
+        if explanation is not None
+        else list(candidate.look.reasons)
+    )
     return HairstyleRecommendation(
-        id=look.id,
-        name=look.name,
-        description=look.description,
-        matchScore=round(score, 2),
-        reasons=list(look.reasons),
-        stylingTips=look.stylingTips,
-        maintenance=look.maintenance,
-        bestFor=look.bestFor,
+        id=candidate.look.id,
+        name=candidate.look.name,
+        description=candidate.look.description,
+        matchScore=candidate.score,
+        reasons=reasons,
+        stylingTips=candidate.look.stylingTips,
+        maintenance=candidate.look.maintenance,
+        bestFor=candidate.look.bestFor,
     )
 
 
 def recommend_hairstyle(
     knowledge: KnowledgeSource,
     appearance: AppearanceProfile,
+    preferences: Optional[HairstylePreferences] = None,
 ) -> HairstyleResult:
-    """Run the full hairstyle recommendation pipeline over the profile.
+    """Run the full hairstyle recommendation pipeline (thin orchestrator).
 
-    Rules-first: the top pick matches the assistant's face-shape switch
-    (`app/ai/tools.py:recommend_hairstyle`) — pompadour-first for
-    round/square/rectangle, quiff-first otherwise.
+    The orchestrator knows the stage order and implements no stage logic —
+    each stage is a small pure function above. Rules-first: the top pick
+    matches the assistant's face-shape switch (`app/ai/tools.py:
+    recommend_hairstyle`) — pompadour-first for round/square/rectangle,
+    quiff-first otherwise.
     """
-    face_shape = appearance.faceShape.strip().lower() if appearance.faceShape else "oval"
+    context = build_context(
+        appearance,
+        preferences,
+        knowledge_version=getattr(knowledge, "knowledge_version", ""),
+    )
 
-    scored = [
-        _as_scored(look, _score(look, face_shape))
-        for look in knowledge.list_hairstyle_looks()
-    ]
-    scored.sort(key=lambda r: r.matchScore, reverse=True)
+    candidates = generate_candidates(knowledge, context)
+    filtered = filter_candidates(candidates, context)
+    scored = score_candidates(filtered, context)
+    ranked = rank_candidates(scored)
 
-    if not scored:
-        raise ValueError("knowledge source returned no hairstyle looks")
+    if not ranked:
+        raise KnowledgeError("no hairstyle looks after filtering")
 
-    top = scored[0]
-    alternatives = scored[1:]
+    explanations = build_explanations(ranked, context)
+    confidence = derive_confidence(context, ranked)
+    needs_more_data = context.completeness < 1.0
+
+    by_id = {explanation.id: explanation for explanation in explanations}
 
     return HairstyleResult(
         appearance=AppearanceProfile(
@@ -81,6 +320,11 @@ def recommend_hairstyle(
             styleType=appearance.styleType,
             sourceRunId=appearance.sourceRunId,
         ),
-        top=top,
-        alternatives=alternatives,
+        top=_as_recommendation(ranked[0], by_id[ranked[0].id]),
+        alternatives=[
+            _as_recommendation(candidate, by_id[candidate.id])
+            for candidate in ranked[1:]
+        ],
+        confidence=confidence,
+        needs_more_data=needs_more_data,
     )

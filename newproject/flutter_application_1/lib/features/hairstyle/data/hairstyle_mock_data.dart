@@ -140,7 +140,9 @@ class HairstyleAnalysisResult {
       styleDna: appearance['styleType'] as String? ?? '',
       topRecommendation: HairstyleRecommendation.fromJson(top),
       alternatives: alternatives
-          .map((e) => HairstyleRecommendation.fromJson(e as Map<String, dynamic>))
+          .map(
+            (e) => HairstyleRecommendation.fromJson(e as Map<String, dynamic>),
+          )
           .toList(),
     );
   }

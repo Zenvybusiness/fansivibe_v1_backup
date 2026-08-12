@@ -1,7 +1,370 @@
 # Fansivibe Current State
 
-Last Updated: 2026-08-11
+Last Updated: 2026-08-12
 Updated By: opencode agent
+
+## STEP 7 — FINAL VALIDATION: Hairstyle Vertical Slice End-to-End — COMPLETE
+
+Task: run the STEP 7 final gate — validate the complete vertical slice
+(`Flutter → API → Authentication → Application Service → Domain → Decision
+Engine → Knowledge → AI → PostgreSQL → Recommendation → Flutter → Save →
+Feedback`) against the 15 required scenarios, run all test suites + static
+analysis, verify unrelated Fansivibe screens are unchanged, and record the
+result in `docs/implementation/STEP_7_FINAL_REPORT.md`. No redesign; only the
+hairstyle flow may have changes.
+
+### Validation results
+- **Backend `pytest -q` → 85 passed, 28 skipped.** The 28 DB-backed tests
+  (`test_analysis_api.py`, `test_saved_looks.py`, `test_users_api.py`,
+  `test_db_session.py`) skip cleanly with an explicit message — PostgreSQL
+  unreachable here (no Docker daemon access / local server; rootless Docker
+  blocked by missing `uidmap`, needs `sudo`). Not faked. DB-free units all
+  green: decision engine 21, knowledge 16, saved-looks use case 9, engine 10,
+  analysis rules 10, intent 9, analysis use case 4, enrichment 3, get profile 3.
+- **Flutter `flutter test` → 384 passed** (full suite). Hairstyle-only 73
+  passed; unrelated-screen subgroup 109 passed.
+- **`dart analyze`** clean on `lib/features/hairstyle/**` + hairstyle tests +
+  test support ("No issues found"); the 7 remaining repo-wide infos are
+  pre-existing in untouched files (`app_router.dart`,
+  `outfit_scan_screen.dart`, `outfit_analysis_screen.dart`).
+- **`pyflakes`** clean on all slice files (application/domain/infrastructure/
+  api/data/tests); only pre-existing warnings in untouched legacy
+  `app/__init__.py` / `app/ai/llm_backend.py`.
+- **Alembic offline DDL** — `upgrade --sql head` (0001+0002, exit 0) and
+  `downgrade --sql 0002:0001` (exit 0) both clean.
+- **Unrelated screens unchanged** — `git diff HEAD` empty for `app/`,
+  home/discover/wardrobe/profile/outfit_scan/stylist/shared/router_shell;
+  this session's Flutter diff touches exactly 5 hairstyle feature files +
+  hairstyle tests + test support.
+
+### The 15 scenarios
+1–2 profile insuff/valid: `INSUFFICIENT_USER_DATA` 422 (use-case test green)
+vs full-profile completion; 3 recommendation (engine 21 + API flow); 4 invalid
+input (typed 422s, unit + API); 5 unauthorized (401 `AUTHENTICATION_ERROR`);
+6 ownership 404-not-403 (owner-scoped SQL + use-case tests); 7 AI failure →
+`PROCESSING_FAILURE`, run marked `failed` not stuck; 8 knowledge failure →
+typed `KnowledgeError` (16 tests); 9 DB failure → rollback + `DATABASE_FAILURE`;
+10 persistence (TRX-5 write-once, offline DDL; live rows DB-backed ⏭️); 11 save
+(TRX-3, idempotency, 409/404/422 — 9 use-case tests); 12 feedback = `look_saved`
+signal in the same commit; `/v1/feedback` unmounted (verified `main.py`);
+13–15 Flutter loading/error/success states (widget tests, honest error state
+with Try Again, save snackbars). Full evidence table in the report.
+
+### New file
+- `docs/implementation/STEP_7_FINAL_REPORT.md` — the final-gate deliverable:
+flow map, the 15-scenario evidence matrix, every test/analysis run, the
+unrelated-screens check, and the honest environment limitation.
+
+### Remaining
+- The 28 live-DB tests still require a reachable PostgreSQL
+  (`cd backend && docker compose up postgres`); they skip cleanly here — not
+  faked. Run that once to observe the actual DB rows and close the last gate.
+- Standard carry-forwards unchanged: auth provider swap behind `deps.py`
+  (D-AUTH-1); `/v1/feedback` (#35) mounts at its M11 milestone; additive Saved
+  Looks screen (C-7). No DECISIONS.md entry (no new accepted decision).
+
+---
+
+## STEP 7 — Save + Feedback for Hairstyle Recommendations (verify & complete) — COMPLETE
+
+Task: continue STEP 7 — implement Save and Feedback for the hairstyle
+recommendation flow per the approved domain model, database design, API
+contract, and repository architecture. Feedback = the save action only
+(`POST /v1/looks/saved` #23 → `look_saved` signal, TRX-3); the `POST
+/v1/feedback` surface (#35) stays gated/unmounted (M11/API-12) — no fake 200
+(verified: `app/main.py` mounts only analysis/looks/users routers). No UI
+redesign; only the existing hairstyle interaction.
+
+### Verified present (end-to-end save flow already implemented)
+- **Backend** — `SaveRecommendation` (`application/saved_looks.py`):
+  TRX-3 all-or-nothing (saved-look insert + `look_saved` signal commit
+  together), `Idempotency-Key` replay returns the original save (`created=False`),
+  conflicting replay → 409 `CONFLICT`, unknown `look_id` → 404 via
+  `knowledge.lookup_hairstyle_look`, unknown `sourceContext` → 422,
+  `DATABASE_FAILURE` rollback on insert error. Router `POST /v1/looks/saved`
+  (`api/routers/looks.py`) requires the `Idempotency-Key` header; ownership
+  enforced in the SQL repos (OW-1, 404-not-403).
+- **Flutter** — `HairstyleClient.saveLook` (posts `/v1/looks/saved` with
+  `Idempotency-Key`, true on 201 / false on 409+), `HairstyleService.saveLook`
+  (fresh idempotency key per call + `look_saved` signal on success only),
+  `SavedLook` model, and save buttons on both `HairstyleResultScreen`
+  (Save Style) and `HairstyleDetailsScreen` (Try This Style) with
+  success/failure snackbars.
+
+### Added this session (test coverage — the gap)
+- `backend/tests/test_saved_looks_use_case.py` (new, no DB) — **9 unit tests**
+  for `SaveRecommendation`: success inserts look+signal+commits, idempotent
+  replay returns original (no new rows), conflicting replay → 409, idempotency
+  is owner-scoped, unknown look → 404, unknown source context → 422,
+  `look_id=None` bypasses catalog lookup, insert failure rolls back →
+  `DATABASE_FAILURE`, catalog-backed save.
+- `test/support/controllable_hairstyle_service.dart` — added
+  `StubSaveHairstyleService` (controllable `saveLook` result + call log).
+- `test/hairstyle_result_screen_test.dart` + `test/hairstyle_details_screen_test.dart`
+  — **4 new widget tests**: save button calls `saveLook` with the right
+  look id/title and shows the success snackbar; save failure shows the
+  "Could not save hairstyle" snackbar (UI state update).
+
+### Validation
+- `pytest -q` → **85 passed, 28 skipped** (baseline 76 + 9 new save unit
+  tests; the 28 DB-backed tests — incl. `test_saved_looks.py` API tests —
+  still skip cleanly: PostgreSQL unreachable here, not faked).
+- `flutter test` → **384 passed** (baseline 380 + 4 new save widget tests).
+- `dart analyze` clean on all changed files; `pyflakes` clean on the new
+  backend test file.
+
+### Remaining
+- Live DB-backed save API tests require `cd backend && docker compose up
+  postgres`; they skip cleanly here.
+- `/v1/feedback` (#35) remains unmounted/gated (M11, API-12) — the save
+  (`look_saved`) signal is the slice's feedback, as approved.
+
+---
+
+## STEP 7 — Flutter ↔ FastAPI Hairstyle Integration (data-flow completion) — COMPLETE
+
+Task: continue STEP 7 — integrate the existing Flutter Hairstyle flow with
+the implemented FastAPI Hairstyle Recommendation API, exactly per
+`docs/api/FANSIVIBE_API_CONTRACT_V1.md` (#37/#39/#40/#23). No UI redesign, no
+Home/bottom-nav/unrelated changes, no reusable-component replacement; only the
+Hairstyle data path + the one affected screen's error state were touched.
+
+### Found and fixed (the real integration gap)
+- **Poll path bug** — the client polled `GET /v1/analysis/{run_id}` while the
+  backend mounts `GET /v1/analysis/runs/{run_id}` (`routers/analysis.py`),
+  so a live completed run could never be fetched and the flow always fell
+  back to the offline mock. Fixed in `hairstyle_client.dart`; the prior tests
+  encoded the wrong path and were corrected.
+- **Failed-run handling** — `AnalysisRun` now parses the wire `error` body
+  (`{code,message,details?}`, contract §5) and exposes `isFailed`;
+  `pollAnalysisRun` treats `failed` as terminal (returns promptly instead of
+  polling to exhaustion); the service surfaces the typed error via a new
+  `analysisError` getter (fallback result still resolves so the flow never
+  breaks, per the documented Stage 6-7 design decision).
+
+### Implemented (per task, all contract-following)
+- API client (`hairstyle_client.dart`) — submit/poll/get/list/save, Bearer dev
+  token, multipart `faceProfileRef`, `Idempotency-Key` on save; paths now match
+  the backend router exactly.
+- Request/response models (`hairstyle_models.dart`) — `AnalysisRun` (+`error`/
+  `isFailed`), `AnalysisRunPage`, `SavedLook`, `hairstyleResultFromRun`.
+- Repository/data source (`hairstyle_service.dart`) — `runAnalysis`/`listRuns`/
+  `saveLook`, `analysisError` state, `@visibleForTesting completeWith`/
+  `setAnalysisError`.
+- Loading state — existing `FaceProcessingScreen` stages/spinner preserved.
+- Success state — existing `HairstyleResultScreen` preserved.
+- Error state — `FaceProcessingScreen` (the only affected Hairstyle component)
+  now renders an honest "Analysis Failed" state with the backend message and a
+  "Try Again" action instead of silently navigating to mock results. Reason for
+  change: task-required error state; no other screen/route/token changed.
+
+### Validation
+- `flutter analyze` clean on all changed files (only pre-existing infos remain
+  in untouched `app_router.dart`/`outfit_scan_screen.dart`/etc.).
+- `flutter test` → **380 passed** (baseline 372 + 8 new: client failed-run
+  parse, terminal-poll ×2, full submit→poll→map integration, failed-run offline
+  fallback, service error surfaced/cleared, processing-screen error widget).
+
+### Remaining
+- Live end-to-end against PostgreSQL still requires `docker compose up postgres`
+  (DB-backed backend tests skip cleanly here); the Flutter client degrades to
+  the offline mock when the server is unreachable, as designed.
+- `face_processing` with no stored face profile resolves instantly to the
+  offline mock (honest: no profile → no server analysis), unchanged.
+
+---
+
+## STEP 7 — Hairstyle Recommendation API (approved endpoints, #37/#39/#40/#23) — COMPLETE
+
+Task: continue STEP 7 — implement the Hairstyle Recommendation API exactly
+per `docs/api/HAIRSTYLE_RECOMMENDATION_API.md` + `docs/api/RECOMMENDATION_API.md`;
+approved endpoints only (submit/poll/list/save). No unrelated APIs touched;
+`/v1/feedback` (H-6) stays gated/unmounted (M11); regenerate = a new run
+(H-7, no endpoint). The router/schema/application layer largely existed from
+the vertical slice; this step closed the **failure-path gap** and added the
+missing API tests.
+
+### Contract requirements — verified present (all)
+- **Authentication** — Bearer → seeded dev `user_id` (`deps.py`, D-AUTH-1 seam).
+- **Authorization** — owner-only (OW-1) with 404-not-403, enforced in the SQL
+  repositories on every run/saved-look read.
+- **Request validation** — 422 field errors + allowed values; UUID check on
+  `faceProfileRef`/`run_id`; `Idempotency-Key` required on save (TRX-3).
+- **Domain/service invocation** — `recommend_hairstyle()` (decision engine) via
+  `CreateHairstyleRun`; save via `SaveRecommendation` (UC-15).
+- **Repository persistence** — `analysis_runs`, `saved_looks`,
+  `learning_signals`; TRX-5 write-once completion/failure.
+- **Recommendation reasons** — grounded `reasons[]` from the validated catalog
+  (never invented), carried in the run `result`.
+- **Confidence** — engine-derived run-level `confidence` in `[0,1]` +
+  `needs_more_data`, preserved through enrichment into the snapshot.
+- **Model/version metadata** — `engine_version` ("rules-v1") on the run (PR-6);
+  `knowledge_version` ("1.0") on the source.
+- **Consistent response format** — bare DTOs (`AsyncAccepted`, `AnalysisRun`,
+  `AnalysisRunList`, `SavedLook`) exactly per §4.2/§4.3.
+- **Consistent error format** — frozen `{error:{code,message,details}}` via the
+  12-category mapper; `X-Request-Id` on every error.
+
+### New this step — failure path (contract §5.1/§4.2/§7)
+- `alembic/versions/0002_analysis_runs_error.py` — nullable JSONB `error`
+  column on `analysis_runs` + server-side `fail_analysis_run(run_id, user_id,
+  error)` (write-once, only pending→failed), downgrade drops both.
+- `app/infrastructure/db/models.py` — `AnalysisRuns.error` column mirroring the
+  migration (metadata ↔ migration in sync).
+- `app/infrastructure/db/repositories.py` + `app/domain/ports/repositories.py`
+  — `fail()` repository method + port entry; `_to_record` now maps `row.error`
+  (a failed run carries its frozen `error` body, no fabricated result).
+- `app/application/analysis.py` — `CreateHairstyleRun` catches pipeline
+  failures (empty knowledge → `KnowledgeError`, engine errors) and marks the
+  run `failed` with `error.code=PROCESSING_FAILURE` + `details.run_id`, instead
+  of leaving a stuck `pending` run / bare 500. Submission still returns
+  `202 {run_id}`; the poll (H-2/H-3) exposes the failed status.
+- `backend/tests/test_analysis_api.py` — DB-backed
+  `test_recommendation_failure_marks_run_failed_with_processsing_failure`
+  (monkeypatched empty catalog → 202 → poll: `status=failed`, no `result`,
+  `error.code=PROCESSING_FAILURE`, `details.run_id`).
+- `backend/tests/test_analysis_use_case.py` (new, no DB) — 4 unit tests:
+  successful completion, pipeline failure marks run failed (not stuck
+  pending), insufficient profile → typed `INSUFFICIENT_USER_DATA` (422),
+  owner-scoped read.
+
+### Validation
+- `pytest -q` → **76 passed, 28 skipped** (28 DB-backed tests — incl. the new
+  failure-path API test — skip cleanly; PostgreSQL unreachable here; 4 new
+  DB-free use-case tests all green). No regression vs the 72/27 baseline.
+- `pyflakes` clean on all changed files.
+- `alembic upgrade --sql head` → clean offline DDL: 0001 → 0002 adds
+  `ALTER TABLE analysis_runs ADD COLUMN error JSONB` + `fail_analysis_run`/
+  `complete_analysis_run` functions; `downgrade --sql 0002:0001` drops the
+  function + column (exit 0).
+- OpenAPI: all 4 approved paths mounted (`POST /v1/analysis/hairstyle`,
+  `GET /v1/analysis/runs/{run_id}`, `GET /v1/analysis/runs`,
+  `POST /v1/looks/saved`); `AnalysisRun.error` on the wire schema.
+
+### Remaining
+- The 28 DB-backed tests still require a reachable PostgreSQL (`cd backend &&
+  docker compose up postgres`); they skip cleanly here — not faked.
+- `/v1/feedback` (H-6) remains gated/unmounted (M11, API-12); the save
+  (`look_saved`) signal is the slice's feedback, as approved.
+
+---
+
+## STEP 7 — Decision Engine for Hairstyle Recommendation — COMPLETE
+
+Task: implement the minimum production Decision Engine required for the
+hairstyle vertical slice, per `docs/backend/DECISION_ENGINE_ARCHITECTURE.md`.
+Not a generic over-engineered AI framework — one thin orchestrator plus small,
+stateless, per-task stages. No Flutter changes.
+
+### Pipeline (all stages in `backend/app/domain/services/analysis_rules.py`)
+- **ContextBuilder** — `build_context()` → typed `DecisionContext`
+  (appearance + preferences + profile `completeness` + `knowledge_version`).
+- **CandidateGeneration** — `generate_candidates()` → catalog via the
+  `KnowledgeSource` port (BA-11, no hardcoded candidates; KN-3 deprecated
+  filtering applies upstream); empty knowledge → typed `KnowledgeError`.
+- **Filtering** — `filter_candidates()` → binary keep/drop of
+  `preferences.excludedLookIds` (hard rule, no scoring in this stage).
+- **Scoring** — `score_candidates()` → weighted signals
+  (`seed + face_shape_boost + preference_boost`, capped 1.0) with a per-signal
+  breakdown (`ScoredCandidate.signals`) for truthful explanation.
+- **Ranking** — `rank_candidates()` → score-descending, stable sort (ties keep
+  catalog order) → deterministic.
+- **Explanation** — `build_explanations()` → a grounded face-shape fit reason
+  derived from the score signal + catalog reasons, never invented.
+- **Confidence** — `derive_confidence()` → derived run-level value in [0, 1] =
+  50% data completeness × 50% top-pick decisiveness (AI_DOMAIN_MODEL §4.4,
+  AI_INTEGRATION_ARCHITECTURE §8). Deterministic.
+- **Recommendation** — `recommend_hairstyle()` = thin orchestrator composing
+  the stages (no logic of its own); output carries `confidence` +
+  `needs_more_data` (sparse profile / missing signals → honest flag, never a
+  fabricated input, AI-0).
+
+### New this step
+- `backend/app/domain/value_objects.py` — `HairstylePreferences`
+  (`excludedLookIds`/`preferredLookIds`); `HairstyleResult` gained derived
+  `confidence` + `needs_more_data` and emits them in `to_snapshot()`.
+- `backend/tests/test_decision_engine.py` — 18 unit tests explicitly covering
+  **candidate filtering, scoring, ranking, confidence, explanation,
+  insufficient user data, and low-confidence analysis**, plus determinism
+  (identical inputs → identical snapshots) and preferences-driven reranking.
+- `backend/app/application/enrichment.py` — preserves `confidence` and
+  `needs_more_data` through LLM wording enrichment (only wording ever changes).
+
+### Validation
+- `pytest -q` → **72 passed, 27 skipped** (same skip set as the last step —
+  PostgreSQL unreachable here; 18 new engine tests all green). No regression.
+- `pyflakes` clean on all changed files (engine, value objects, enrichment,
+  decision-engine tests).
+
+### Remaining
+- Live DB-backed API tests still require a reachable PostgreSQL (`cd backend
+  && docker compose up postgres`); they skip cleanly here — not faked.
+- Confidence is engine-derived and passed through the run snapshot; exposing it
+  as a dedicated wire field remains an additive API decision, not implemented.
+
+---
+
+## STEP 7 — Knowledge Integration for Hairstyle Recommendation — COMPLETE
+
+Task: implement ONLY the knowledge integration required by the hairstyle
+vertical slice, per the approved `docs/backend/KNOWLEDGE_ARCHITECTURE.md`
+(K9.1, KN-1, KN-3, KN-10). No Flutter changes; no complete Fansivibe
+knowledge system; the knowledge layer stays strictly separate from user
+data.
+
+### What exists / was verified
+- **Knowledge interface** — `app/domain/ports/external.py` now exposes the
+  two KN-10 access paths (`lookup_hairstyle_look` exact keyed reads for
+  reference/validation; `retrieve_hairstyle_looks` filtered/derived reads
+  for the Decision Engine's candidate generation) plus the curated content
+  version `knowledge_version` (KN-1 §5.1) and a typed `KnowledgeError`
+  (`ValueError` subclass). The port's implementation note was corrected to
+  the actual single adapter (no fictitious DB-backed claim).
+- **Hairstyle knowledge retrieval** — `CatalogKnowledgeSource`
+  (`app/infrastructure/external/knowledge.py`) serves the approved catalog
+  seed (`app/data/catalog.py` `HAIRSTYLE_LOOKS`) with read-time validation
+  (required fields, non-empty reasons, `scoreSeed` in [0,1]) and deprecated
+  filtering (KN-3): deprecated looks are never served by `retrieve` but stay
+  lookup-able so old references remain valid. `build_knowledge_source()`
+  unchanged.
+- **Validation/version handling** — `KNOWLEDGE_VERSION = "1.0"` added to
+  `catalog.py` (matches the migration's `looks.content_version` seed),
+  exposed on the port and adapter; malformed/missing knowledge raises the
+  typed `KnowledgeError` instead of an untyped `ValueError`.
+- **Consumers updated (smallest change)** — the engine
+  (`analysis_rules.py`) calls `retrieve_hairstyle_looks()` and raises
+  `KnowledgeError` on an empty catalog; the save use case
+  (`saved_looks.py`) validates the client `look_id` via
+  `lookup_hairstyle_look` instead of enumerating the whole catalog.
+- **Deterministic test data** — the existing approved knowledge source
+  (`catalog.HAIRSTYLE_LOOKS`, 4 looks) is the test data; no new content was
+  authored or copied from any other project (BMM-0).
+
+### New this step
+- `backend/tests/test_knowledge.py` — 16 unit tests covering retrieval
+  (full catalog, deterministic, field mapping, knowledge-only/no user data),
+  lookup (exact hit, unknown → None), version (exposed, stable, distinct
+  from `engine_version`), deprecated filtering (filtered from retrieval but
+  lookup-able, KN-3), invalid knowledge (missing code/title/reasons,
+  out-of-range score → `KnowledgeError`), and missing knowledge (empty
+  catalog → `KnowledgeError` via engine; empty retrieval returns `[]`).
+
+### Validation
+- `pytest -q` → **51 passed, 27 skipped** (16 new knowledge tests; the 27
+  DB-backed tests still skip cleanly — PostgreSQL unreachable here). No
+  regression vs the 35/27 baseline.
+- `pyflakes` clean on all changed files (port, adapter, engine, save case,
+  catalog, tests); pre-existing warnings in untouched legacy files
+  unchanged.
+
+### Remaining
+- Live DB-backed API tests still require a reachable PostgreSQL (`cd backend
+  && docker compose up postgres`); they skip cleanly here — not faked.
+- The complete Fansivibe knowledge system (vocab tables, admin seed, public
+  `GET /knowledge/*` surface, `X-Knowledge-Version` header, DB-backed
+  adapter) is out of scope and not implemented.
+
+---
 
 ## STEP 7 — FastAPI Backend Foundation (Hairstyle Vertical Slice) — COMPLETE
 
@@ -5164,8 +5527,14 @@ All screens from `docs/SCREEN_MAP.md`, plus new onboarding screens:
 
 ## Last Validation
 
-Analysis: Passed — 0 issues in home feature; 4 pre-existing infos in `outfit_scan`.
-Tests: 217 passed, 87 failed (unchanged — no new failures introduced).
+**Backend (FastAPI):**
+- **Static Analysis**: `pyflakes` clean on all changed files; 4 pre-existing warnings in untouched legacy files (`app/__init__.py`, `app/ai/llm_backend.py`).
+- **Unit Tests**: `pytest` → 35 passed, 27 skipped (27 database-backed tests skip cleanly in this environment due to PostgreSQL being unreachable).
+
+**Frontend (Flutter):**
+- **Static Analysis**: `flutter analyze` → 7 info issues (3 `curly_braces_in_flow_control_structures` in `lib/app/router/app_router.dart`, 1 `prefer_null_aware_operators` in `lib/features/outfit_scan/presentation/outfit_analysis_screen.dart`, and 3 `use_build_context_synchronously` in `lib/features/outfit_scan/presentation/outfit_scan_screen.dart`).
+- **Unit Tests**: `flutter test` → 372 passed, 0 failed.
+- **Code Formatting**: 11 files currently unformatted according to `dart format`.
 
 ## Changes Made — Onboarding Feature Implementation
 
@@ -5301,7 +5670,7 @@ Skill used: `dart-run-static-analysis`
 2. **No domain layer**: No `domain/` directory in any feature (not in scope)
 3. **Stylist string-switch dispatch**: Business logic in UI widgets (not in scope)
 4. **Events → Outfit Builder boundary**: No cross-feature contract (not in scope)
-5. **Failing tests**: Resolved — suite is fully green (311 passed, 0 failed).
+5. **Failing tests**: Resolved — suite is fully green (372 passed, 0 failed).
 6. **Mock data**: All onboarding analysis data is currently hardcoded mock values.
     Needs real AI integration.
 7. **Photo capture**: Camera/gallery functionality is simulated (placeholder UI).

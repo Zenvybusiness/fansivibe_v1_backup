@@ -8,6 +8,7 @@ class AnalysisRun {
     this.createdAt,
     this.completedAt,
     this.result,
+    this.error,
   });
 
   final String runId;
@@ -17,7 +18,13 @@ class AnalysisRun {
   final DateTime? completedAt;
   final Map<String, dynamic>? result;
 
+  /// The typed `{code, message, details?}` body a failed run carries
+  /// (FANSIVIBE_API_CONTRACT_V1.md §5: `status=failed` + `error`).
+  final Map<String, dynamic>? error;
+
   bool get isCompleted => status == 'completed';
+
+  bool get isFailed => status == 'failed';
 
   factory AnalysisRun.fromJson(Map<String, dynamic> json) => AnalysisRun(
     runId: json['run_id'] as String? ?? '',
@@ -26,6 +33,7 @@ class AnalysisRun {
     createdAt: DateTime.tryParse(json['created_at'] as String? ?? ''),
     completedAt: DateTime.tryParse(json['completed_at'] as String? ?? ''),
     result: json['result'] as Map<String, dynamic>?,
+    error: json['error'] as Map<String, dynamic>?,
   );
 }
 
@@ -72,7 +80,8 @@ class SavedLook {
     id: json['id'] as String? ?? '',
     lookId: json['look_id'] as String? ?? '',
     title: json['title'] as String? ?? '',
-    createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
+    createdAt:
+        DateTime.tryParse(json['created_at'] as String? ?? '') ??
         DateTime.fromMillisecondsSinceEpoch(0),
   );
 }

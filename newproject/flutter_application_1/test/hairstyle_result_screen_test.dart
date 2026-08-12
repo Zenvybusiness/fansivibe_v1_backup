@@ -6,6 +6,7 @@ import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/presentation/face_scan_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/hairstyle_details_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/hairstyle_result_screen.dart';
+import 'support/controllable_hairstyle_service.dart';
 
 GoRouter _freshHairstyleRouter() => GoRouter(
   initialLocation: '/',
@@ -137,6 +138,48 @@ void main() {
       }
 
       expect(find.text('Face Scan'), findsOneWidget);
+    });
+
+    testWidgets('saving calls saveLook and shows the success snackbar', (
+      WidgetTester tester,
+    ) async {
+      final service = StubSaveHairstyleService()..saveResult = true;
+      addTearDown(service.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HairstyleResultScreen(service: service),
+        ),
+      );
+
+      await tester.ensureVisible(find.text('Save Style'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save Style'));
+      await tester.pumpAndSettle();
+
+      expect(service.saveCalls, 1);
+      expect(service.savedLookIds, ['textured_quiff']);
+      expect(service.savedTitles, ['Textured Quiff']);
+      expect(find.text('Hairstyle saved to profile'), findsOneWidget);
+    });
+
+    testWidgets('saving shows the failure snackbar when save fails', (
+      WidgetTester tester,
+    ) async {
+      final service = StubSaveHairstyleService()..saveResult = false;
+      addTearDown(service.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HairstyleResultScreen(service: service),
+        ),
+      );
+
+      await tester.ensureVisible(find.text('Save Style'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save Style'));
+      await tester.pumpAndSettle();
+
+      expect(service.saveCalls, 1);
+      expect(find.text('Could not save hairstyle'), findsOneWidget);
     });
   });
 }

@@ -90,6 +90,25 @@ void main() {
       expect(find.text('Textured Quiff'), findsOneWidget);
     });
 
+    testWidgets('shows an error state when the backend run failed', (
+      WidgetTester tester,
+    ) async {
+      final service = ControllableHairstyleService();
+      addTearDown(service.dispose);
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _processingRouter(service)),
+      );
+
+      service.failWith("We couldn't finish this request.");
+      await tester.pumpAndSettle();
+
+      expect(find.text('Analysis Failed'), findsOneWidget);
+      expect(find.text('Something went wrong'), findsOneWidget);
+      expect(find.text("We couldn't finish this request."), findsOneWidget);
+      expect(find.text('Try Again'), findsOneWidget);
+      expect(find.text('Hairstyle Results'), findsNothing);
+    });
+
     testWidgets('back button pops', (WidgetTester tester) async {
       final service = ControllableHairstyleService();
       addTearDown(service.dispose);

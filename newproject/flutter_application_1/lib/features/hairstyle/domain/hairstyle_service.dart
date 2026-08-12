@@ -14,11 +14,9 @@ import 'package:fansivibe/features/learning/learning_repository.dart';
 /// unreachable or no face profile exists yet, it falls back to the offline
 /// mock result so the flow never breaks.
 class HairstyleService extends ChangeNotifier {
-  HairstyleService({
-    HairstyleClient? client,
-    LearningRepository? learning,
-  }) : _client = client ?? HairstyleClient(),
-       _learning = learning;
+  HairstyleService({HairstyleClient? client, LearningRepository? learning})
+    : _client = client ?? HairstyleClient(),
+      _learning = learning;
 
   static final int totalStages = HairstyleProcessingStage.mockStages.length;
 
@@ -36,6 +34,9 @@ class HairstyleService extends ChangeNotifier {
   int _completedStageCount = 0;
   int get completedStageCount => _completedStageCount;
 
+  String? _analysisError;
+  String? get analysisError => _analysisError;
+
   HairstyleAnalysisResult? _result;
   HairstyleAnalysisResult? get result => _result;
 
@@ -51,10 +52,14 @@ class HairstyleService extends ChangeNotifier {
   ///
   /// Drives [completedStageCount] forward as real transitions happen: the
   /// pipeline completes when the backend run is finished (or when the offline
-  /// fallback has produced its result).
+  /// fallback has produced its result). When the backend is reachable but the
+  /// run ends in `failed`, [analysisError] is set so callers can surface the
+  /// typed failure; the offline fallback still resolves so the flow never
+  /// breaks (documented Stage 6-7 design decision).
   Future<HairstyleAnalysisResult> runAnalysis() async {
     _isProcessing = true;
     _completedStageCount = 0;
+    _analysisError = null;
     _result = null;
     _safeNotify();
 
@@ -71,9 +76,14 @@ class HairstyleService extends ChangeNotifier {
         resolved = HairstyleAnalysisResult.mock;
       } else {
         final run = await _client.pollAnalysisRun(runId: runId);
-        resolved = run != null
-            ? hairstyleResultFromRun(run)
-            : HairstyleAnalysisResult.mock;
+        if (run != null && run.isFailed) {
+          _analysisError = _describeError(run.error);
+          resolved = HairstyleAnalysisResult.mock;
+        } else if (run != null) {
+          resolved = hairstyleResultFromRun(run);
+        } else {
+          resolved = HairstyleAnalysisResult.mock;
+        }
       }
     }
 
@@ -84,6 +94,15 @@ class HairstyleService extends ChangeNotifier {
     _isProcessing = false;
     _safeNotify();
     return resolved;
+  }
+
+  String _describeError(Map<String, dynamic>? error) {
+    if (error == null) return 'Hairstyle analysis failed. Please try again.';
+    final message = error['message'] as String?;
+    final code = error['code'] as String?;
+    if (message != null && message.isNotEmpty) return message;
+    if (code != null && code.isNotEmpty) return code;
+    return 'Hairstyle analysis failed. Please try again.';
   }
 
   /// Lists the user's analysis runs (summary rows).
@@ -125,6 +144,15 @@ class HairstyleService extends ChangeNotifier {
   @visibleForTesting
   void completeWith(HairstyleAnalysisResult result) {
     _result = result;
+    _completedStageCount = totalStages;
+    _isProcessing = false;
+    _safeNotify();
+  }
+
+  /// Test-only hook: simulate a backend `failed` run.
+  @visibleForTesting
+  void setAnalysisError(String message) {
+    _analysisError = message;
     _completedStageCount = totalStages;
     _isProcessing = false;
     _safeNotify();

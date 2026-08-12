@@ -183,6 +183,66 @@ void main() {
       final result = await service.runAnalysis();
 
       expect(result.faceShape, HairstyleAnalysisResult.mock.faceShape);
+      expect(service.analysisError, isNull);
+    });
+
+    test('surfaces the typed error when the run failed', () async {
+      final client = _FakeHairstyleClient()
+        ..submitResult = 'run-1'
+        ..pollResult = AnalysisRun(
+          runId: 'run-1',
+          runType: 'hairstyle',
+          status: 'failed',
+          error: const {
+            'code': 'PROCESSING_FAILURE',
+            'message': "We couldn't finish this request.",
+            'details': {'run_id': 'run-1'},
+          },
+        );
+      final learning = _FakeLearningRepository(
+        faceProfile: const FaceProfile(faceShape: 'Oval'),
+      );
+      final service = HairstyleService(client: client, learning: learning);
+      addTearDown(service.dispose);
+
+      final result = await service.runAnalysis();
+
+      expect(client.submitCalls, 1);
+      expect(result.faceShape, HairstyleAnalysisResult.mock.faceShape);
+      expect(service.analysisError, "We couldn't finish this request.");
+    });
+
+    test('clears the previous error when a new run starts', () async {
+      final client = _FakeHairstyleClient()
+        ..submitResult = 'run-1'
+        ..pollResult = AnalysisRun(
+          runId: 'run-1',
+          runType: 'hairstyle',
+          status: 'failed',
+          error: const {
+            'code': 'PROCESSING_FAILURE',
+            'message': "We couldn't finish this request.",
+          },
+        );
+      final learning = _FakeLearningRepository(
+        faceProfile: const FaceProfile(faceShape: 'Oval'),
+      );
+      final service = HairstyleService(client: client, learning: learning);
+      addTearDown(service.dispose);
+
+      await service.runAnalysis();
+      expect(service.analysisError, isNotNull);
+
+      client.pollResult = AnalysisRun(
+        runId: 'run-2',
+        runType: 'hairstyle',
+        status: 'completed',
+        result: _wireResult(),
+      );
+      final second = await service.runAnalysis();
+
+      expect(second.topRecommendation.name, 'Textured Quiff');
+      expect(service.analysisError, isNull);
     });
   });
 

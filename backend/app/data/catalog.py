@@ -106,7 +106,13 @@ CLASSIC_POMPADOUR = SuggestionCard(
 # `hairstyle_mock_data.dart`. Each entry maps to the wire
 # `HairstyleRecommendation` fields plus the deterministic `scoreSeed` used by
 # the Scoring stage. `code` is the stable catalog id (looks.code, PR-3).
+# Optional per-entry `"deprecated": True` is filtered from retrieval (KN-3).
 # ---------------------------------------------------------------------------
+
+# Curated content version (KN-1 §5.1). Bump on any seed/content change;
+# aligns with the migration's `looks.content_version` seed. Distinct from
+# `engine_version` (rules code revision).
+KNOWLEDGE_VERSION = "1.0"
 
 HAIRSTYLE_LOOKS: list[dict] = [
     {

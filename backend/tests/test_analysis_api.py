@@ -140,6 +140,37 @@ def test_round_profile_ranks_pompadour(db):
     assert body["result"]["recommendations"]["top"]["id"] == "classic_pompadour"
 
 
+def test_recommendation_failure_marks_run_failed_with_processsing_failure(db, monkeypatch):
+    # Pipeline failure (empty knowledge → engine raises) must yield a `failed`
+    # run with PROCESSING_FAILURE + details.run_id — never a stuck pending run.
+    _seed_profile(db, {"face_shape": "Oval"})
+
+    def _empty_retrieve(self):
+        return []
+
+    monkeypatch.setattr(
+        "app.infrastructure.external.knowledge.CatalogKnowledgeSource.retrieve_hairstyle_looks",
+        _empty_retrieve,
+    )
+
+    resp = client.post(
+        "/v1/analysis/hairstyle",
+        data={"faceProfileRef": str(uuid.uuid4())},
+        headers=HEADERS,
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+
+    got = client.get(f"/v1/analysis/runs/{run_id}", headers=HEADERS)
+    assert got.status_code == 200
+    body = got.json()
+    assert body["status"] == "failed"
+    assert body["completed_at"] is not None
+    assert body["result"] is None
+    assert body["error"]["code"] == "PROCESSING_FAILURE"
+    assert body["error"]["details"]["run_id"] == run_id
+
+
 # --- owner scoping / errors -------------------------------------------------
 
 

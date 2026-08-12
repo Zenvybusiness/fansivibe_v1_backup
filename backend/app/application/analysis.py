@@ -71,8 +71,22 @@ class CreateHairstyleRun:
             sourceRunId=str(run_id),
         )
 
-        result = recommend_hairstyle(self._knowledge, appearance)
-        result = self._enrich(result)
+        try:
+            result = recommend_hairstyle(self._knowledge, appearance)
+            result = self._enrich(result)
+        except Exception:
+            # Pipeline failure → honest `failed` run (PROCESSING_FAILURE,
+            # details.run_id) per §5.1/§7 — never a stuck pending run.
+            self._runs.fail(
+                run_id=run_id,
+                user_id=user_id,
+                error={
+                    "code": "PROCESSING_FAILURE",
+                    "message": "We couldn't finish this request. Please try again.",
+                    "details": {"run_id": str(run_id)},
+                },
+            )
+            return run_id
 
         completed = self._runs.complete(
             run_id=run_id,

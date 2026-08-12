@@ -30,8 +30,7 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
     if (provided != null) {
       _service = provided;
     } else {
-      _service =
-          HairstyleService()..attachLearning(LearningService.instance);
+      _service = HairstyleService()..attachLearning(LearningService.instance);
       _ownsService = true;
     }
     _service.addListener(_onServiceChanged);
@@ -55,6 +54,13 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
   Future<void> _start() async {
     final result = await _service.runAnalysis();
     if (!mounted) return;
+    // A genuine backend failure (`status=failed`) surfaces an honest error
+    // state instead of silently navigating to the offline mock (required
+    // error state; only this component changed).
+    if (_service.analysisError != null) {
+      setState(() {});
+      return;
+    }
     _navigateToResult(result);
   }
 
@@ -70,11 +76,18 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
     final completedStages = _service.completedStageCount;
     final totalStages = HairstyleService.totalStages;
     final allComplete = completedStages >= totalStages;
+    final errorMessage = _service.analysisError;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(allComplete ? 'Analysis Complete' : 'Analyzing Face'),
+        title: Text(
+          errorMessage != null
+              ? 'Analysis Failed'
+              : allComplete
+              ? 'Analysis Complete'
+              : 'Analyzing Face',
+        ),
         leading: IconButton(
           icon: Icon(
             Icons.arrow_back_rounded,
@@ -110,7 +123,9 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
                             shape: BoxShape.circle,
                             color: FansivibeColors.surface,
                             border: Border.all(
-                              color: allComplete
+                              color: errorMessage != null
+                                  ? FansivibeColors.error.withValues(alpha: 0.3)
+                                  : allComplete
                                   ? FansivibeColors.success.withValues(
                                       alpha: 0.3,
                                     )
@@ -120,7 +135,13 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
                             ),
                           ),
                           child: Center(
-                            child: allComplete
+                            child: errorMessage != null
+                                ? Icon(
+                                    Icons.error_outline_rounded,
+                                    size: 64,
+                                    color: FansivibeColors.error,
+                                  )
+                                : allComplete
                                 ? Icon(
                                     Icons.check_circle_rounded,
                                     size: 64,
@@ -141,29 +162,57 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
 
                         const SizedBox(height: 40),
 
-                        ...HairstyleProcessingStage.mockStages
-                            .asMap()
-                            .entries
-                            .map((entry) {
-                              final index = entry.key;
-                              final stage = entry.value;
-                              return HairstyleStageIndicator(
-                                stage: stage,
-                                isActive: index == completedStages,
-                                isComplete: index < completedStages,
-                              );
-                            }),
-
-                        const SizedBox(height: 40),
-
-                        if (allComplete)
-                          FansiButton.primary(
-                            label: 'View Results',
-                            icon: Icons.check_circle_outline,
-                            onPressed: _navigated
-                                ? null
-                                : () => _navigateToResult(_service.result),
+                        if (errorMessage != null) ...[
+                          Text(
+                            'Something went wrong',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: FansivibeColors.textPrimary,
+                            ),
                           ),
+                          const SizedBox(height: 8),
+                          Text(
+                            errorMessage,
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: FansivibeColors.textSecondary,
+                              height: 1.5,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          FansiButton.secondary(
+                            label: 'Try Again',
+                            icon: Icons.refresh_rounded,
+                            onPressed: () {
+                              setState(() {});
+                              _start();
+                            },
+                          ),
+                        ] else ...[
+                          ...HairstyleProcessingStage.mockStages
+                              .asMap()
+                              .entries
+                              .map((entry) {
+                                final index = entry.key;
+                                final stage = entry.value;
+                                return HairstyleStageIndicator(
+                                  stage: stage,
+                                  isActive: index == completedStages,
+                                  isComplete: index < completedStages,
+                                );
+                              }),
+
+                          const SizedBox(height: 40),
+
+                          if (allComplete)
+                            FansiButton.primary(
+                              label: 'View Results',
+                              icon: Icons.check_circle_outline,
+                              onPressed: _navigated
+                                  ? null
+                                  : () => _navigateToResult(_service.result),
+                            ),
+                        ],
 
                         const SizedBox(height: 32),
                       ],

@@ -147,6 +147,7 @@ class AnalysisRuns(Base):
     engine_version: Mapped[str] = mapped_column(Text, nullable=False)
     input_media: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    error: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

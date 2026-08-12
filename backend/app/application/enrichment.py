@@ -46,6 +46,8 @@ def enrich_hairstyle_result(result: HairstyleResult) -> HairstyleResult:
             appearance=result.appearance,
             top=_enrich_description(result.top),
             alternatives=[_enrich_description(a) for a in result.alternatives],
+            confidence=result.confidence,  # derived engine values never change
+            needs_more_data=result.needs_more_data,
         )
     except Exception:
         return result

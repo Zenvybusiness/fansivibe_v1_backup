@@ -13,8 +13,8 @@ import 'package:fansivibe/features/hairstyle/data/hairstyle_models.dart';
 /// result — the flow never breaks when the server is unreachable.
 class HairstyleClient {
   HairstyleClient({http.Client? client, Duration? pollInterval})
-      : _client = client ?? http.Client(),
-        _pollInterval = pollInterval ?? const Duration(milliseconds: 600);
+    : _client = client ?? http.Client(),
+      _pollInterval = pollInterval ?? const Duration(milliseconds: 600);
 
   static const String baseUrl = String.fromEnvironment(
     'ASSISTANT_BASE_URL',
@@ -33,18 +33,22 @@ class HairstyleClient {
   /// Submits a hairstyle analysis for the given face profile reference.
   ///
   /// Returns the submitted run id, or null when the backend is unreachable.
-  Future<String?> submitHairstyleAnalysis({required String faceProfileRef}) async {
+  Future<String?> submitHairstyleAnalysis({
+    required String faceProfileRef,
+  }) async {
     try {
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$baseUrl/v1/analysis/hairstyle'),
-      )
-        ..headers['Authorization'] = 'Bearer $_devToken'
-        ..fields['faceProfileRef'] = faceProfileRef;
+      final request =
+          http.MultipartRequest(
+              'POST',
+              Uri.parse('$baseUrl/v1/analysis/hairstyle'),
+            )
+            ..headers['Authorization'] = 'Bearer $_devToken'
+            ..fields['faceProfileRef'] = faceProfileRef;
 
-      final streamed =
-          await _client.send(request).timeout(_timeout);
-      final response = await http.Response.fromStream(streamed).timeout(_timeout);
+      final streamed = await _client.send(request).timeout(_timeout);
+      final response = await http.Response.fromStream(
+        streamed,
+      ).timeout(_timeout);
 
       if (response.statusCode == 202) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -59,9 +63,11 @@ class HairstyleClient {
     return null;
   }
 
-  /// Fetches an analysis run and polls until it is completed or failed.
+  /// Fetches an analysis run and polls until it is completed, failed, or times out.
   ///
-  /// Returns the completed run, or null when unreachable / failed.
+  /// A terminal `failed` run is returned promptly (never polled to exhaustion)
+  /// so the caller can surface the error instead of waiting. Returns the
+  /// completed/failed run, or null when unreachable.
   Future<AnalysisRun?> pollAnalysisRun({required String runId}) async {
     try {
       for (var attempt = 0; attempt < 30; attempt++) {
@@ -69,7 +75,7 @@ class HairstyleClient {
         if (run == null) {
           return null;
         }
-        if (run.isCompleted) {
+        if (run.isCompleted || run.isFailed) {
           return run;
         }
         await Future<void>.delayed(_pollInterval);
@@ -84,7 +90,7 @@ class HairstyleClient {
     try {
       final response = await _client
           .get(
-            Uri.parse('$baseUrl/v1/analysis/$runId'),
+            Uri.parse('$baseUrl/v1/analysis/runs/$runId'),
             headers: {'Authorization': 'Bearer $_devToken'},
           )
           .timeout(_timeout);

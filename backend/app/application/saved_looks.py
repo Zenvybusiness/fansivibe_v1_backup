@@ -75,8 +75,7 @@ class SaveRecommendation:
                 },
             )
 
-        catalog_codes = {look.id for look in self._knowledge.list_hairstyle_looks()}
-        if look_id is not None and look_id not in catalog_codes:
+        if look_id is not None and self._knowledge.lookup_hairstyle_look(look_id) is None:
             raise not_found()
 
         existing = self._saved_looks.get_by_idempotency(

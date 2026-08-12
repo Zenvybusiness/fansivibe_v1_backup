@@ -74,7 +74,12 @@ def test_reasons_are_grounded_in_catalog():
 def test_snapshot_shape_matches_wire():
     result = _result("Oval")
     snapshot = result.to_snapshot()
-    assert set(snapshot.keys()) == {"appearance", "recommendations"}
+    assert set(snapshot.keys()) == {
+        "appearance",
+        "confidence",
+        "needs_more_data",
+        "recommendations",
+    }
     assert set(snapshot["appearance"].keys()) == {
         "faceShape",
         "skinTone",
@@ -82,6 +87,8 @@ def test_snapshot_shape_matches_wire():
         "styleType",
         "sourceRunId",
     }
+    assert 0.0 <= snapshot["confidence"] <= 1.0
+    assert isinstance(snapshot["needs_more_data"], bool)
     recs = snapshot["recommendations"]
     assert set(recs.keys()) == {"top", "alternatives"}
     assert set(recs["top"].keys()) == {
@@ -98,7 +105,7 @@ def test_snapshot_shape_matches_wire():
 
 def test_empty_knowledge_raises():
     class EmptySource:
-        def list_hairstyle_looks(self):
+        def retrieve_hairstyle_looks(self):
             return []
 
     with pytest.raises(ValueError):
