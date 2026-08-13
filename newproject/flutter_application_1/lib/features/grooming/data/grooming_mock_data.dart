@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:fansivibe/features/grooming/data/grooming_models.dart';
+
 class GroomingOption {
   const GroomingOption({
     required this.id,
@@ -188,37 +190,7 @@ class GroomingProcessingStage {
   ];
 }
 
-class GroomingRecommendation {
-  const GroomingRecommendation({
-    required this.id,
-    required this.name,
-    required this.description,
-    required this.matchScore,
-    required this.reasons,
-    required this.beardLength,
-    required this.cheekLine,
-    required this.eyewearFrame,
-    required this.eyewearRecommendation,
-    required this.stylingTips,
-    required this.maintenance,
-    required this.bestFor,
-    this.icon = Icons.spa_outlined,
-  });
 
-  final String id;
-  final String name;
-  final String description;
-  final double matchScore;
-  final List<String> reasons;
-  final String beardLength;
-  final String cheekLine;
-  final String eyewearFrame;
-  final String eyewearRecommendation;
-  final String stylingTips;
-  final String maintenance;
-  final String bestFor;
-  final IconData icon;
-}
 
 class GroomingAnalysisResult {
   const GroomingAnalysisResult({
@@ -271,7 +243,7 @@ class GroomingAnalysisResult {
           'at the jaw to maintain contrast. Use a beard oil daily to '
           'keep hairs soft and manageable. Brush downward for a polished '
           'look.',
-      maintenance: 'Medium \u2022 Trim every 3-4 days',
+      maintenance: 'Medium • Trim every 3-4 days',
       bestFor: 'Oval, Rectangular, and Diamond face shapes',
     ),
     alternatives: [
@@ -299,7 +271,7 @@ class GroomingAnalysisResult {
             'Use a beard trimmer with a guard to maintain consistent 3mm '
             'length. Define the neckline just above the Adam\'s apple for '
             'a clean transition.',
-        maintenance: 'Low \u2022 Trim every 2-3 days',
+        maintenance: 'Low • Trim every 2-3 days',
         bestFor: 'Oval, Square, and Heart face shapes',
       ),
       GroomingRecommendation(
@@ -326,7 +298,7 @@ class GroomingAnalysisResult {
             'Use a beard balm to keep hairs in place and reduce flyaways. '
             'Shape the neckline and cheek line every few days for a clean '
             'silhouette.',
-        maintenance: 'Medium \u2022 Trim every 4-5 days',
+        maintenance: 'Medium • Trim every 4-5 days',
         bestFor: 'Round, Square, and Rectangular face shapes',
       ),
       GroomingRecommendation(
@@ -353,7 +325,7 @@ class GroomingAnalysisResult {
             'Use moustache wax to shape and hold. Trim the upper lip line '
             'cleanly. Keep the rest of the face clean-shaven for maximum '
             'contrast.',
-        maintenance: 'Medium \u2022 Trim every 2-3 days',
+        maintenance: 'Medium • Trim every 2-3 days',
         bestFor: 'Oval, Heart, and Diamond face shapes',
       ),
     ],

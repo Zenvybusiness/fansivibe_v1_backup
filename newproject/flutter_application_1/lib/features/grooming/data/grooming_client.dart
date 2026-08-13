@@ -6,31 +6,6 @@ import 'package:http/http.dart' as http;
 
 import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 
-/// Represents a grooming analysis run, mirroring the backend `AnalysisRun` DTO.
-class GroomingRun {
-  const GroomingRun({
-    required this.runId,
-    required this.runType,
-    required this.status,
-    this.createdAt,
-    this.completedAt,
-    this.result,
-    this.error,
-  });
-
-  final String runId;
-  final String runType;
-  final String status;
-  final DateTime? createdAt;
-  final DateTime? completedAt;
-  final Map<String, dynamic>? result;
-  final Map<String, dynamic>? error;
-
-  bool get isCompleted => status == 'completed';
-
-  bool get isFailed => status == 'failed';
-}
-
 /// HTTP client for the grooming recommendation API.
 ///
 /// Override the endpoint with dart-define ASSISTANT_BASE_URL=... .

@@ -271,7 +271,7 @@ void main() {
     expect(find.text('Grooming Profile'), findsOneWidget);
   });
 
-  testWidgets 'renders result from service', (WidgetTester tester) async {
+  testWidgets('renders result from service', (WidgetTester tester) async {
     final mockResult = GroomingAnalysisResult.mock;
 
     await tester.pumpWidget(
@@ -282,5 +282,5 @@ void main() {
 
     expect(find.text('Grooming Results'), findsOneWidget);
     expect(find.text('Your Grooming Profile'), findsOneWidget);
-  };
+  });
 }

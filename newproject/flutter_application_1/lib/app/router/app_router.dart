@@ -20,7 +20,7 @@ import 'package:fansivibe/features/events/data/event_mock_data.dart';
 import 'package:fansivibe/features/events/presentation/add_event_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_details_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_list_screen.dart';
-import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
+import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_details_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_input_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_processing_screen.dart';

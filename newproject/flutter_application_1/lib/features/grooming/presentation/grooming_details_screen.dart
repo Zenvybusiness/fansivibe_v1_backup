@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
+import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/features/grooming/data/grooming_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -66,7 +66,7 @@ class GroomingDetailsScreen extends StatelessWidget {
                           context,
                           Icons.straighten_rounded,
                           'Beard Length',
-                          recommendation.beardLength,
+                          recommendation.beardLength ?? 'Not specified',
                           FansivibeColors.accentGold,
                         ),
                         const SizedBox(height: 12),
@@ -75,7 +75,7 @@ class GroomingDetailsScreen extends StatelessWidget {
                           context,
                           Icons.timeline_rounded,
                           'Cheek Line',
-                          recommendation.cheekLine,
+                          recommendation.cheekLine ?? 'Not specified',
                           FansivibeColors.success,
                         ),
                         const SizedBox(height: 12),
@@ -84,7 +84,7 @@ class GroomingDetailsScreen extends StatelessWidget {
                           context,
                           Icons.visibility_rounded,
                           'Eyewear Frame',
-                          recommendation.eyewearFrame,
+                          recommendation.eyewearFrame ?? 'Not specified',
                           FansivibeColors.accentGold,
                         ),
                         const SizedBox(height: 12),
@@ -93,7 +93,7 @@ class GroomingDetailsScreen extends StatelessWidget {
                           context,
                           Icons.visibility_rounded,
                           'Eyewear Recommendation',
-                          recommendation.eyewearRecommendation,
+                          recommendation.eyewearRecommendation ?? 'Not specified',
                           FansivibeColors.accentGold,
                         ),
                         const SizedBox(height: 12),
@@ -212,8 +212,8 @@ class GroomingDetailsScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              recommendation.icon,
+Icon(
+              Icons.spa_outlined,
               size: 64,
               color: FansivibeColors.accentGold.withValues(alpha: 0.4),
             ),

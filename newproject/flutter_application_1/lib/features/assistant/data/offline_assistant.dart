@@ -246,7 +246,10 @@ class OfflineAssistant {
           title: top.name,
           subtitle: top.description,
           score: (top.matchScore * 100).round(),
-          items: [top.beardLength, top.eyewearRecommendation, top.maintenance],
+          items: [
+            for (final s in [top.beardLength, top.eyewearRecommendation, top.maintenance])
+              if (s != null && s.isNotEmpty) s
+          ],
           action: 'open_grooming',
         ),
       ],

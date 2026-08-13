@@ -359,21 +359,21 @@ class GroomingResultScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            'Recommended: ${top.eyewearFrame} Frames',
-            style: theme.textTheme.bodyLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: FansivibeColors.textPrimary,
+Text(
+              'Recommended: ${top.eyewearFrame ?? 'N/A'} Frames',
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: FansivibeColors.textPrimary,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            top.eyewearRecommendation,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: FansivibeColors.textSecondary,
-              height: 1.5,
+            const SizedBox(height: 8),
+            Text(
+              top.eyewearRecommendation ?? 'Not specified',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: FansivibeColors.textSecondary,
+                height: 1.5,
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -449,7 +449,7 @@ class GroomingResultScreen extends StatelessWidget {
           context,
           Icons.straighten_rounded,
           'Beard Length',
-          top.beardLength,
+          top.beardLength ?? 'Not specified',
           FansivibeColors.accentGold,
         ),
         const SizedBox(height: 10),
@@ -457,7 +457,7 @@ class GroomingResultScreen extends StatelessWidget {
           context,
           Icons.timeline_rounded,
           'Cheek Line',
-          top.cheekLine,
+          top.cheekLine ?? 'Not specified',
           FansivibeColors.success,
         ),
         const SizedBox(height: 10),
@@ -465,7 +465,7 @@ class GroomingResultScreen extends StatelessWidget {
           context,
           Icons.visibility_rounded,
           'Eyewear Frame',
-          top.eyewearFrame,
+          top.eyewearFrame ?? 'Not specified',
           FansivibeColors.accentGold,
         ),
       ],

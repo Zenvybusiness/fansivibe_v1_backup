@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/score_colors.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
+import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class GroomingOptionChip extends StatelessWidget {
@@ -252,7 +253,7 @@ class GroomingRecommendationCard extends StatelessWidget {
                     borderRadius: FansivibeRadius.smdBorder,
                   ),
                   child: Icon(
-                    recommendation.icon,
+                    Icons.spa_outlined,
                     size: 24,
                     color: FansivibeColors.accentGold,
                   ),
