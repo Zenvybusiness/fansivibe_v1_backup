@@ -19,6 +19,7 @@ from app.domain.ports.repositories import (
     UserStateRepository,
 )
 from app.domain.services.analysis_rules import recommend_hairstyle
+from app.domain.services.grooming_rules import recommend_grooming
 from app.domain.value_objects import AppearanceProfile, GroomingResult, HairstyleResult
 
 
