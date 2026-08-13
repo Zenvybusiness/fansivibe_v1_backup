@@ -20,6 +20,7 @@ from app.api.schemas.analysis import (
     AnalysisRunList,
     AnalysisRunSummary,
     AsyncAccepted,
+    CreateGroomingRunRequest,
 )
 from app.application.analysis import (
     CreateHairstyleRun,
@@ -137,3 +138,24 @@ def list_analysis_runs(
         page_size=page_size,
         total=total,
     )
+
+
+@router.post(
+    "/grooming",
+    response_model=AsyncAccepted,
+    status_code=202,
+    responses={422: {"model": dict}, 401: {"model": dict}},
+)
+def create_grooming_run(
+    request: CreateGroomingRunRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> AsyncAccepted:
+    """Submit a grooming analysis (profile-only pass). Returns `run_id`."""
+    use_case = CreateGroomingRun(
+        runs=AnalysisRunRepositorySQL(db),
+        user_state=UserStateRepositorySQL(db),
+        knowledge=CatalogKnowledgeSource(),
+    )
+    run_id = use_case(user_id=user_id, face_profile_ref=request.face_profile_ref)
+    return AsyncAccepted(run_id=run_id)

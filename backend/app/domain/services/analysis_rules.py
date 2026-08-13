@@ -26,6 +26,7 @@ from typing import Optional
 from app.domain.ports.external import KnowledgeError, KnowledgeSource
 from app.domain.value_objects import (
     AppearanceProfile,
+    GroomingRecommendation,
     HairstylePreferences,
     HairstyleRecommendation,
     HairstyleResult,
@@ -49,6 +50,18 @@ _APPEARANCE_SIGNALS = ("faceShape", "skinTone", "bodyType", "styleType")
 _DECISIVE_GAP = 0.1
 
 _DEFAULT_FACE_SHAPE = "oval"
+
+
+# --- Grooming boosts --------------------------------------------------------
+
+# Per-look face-shape boosts for grooming looks. Mapped from the "bestFor"
+# field in the grooming catalog entries.
+_GROOMING_BOOSTS: dict[str, dict[str, float]] = {
+    "structured_goatee": {"oval": 0.06, "heart": 0.05, "diamond": 0.05, "square": 0.02},
+    "classic_stubble": {"oval": 0.05, "round": 0.04, "square": 0.05},
+    "full_beard": {"oval": 0.08, "square": 0.07, "diamond": 0.05},
+    "goatee_with_mustache": {"rectangular": 0.07, "heart": 0.05},
+}
 
 
 @dataclass(frozen=True)
@@ -328,3 +341,266 @@ def recommend_hairstyle(
         confidence=confidence,
         needs_more_data=needs_more_data,
     )
+
+
+# --- Grooming decision engine ------------------------------------------------
+
+def build_grooming_context(
+    appearance: AppearanceProfile,
+    preferences: Optional[HairstylePreferences] = None,
+    knowledge_version: str = "",
+) -> DecisionContext:
+    """Assemble the typed context the later stages read (stage 1 for grooming)."""
+    return DecisionContext(
+        appearance=appearance,
+        preferences=preferences or HairstylePreferences(),
+        completeness=_completeness(appearance),
+        knowledge_version=knowledge_version,
+    )
+
+
+def generate_grooming_candidates(
+    knowledge: KnowledgeSource, context: DecisionContext
+) -> list[GroomingRecommendation]:
+    """Retrieve the candidate set from the knowledge source (stage 2 for grooming).
+
+    The engine never hardcodes candidates (BA-11); the port's deprecated
+    filtering (KN-3) already applies before the engine sees them.
+    """
+    candidates = knowledge.retrieve_grooming_looks()
+    if not candidates:
+        raise KnowledgeError("knowledge source returned no grooming looks")
+    return candidates
+
+
+def filter_grooming_candidates(
+    candidates: list[GroomingRecommendation], context: DecisionContext
+) -> list[GroomingRecommendation]:
+    """Apply hard exclusion rules (stage 3 for grooming).
+
+    Binary keep/drop and deterministic (BA-3): candidates whose id the user
+    excluded are dropped; nothing is scored or reordered here.
+    """
+    excluded = context.preferences.excludedLookIds
+    if not excluded:
+        return list(candidates)
+    return [look for look in candidates if look.id not in excluded]
+
+
+def score_grooming_candidates(
+    candidates: list[GroomingRecommendation], context: DecisionContext
+) -> list[ScoredCandidate]:
+    """Compose weighted scoring signals per candidate (stage 4 for grooming).
+
+    score = min(1.0, seed + face_shape_boost + preference_boost). The
+    per-signal breakdown feeds the Explanation stage (truthful "why this").
+    """
+    face = _face_shape(context.appearance)
+    preferred = context.preferences.preferredLookIds
+
+    scored: list[ScoredCandidate] = []
+    for look in candidates:
+        face_boost = _GROOMING_BOOSTS.get(look.id, {}).get(face, 0.0)
+        preference_boost = _PREFERENCE_BOOST if look.id in preferred else 0.0
+        score = min(1.0, look.matchScore + face_boost + preference_boost)
+        scored.append(
+            ScoredCandidate(
+                id=look.id,
+                score=round(score, 2),
+                signals={
+                    "seed": look.matchScore,
+                    "face_shape": face_boost,
+                    "preference": preference_boost,
+                },
+                look=look,  # type: ignore[assignment]  # GroomingRecommendation is compatible
+            )
+        )
+    return scored
+
+
+def rank_grooming_candidates(scored: list[ScoredCandidate]) -> list[ScoredCandidate]:
+    """Order candidates by score, top pick first (stage 5 for grooming).
+
+    Ordering-only: scores are never recomputed here. Ties keep catalog order
+    (stable sort), so ranking is deterministic for deterministic inputs.
+    """
+    return sorted(scored, key=lambda candidate: candidate.score, reverse=True)
+
+
+def build_grooming_explanations(
+    ranked: list[ScoredCandidate], context: DecisionContext
+) -> list[Explanation]:
+    """Produce grounded human reasons for each ranked candidate (stage 6 for grooming).
+
+    Reasons come verbatim from the validated catalog reason catalog and the
+    score-signal breakdown — never invented, never LLM-authored structure.
+    """
+    face = _face_shape(context.appearance)
+    explanations: list[Explanation] = []
+    for candidate in ranked:
+        face_reason = _face_match_reason(candidate, face)
+        reasons = list(candidate.look.reasons)
+        if face_reason and face_reason not in reasons:
+            reasons = [face_reason] + reasons
+        explanations.append(
+            Explanation(
+                id=candidate.id,
+                title=candidate.look.name,
+                summary=candidate.look.description,
+                reasons=reasons,
+            )
+        )
+    return explanations
+
+
+def _face_match_reason(candidate: ScoredCandidate, face_shape: str) -> Optional[str]:
+    boost = candidate.signals.get("face_shape", 0.0)
+    if boost <= 0.0:
+        return None
+    return (
+        f"Strongest match for your {face_shape} face shape "
+        f"(+{boost:0.2f} face-shape fit)."
+    )
+
+
+def derive_grooming_confidence(
+    context: DecisionContext, ranked: list[ScoredCandidate]
+) -> float:
+    """Derive the run-level confidence in [0, 1] (deterministic).
+
+    50% data completeness + 50% top-pick decisiveness (how clearly the top
+    beats the runner-up). Sparse grounding or a tight ranking lowers it
+    without ever fabricating a result (AI-0, AI_INTEGRATION_ARCHITECTURE §8).
+    """
+    completeness = context.completeness
+    if len(ranked) >= 2:
+        gap = ranked[0].score - ranked[1].score
+        decisiveness = min(1.0, max(0.0, gap / _DECISIVE_GAP))
+    else:
+        decisiveness = 1.0
+    return round(0.5 * completeness + 0.5 * decisiveness, 2)
+
+
+def _as_grooming_recommendation(
+    candidate: ScoredCandidate, explanation: Optional[Explanation] = None
+) -> GroomingRecommendation:
+    reasons = (
+        list(explanation.reasons)
+        if explanation is not None
+        else list(candidate.look.reasons)
+    )
+    return GroomingRecommendation(
+        id=candidate.look.id,
+        name=candidate.look.name,
+        description=candidate.look.description,
+        matchScore=candidate.score,
+        reasons=reasons,
+        stylingTips=candidate.look.stylingTips,
+        maintenance=candidate.look.maintenance,
+        bestFor=candidate.look.bestFor,
+        icon=None,
+    )
+
+
+def recommend_grooming(
+    knowledge: KnowledgeSource,
+    appearance: AppearanceProfile,
+    preferences: Optional[HairstylePreferences] = None,
+) -> "GroomingResult":
+    """Run the full grooming recommendation pipeline (thin orchestrator).
+
+    The orchestrator knows the stage order and implements no stage logic —
+    each stage is a small pure function above. Rules-first: the top pick
+    matches the grooming catalog's best-for face shapes.
+    """
+    context = build_grooming_context(
+        appearance,
+        preferences,
+        knowledge_version=getattr(knowledge, "knowledge_version", ""),
+    )
+
+    candidates = generate_grooming_candidates(knowledge, context)
+    filtered = filter_grooming_candidates(candidates, context)
+    scored = score_grooming_candidates(filtered, context)
+    ranked = rank_grooming_candidates(scored)
+
+    if not ranked:
+        raise KnowledgeError("no grooming looks after filtering")
+
+    explanations = build_grooming_explanations(ranked, context)
+    confidence = derive_grooming_confidence(context, ranked)
+    needs_more_data = context.completeness < 1.0
+
+    by_id = {explanation.id: explanation for explanation in explanations}
+
+    return GroomingResult(
+        appearance=AppearanceProfile(
+            faceShape=appearance.faceShape,
+            skinTone=appearance.skinTone,
+            bodyType=appearance.bodyType,
+            styleType=appearance.styleType,
+            sourceRunId=appearance.sourceRunId,
+        ),
+        top=_as_grooming_recommendation(ranked[0], by_id[ranked[0].id]),
+        alternatives=[
+            _as_grooming_recommendation(candidate, by_id[candidate.id])
+            for candidate in ranked[1:]
+        ],
+        confidence=confidence,
+        needs_more_data=needs_more_data,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Grooming result type (mirrors HairstyleResult but for grooming)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GroomingResult:
+    """The immutable completed-run snapshot for grooming (TRX-5 `result`).
+
+    ``confidence`` is the engine's derived run-level value in [0, 1]
+    (`AI_DOMAIN_MODEL.md` §4.4: derived from the model run, never stored as
+    truth); ``needs_more_data`` honestly signals a sparse grounding profile
+    instead of fabricating one (AI-0).
+    """
+
+    appearance: AppearanceProfile
+    top: GroomingRecommendation
+    alternatives: list[GroomingRecommendation] = field(default_factory=list)
+    confidence: float = 0.0
+    needs_more_data: bool = False
+
+    def to_snapshot(self) -> dict:
+        return {
+            "appearance": {
+                "faceShape": self.appearance.faceShape,
+                "skinTone": self.appearance.skinTone,
+                "bodyType": self.appearance.bodyType,
+                "styleType": self.appearance.styleType,
+                "sourceRunId": self.appearance.sourceRunId,
+            },
+            "confidence": self.confidence,
+            "needs_more_data": self.needs_more_data,
+            "recommendations": {
+                "top": _recommendation_to_grooming_snapshot(self.top),
+                "alternatives": [
+                    _recommendation_to_grooming_snapshot(a) for a in self.alternatives
+                ],
+            },
+        }
+
+
+def _recommendation_to_grooming_snapshot(rec: GroomingRecommendation) -> dict:
+    return {
+        "id": rec.id,
+        "name": rec.name,
+        "description": rec.description,
+        "matchScore": rec.matchScore,
+        "reasons": list(rec.reasons),
+        "stylingTips": rec.stylingTips,
+        "maintenance": rec.maintenance,
+        "bestFor": rec.bestFor,
+        "icon": rec.icon,
+    }

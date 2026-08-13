@@ -3,6 +3,8 @@
 Shapes mirror `FANSIVIBE_API_CONTRACT_V1.md` §4.2/§6.6 and
 `HAIRSTYLE_RECOMMENDATION_API.md` §4.2/§4.3. `AnalysisRun` is bare (no
 envelope); the list endpoint returns summary rows with no `result`/`error`.
+
+Grooming creation endpoint #38 uses a JSON request body (G1).
 """
 
 from __future__ import annotations
@@ -49,3 +51,9 @@ class AnalysisRunList(BaseModel):
     page: int
     page_size: int
     total: int
+
+
+class CreateGroomingRunRequest(BaseModel):
+    """JSON request body for grooming creation endpoint #38 (G1)."""
+
+    face_profile_ref: str

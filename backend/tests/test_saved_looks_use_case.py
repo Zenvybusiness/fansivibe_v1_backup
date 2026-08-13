@@ -37,6 +37,12 @@ class FakeKnowledge:
             return None
         return object()
 
+    def lookup_grooming_look(self, code: str):
+        self.lookups += 1
+        if not self._has_look:
+            return None
+        return object()
+
 
 @dataclass
 class FakeSavedLooks:

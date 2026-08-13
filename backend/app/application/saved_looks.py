@@ -21,7 +21,7 @@ from app.domain.ports.repositories import (
     SavedLookRepository,
 )
 
-_SOURCE_CONTEXTS = {"hairstyle"}
+_SOURCE_CONTEXTS = {"hairstyle", "grooming"}
 
 
 def _source_run_id_from_snapshot(snapshot: dict) -> Optional[UUID]:
@@ -75,7 +75,7 @@ class SaveRecommendation:
                 },
             )
 
-        if look_id is not None and self._knowledge.lookup_hairstyle_look(look_id) is None:
+        if look_id is not None and self._knowledge.lookup_hairstyle_look(look_id) is None and self._knowledge.lookup_grooming_look(look_id) is None:
             raise not_found()
 
         existing = self._saved_looks.get_by_idempotency(

@@ -112,7 +112,7 @@ CLASSIC_POMPADOUR = SuggestionCard(
 # Curated content version (KN-1 §5.1). Bump on any seed/content change;
 # aligns with the migration's `looks.content_version` seed. Distinct from
 # `engine_version` (rules code revision).
-KNOWLEDGE_VERSION = "1.0"
+KNOWLEDGE_VERSION = "1.1"
 
 HAIRSTYLE_LOOKS: list[dict] = [
     {
@@ -206,6 +206,107 @@ HAIRSTYLE_LOOKS: list[dict] = [
         "scoreSeed": 0.78,
     },
 ]
+
+# ---------------------------------------------------------------------------
+# Grooming knowledge catalog (mirrors `looks` table payload and
+# `grooming_mock_data.dart`). Each entry maps to the wire
+# `GroomingRecommendation` fields plus the deterministic `scoreSeed` used by
+# the Scoring stage. `code` is the stable catalog id (looks.code, PR-3).
+# Optional per-entry `"deprecated": True` is filtered from retrieval (KN-3).
+# ---------------------------------------------------------------------------
+
+# Grooming look entries — 4 cards mirroring the hairstyle cardinality.
+# Mirrors the wire GroomingRecommendation fields plus scoreSeed used by
+# the Scoring stage. `code` is the stable catalog id (looks.code, PR-3).
+GROOMING_LOOKS: list[dict] = [
+    {
+        "code": "structured_goatee",
+        "title": "Structured Goatee",
+        "description": (
+            "Frames the chin for oval faces. Keep edges clean, oil daily, "
+            "trim every 3-4 days."
+        ),
+        "reasons": [
+            "Strong jawline complement for oval face shapes",
+            "Clean geometric shape reads intentional and polished",
+            "Daily oiling keeps the skin and hair healthy",
+        ],
+        "stylingTips": (
+            "Maintain medium-long length (10-15mm), define the cheek line "
+            "at mid-cheek, use rectangular or wayfarer frames in dark acetate."
+        ),
+        "maintenance": "Medium • Trim every 3-4 days",
+        "bestFor": "Oval, Heart, and Diamond face shapes",
+        "scoreSeed": 0.92,
+    },
+    {
+        "code": "classic_stubble",
+        "title": "Classic Stubble",
+        "description": (
+            "Low-maintenance 3mm stubble that reads professional and rugged."
+        ),
+        "reasons": [
+            "3mm stubble reads professional and rugged",
+            "Requires minimal daily maintenance",
+            "Suits most face shapes with even growth",
+        ],
+        "stylingTips": (
+            "Use a 3mm guard trim, keep the neckline just above the Adam's apple."
+        ),
+        "maintenance": "Low • 3mm guard trim",
+        "bestFor": "Oval, Round, and Square face shapes",
+        "scoreSeed": 0.85,
+    },
+    {
+        "code": "full_beard",
+        "title": "Full Beard",
+        "description": (
+            "A full beard that provides strong facial framing. Best for "
+            "oval and square face shapes with dense growth."
+        ),
+        "reasons": [
+            "Provides strong facial framing for oval face shapes",
+            "Adds density to patchy areas on square faces",
+            "Reads as authoritative and grounded",
+        ],
+        "stylingTips": (
+            "Comb daily with a boar-bristle brush, trim the neckline and "
+            "cheeks every 1-2 weeks for a polished look."
+        ),
+        "maintenance": "High • Trim every 1-2 weeks",
+        "bestFor": "Oval, Square, and Diamond face shapes",
+        "scoreSeed": 0.75,
+    },
+    {
+        "code": "goatee_with_mustache",
+        "title": "Goatee with Mustache",
+        "description": (
+            "Combined goatee and mustache style that balances facial "
+            "features. Suits rectangular and heart face shapes."
+        ),
+        "reasons": [
+            "Balances broader foreheads on heart face shapes",
+            "Adds width to narrow chins on rectangular faces",
+            "Creates facial symmetry through central focus",
+        ],
+        "stylingTips": (
+            "Trim the goatee to 5-7mm, shape the mustache to lie flat, "
+            "clean the cheek lines daily for a neat appearance."
+        ),
+        "maintenance": "Medium • Trim every 3-5 days",
+        "bestFor": "Rectangular and Heart face shapes",
+        "scoreSeed": 0.71,
+    },
+]
+
+# Grooming vocabulary — stable identifiers used by the decision engine and
+# the save-layer look_id field. Mirrors the hairstyle code mapping (PR-3).
+GROOMING_VOCAB: dict[str, str] = {
+    "structured_goatee": "structured_goatee",
+    "classic_stubble": "classic_stubble",
+    "full_beard": "full_beard",
+    "goatee_with_mustache": "goatee_with_mustache",
+}
 
 # ---------------------------------------------------------------------------
 # Grooming (mirrors GroomingAnalysisResult.mock)

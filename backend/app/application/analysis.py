@@ -19,7 +19,7 @@ from app.domain.ports.repositories import (
     UserStateRepository,
 )
 from app.domain.services.analysis_rules import recommend_hairstyle
-from app.domain.value_objects import AppearanceProfile, HairstyleResult
+from app.domain.value_objects import AppearanceProfile, GroomingResult, HairstyleResult
 
 
 def insufficient_user_data(missing: str) -> ApiError:
@@ -74,6 +74,80 @@ class CreateHairstyleRun:
         try:
             result = recommend_hairstyle(self._knowledge, appearance)
             result = self._enrich(result)
+        except Exception:
+            # Pipeline failure → honest `failed` run (PROCESSING_FAILURE,
+            # details.run_id) per §5.1/§7 — never a stuck pending run.
+            self._runs.fail(
+                run_id=run_id,
+                user_id=user_id,
+                error={
+                    "code": "PROCESSING_FAILURE",
+                    "message": "We couldn't finish this request. Please try again.",
+                    "details": {"run_id": str(run_id)},
+                },
+            )
+            return run_id
+
+        completed = self._runs.complete(
+            run_id=run_id,
+            user_id=user_id,
+            status="completed",
+            result=result.to_snapshot(),
+        )
+        if not completed:
+            raise ApiError(
+                status_code=500,
+                code="DATABASE_FAILURE",
+                message="Something went wrong while saving your data. Please try again.",
+            )
+        return run_id
+
+
+class CreateGroomingRun:
+    """UC-?? — submit a grooming analysis (profile-only pass).
+
+    The stored `style_profile` is the grounding input (honest: nothing is
+    fabricated). Without stored face attributes we return
+    ``INSUFFICIENT_USER_DATA`` rather than inventing a profile.
+    """
+
+    def __init__(
+        self,
+        *,
+        runs: AnalysisRunRepository,
+        user_state: UserStateRepository,
+        knowledge: KnowledgeSource,
+        enrich: Optional[Callable[[GroomingResult], GroomingResult]] = None,
+    ) -> None:
+        self._runs = runs
+        self._user_state = user_state
+        self._knowledge = knowledge
+        self._enrich = enrich
+
+    def __call__(self, *, user_id: UUID, face_profile_ref: str) -> UUID:
+        profile = self._user_state.get_style_profile(user_id=user_id)
+        if not profile or not profile.get("face_shape"):
+            raise insufficient_user_data("face")
+
+        run_id = self._runs.create(
+            user_id=user_id,
+            run_type="grooming",
+            engine_version="rules-v1",
+            input_media=None,  # profile-only pass; no image (MS10.3 sealed)
+        )
+
+        appearance = AppearanceProfile(
+            faceShape=str(profile["face_shape"]),
+            skinTone=str(profile.get("skin_tone") or ""),
+            bodyType=str(profile.get("body_type") or ""),
+            styleType=str(profile.get("style_type") or ""),
+            sourceRunId=str(run_id),
+        )
+
+        try:
+            result = recommend_grooming(self._knowledge, appearance)
+            enrich = self._enrich or (lambda r: r)
+            result = enrich(result)
         except Exception:
             # Pipeline failure → honest `failed` run (PROCESSING_FAILURE,
             # details.run_id) per §5.1/§7 — never a stuck pending run.

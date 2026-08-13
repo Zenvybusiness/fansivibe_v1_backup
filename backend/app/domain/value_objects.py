@@ -1,9 +1,9 @@
-"""Domain value objects for the hairstyle recommendation pipeline.
+"""Domain value objects for the hairstyle and grooming recommendation pipelines.
 
 Pure Python (no FastAPI, no SQLAlchemy, no HTTP — BA-3). These mirror the
 canonical wire DTOs (`FANSIVIBE_API_CONTRACT_V1.md` §4.2/§4.3 and
-`hairstyle_mock_data.dart`) and are the typed structure the decision engine
-produces and the API serializes.
+`hairstyle_mock_data.dart`, `grooming_mock_data.dart`) and are the typed
+structure the decision engine produces and the API serializes.
 """
 
 from __future__ import annotations
@@ -27,6 +27,25 @@ class HairstyleRecommendation:
     stylingTips: str
     maintenance: str
     bestFor: str
+
+
+@dataclass(frozen=True)
+class GroomingRecommendation:
+    """A single grooming recommendation (the `top` pick or an `alternative`).
+
+    Mirrors `GroomingRecommendation` in `grooming_mock_data.dart` and the
+    wire DTO: ``id`` is the stable catalog look code (PR-3).
+    """
+
+    id: str
+    name: str
+    description: str
+    matchScore: float
+    reasons: list[str]
+    stylingTips: str
+    maintenance: str
+    bestFor: str
+    icon: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -101,4 +120,54 @@ def _recommendation_to_snapshot(rec: HairstyleRecommendation) -> dict:
         "stylingTips": rec.stylingTips,
         "maintenance": rec.maintenance,
         "bestFor": rec.bestFor,
+    }
+
+
+@dataclass(frozen=True)
+class GroomingResult:
+    """The immutable completed-run snapshot for grooming (TRX-5 `result`).
+
+    ``confidence`` is the engine's derived run-level value in [0, 1]
+    (`AI_DOMAIN_MODEL.md` §4.4: derived from the model run, never stored as
+    truth); ``needs_more_data`` honestly signals a sparse grounding profile
+    instead of fabricating one (AI-0).
+    """
+
+    appearance: AppearanceProfile
+    top: GroomingRecommendation
+    alternatives: list[GroomingRecommendation] = field(default_factory=list)
+    confidence: float = 0.0
+    needs_more_data: bool = False
+
+    def to_snapshot(self) -> dict:
+        return {
+            "appearance": {
+                "faceShape": self.appearance.faceShape,
+                "skinTone": self.appearance.skinTone,
+                "bodyType": self.appearance.bodyType,
+                "styleType": self.appearance.styleType,
+                "sourceRunId": self.appearance.sourceRunId,
+            },
+            "confidence": self.confidence,
+            "needs_more_data": self.needs_more_data,
+            "recommendations": {
+                "top": _recommendation_to_grooming_snapshot(self.top),
+                "alternatives": [
+                    _recommendation_to_grooming_snapshot(a) for a in self.alternatives
+                ],
+            },
+        }
+
+
+def _recommendation_to_grooming_snapshot(rec: GroomingRecommendation) -> dict:
+    return {
+        "id": rec.id,
+        "name": rec.name,
+        "description": rec.description,
+        "matchScore": rec.matchScore,
+        "reasons": list(rec.reasons),
+        "stylingTips": rec.stylingTips,
+        "maintenance": rec.maintenance,
+        "bestFor": rec.bestFor,
+        "icon": rec.icon,
     }
