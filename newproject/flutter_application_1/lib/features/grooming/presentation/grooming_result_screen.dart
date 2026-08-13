@@ -1,9 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/grooming/data/grooming_models.dart';
+import 'package:fansivibe/features/grooming/data/grooming_service.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -16,6 +15,7 @@ class GroomingResultScreen extends StatelessWidget {
     required this.beardDensity,
     required this.beardColor,
     this.result,
+    this.service,
     super.key,
   });
 
@@ -24,6 +24,7 @@ class GroomingResultScreen extends StatelessWidget {
   final String beardDensity;
   final String beardColor;
   final GroomingAnalysisResult? result;
+  final GroomingService? service;
 
   @override
   Widget build(BuildContext context) {
@@ -578,17 +579,41 @@ class GroomingResultScreen extends StatelessWidget {
           child: FansiButton.primary(
             label: 'Save Look',
             icon: Icons.favorite_rounded,
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Recommendation saved to profile'),
-                  backgroundColor: FansivibeColors.accentGold,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: FansivibeRadius.smdBorder,
+            onPressed: () async {
+              final rec = result?.topRecommendation ??
+                  GroomingAnalysisResult.mock.topRecommendation;
+              if (service != null) {
+                final ok = await service!.saveGroomingLook(
+                  recommendation: rec,
+                  title: rec.name,
+                );
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      ok ? 'Look saved to profile' : 'Could not save look',
+                    ),
+                    backgroundColor: ok
+                        ? FansivibeColors.accentGold
+                        : FansivibeColors.surfaceContainerHigh,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: FansivibeRadius.smdBorder,
+                    ),
                   ),
-                ),
-              );
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Recommendation saved to profile'),
+                    backgroundColor: FansivibeColors.accentGold,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: FansivibeRadius.smdBorder,
+                    ),
+                  ),
+                );
+              }
             },
           ),
         ),
