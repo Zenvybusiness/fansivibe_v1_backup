@@ -86,14 +86,14 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
   void _onSocialSignIn(String provider) {
     context.goNamed(
       RouteNames.home,
-      extra: {'onboarding_complete': true, 'provider': provider},
+      extra: {'onboarding_complete': true, 'provider': provider, 'analysis_cached': true},
     );
   }
 
   void _onMaybeLater() {
     context.goNamed(
       RouteNames.home,
-      extra: {'onboarding_complete': true, 'saved_locally': true},
+      extra: {'onboarding_complete': true, 'saved_locally': true, 'analysis_cached': true},
     );
   }
 
@@ -136,10 +136,14 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
                         _buildSocialSection(),
                         SizedBox(height: FansivibeSpacing.md),
                         FansiButton.tertiary(
+                          label: 'Create Account',
+                          onPressed: _isValid ? _onCreateAccount : null,
+                        ),
+                        SizedBox(height: FansivibeSpacing.xxl),
+                        FansiButton.tertiary(
                           label: 'Maybe Later — Save Locally',
                           onPressed: _onMaybeLater,
                         ),
-                        SizedBox(height: FansivibeSpacing.xxl),
                       ],
                     ),
                   ),

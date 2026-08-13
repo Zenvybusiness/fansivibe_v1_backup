@@ -4,6 +4,7 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/onboarding/data/onboarding_data.dart';
 import 'package:fansivibe/features/onboarding/presentation/widgets/vibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
@@ -19,6 +20,7 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
     with SingleTickerProviderStateMixin {
   StyleVibe? _selected;
   bool _photoPath = true;
+  bool _vibeRequired = true;
 
   late AnimationController _animController;
   late Animation<double> _questionAnim;
@@ -65,8 +67,11 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     final extra = GoRouterState.of(context).extra as Map<String, dynamic>?;
-    if (extra != null && extra.containsKey('photoPath')) {
-      _photoPath = extra['photoPath'] as bool;
+    if (extra != null) {
+      _photoPath = extra['photoPath'] as bool? ?? true;
+      // vibeRequired: if false, vibe selection is optional and Continue works without selection
+      // if true or absent, vibe selection is required (backward compatible default)
+      _vibeRequired = extra['vibeRequired'] as bool? ?? true;
     }
   }
 
@@ -78,6 +83,21 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
 
   void _onContinue() {
     if (_photoPath) {
+      if (_vibeRequired && _selected == null) {
+        // Vibe is required but none selected - show a brief feedback and don't proceed
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Select a style vibe or skip for "Open to Everything"'),
+            backgroundColor: FansivibeColors.surfaceContainerHigh,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: FansivibeRadius.smdBorder,
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        return;
+      }
       context.pushNamed(
         RouteNames.cameraPermission,
         extra: {'vibe': _selected?.name},
@@ -189,7 +209,9 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
                           duration: const Duration(milliseconds: 200),
                           child: FansiButton.primary(
                             label: 'Continue',
-                            onPressed: _selected != null ? _onContinue : null,
+                            onPressed: _vibeRequired
+                                ? (_selected != null ? _onContinue : null)
+                                : _onContinue,
                           ),
                         ),
                         SizedBox(height: FansivibeSpacing.sm + 4),

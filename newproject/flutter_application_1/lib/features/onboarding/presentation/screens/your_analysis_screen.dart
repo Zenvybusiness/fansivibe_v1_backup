@@ -76,6 +76,17 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
     context.pushNamed(RouteNames.accountCreation);
   }
 
+  void _onContinueWithoutAccount() {
+    // Save analysis locally and navigate home
+    context.goNamed(RouteNames.home, extra: {
+      'onboarding_complete': true,
+      'display_name': null,
+      'vibe': null,
+      'saved_locally': true,
+      'analysis_cached': true,
+    });
+  }
+
   void _onRetake() {
     if (context.canPop()) {
       context.pop();
@@ -158,13 +169,19 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                           Column(
                             children: [
                               FansiButton.primary(
-                                label: 'Save My Progress',
+                                label: 'Continue Without Account',
                                 icon: Icons.save_rounded,
-                                onPressed: _onSave,
+                                onPressed: _onContinueWithoutAccount,
                               ),
                               SizedBox(height: FansivibeSpacing.sm + 4),
                               FansiButton.tertiary(
+                                label: 'Save My Progress',
+                                onPressed: _onSave,
+                              ),
+                              SizedBox(height: FansivibeSpacing.sm + 4),
+                              FansiButton.secondary(
                                 label: 'Retake Photo',
+                                icon: Icons.refresh_rounded,
                                 onPressed: _onRetake,
                               ),
                             ],
