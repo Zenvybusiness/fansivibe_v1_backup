@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_processing_screen.dart';
-import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 
 void main() {
   testWidgets('renders app bar with analyzing title', (
-    WidgetTester tester,
-  ) async {
+      WidgetTester tester,
+      ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: const GroomingProcessingScreen(

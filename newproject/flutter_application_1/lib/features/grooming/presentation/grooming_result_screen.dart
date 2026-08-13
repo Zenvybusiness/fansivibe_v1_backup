@@ -1,7 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
-import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
+import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -13,6 +15,7 @@ class GroomingResultScreen extends StatelessWidget {
     required this.beardStyle,
     required this.beardDensity,
     required this.beardColor,
+    this.result,
     super.key,
   });
 
@@ -20,11 +23,12 @@ class GroomingResultScreen extends StatelessWidget {
   final String beardStyle;
   final String beardDensity;
   final String beardColor;
+  final GroomingAnalysisResult? result;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final result = GroomingAnalysisResult.mock;
+    final resultThis = result ?? GroomingAnalysisResult.mock;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -59,31 +63,40 @@ class GroomingResultScreen extends StatelessWidget {
                       children: [
                         const SizedBox(height: 8),
 
-                        _buildHeader(context, result),
+                        _buildHeader(context, resultThis),
+
                         const SizedBox(height: 24),
 
-                        _buildFeatureProfile(context),
+                        _buildFeatureProfile(context, resultThis),
+
                         const SizedBox(height: 24),
 
-                        _buildScoreSection(context, result),
+                        _buildScoreSection(context, resultThis),
+
                         const SizedBox(height: 24),
 
-                        _buildBeardRecommendation(context, result),
+                        _buildBeardRecommendation(context, resultThis),
+
                         const SizedBox(height: 20),
 
-                        _buildEyewearRecommendation(context, result),
+                        _buildEyewearRecommendation(context, resultThis),
+
                         const SizedBox(height: 24),
 
-                        _buildWhyItWorks(context, result),
+                        _buildWhyItWorks(context, resultThis),
+
                         const SizedBox(height: 24),
 
-                        _buildSpecifications(context, result),
+                        _buildSpecifications(context, resultThis),
+
                         const SizedBox(height: 24),
 
-                        _buildAlternativesSection(context, result),
+                        _buildAlternativesSection(context, resultThis),
+
                         const SizedBox(height: 24),
 
                         _buildActions(context),
+
                         const SizedBox(height: 32),
                       ],
                     ),
@@ -122,7 +135,10 @@ class GroomingResultScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildFeatureProfile(BuildContext context) {
+  Widget _buildFeatureProfile(
+    BuildContext context,
+    GroomingAnalysisResult result,
+  ) {
     final theme = Theme.of(context);
 
     return Container(
@@ -147,28 +163,28 @@ class GroomingResultScreen extends StatelessWidget {
             context,
             Icons.circle_outlined,
             'Face Shape',
-            faceShape,
+            result.faceShape,
           ),
           const SizedBox(height: 10),
           _buildProfileRow(
             context,
             Icons.face_rounded,
             'Beard Style',
-            beardStyle,
+            result.beardStyle,
           ),
           const SizedBox(height: 10),
           _buildProfileRow(
             context,
             Icons.blur_on_rounded,
             'Density',
-            beardDensity,
+            result.beardDensity,
           ),
           const SizedBox(height: 10),
           _buildProfileRow(
             context,
             Icons.palette_outlined,
             'Color',
-            beardColor,
+            result.beardColor,
           ),
         ],
       ),

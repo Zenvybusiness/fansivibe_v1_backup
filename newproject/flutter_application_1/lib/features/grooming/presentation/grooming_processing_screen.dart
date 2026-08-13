@@ -1,11 +1,15 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/grooming/data/grooming_models.dart';
+import 'package:fansivibe/features/grooming/data/grooming_service.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class GroomingProcessingScreen extends StatefulWidget {
   const GroomingProcessingScreen({
@@ -13,6 +17,7 @@ class GroomingProcessingScreen extends StatefulWidget {
     required this.beardStyle,
     required this.beardDensity,
     required this.beardColor,
+    this.groomingService,
     super.key,
   });
 
@@ -20,6 +25,7 @@ class GroomingProcessingScreen extends StatefulWidget {
   final String beardStyle;
   final String beardDensity;
   final String beardColor;
+  final GroomingService? groomingService;
 
   @override
   State<GroomingProcessingScreen> createState() =>
@@ -27,44 +33,49 @@ class GroomingProcessingScreen extends StatefulWidget {
 }
 
 class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
-  int _currentStageIndex = 0;
-  final List<bool> _completedStages = [];
-  Timer? _timer;
+  GroomingService? _service;
 
   @override
   void initState() {
     super.initState();
-    _completedStages.addAll(
-      List.filled(GroomingProcessingStage.mockStages.length, false),
-    );
-    _startProcessing();
+    _service = widget.groomingService ?? GroomingService();
+
+    if (_service!.isProcessing) {
+      _service!.addListener(_handleServiceUpdate);
+    } else {
+      _service!.runAnalysis().then((_) {
+        if (!mounted) return;
+        setState(() {});
+        _handleServiceCompleted();
+      });
+    }
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+  void _handleServiceUpdate() {
+    if (!mounted) return;
+    setState(() {});
+    _handleServiceCompleted();
   }
 
-  void _startProcessing() {
-    _processNextStage();
-  }
-
-  void _processNextStage() {
-    if (_currentStageIndex >= GroomingProcessingStage.mockStages.length) {
+  void _handleServiceCompleted() {
+    if (_service!.isFailed && _service!.analysisError != null) {
+      setState(() {});
       _navigateToResult();
       return;
     }
 
-    final stage = GroomingProcessingStage.mockStages[_currentStageIndex];
-    _timer = Timer(stage.duration, () {
+    if (_service!.isCompleted && _service!.result != null) {
       if (!mounted) return;
-      setState(() {
-        _completedStages[_currentStageIndex] = true;
-        _currentStageIndex++;
-      });
-      _processNextStage();
-    });
+      context.replaceNamed(
+        RouteNames.groomingResult,
+        extra: <String, String>{
+          'faceShape': widget.faceShape,
+          'beardStyle': widget.beardStyle,
+          'beardDensity': widget.beardDensity,
+          'beardColor': widget.beardColor,
+        },
+      );
+    }
   }
 
   void _navigateToResult() {
@@ -81,15 +92,20 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
   }
 
   @override
+  void dispose() {
+    _service?.removeListener(_handleServiceUpdate);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final allComplete =
-        _currentStageIndex >= GroomingProcessingStage.mockStages.length;
+    final isProcessing = _service!.isProcessing;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(allComplete ? 'Analysis Complete' : 'Analyzing Features'),
+        title: isProcessing ? const Text('Analyzing Features') : const Text('Analysis Complete'),
         leading: IconButton(
           icon: Icon(
             Icons.arrow_back_rounded,
@@ -125,53 +141,56 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
                             shape: BoxShape.circle,
                             color: FansivibeColors.surface,
                             border: Border.all(
-                              color: allComplete
-                                  ? FansivibeColors.success.withValues(
+                              color: isProcessing
+                                  ? FansivibeColors.accentGold.withValues(
                                       alpha: 0.3,
                                     )
-                                  : FansivibeColors.accentGold.withValues(
+                                  : FansivibeColors.success.withValues(
                                       alpha: 0.3,
                                     ),
                             ),
                           ),
-                          child: Center(
-                            child: allComplete
-                                ? Icon(
+                          child: isProcessing
+                              ? const Center(
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 4,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      FansivibeColors.accentGold,
+                                    ),
+                                  ),
+                                )
+                              : const Center(
+                                  child: Icon(
                                     Icons.check_circle_rounded,
                                     size: 64,
                                     color: FansivibeColors.success,
-                                  )
-                                : SizedBox(
-                                    width: 48,
-                                    height: 48,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 4,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        FansivibeColors.accentGold,
-                                      ),
-                                    ),
                                   ),
-                          ),
+                                ),
                         ),
 
                         const SizedBox(height: 40),
 
-                        ...GroomingProcessingStage.mockStages
-                            .asMap()
-                            .entries
-                            .map((entry) {
-                              final index = entry.key;
-                              final stage = entry.value;
-                              return GroomingStageIndicator(
-                                stage: stage,
-                                isActive: index == _currentStageIndex,
-                                isComplete: _completedStages[index],
-                              );
-                            }),
+                        ...GroomingProcessingStage.mockStages.asMap().entries.map(
+                          (entry) {
+                            final index = entry.key;
+                            final stage = entry.value;
+                            return GroomingStageIndicator(
+                              stage: stage,
+                              isActive: index == 0,
+                              isComplete: true,
+                            );
+                          },
+                        ),
 
                         const SizedBox(height: 40),
 
-                        if (allComplete)
+                        if (isProcessing)
+                          FansiButton.primary(
+                            label: 'View Results',
+                            icon: Icons.check_circle_outline,
+                            onPressed: _navigateToResult,
+                          )
+                        else
                           FansiButton.primary(
                             label: 'View Results',
                             icon: Icons.check_circle_outline,

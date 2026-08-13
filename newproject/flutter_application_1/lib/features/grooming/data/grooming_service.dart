@@ -17,7 +17,7 @@ class GroomingService extends ChangeNotifier {
     : _client = client ?? GroomingClient(),
       _learning = learning;
 
-  static final int totalStages = GroomingProcessingStage.mockStages.length;
+  static final int totalStages = 5;
 
   /// Dev-only face profile reference until profile creation is wired.
   static const String _devFaceProfileRef =
@@ -29,6 +29,12 @@ class GroomingService extends ChangeNotifier {
 
   bool _isProcessing = false;
   bool get isProcessing => _isProcessing;
+
+  bool _isFailed = false;
+  bool get isFailed => _isFailed;
+
+  bool _isCompleted = false;
+  bool get isCompleted => _isCompleted;
 
   int _completedStageCount = 0;
   int get completedStageCount => _completedStageCount;
@@ -42,7 +48,7 @@ class GroomingService extends ChangeNotifier {
   bool _disposed = false;
 
   /// Wire the learning repository so the analysis uses the user's stored face
-  /// profile instead of falling back to the offline result.
+  /// profile instead of falling back to the offline mock result.
   void attachLearning(LearningRepository learning) {
     _learning = learning;
   }
@@ -62,7 +68,7 @@ class GroomingService extends ChangeNotifier {
     _result = null;
     _safeNotify();
 
-    GroomingAnalysisResult resolved;
+    GroomingAnalysisResult resolved = GroomingAnalysisResult.mock;
     final faceShape = _learning?.face?.faceShape;
 
     if (faceShape == null || faceShape.isEmpty) {
@@ -75,11 +81,13 @@ class GroomingService extends ChangeNotifier {
         resolved = GroomingAnalysisResult.mock;
       } else {
         final run = await _client.pollGroomingRun(runId: runId);
-        if (run != null && run['status'] == 'failed') {
+        if (run != null && run.isFailed) {
           _analysisError = 'Grooming analysis failed. Please try again.';
+          _isFailed = true;
           resolved = GroomingAnalysisResult.mock;
-        } else if (run != null) {
-          resolved = groomingResultFromRun(run);
+        } else if (run is GroomingRun?) {
+          resolved = GroomingAnalysisResult.fromRunResult(run);
+          _isCompleted = true;
         } else {
           resolved = GroomingAnalysisResult.mock;
         }
@@ -88,19 +96,10 @@ class GroomingService extends ChangeNotifier {
 
     if (_disposed) return resolved;
 
-    _result = resolved;
-    _completedStageCount = totalStages;
     _isProcessing = false;
+    _completedStageCount = totalStages;
     _safeNotify();
     return resolved;
-  }
-
-  GroomingAnalysisResult groomingResultFromRun(Map<String, dynamic> run) {
-    final result = run['result'];
-    if (result != null) {
-      return GroomingAnalysisResult.fromBackend(result);
-    }
-    return GroomingAnalysisResult.mock;
   }
 
   /// Lists the user's analysis runs (summary rows).
@@ -142,7 +141,16 @@ class GroomingService extends ChangeNotifier {
     final ok = await _client.saveGroomingLook(
       lookId: recommendation.id,
       title: title,
-      snapshot: recommendation.toJson(),
+      snapshot: {
+        'lookId': recommendation.id,
+        'title': recommendation.name,
+        'matchScore': recommendation.matchScore,
+        'reasons': recommendation.reasons,
+        'stylingTips': recommendation.stylingTips,
+        'maintenance': recommendation.maintenance,
+        'bestFor': recommendation.bestFor,
+        'icon': recommendation.icon,
+      },
       idempotencyKey: idempotencyKey,
     );
     if (ok) {

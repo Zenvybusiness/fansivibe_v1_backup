@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
-import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
+import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_details_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_input_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_result_screen.dart';
@@ -12,6 +12,7 @@ GoRouter _groomingResultRouter({
   String beardStyle = 'Full Beard',
   String beardDensity = 'Medium',
   String beardColor = 'Dark Brown',
+  GroomingAnalysisResult? result,
 }) {
   return GoRouter(
     initialLocation: '/',
@@ -24,6 +25,7 @@ GoRouter _groomingResultRouter({
           beardStyle: beardStyle,
           beardDensity: beardDensity,
           beardColor: beardColor,
+          result: result,
         ),
         routes: [
           GoRoute(
@@ -268,4 +270,17 @@ void main() {
 
     expect(find.text('Grooming Profile'), findsOneWidget);
   });
+
+  testWidgets 'renders result from service', (WidgetTester tester) async {
+    final mockResult = GroomingAnalysisResult.mock;
+
+    await tester.pumpWidget(
+      MaterialApp.router(routerConfig: _groomingResultRouter(
+        result: mockResult,
+      )),
+    );
+
+    expect(find.text('Grooming Results'), findsOneWidget);
+    expect(find.text('Your Grooming Profile'), findsOneWidget);
+  };
 }

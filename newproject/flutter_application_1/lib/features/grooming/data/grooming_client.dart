@@ -6,6 +6,31 @@ import 'package:http/http.dart' as http;
 
 import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 
+/// Represents a grooming analysis run, mirroring the backend `AnalysisRun` DTO.
+class GroomingRun {
+  const GroomingRun({
+    required this.runId,
+    required this.runType,
+    required this.status,
+    this.createdAt,
+    this.completedAt,
+    this.result,
+    this.error,
+  });
+
+  final String runId;
+  final String runType;
+  final String status;
+  final DateTime? createdAt;
+  final DateTime? completedAt;
+  final Map<String, dynamic>? result;
+  final Map<String, dynamic>? error;
+
+  bool get isCompleted => status == 'completed';
+
+  bool get isFailed => status == 'failed';
+}
+
 /// HTTP client for the grooming recommendation API.
 ///
 /// Override the endpoint with dart-define ASSISTANT_BASE_URL=... .
@@ -67,14 +92,14 @@ class GroomingClient {
   /// A terminal `failed` run is returned promptly (never polled to exhaustion)
   /// so the caller can surface the error instead of waiting. Returns the
   /// completed/failed run, or null when unreachable.
-  Future<Map<String, dynamic>?> pollGroomingRun({required String runId}) async {
+  Future<GroomingRun?> pollGroomingRun({required String runId}) async {
     try {
       for (var attempt = 0; attempt < 30; attempt++) {
         final run = await getGroomingRun(runId: runId);
         if (run == null) {
           return null;
         }
-        if (run['status'] == 'completed' || run['status'] == 'failed') {
+        if (run.isCompleted || run.isFailed) {
           return run;
         }
         await Future<void>.delayed(_pollInterval);
@@ -85,7 +110,7 @@ class GroomingClient {
     return null;
   }
 
-  Future<Map<String, dynamic>?> getGroomingRun({required String runId}) async {
+  Future<GroomingRun?> getGroomingRun({required String runId}) async {
     try {
       final response = await _client
           .get(
@@ -95,7 +120,20 @@ class GroomingClient {
           .timeout(_timeout);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-        return decoded;
+        return GroomingRun(
+          runId: decoded['run_id'] as String? ?? '',
+          runType: decoded['run_type'] as String? ?? '',
+          status: decoded['status'] as String? ?? 'pending',
+          createdAt: decoded['created_at'] != null
+              ? DateTime.tryParse(decoded['created_at'] as String)
+              : null,
+          completedAt:
+              decoded['completed_at'] != null
+                  ? DateTime.tryParse(decoded['completed_at'] as String)
+                  : null,
+          result: decoded['result'] as Map<String, dynamic>?,
+          error: decoded['error'] as Map<String, dynamic>?,
+        );
       }
       debugPrint(
         'Grooming fetch responded ${response.statusCode}: ${response.body}',
@@ -109,7 +147,7 @@ class GroomingClient {
   /// Lists completed analysis runs (summary rows — no `result`).
   ///
   /// Returns null when the backend is unreachable.
-  Future<List<Map<String, dynamic>?>?> listRuns() async {
+  Future<List<dynamic>?> listRuns() async {
     try {
       final response = await _client
           .get(
@@ -163,7 +201,8 @@ class GroomingClient {
       debugPrint(
         'Grooming save responded ${response.statusCode}: ${response.body}',
       );
-    } catch (error) {
+    }
+    catch (error) {
       debugPrint('Grooming backend unreachable during save: $error');
     }
     return false;

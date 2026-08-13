@@ -34,19 +34,10 @@ class _GroomingInputScreenState extends State<GroomingInputScreen> {
     context.pushNamed(
       RouteNames.groomingProcessing,
       extra: <String, String>{
-        'faceShape': _labelForId(
-          _selectedFaceShape!,
-          GroomingOption.faceShapeOptions,
-        ),
-        'beardStyle': _labelForId(
-          _selectedBeardStyle!,
-          GroomingOption.beardStyleOptions,
-        ),
-        'beardDensity': _labelForId(
-          _selectedDensity!,
-          GroomingOption.densityOptions,
-        ),
-        'beardColor': _labelForId(_selectedColor!, GroomingOption.colorOptions),
+        'faceShapeId': _selectedFaceShape!,
+        'beardStyleId': _selectedBeardStyle!,
+        'beardDensityId': _selectedDensity!,
+        'beardColorId': _selectedColor!,
       },
     );
   }
