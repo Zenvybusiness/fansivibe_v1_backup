@@ -152,10 +152,21 @@ def create_grooming_run(
     db: Session = Depends(get_db),
 ) -> AsyncAccepted:
     """Submit a grooming analysis (profile-only pass). Returns `run_id`."""
+    face_profile_ref = request.face_profile_ref
+    if not face_profile_ref:
+        raise validation(
+            [{"field": "face_profile_ref", "error": "required"}]
+        )
+    try:
+        UUID(face_profile_ref)
+    except (ValueError, AttributeError):
+        raise validation(
+            [{"field": "face_profile_ref", "error": "must be a valid uuid"}]
+        )
     use_case = CreateGroomingRun(
         runs=AnalysisRunRepositorySQL(db),
         user_state=UserStateRepositorySQL(db),
         knowledge=CatalogKnowledgeSource(),
     )
-    run_id = use_case(user_id=user_id, face_profile_ref=request.face_profile_ref)
+    run_id = use_case(user_id=user_id, face_profile_ref=face_profile_ref)
     return AsyncAccepted(run_id=run_id)
