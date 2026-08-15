@@ -29,3 +29,4 @@ class ProfileView(BaseModel):
     settings: dict[str, Any]
     flags: dict[str, Any]
     version: int
+    memorySummary: Optional[dict[str, Any]] = None
