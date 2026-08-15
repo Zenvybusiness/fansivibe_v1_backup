@@ -26,6 +26,7 @@ from app.domain.ports.repositories import (
 from app.domain.services.analysis_rules import build_context, recommend_hairstyle
 from app.domain.services.grooming_rules import recommend_grooming
 from app.domain.value_objects import AppearanceProfile, HairstyleResult, GroomingResult
+from app.ai.appearance_adapter import DevelopmentAppearanceAnalysisAdapter
 
 
 def insufficient_user_data(missing: str) -> ApiError:
@@ -167,7 +168,7 @@ class CreateOutfitRun:
             "sizeBytes": size_bytes,
             "contentHash": _uuid.uuid4().hex[:64],  # placeholder SHA-256 hash
             "isGenerated": False,
-            "uploadedAt": _time.time.strftime(_time.gmtime(), "%Y-%m-%dT%H:%M:%SZ"),
+            "uploadedAt": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
         }
 
         # Step 1: Create analysis run (pending)
