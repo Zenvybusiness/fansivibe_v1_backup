@@ -6,10 +6,23 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
-class OutfitAnalysisScreen extends StatelessWidget {
+class OutfitAnalysisScreen extends StatefulWidget {
   const OutfitAnalysisScreen({super.key, this.analysisResult});
 
   final Map<String, dynamic>? analysisResult;
+
+  @override
+  State<OutfitAnalysisScreen> createState() => _OutfitAnalysisScreenState();
+}
+
+class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
+  Map<String, dynamic>? analysisResult;
+
+  @override
+  void initState() {
+    super.initState();
+    analysisResult = widget.analysisResult;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -129,7 +142,7 @@ class OutfitAnalysisScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: FansivibeColors.surfaceContainerLow,
         borderRadius: FansivibeRadius.baseBorder,
-        border: Border(
+        border: Border.all(
           color: FansivibeColors.accentGold.withValues(alpha: 0.15),
         ),
       ),
@@ -143,7 +156,7 @@ class OutfitAnalysisScreen extends StatelessWidget {
           const SizedBox(height: 16),
 
           // Primary attributes in a row
-          Row(
+          Row(mainAxisSize: MainAxisSize.min, 
             children: [
               _AttributeChip(
                 label: 'Face Shape',
@@ -181,7 +194,7 @@ class OutfitAnalysisScreen extends StatelessWidget {
           const SizedBox(height: 16),
 
           // Confidence indicator
-          Row(
+          Row(mainAxisSize: MainAxisSize.min, 
             children: [
               Icon(
                 Icons.trending_up,
@@ -203,7 +216,7 @@ class OutfitAnalysisScreen extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: FansivibeColors.warning.withValues(alpha: 0.15),
                     borderRadius: FansivibeRadius.smBorder,
-                    border: Border(
+                    border: Border.all(
                       color: FansivibeColors.warning.withValues(alpha: 0.3),
                     ),
                   ),
@@ -237,14 +250,14 @@ class OutfitAnalysisScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: FansivibeColors.surfaceContainerLow,
         borderRadius: FansivibeRadius.baseBorder,
-        border: Border(
+        border: Border.all(
           color: FansivibeColors.accentGold.withValues(alpha: 0.15),
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Row(mainAxisSize: MainAxisSize.min, 
             children: [
               Icon(
                 Icons.auto_awesome,
@@ -290,7 +303,7 @@ class OutfitAnalysisScreen extends StatelessWidget {
             const SizedBox(height: 8),
             ...reasons.map((reason) => Padding(
               padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
+              child: Row(mainAxisSize: MainAxisSize.min, 
                 children: [
                   Icon(
                     Icons.check_circle_rounded,
@@ -356,14 +369,14 @@ class OutfitAnalysisScreen extends StatelessWidget {
                 ? FansivibeColors.warning
                 : FansivibeColors.error;
 
-    return Row(
+    return Row(mainAxisSize: MainAxisSize.min, 
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.15),
             borderRadius: FansivibeRadius.smBorder,
-            border: Border(
+            border: Border.all(
               color: color.withValues(alpha: 0.3),
             ),
           ),
@@ -479,7 +492,7 @@ class OutfitAnalysisScreen extends StatelessWidget {
       Color color) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
+      child: Row(mainAxisSize: MainAxisSize.min, 
         children: [
           Icon(icon, size: 16, color: color),
           const SizedBox(width: 6),
@@ -523,7 +536,7 @@ class OutfitAnalysisScreen extends StatelessWidget {
   }
 
   Widget _buildActions(BuildContext context) {
-    return Row(
+    return Row(mainAxisSize: MainAxisSize.min, 
       children: [
         Expanded(
           child: FansiButton.secondary(
@@ -531,7 +544,7 @@ class OutfitAnalysisScreen extends StatelessWidget {
             icon: Icons.bookmark_border,
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
+                SnackBar(
                   content: Text('Appearance profile saved'),
                   backgroundColor: FansivibeColors.accentGold,
                   behavior: SnackBarBehavior.floating,
@@ -584,11 +597,11 @@ class _AttributeChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: FansivibeRadius.smBorder,
-        border: Border(
+        border: Border.all(
           color: color.withValues(alpha: 0.3),
         ),
       ),
-      child: Row(
+      child: Row(mainAxisSize: MainAxisSize.min, 
         children: [
           Icon(icon, size: 16, color: color),
           const SizedBox(width: 6),

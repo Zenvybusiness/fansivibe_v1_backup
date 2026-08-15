@@ -11,6 +11,7 @@ import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 class OutfitProcessingScreen extends StatefulWidget {
   const OutfitProcessingScreen({super.key, this.runId});
 
@@ -232,7 +233,7 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: FansivibeColors.surface,
-        border: Border(
+        border: Border.all(
           color: FansivibeColors.accentGold.withValues(alpha: 0.3),
         ),
       ),
@@ -258,7 +259,7 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
             color: status == 'completed'
                 ? FansivibeColors.success.withValues(alpha: 0.1)
                 : FansivibeColors.error.withValues(alpha: 0.1),
-            border: Border(
+            border: Border.all(
               color: status == 'completed'
                   ? FansivibeColors.success.withValues(alpha: 0.3)
                   : FansivibeColors.error.withValues(alpha: 0.3),

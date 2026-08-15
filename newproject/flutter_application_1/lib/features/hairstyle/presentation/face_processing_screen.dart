@@ -4,6 +4,7 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
+import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -61,6 +62,18 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
       setState(() {});
       return;
     }
+    // Store the face profile from the analysis result so that cold-start
+    // users who complete a face scan gain a valid faceProfileRef for
+    // subsequent hairstyle analyses. This is the smallest valid path:
+    // NEW USER → Hairstyle → Face Scan → faceProfileRef → REAL analysis.
+    LearningService.instance.setFace(
+      FaceProfile(
+        faceShape: result.faceShape,
+        skinTone: result.skinTone,
+        bodyType: null,
+        styleType: result.styleDna.isNotEmpty ? result.styleDna.split('•').first : '',
+      ),
+    );
     _navigateToResult(result);
   }
 

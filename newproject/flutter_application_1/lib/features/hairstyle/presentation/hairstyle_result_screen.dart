@@ -266,6 +266,13 @@ class HairstyleResultScreen extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 4),
+        Text(
+          'Confidence score based on your face shape analysis',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: FansivibeColors.textSecondary,
+          ),
+        ),
         const SizedBox(height: 14),
         HairstyleCard(
           recommendation: top,
@@ -329,6 +336,13 @@ class HairstyleResultScreen extends StatelessWidget {
           },
         ),
         const SizedBox(height: 12),
+        const Text(
+          'Save Style → saved to profile for later reference',
+          style: TextStyle(
+            fontSize: 10,
+            color: FansivibeColors.textSecondary,
+          ),
+        ),
         FansiButton.primary(
           label: 'Save Style',
           icon: Icons.favorite_rounded,
@@ -374,7 +388,7 @@ class HairstyleResultScreen extends StatelessWidget {
       );
       _analytics.emitRecommendationSaved(
         saveSuccess: ok,
-        idempotencyKey: '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}',
+        idempotencyKey: '${DateTime.now().microsecondsSinceEpoch}',
         lookSavedSignalCommitted: ok,
         snackbarShown: snackbarShown,
       );

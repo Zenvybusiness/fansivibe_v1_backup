@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:camera/camera.dart';
 
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
@@ -229,7 +230,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       final responseBody = await http.Response.fromStream(response);
 
       if (response.statusCode == 202) {
-        final data = jsonDecode(responseBody);
+        final data = jsonDecode(responseBody.body);
         final runId = data['run_id'] as String;
         context.pushNamed(RouteNames.scanProcessing, extra: runId);
       } else {
@@ -432,7 +433,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
                 decoration: BoxDecoration(
                   color: FansivibeColors.accentGold.withValues(alpha: 0.2),
                   borderRadius: FansivibeRadius.smBorder,
-                  border: Border(
+                  border: Border.all(
                     color: FansivibeColors.accentGold.withValues(alpha: 0.4),
                   ),
                 ),
@@ -491,7 +492,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
               decoration: BoxDecoration(
                 color: FansivibeColors.accentGold.withValues(alpha: 0.2),
                 borderRadius: FansivibeRadius.smBorder,
-                border: Border(
+                border: Border.all(
                   color: FansivibeColors.accentGold.withValues(alpha: 0.4),
                 ),
               ),
@@ -538,7 +539,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       decoration: BoxDecoration(
         color: FansivibeColors.surface,
         borderRadius: FansivibeRadius.baseBorder,
-        border: Border(
+        border: Border.all(
           color: FansivibeColors.accentGold.withValues(alpha: 0.15),
         ),
       ),
@@ -589,7 +590,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       decoration: BoxDecoration(
         color: FansivibeColors.surface,
         borderRadius: FansivibeRadius.baseBorder,
-        border: Border(
+        border: Border.all(
           color: FansivibeColors.accentGold.withValues(alpha: 0.15),
         ),
       ),
