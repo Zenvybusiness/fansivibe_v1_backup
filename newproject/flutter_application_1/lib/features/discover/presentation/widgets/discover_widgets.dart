@@ -15,12 +15,14 @@ class DiscoverTabButton extends StatelessWidget {
     required this.data,
     required this.isSelected,
     required this.onTap,
+    this.badge,
     super.key,
   });
 
   final DiscoverTabData data;
   final bool isSelected;
   final VoidCallback onTap;
+  final Widget? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +74,10 @@ class DiscoverTabButton extends StatelessWidget {
                   ),
                 ),
               ),
+              if (badge != null) ...[
+                const SizedBox(width: 6),
+                badge!,
+              ],
             ],
           ),
         ),

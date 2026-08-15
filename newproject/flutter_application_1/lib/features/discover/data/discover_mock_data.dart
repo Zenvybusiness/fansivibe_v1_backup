@@ -62,6 +62,41 @@ class DiscoverLookData {
   /// Wardrobe alternatives for each component.
   final List<WardrobeAlternative>? wardrobeAlternatives;
 
+  /// Copy with modified fields.
+  DiscoverLookData copyWith({
+    String? id,
+    String? imageUrl,
+    String? title,
+    String? description,
+    String? occasion,
+    List<String>? styleTags,
+    List<String>? fitTags,
+    int? matchScore,
+    bool? isTrending,
+    int? wardrobeMatchCount,
+    MatchScoreDetails? matchScoreDetails,
+    List<RecommendationReason>? recommendationReasons,
+    List<EnsembleComponent>? ensembleComponents,
+    List<WardrobeAlternative>? wardrobeAlternatives,
+  }) {
+    return DiscoverLookData(
+      id: id ?? this.id,
+      imageUrl: imageUrl ?? this.imageUrl,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      occasion: occasion ?? this.occasion,
+      styleTags: styleTags ?? this.styleTags,
+      fitTags: fitTags ?? this.fitTags,
+      matchScore: matchScore ?? this.matchScore,
+      isTrending: isTrending ?? this.isTrending,
+      wardrobeMatchCount: wardrobeMatchCount ?? this.wardrobeMatchCount,
+      matchScoreDetails: matchScoreDetails ?? this.matchScoreDetails,
+      recommendationReasons: recommendationReasons ?? this.recommendationReasons,
+      ensembleComponents: ensembleComponents ?? this.ensembleComponents,
+      wardrobeAlternatives: wardrobeAlternatives ?? this.wardrobeAlternatives,
+    );
+  }
+
   /// Mock data for "For You" personalized looks.
   static const List<DiscoverLookData> forYouMock = [
     DiscoverLookData(

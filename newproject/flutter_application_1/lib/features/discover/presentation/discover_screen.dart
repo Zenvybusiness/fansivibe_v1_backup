@@ -3,6 +3,9 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
+import 'package:fansivibe/features/learning/data/models.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
+import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_chip.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -11,7 +14,13 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 /// The Discover screen - Personalized style discovery.
 class DiscoverScreen extends StatefulWidget {
   /// Creates a [DiscoverScreen].
-  const DiscoverScreen({super.key});
+  const DiscoverScreen({
+    super.key,
+    this.service,
+  });
+
+  /// Injectable for tests; when null the screen owns its own [LearningService].
+  final LearningService? service;
 
   @override
   State<DiscoverScreen> createState() => _DiscoverScreenState();
@@ -32,10 +41,94 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   List<FilterOption> _styleOptions = StyleFilters.options;
   List<FilterOption> _fitOptions = FitFilters.options;
 
+  late final LearningService _service;
+  bool _ownsService = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ownsService = widget.service == null;
+    _service = widget.service ?? LearningService.instance;
+    _service.addListener(_onLearningChanged);
+    _onLearningChanged();
+  }
+
   @override
   void dispose() {
+    _service.removeListener(_onLearningChanged);
+    if (_ownsService) {
+      _service.dispose();
+    }
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onLearningChanged() {
+    final face = _service.face;
+    final occasions = _service.preferredOccasions;
+    final savedLooks = _service.savedLooks;
+
+    // Build personalized look data based on user model
+    _personalizedLooks = _personalizeLooks(
+      DiscoverLookData.forYouMock,
+      face: face,
+      preferredOccasions: occasions,
+      savedLooks: savedLooks,
+    );
+  }
+
+  List<DiscoverLookData> _personalizedLooks = [];
+
+  /// Personalize mock looks based on user's face profile, preferences, and wardrobe.
+  List<DiscoverLookData> _personalizeLooks(
+    List<DiscoverLookData> looks,
+    {
+    FaceProfile? face,
+    List<String> preferredOccasions = const [],
+    List<String> savedLooks = const [],
+  }) {
+    // Start with all looks
+    final personalized = <DiscoverLookData>[];
+
+    for (final look in looks) {
+      var scoreAdjustment = 0;
+
+      // Boost score if look matches preferred occasions
+      if (preferredOccasions.isNotEmpty) {
+        final lookOccasion = look.occasion.toLowerCase();
+        for (final occasion in preferredOccasions) {
+          if (lookOccasion.contains(occasion.toLowerCase())) {
+            scoreAdjustment += 10;
+            break;
+          }
+        }
+      }
+
+      // Boost score if look's style tags align with user's style profile
+      if (face?.styleType != null) {
+        final styleTag = look.styleTags.firstOrNull;
+        if (styleTag != null && face!.styleType!.toLowerCase().contains(styleTag.toLowerCase())) {
+          scoreAdjustment += 5;
+        }
+      }
+
+      // Adjust score based on wardrobe match count
+      scoreAdjustment += look.wardrobeMatchCount;
+
+      // Don't show saved looks again (unless they're in the mock data)
+      final lookTitle = look.title;
+      if (savedLooks.contains(lookTitle)) {
+        scoreAdjustment -= 20; // downgrade saved looks
+      }
+
+      final adjustedScore = (look.matchScore + scoreAdjustment).clamp(0, 100);
+      final personalizedLook = look.copyWith(matchScore: adjustedScore);
+      personalized.add(personalizedLook);
+    }
+
+    // Sort by adjusted score descending
+    personalized.sort((a, b) => b.matchScore.compareTo(a.matchScore));
+    return personalized;
   }
 
   void _onTabChanged(DiscoverTab tab) {
@@ -85,18 +178,20 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   List<DiscoverLookData> _getFilteredLooks() {
-    final looks = _selectedTab == DiscoverTab.forYou
-        ? DiscoverLookData.forYouMock
+    final baseLooks = _selectedTab == DiscoverTab.forYou
+        ? _personalizedLooks.isNotEmpty
+            ? _personalizedLooks
+            : DiscoverLookData.forYouMock
         : DiscoverLookData.trendingMock;
 
     if (_searchQuery.isEmpty &&
         _selectedOccasion == 'all' &&
         _selectedStyle == 'all' &&
         _selectedFit == 'all') {
-      return looks;
+      return baseLooks;
     }
 
-    return looks.where((look) {
+    return baseLooks.where((look) {
       final matchesSearch =
           _searchQuery.isEmpty ||
           look.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
@@ -127,6 +222,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isPersonalized = _selectedTab == DiscoverTab.forYou &&
+        _personalizedLooks.isNotEmpty;
     final filteredLooks = _getFilteredLooks();
 
     return Scaffold(
@@ -153,7 +250,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                         const SizedBox(height: 8),
 
                         // Header
-                        _buildHeader(context),
+                        _buildHeader(context, isPersonalized),
 
                         const SizedBox(height: 20),
 
@@ -188,7 +285,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+Widget _buildHeader(BuildContext context, bool isPersonalized) {
     final theme = Theme.of(context);
 
     return Row(
@@ -220,7 +317,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               ),
               const SizedBox(height: 2),
               Text(
-                'Find looks tailored to your style',
+                isPersonalized
+                    ? 'Your personalized looks, based on your style and preferences'
+                    : 'Find looks tailored to your style',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: FansivibeColors.textSecondary,
                 ),
@@ -365,6 +464,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       child: Row(
         children: DiscoverTabData.all.map((tabData) {
           final isSelected = _selectedTab == tabData.tab;
+          final isForYou = tabData.tab == DiscoverTab.forYou;
+          final hasPersonalization = isForYou && _personalizedLooks.isNotEmpty;
+          final badge = hasPersonalization
+              ? FansiBadge(
+                  score: _personalizedLooks.length,
+                  size: BadgeSize.compact,
+                )
+              : null;
+
           return Padding(
             padding: EdgeInsets.only(
               right: tabData == DiscoverTabData.all.last ? 0 : 12,
@@ -373,6 +481,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               data: tabData,
               isSelected: isSelected,
               onTap: () => _onTabChanged(tabData.tab),
+              badge: badge,
             ),
           );
         }).toList(),
@@ -426,12 +535,18 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   Widget _buildResultsHeader(BuildContext context, int count) {
     final theme = Theme.of(context);
+    final isPersonalized = _selectedTab == DiscoverTab.forYou &&
+        _personalizedLooks.isNotEmpty;
+
+    final label = isPersonalized
+        ? '${count} ${count == 1 ? 'look' : 'looks'} for you'
+        : '$count ${count == 1 ? 'look' : 'looks'} found';
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
-          '$count ${count == 1 ? 'look' : 'looks'} found',
+          label,
           style: theme.textTheme.bodySmall?.copyWith(
             color: FansivibeColors.textSecondary,
             fontWeight: FontWeight.w500,

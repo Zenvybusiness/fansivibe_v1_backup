@@ -176,7 +176,7 @@ void main() {
       expect(find.byType(LookCard), findsWidgets);
     });
 
-    testWidgets('shows results count', (WidgetTester tester) async {
+testWidgets('shows results count', (WidgetTester tester) async {
       await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
@@ -189,7 +189,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify results count is shown
-      expect(find.textContaining('looks found'), findsOneWidget);
+      expect(find.text('1 looks found'), findsOneWidget);
     });
 
     testWidgets('opening filter sheet shows filter options', (
