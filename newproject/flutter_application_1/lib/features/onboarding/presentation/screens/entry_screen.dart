@@ -6,6 +6,8 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
 
 class EntryScreen extends StatefulWidget {
   const EntryScreen({super.key});
@@ -38,9 +40,6 @@ class _EntryScreenState extends State<EntryScreen>
       vsync: this,
       duration: const Duration(milliseconds: 2800),
     )..repeat(reverse: true);
-    _breath = Tween<double>(begin: 0.45, end: 0.85).animate(
-      CurvedAnimation(parent: _breathController, curve: Curves.easeInOut),
-    );
 
     _wordmarkAnim = _buildAnim(0.0, 0.3);
     _mirrorAnim = _buildAnim(0.15, 0.45);
@@ -49,7 +48,19 @@ class _EntryScreenState extends State<EntryScreen>
     _ctaAnim = _buildAnim(0.62, 0.85);
     _gateAnim = _buildAnim(0.75, 0.95);
     _privacyAnim = _buildAnim(0.85, 1.0);
-    _controller.forward();
+
+    _checkReturningUser();
+  }
+
+  void _checkReturningUser() {
+    if (LocalStorage.onboardingComplete) {
+      // Returning user - skip onboarding and go directly to home
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) {
+          context.goNamed(RouteNames.home);
+        }
+      });
+    }
   }
 
   Animation<double> _buildAnim(double start, double end) {

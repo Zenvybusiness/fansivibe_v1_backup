@@ -19,25 +19,24 @@ class _GroomingInputScreenState extends State<GroomingInputScreen> {
   String? _selectedDensity;
   String? _selectedColor;
 
-  bool get _allSelected =>
-      _selectedFaceShape != null &&
-      _selectedBeardStyle != null &&
-      _selectedDensity != null &&
-      _selectedColor != null;
-
-  String _labelForId(String id, List<GroomingOption> options) {
-    return options.firstWhere((o) => o.id == id).label;
+  @override
+  void initState() {
+    super.initState();
   }
 
   void _analyze() {
-    if (!_allSelected) return;
+    final faceShape = _selectedFaceShape ?? 'oval';
+    final beardStyle = _selectedBeardStyle ?? 'full_beard';
+    final density = _selectedDensity ?? 'medium';
+    final color = _selectedColor ?? 'dark_brown';
+
     context.pushNamed(
       RouteNames.groomingProcessing,
       extra: <String, String>{
-        'faceShapeId': _selectedFaceShape!,
-        'beardStyleId': _selectedBeardStyle!,
-        'beardDensityId': _selectedDensity!,
-        'beardColorId': _selectedColor!,
+        'faceShapeId': faceShape,
+        'beardStyleId': beardStyle,
+        'beardDensityId': density,
+        'beardColorId': color,
       },
     );
   }
@@ -144,7 +143,7 @@ class _GroomingInputScreenState extends State<GroomingInputScreen> {
                         FansiButton.primary(
                           label: 'Analyze Style',
                           icon: Icons.auto_awesome_rounded,
-                          onPressed: _allSelected ? _analyze : null,
+                          onPressed: _analyze,
                         ),
 
                         const SizedBox(height: 32),

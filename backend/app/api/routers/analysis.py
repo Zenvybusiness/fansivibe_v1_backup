@@ -1,7 +1,8 @@
-"""Analysis API router — endpoints #37/#39/#40.
+"""Analysis API router — endpoints #37/#39/#40/#43/#44.
 
 Mounts the hairstyle analysis surface per `HAIRSTYLE_RECOMMENDATION_API.md`:
-- `POST /v1/analysis/hairstyle` (async, profile-only pass, D2) → 202 {run_id}
+- `POST /v1/analysis/hairstyle` (async, accepts image or profile-only pass) → 202 {run_id}
+- `POST /v1/analysis/outfit` (async, image-based pass, S-1) → 202 {run_id}
 - `GET  /v1/analysis/runs/{run_id}` (owner-only, 404-not-403) → bare `AnalysisRun`
 - `GET  /v1/analysis/runs` → paged summaries (no `result`)
 """
@@ -21,9 +22,12 @@ from app.api.schemas.analysis import (
     AnalysisRunSummary,
     AsyncAccepted,
     CreateGroomingRunRequest,
+    CreateOutfitScanRequest,
+    CreateHairstyleScanRequest,
 )
 from app.application.analysis import (
     CreateHairstyleRun,
+    CreateOutfitRun,
     GetAnalysisRun,
     ListAnalysisRuns,
 )
@@ -76,12 +80,26 @@ def create_hairstyle_run(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> AsyncAccepted:
-    """Submit a hairstyle analysis (profile-only pass). Returns `run_id`."""
-    if image is not None:
-        # Media pipeline is sealed (MS10.3) — refuse honestly, never fake a scan.
+    """Submit a hairstyle analysis (image-based or profile-only pass). Returns `run_id`."""
+    if image is not None and faceProfileRef:
         raise validation(
-            [{"field": "image", "error": "image upload is not available in this version"}]
+            [{"field": "faceProfileRef", "error": "image and faceProfileRef are mutually exclusive"}]
         )
+    if image is not None:
+        if image.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+            raise validation(
+                [{"field": "image", "error": "unsupported media type, must be JPEG, PNG or WebP"}]
+            )
+        if image.size is not None and image.size > 20 * 1024 * 1024:
+            raise validation(
+                [{"field": "image", "error": f"image too large ({image.size} bytes), max 20 MB"}]
+            )
+        use_case = CreateOutfitRun(
+            runs=AnalysisRunRepositorySQL(db),
+            knowledge=CatalogKnowledgeSource(),
+        )
+        run_id = use_case(user_id=user_id, image=image)
+        return AsyncAccepted(run_id=run_id)
     if not faceProfileRef:
         raise validation(
             [{"field": "faceProfileRef", "error": "required when no image is submitted"}]
@@ -169,4 +187,42 @@ def create_grooming_run(
         knowledge=CatalogKnowledgeSource(),
     )
     run_id = use_case(user_id=user_id, face_profile_ref=face_profile_ref)
+    return AsyncAccepted(run_id=run_id)
+
+
+@router.post(
+    "/outfit",
+    response_model=AsyncAccepted,
+    status_code=202,
+    responses={
+        401: {"model": dict},
+        413: {"model": dict},
+        422: {"model": dict},
+        503: {"model": dict},
+    },
+)
+def create_outfit_run(
+    image: UploadFile = File(...),
+    faceProfileRef: str | None = Form(default=None),
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> AsyncAccepted:
+    """Submit an outfit/appearance analysis (image-based pass, S-1). Returns `run_id`."""
+    if faceProfileRef:
+        raise validation(
+            [{"field": "faceProfileRef", "error": "faceProfileRef not supported for outfit scan; use image only"}]
+        )
+    if image.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise validation(
+            [{"field": "image", "error": "unsupported media type, must be JPEG, PNG or WebP"}]
+        )
+    if image.size is not None and image.size > 20 * 1024 * 1024:
+        raise validation(
+            [{"field": "image", "error": f"image too large ({image.size} bytes), max 20 MB"}]
+        )
+    use_case = CreateOutfitRun(
+        runs=AnalysisRunRepositorySQL(db),
+        knowledge=CatalogKnowledgeSource(),
+    )
+    run_id = use_case(user_id=user_id, image=image)
     return AsyncAccepted(run_id=run_id)

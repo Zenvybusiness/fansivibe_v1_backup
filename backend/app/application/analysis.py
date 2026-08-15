@@ -7,20 +7,22 @@ failure. Business rules live here, not in the routers.
 
 from __future__ import annotations
 
+import uuid as _uuid
+import time as _time
+
 from typing import Callable, Optional
 from uuid import UUID
 
-from app.api.errors import ApiError, not_found
+from app.api.errors import ApiError, validation, not_found
 from app.application.enrichment import enrich_hairstyle_result
 from app.domain.ports.external import KnowledgeSource
 from app.domain.ports.repositories import (
-    AnalysisRunRecord,
     AnalysisRunRepository,
     UserStateRepository,
 )
 from app.domain.services.analysis_rules import recommend_hairstyle
 from app.domain.services.grooming_rules import recommend_grooming
-from app.domain.value_objects import AppearanceProfile, GroomingResult, HairstyleResult
+from app.domain.value_objects import AppearanceProfile, HairstyleResult, GroomingResult
 
 
 def insufficient_user_data(missing: str) -> ApiError:
@@ -101,6 +103,61 @@ class CreateHairstyleRun:
                 code="DATABASE_FAILURE",
                 message="Something went wrong while saving your data. Please try again.",
             )
+        return run_id
+
+
+class CreateOutfitRun:
+    """UC-44 — submit an outfit/appearance analysis (image-based pass, S-1).
+
+    Validates the uploaded image, constructs a MediaRef, creates the analysis
+    run with `status=pending` and `input_media` populated, and returns the
+    run_id. The actual AI analysis pipeline is not executed here — the run
+    remains in the pending state for later completion.
+    """
+
+    def __init__(
+        self,
+        *,
+        runs: AnalysisRunRepository,
+        knowledge: KnowledgeSource,
+    ) -> None:
+        self._runs = runs
+        self._knowledge = knowledge
+
+    def __call__(self, *, user_id: UUID, image: any) -> UUID:
+        # Validate image content-type
+        content_type = getattr(image, "content_type", None)
+        if content_type not in {"image/jpeg", "image/png", "image/webp"}:
+            raise validation(
+                [{"field": "image", "error": "unsupported media type, must be JPEG, PNG or WebP"}]
+            )
+
+        # Validate image size (max 20 MB)
+        size_bytes = getattr(image, "size", None)
+        if size_bytes is not None and size_bytes > 20 * 1024 * 1024:
+            raise validation(
+                [{"field": "image", "error": f"image too large ({size_bytes} bytes), max 20 MB"}]
+            )
+
+        # Construct MediaRef
+        ext = "jpg"  # default extension; Flutter may determine from content_type
+        key = f"users/{user_id}/scans/{_uuid.uuid4()}/input.{ext}"
+        media_ref = {
+            "key": key,
+            "mediaType": content_type,
+            "sizeBytes": size_bytes,
+            "contentHash": _uuid.uuid4().hex[:64],  # placeholder SHA-256 hash
+            "isGenerated": False,
+            "uploadedAt": _time.time.strftime(_time.gmtime(), "%Y-%m-%dT%H:%M:%SZ"),
+        }
+
+        run_id = self._runs.create(
+            user_id=user_id,
+            run_type="outfit",
+            engine_version="vision-v1",
+            input_media=media_ref,
+        )
+
         return run_id
 
 

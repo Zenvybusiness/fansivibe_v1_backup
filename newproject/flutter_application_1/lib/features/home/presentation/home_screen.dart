@@ -7,6 +7,7 @@ import 'package:fansivibe/features/home/presentation/first_time_light_path_home_
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -14,11 +15,34 @@ class HomeScreen extends StatelessWidget {
 
   const HomeScreen({super.key, this.onboardingData});
 
-  bool get _isFirstVisit => onboardingData != null;
+  Map<String, dynamic>? _onboardingDataFromLocalStorage() {
+    if (onboardingData != null) return null;
+    final hasCompleted = LocalStorage.onboardingComplete;
+    final storedDisplayName = LocalStorage.displayName;
+    final storedVibe = LocalStorage.vibe;
+    if (hasCompleted && storedDisplayName != null) {
+      return <String, dynamic>{
+        'onboarding_complete': true,
+        'display_name': storedDisplayName,
+        'vibe': storedVibe,
+        'analysis_cached': LocalStorage.analysisCached,
+        'saved_locally': LocalStorage.savedLocally,
+      };
+    }
+    return null;
+  }
+
+  bool get _isFirstVisit => onboardingData != null ||
+      _onboardingDataFromLocalStorage() != null;
   bool get _hasAnalysis =>
-      onboardingData?.containsKey('onboarding_complete') == true;
-  String? get _displayName => onboardingData?['display_name'] as String?;
-  String? get _vibeName => onboardingData?['vibe'] as String?;
+      onboardingData?.containsKey('onboarding_complete') == true ||
+      (_onboardingDataFromLocalStorage()?.containsKey('onboarding_complete') == true);
+  String? get _displayName =>
+      onboardingData?['display_name'] as String? ??
+      _onboardingDataFromLocalStorage()?['display_name'] as String?;
+  String? get _vibeName =>
+      onboardingData?['vibe'] as String? ??
+      _onboardingDataFromLocalStorage()?['vibe'] as String?;
 
   @override
   Widget build(BuildContext context) {
