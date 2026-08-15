@@ -21,16 +21,131 @@ The LLM (when wired) may only rewrite *wording* — never structure or scores
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
 
 from app.domain.ports.external import KnowledgeError, KnowledgeSource
 from app.domain.value_objects import (
     AppearanceProfile,
-    GroomingRecommendation,
     HairstylePreferences,
-    HairstyleRecommendation,
     HairstyleResult,
+    HairstyleRecommendation,
+    GroomingRecommendation,
 )
+from app.infrastructure.db.repositories import SavedLookRecord
+
+
+@dataclass
+class PersonalizationContext:
+    """Assembled personalization context from all available memory sources.
+
+    This is a read-only data structure that gathers explicit preferences,
+    supported behavioral signals, and appearance information from the
+    user's memory state. It does NOT contain derived preference algorithms
+    or ranking logic — those remain the responsibility of the Decision Engine.
+
+    Fields retain their source semantics:
+    - appearance: AI-inferred from analysis runs
+    - explicit_preferences: User-stated (from preferences screen)
+    - saved_looks: User-saved looks (from save actions)
+    - signal_count: Supported behavioral signals (look_saved)
+    """
+
+    appearance: Optional[AppearanceProfile] = None
+    explicit_preferences: Optional[List[str]] = None  # preferred_occasions
+    saved_looks: Optional[List[SavedLookRecord]] = None
+
+
+def assemble_personalization_context(
+    *,
+    user_id: str,
+    user_state: dict,
+    saved_looks_repo,
+) -> PersonalizationContext:
+    """Assemble personalization context from all available memory sources.
+
+    Reads from:
+    - user_state.style_profile → appearance (AI-inferred)
+    - user_state.preferences.preferred_occasions → explicit preferences (user-stated)
+    - saved_looks table → user-saved looks (user-saved)
+
+    Returns a PersonalizationContext with all available data.
+    Missing data is represented as None/empty, not fabricated.
+    """
+    context = PersonalizationContext()
+
+    # 1. Appearance from style_profile (AI-inferred)
+    style_profile = user_state.get("style_profile")
+    if style_profile and isinstance(style_profile, dict):
+        appearance = AppearanceProfile(
+            faceShape=style_profile.get("face_shape", "") or "",
+            skinTone=style_profile.get("skin_tone", "") or "",
+            bodyType=style_profile.get("body_type", "") or "",
+            styleType=style_profile.get("style_type", "") or "",
+            sourceRunId=style_profile.get("source_run_id", "") or "",
+        )
+        context.appearance = appearance
+
+    # 2. Explicit preferences from preferences JSONB (user-stated)
+    preferences = user_state.get("preferences")
+    if preferences and isinstance(preferences, dict):
+        raw_occasions = preferences.get("preferred_occasions")
+        if raw_occasions:
+            if isinstance(raw_occasions, list):
+                context.explicit_preferences = [str(o) for o in raw_occasions]
+            else:
+                context.explicit_preferences = [str(raw_occasions)]
+
+    # 3. Saved looks from saved_looks table (user-saved)
+    try:
+        user_saved_looks = saved_looks_repo.get_for_user(user_id=user_id)
+        if user_saved_looks:
+            context.saved_looks = user_saved_looks
+    except Exception:
+        pass
+
+    return context
+
+
+def personalization_context_to_decision_context(
+    personalization: PersonalizationContext,
+    knowledge_version: str = "",
+) -> DecisionContext:
+    """Map PersonalizationContext to DecisionContext for the existing engine.
+
+    Only fields that the Decision Engine actually needs are included.
+    - appearance: passed through if available
+    - preferences: HairstylePreferences with empty sets by default
+      (mapping from preferred_occasions to preferredLookIds is NOT implemented
+       as it would be a derived preference algorithm, deferred to later stages)
+    - completeness: computed from appearance profile
+    - knowledge_version: passed through
+
+    This mapping ensures backward compatibility: when no personalization
+    data exists, the engine functions exactly as before.
+    """
+    # Build HairstylePreferences - by default empty sets
+    # Mapping from user-stated preferred_occasions to preferredLookIds
+    # is NOT implemented here (would be a derived preference algorithm)
+    preferences = HairstylePreferences()
+
+    # Compute completeness from appearance if available
+    completeness = 0.0
+    if personalization.appearance is not None:
+        completeness = _completeness(personalization.appearance)
+
+    # Build and return DecisionContext
+    return DecisionContext(
+        appearance=personalization.appearance or AppearanceProfile(
+            faceShape="",
+            skinTone="",
+            bodyType="",
+            styleType="",
+            sourceRunId="",
+        ),
+        preferences=preferences,
+        completeness=completeness,
+        knowledge_version=knowledge_version,
+    )
 
 # Deterministic per-look face-shape boosts. Scores = seed + boost, capped at 1.0.
 _BOOSTS: dict[str, dict[str, float]] = {
@@ -167,12 +282,18 @@ def filter_candidates(
 
 
 def score_candidates(
-    candidates: list[HairstyleRecommendation], context: DecisionContext
+    candidates: list[HairstyleRecommendation],
+    context: DecisionContext,
+    saved_look_ids: frozenset[str] = frozenset(),
 ) -> list[ScoredCandidate]:
     """Compose weighted scoring signals per candidate (stage 4).
 
-    score = min(1.0, seed + face_shape_boost + preference_boost). The
-    per-signal breakdown feeds the Explanation stage (truthful "why this").
+    score = min(1.0, seed + face_shape_boost + preference_boost + saved_look_boost).
+    The per-signal breakdown feeds the Explanation stage (truthful "why this").
+    - preference_boost: +0.03 if look is in preferredLookIds (explicit user preference).
+    - saved_look_boost: +0.03 if look appears in user's saved look history (derived behavior).
+      Both boosts are independent and cumulative; a look saved AND preferred gets +0.06 total.
+    If no saved look history is provided, behavior is identical to current (backward compatible).
     """
     face = _face_shape(context.appearance)
     preferred = context.preferences.preferredLookIds
@@ -181,7 +302,8 @@ def score_candidates(
     for look in candidates:
         face_boost = _BOOSTS.get(look.id, {}).get(face, 0.0)
         preference_boost = _PREFERENCE_BOOST if look.id in preferred else 0.0
-        score = min(1.0, look.matchScore + face_boost + preference_boost)
+        saved_look_boost = 0.03 if look.id in saved_look_ids else 0.0
+        score = min(1.0, look.matchScore + face_boost + preference_boost + saved_look_boost)
         scored.append(
             ScoredCandidate(
                 id=look.id,
@@ -190,6 +312,7 @@ def score_candidates(
                     "seed": look.matchScore,
                     "face_shape": face_boost,
                     "preference": preference_boost,
+                    "saved_look": saved_look_boost,
                 },
                 look=look,
             )
@@ -296,6 +419,8 @@ def recommend_hairstyle(
     knowledge: KnowledgeSource,
     appearance: AppearanceProfile,
     preferences: Optional[HairstylePreferences] = None,
+    *,
+    personalization_context: Optional[PersonalizationContext] = None,
 ) -> HairstyleResult:
     """Run the full hairstyle recommendation pipeline (thin orchestrator).
 
@@ -304,6 +429,10 @@ def recommend_hairstyle(
     matches the assistant's face-shape switch (`app/ai/tools.py:
     recommend_hairstyle`) — pompadour-first for round/square/rectangle,
     quiff-first otherwise.
+
+    If ``personalization_context`` is provided, the decision engine incorporates
+    saved look history boost and preference signals from memory. When omitted,
+    the engine functions exactly as before (backward compatible).
     """
     context = build_context(
         appearance,
@@ -313,7 +442,15 @@ def recommend_hairstyle(
 
     candidates = generate_candidates(knowledge, context)
     filtered = filter_candidates(candidates, context)
-    scored = score_candidates(filtered, context)
+
+    # Extract saved look IDs from personalization context if available
+    saved_look_ids = frozenset()
+    if personalization_context is not None and personalization_context.saved_looks:
+        saved_look_ids = frozenset(
+            look.look_id for look in personalization_context.saved_looks if look.look_id
+        )
+
+    scored = score_candidates(filtered, context, saved_look_ids=saved_look_ids)
     ranked = rank_candidates(scored)
 
     if not ranked:
@@ -388,12 +525,18 @@ def filter_grooming_candidates(
 
 
 def score_grooming_candidates(
-    candidates: list[GroomingRecommendation], context: DecisionContext
+    candidates: list[GroomingRecommendation],
+    context: DecisionContext,
+    saved_look_ids: frozenset[str] = frozenset(),
 ) -> list[ScoredCandidate]:
     """Compose weighted scoring signals per candidate (stage 4 for grooming).
 
-    score = min(1.0, seed + face_shape_boost + preference_boost). The
-    per-signal breakdown feeds the Explanation stage (truthful "why this").
+    score = min(1.0, seed + face_shape_boost + preference_boost + saved_look_boost).
+    The per-signal breakdown feeds the Explanation stage (truthful "why this").
+    - preference_boost: +0.03 if look is in preferredLookIds (explicit user preference).
+    - saved_look_boost: +0.03 if look appears in user's saved look history (derived behavior).
+      Both boosts are independent and cumulative; a look saved AND preferred gets +0.06 total.
+    If no saved look history is provided, behavior is identical to current (backward compatible).
     """
     face = _face_shape(context.appearance)
     preferred = context.preferences.preferredLookIds
@@ -402,7 +545,8 @@ def score_grooming_candidates(
     for look in candidates:
         face_boost = _GROOMING_BOOSTS.get(look.id, {}).get(face, 0.0)
         preference_boost = _PREFERENCE_BOOST if look.id in preferred else 0.0
-        score = min(1.0, look.matchScore + face_boost + preference_boost)
+        saved_look_boost = 0.03 if look.id in saved_look_ids else 0.0
+        score = min(1.0, look.matchScore + face_boost + preference_boost + saved_look_boost)
         scored.append(
             ScoredCandidate(
                 id=look.id,
@@ -411,6 +555,7 @@ def score_grooming_candidates(
                     "seed": look.matchScore,
                     "face_shape": face_boost,
                     "preference": preference_boost,
+                    "saved_look": saved_look_boost,
                 },
                 look=look,  # type: ignore[assignment]  # GroomingRecommendation is compatible
             )
@@ -506,12 +651,18 @@ def recommend_grooming(
     knowledge: KnowledgeSource,
     appearance: AppearanceProfile,
     preferences: Optional[HairstylePreferences] = None,
+    *,
+    personalization_context: Optional[PersonalizationContext] = None,
 ) -> "GroomingResult":
     """Run the full grooming recommendation pipeline (thin orchestrator).
 
     The orchestrator knows the stage order and implements no stage logic —
     each stage is a small pure function above. Rules-first: the top pick
     matches the grooming catalog's best-for face shapes.
+
+    If ``personalization_context`` is provided, the decision engine incorporates
+    saved look history boost and preference signals from memory. When omitted,
+    the engine functions exactly as before (backward compatible).
     """
     context = build_grooming_context(
         appearance,
@@ -521,7 +672,15 @@ def recommend_grooming(
 
     candidates = generate_grooming_candidates(knowledge, context)
     filtered = filter_grooming_candidates(candidates, context)
-    scored = score_grooming_candidates(filtered, context)
+
+    # Extract saved look IDs from personalization context if available
+    saved_look_ids = frozenset()
+    if personalization_context is not None and personalization_context.saved_looks:
+        saved_look_ids = frozenset(
+            look.look_id for look in personalization_context.saved_looks if look.look_id
+        )
+
+    scored = score_grooming_candidates(filtered, context, saved_look_ids=saved_look_ids)
     ranked = rank_grooming_candidates(scored)
 
     if not ranked:

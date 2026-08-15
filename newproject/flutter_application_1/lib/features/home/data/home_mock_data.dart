@@ -97,6 +97,22 @@ class TodaysLookData {
     ],
     styleScore: 87,
   );
+
+  TodaysLookData copyWith({
+    String? title,
+    String? occasion,
+    String? weather,
+    String? description,
+    List<OutfitItemData>? items,
+    int? styleScore,
+  }) => TodaysLookData(
+    title: title ?? this.title,
+    occasion: occasion ?? this.occasion,
+    weather: weather ?? this.weather,
+    description: description ?? this.description,
+    items: items ?? this.items,
+    styleScore: styleScore ?? this.styleScore,
+  );
 }
 
 /// Outfit item data.
@@ -308,6 +324,22 @@ class AIWardrobeInsightData {
     accentColor: 0xFFC5A059,
     actionLabel: 'View Recommendations',
     actionRoute: '/wardrobe/gaps',
+  );
+
+  AIWardrobeInsightData copyWith({
+    String? title,
+    String? insight,
+    String? iconName,
+    int? accentColor,
+    String? actionLabel,
+    String? actionRoute,
+  }) => AIWardrobeInsightData(
+    title: title ?? this.title,
+    insight: insight ?? this.insight,
+    iconName: iconName ?? this.iconName,
+    accentColor: accentColor ?? this.accentColor,
+    actionLabel: actionLabel ?? this.actionLabel,
+    actionRoute: actionRoute ?? this.actionRoute,
   );
 }
 

@@ -126,6 +126,7 @@ def test_scoring_uses_face_shape_boost_on_seed():
         "seed": 0.87,
         "face_shape": 0.12,
         "preference": 0.0,
+        "saved_look": 0.0,
     }
 
 
@@ -152,6 +153,12 @@ def test_scoring_preference_boost_is_additive():
     # side_part seed 0.82 + oval boost 0.05 + preference boost 0.03
     assert by_id["side_part"].score == 0.90
     assert by_id["side_part"].signals["preference"] == 0.03
+    assert by_id["side_part"].signals == {
+        "seed": 0.82,
+        "face_shape": 0.05,
+        "preference": 0.03,
+        "saved_look": 0.0,
+    }
 
 
 # --- ranking -----------------------------------------------------------------
@@ -370,6 +377,7 @@ def test_grooming_scoring_uses_face_shape_boost_on_seed():
         "seed": 0.92,
         "face_shape": 0.06,
         "preference": 0.0,
+        "saved_look": 0.0,
     }
 
 
@@ -397,6 +405,12 @@ def test_grooming_preference_boost_is_additive():
     # classic_stubble seed 0.85 + oval boost 0.05 + preference boost 0.03
     assert by_id["classic_stubble"].score == 0.93
     assert by_id["classic_stubble"].signals["preference"] == 0.03
+    assert by_id["classic_stubble"].signals == {
+        "seed": 0.85,
+        "face_shape": 0.05,
+        "preference": 0.03,
+        "saved_look": 0.0,
+    }
 
 
 def test_grooming_ranking_orders_descending_and_deterministic():

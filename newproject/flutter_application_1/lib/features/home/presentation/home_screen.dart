@@ -5,6 +5,7 @@ import 'package:fansivibe/features/home/data/home_mock_data.dart';
 import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/first_time_light_path_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
@@ -46,6 +47,9 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final learningService = LearningService.instance;
+    final userState = _userState(learningService);
+
     if (_isFirstVisit && _hasAnalysis && UserSession.hasSavedWardrobeItem) {
       return FirstTimeLightPathHomeScreen(vibeName: _vibeName);
     }
@@ -80,21 +84,9 @@ class HomeScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 8),
-                        GreetingHeader(
-                          data: GreetingData(
-                            greeting: _isFirstVisit
-                                ? 'Welcome'
-                                : 'Good morning',
-                            name: _displayName ?? 'Alex',
-                            dateLabel: _formatDate(),
-                          ),
-                        ),
+                        _buildGreetingHeader(theme, _displayName),
                         const SizedBox(height: 28),
-                        TodaysLookCard(
-                          data: TodaysLookData.mock,
-                          onTryThisLook: () => _handleTryThisLook(context),
-                          onChangeStyle: () => _handleChangeStyle(context),
-                        ),
+                        _buildTodaysLookCard(context, learningService),
                         const SizedBox(height: 24),
                         StyleScoreCard(data: StyleScoreData.mock),
                         const SizedBox(height: 24),
@@ -103,15 +95,11 @@ class HomeScreen extends StatelessWidget {
                           subtitle: 'AI-powered style tools',
                         ),
                         const SizedBox(height: 16),
-                        _buildQuickActions(context),
+                        _buildQuickActions(context, learningService),
                         const SizedBox(height: 24),
                         StyleStreakCard(data: StyleStreakData.mock),
                         const SizedBox(height: 24),
-                        AIInsightCard(
-                          data: AIWardrobeInsightData.mock,
-                          onActionPressed: () =>
-                              _handleViewRecommendations(context),
-                        ),
+                        _buildAIInsight(context, learningService),
                         const SizedBox(height: 32),
                       ],
                     ),
@@ -125,18 +113,29 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildQuickActions(BuildContext context) {
-    final actions = QuickActionData.mockActions;
-    return Column(
-      children: actions.map((action) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: QuickActionCard(
-            data: action,
-            onTap: () => _handleQuickAction(context, action),
-          ),
-        );
-      }).toList(),
+  UserState _userState(LearningService learningService) {
+    final face = learningService.face;
+    final preferredOccasions = learningService.preferredOccasions;
+    final savedLooks = learningService.savedLooks;
+    return UserState(
+      hasAnalysis: face != null,
+      hasPreferences: preferredOccasions.isNotEmpty,
+      hasSavedLooks: savedLooks.isNotEmpty,
+      face: face,
+      styleType: learningService.styleType,
+      savedLooksCount: savedLooks.length,
+      preferredOccasions: preferredOccasions,
+    );
+  }
+
+  Widget _buildGreetingHeader(ThemeData theme, String? displayName) {
+    final name = displayName ?? 'Alex';
+    return GreetingHeader(
+      data: GreetingData(
+        greeting: 'Good morning',
+        name: name,
+        dateLabel: _formatDate(),
+      ),
     );
   }
 
@@ -168,12 +167,176 @@ class HomeScreen extends StatelessWidget {
     return '${weekdays[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
   }
 
-  void _handleTryThisLook(BuildContext context) {
-    context.pushNamed(RouteNames.dailyOutfit);
+  Widget _buildTodaysLookCard(BuildContext context, LearningService learningService) {
+    final hasWardrobe = learningService.wardrobe.isNotEmpty;
+
+    if (!hasWardrobe) {
+      // Show honest state when no wardrobe data
+      return TodaysLookCard(
+        data: TodaysLookData.mock,
+        onTryThisLook: () => context.pushNamed(RouteNames.dailyOutfit),
+        onChangeStyle: () => context.pushNamed(RouteNames.buildOutfit),
+      );
+    }
+
+    // Build personalized today's look based on actual wardrobe
+    final outerwear = learningService.wardrobe
+        .where((item) => item.category == 'outerwear')
+        .map((e) => e.name)
+        .toList();
+    final tops = learningService.wardrobe
+        .where((item) => item.category == 'tops')
+        .map((e) => e.name)
+        .toList();
+
+    final title = outerwear.isNotEmpty ? 'Your Look' : 'Building Your Look';
+    final occasion = _determineOccasion(learningService);
+    final description = _buildDescription(outerwear, tops);
+
+    return TodaysLookCard(
+      data: TodaysLookData.mock.copyWith(
+        title: title,
+        occasion: occasion,
+        description: description,
+        items: _buildOutfitItems(outerwear, tops),
+      ),
+      onTryThisLook: () => context.pushNamed(RouteNames.dailyOutfit),
+      onChangeStyle: () => context.pushNamed(RouteNames.buildOutfit),
+    );
   }
 
-  void _handleChangeStyle(BuildContext context) {
-    context.pushNamed(RouteNames.buildOutfit);
+  String _determineOccasion(LearningService learningService) {
+    final occasions = learningService.preferredOccasions;
+    if (occasions.isNotEmpty) {
+      return occasions.join(' • ');
+    }
+    return 'Everyday';
+  }
+
+  String _buildDescription(List<String> outerwear, List<String> tops) {
+    if (outerwear.isNotEmpty && tops.isNotEmpty) {
+      return 'Great start with ${outerwear.first} and ${tops.first}. '
+          'Consider adding bottoms and accessories for complete looks.';
+    }
+    if (outerwear.isNotEmpty) {
+      return 'You have ${outerwear.first}. '
+          'Add tops and other categories to build complete outfits.';
+    }
+    return 'Start building your wardrobe by adding key pieces.';
+  }
+
+  List<OutfitItemData> _buildOutfitItems(List<String> outerwear, List<String> tops) {
+    final items = <OutfitItemData>[];
+
+    if (outerwear.isNotEmpty) {
+      items.add(OutfitItemData(
+        id: '1',
+        name: outerwear.first,
+        category: 'outerwear',
+        color: 'Charcoal',
+      ));
+    }
+    if (tops.isNotEmpty) {
+      items.add(OutfitItemData(
+        id: '2',
+        name: tops.first,
+        category: 'tops',
+        color: 'Off-White',
+      ));
+    }
+
+    // Add default items if wardrobe is sparse
+    if (items.isEmpty) {
+      items.addAll(_defaultOutfitItems());
+    }
+
+    return items;
+  }
+
+  List<OutfitItemData> _defaultOutfitItems() {
+    return const [
+      OutfitItemData(
+        id: '1',
+        name: 'Charcoal Unstructured Blazer',
+        category: 'outerwear',
+        color: 'Charcoal',
+      ),
+      OutfitItemData(
+        id: '2',
+        name: 'Merino Wool Crewneck',
+        category: 'tops',
+        color: 'Off-White',
+      ),
+      OutfitItemData(
+        id: '3',
+        name: 'Tapered Wool Trousers',
+        category: 'bottoms',
+        color: 'Charcoal',
+      ),
+      OutfitItemData(
+        id: '4',
+        name: 'Leather Chelsea Boots',
+        category: 'footwear',
+        color: 'Black',
+      ),
+      OutfitItemData(
+        id: '5',
+        name: 'Minimalist Leather Belt',
+        category: 'accessories',
+        color: 'Black',
+      ),
+    ];
+  }
+
+  Widget _buildQuickActions(BuildContext context, LearningService learningService) {
+    final hasData = learningService.wardrobe.isNotEmpty ||
+        learningService.savedLooks.isNotEmpty;
+
+    if (!hasData) {
+      return const SizedBox.shrink();
+    }
+
+    final actions = QuickActionData.mockActions;
+    return Column(
+      children: actions.map((action) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: QuickActionCard(
+            data: action,
+            onTap: () => _handleQuickAction(context, action),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildAIInsight(BuildContext context, LearningService learningService) {
+    final hasWardrobe = learningService.wardrobe.isNotEmpty;
+
+    if (!hasWardrobe) {
+      return const SizedBox.shrink();
+    }
+
+    final outerwearCount =
+        learningService.wardrobe.where((item) => item.category == 'outerwear')
+            .length;
+    final topsCount =
+        learningService.wardrobe.where((item) => item.category == 'tops').length;
+
+    final insightTitle = 'Wardrobe Insight';
+    final insightBody =
+        'You have $outerwearCount outerwear pieces and $topsCount tops. '
+        'Adding more variety would unlock additional outfit combinations.';
+    final actionLabel = 'View Recommendations';
+
+    return AIInsightCard(
+      data: AIWardrobeInsightData.mock.copyWith(
+        title: insightTitle,
+        insight: insightBody,
+        actionLabel: actionLabel,
+      ),
+      onActionPressed: () => _handleViewRecommendations(context),
+    );
   }
 
   void _handleQuickAction(BuildContext context, QuickActionData action) {
@@ -211,4 +374,24 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class UserState {
+  final bool hasAnalysis;
+  final bool hasPreferences;
+  final bool hasSavedLooks;
+  final dynamic face;
+  final String? styleType;
+  final int savedLooksCount;
+  final List<String> preferredOccasions;
+
+  UserState({
+    required this.hasAnalysis,
+    required this.hasPreferences,
+    required this.hasSavedLooks,
+    required this.face,
+    required this.styleType,
+    required this.savedLooksCount,
+    required this.preferredOccasions,
+  });
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -12,21 +13,55 @@ class PreferencesScreen extends StatefulWidget {
 }
 
 class _PreferencesScreenState extends State<PreferencesScreen> {
-  late List<PreferenceOption> _preferences;
+  late LearningService _learningService;
+  List<PreferenceOption> _preferences = [];
+  String? _lastSavedOccasion;
 
   @override
   void initState() {
     super.initState();
-    _preferences = ProfileMockData.stylePreferences
-        .map(
-          (p) => PreferenceOption(
-            label: p.label,
-            value: p.value,
-            options: p.options,
-            selectedIndex: p.selectedIndex,
-          ),
-        )
-        .toList();
+    _learningService = LearningService.instance;
+    _learningService.load().then((_) {
+      setState(() {
+        _preferences = _buildPreferences();
+      });
+    });
+  }
+
+  List<PreferenceOption> _buildPreferences() {
+    final currentOccasions = _learningService.preferredOccasions;
+    final allOccasions = <String>['Casual', 'Smart Casual', 'Business', 'Formal', 'Streetwear'];
+
+    // Build occasion focus preference showing current selection
+    final occasionOptions = <PreferenceOption>[];
+    for (var option in ProfileMockData.stylePreferences
+        .where((p) => p.label == 'Occasion Focus')
+        .toList()) {
+      final isSelected = currentOccasions.contains(option.value);
+      occasionOptions.add(
+        PreferenceOption(
+          label: option.label,
+          value: option.value,
+          options: option.options,
+          selectedIndex:
+              isSelected ? allOccasions.indexOf(option.value) : 0,
+        ),
+      );
+    }
+    return [occasionOptions.isNotEmpty ? occasionOptions.first : const PreferenceOption(
+      label: 'Occasion Focus',
+      value: 'Smart Casual',
+      options: ['Casual', 'Smart Casual', 'Business', 'Formal', 'Streetwear'],
+      selectedIndex: 1,
+    )];
+  }
+
+  void _onOptionSelected(String value) {
+    // Call learning service to persist the preference
+    _learningService.addPreferredOccasion(value);
+    setState(() {
+      _lastSavedOccasion = value;
+    });
   }
 
   @override
@@ -79,35 +114,29 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                         const SizedBox(height: 24),
                         FansivibeCard(
                           child: Column(
-                            children: List.generate(_preferences.length, (i) {
-                              final pref = _preferences[i];
-                              return Column(
-                                children: [
-                                  _PreferenceTile(
-                                    preference: pref,
-                                    onChanged: (index) {
-                                      setState(() {
-                                        _preferences[i] = PreferenceOption(
-                                          label: pref.label,
-                                          value: pref.options[index],
-                                          options: pref.options,
-                                          selectedIndex: index,
-                                        );
-                                      });
-                                    },
-                                  ),
-                                  if (i < _preferences.length - 1)
-                                    Divider(
-                                      height: 1,
-                                      color: FansivibeColors.accentGold
-                                          .withValues(alpha: 0.1),
-                                      indent: 0,
-                                    ),
-                                ],
-                              );
-                            }),
+                            children: _preferences
+                                .whereType<PreferenceOption>()
+                                .expand((pref) => [
+                              _PreferenceTile(
+                                preference: pref,
+                                onOptionSelected: _onOptionSelected,
+                              ),
+                            ])
+                                .toList(),
                           ),
                         ),
+                        const SizedBox(height: 32),
+                        if (_lastSavedOccasion != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8.0),
+                            child: Text(
+                              'Saved: $_lastSavedOccasion',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: FansivibeColors.successContainer,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
                         const SizedBox(height: 32),
                       ],
                     ),
@@ -123,10 +152,13 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
 }
 
 class _PreferenceTile extends StatelessWidget {
-  const _PreferenceTile({required this.preference, required this.onChanged});
+  const _PreferenceTile({
+    required this.preference,
+    required this.onOptionSelected,
+  });
 
   final PreferenceOption preference;
-  final ValueChanged<int> onChanged;
+  final void Function(String) onOptionSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -153,7 +185,7 @@ class _PreferenceTile extends StatelessWidget {
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: GestureDetector(
-                    onTap: () => onChanged(i),
+                    onTap: () => onOptionSelected(preference.options[i]),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
