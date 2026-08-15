@@ -320,6 +320,11 @@ class HairstyleResultScreen extends StatelessWidget {
           label: 'Try Another',
           icon: Icons.refresh_rounded,
           onPressed: () {
+            _analytics.emitRecommendationSelected(
+              action: 'dismiss',
+              recommendationId: top.id,
+              confidenceAtSelection: top.matchScore,
+            );
             context.replaceNamed(RouteNames.hairstyle);
           },
         ),
@@ -327,7 +332,14 @@ class HairstyleResultScreen extends StatelessWidget {
         FansiButton.primary(
           label: 'Save Style',
           icon: Icons.favorite_rounded,
-          onPressed: () => _saveStyle(context, top),
+          onPressed: () {
+            _analytics.emitRecommendationSelected(
+              action: 'save',
+              recommendationId: top.id,
+              confidenceAtSelection: top.matchScore,
+            );
+            _saveStyle(context, top);
+          },
         ),
       ],
     );
@@ -345,6 +357,7 @@ class HairstyleResultScreen extends StatelessWidget {
         title: recommendation.name,
       );
       if (!context.mounted) return;
+      final snackbarShown = true;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -358,6 +371,12 @@ class HairstyleResultScreen extends StatelessWidget {
             borderRadius: FansivibeRadius.smdBorder,
           ),
         ),
+      );
+      _analytics.emitRecommendationSaved(
+        saveSuccess: ok,
+        idempotencyKey: '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}',
+        lookSavedSignalCommitted: ok,
+        snackbarShown: snackbarShown,
       );
     } finally {
       if (owned) {

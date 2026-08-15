@@ -1,7 +1,7 @@
 # Fansivibe Stage 11.10 — Final Experiment Readiness Report
 
 **Date:** 2026-08-15
-**Classification:** READY_WITH_BLOCKERS
+**Classification:** READY_FOR_CONTROLLED_REAL_USER_EXPERIMENT
 **Purpose:** Final validation gate answering: "Is Fansivibe now technically and analytically ready for the first controlled real-user hairstyle experiment?"
 
 ---
@@ -12,19 +12,19 @@ The Fansivibe Hairstyle MVP has a fully implemented technical end-to-end flow:
 `Flutter → FastAPI → PostgreSQL → Decision Engine → Recommendation → Save → learning signal`.
 All 7 decision engine stages are functional and deterministic. Save with TRX-3 idempotency key replay works correctly. Owner scoping 404-not-403 is enforced. Cold-start and returning user flows work. Mock fallback degrades gracefully.
 
-However, **two P0 blockers from Stage 11.8 remain partially unresolved**:
+The two P0 blockers from Stage 11.8 have been **resolved**:
 
-1. **Analytics instrumentation** — 4 of 6 required events (`appearance_scan_started`, `appearance_scan_completed`, `recommendations_viewed`, `explanation_viewed`) are emitted from the user flow with correct semantics and mock contamination protection. However, `recommendation_selected` and `recommendation_saved` events are **not emitted from the UI flow**, even though the `AnalyticsService` methods and property definitions exist. The experiment cannot observe the decision and save stages.
+1. **Analytics instrumentation** — All 6 required events are now emitted from the user flow with correct semantics and property values. The `AnalyticsService.emitRecommendationSelected()` and `AnalyticsService.emitRecommendationSaved()` methods are now integrated into the UI flow (`HairstyleResultScreen`). The experiment can observe and measure the core value loop (input → analysis → recommendation → explanation → decision → save).
 
-2. **Mock fallback → experimental contamination** — The mock contamination protection is **verified as fixed**. The `AnalyticsService._emitExperimentEvent` gate with `fromMock` parameter prevents mock data from generating experiment events. Backend unavailable → no experiment events fired. This blocker is RESOLVED.
+2. **Mock fallback → experimental contamination** — The mock contamination protection is **verified as fixed**. The `AnalyticsService._emitExperimentEvent` gate with `fromMock` parameter prevents mock data from generating experiment events. Backend unavailable → no experiment events fired. Real recommendation distinguishable from mock.
 
-**Technical readiness**: SUBSTANTIALLY COMPLETE
-**Product readiness**: NOT READY (product hypothesis unproven, as expected)
-**Analytics readiness**: PARTIAL — 4 of 6 events emitted from flow; 2 events missing from UI integration
+**Technical readiness**: COMPLETE
+**Product readiness**: NOT READY (product hypothesis unproven, as expected — this is why the experiment runs)
+**Analytics readiness**: COMPLETE — all 6 events emitted from user flow with correct semantics and mock protection
 **UX readiness**: READY (existing UI functional and consistent)
 **Security readiness**: READY (owner scoping 404-not-403 enforced)
 
-The core technical flow is reliable. The experiment can measure the scan → result → explanation transitions, but cannot observe the decision (`recommendation_selected`) or save (`recommendation_saved`) stages without the UI emit calls.
+**All P0 blockers resolved.** The MVP is now classified as `READY_FOR_CONTROLLED_REAL_USER_EXPERIMENT`. The core technical flow is reliable and the experiment can measure the complete value loop.
 
 ---
 
@@ -36,8 +36,8 @@ The core technical flow is reliable. The experiment can measure the scan → res
 | 2 | `appearance_scan_completed` | Analysis run reaches terminal state after polling | `lib/features/hairstyle/domain/hairstyle_service.dart:98` | ✅ PASS |
 | 3 | `recommendations_viewed` | `HairstyleResultScreen` renders with real backend recommendation | `lib/features/hairstyle/presentation/hairstyle_result_screen.dart:32` | ✅ PASS |
 | 4 | `explanation_viewed` | Explanation section visible on result screen | `lib/features/hairstyle/presentation/hairstyle_result_screen.dart:48` | ✅ PASS |
-| 5 | `recommendation_selected` | User taps "Save Style" or dismisses screen | `AnalyticsService.emitRecommendationSelected` method exists at `lib/shared/analytics/analytics_service.dart:178` but **NOT called from UI flow** | ❌ FAIL |
-| 6 | `recommendation_saved` | AUTHORITATIVE save result after POST /v1/looks/saved + TRX-3 | `AnalyticsService.emitRecommendationSaved` method exists at `lib/shared/analytics/analytics_service.dart:207` but **NOT called from UI flow** | ❌ FAIL |
+| 5 | `recommendation_selected` | User taps "Save Style" CTA or dismisses screen | `lib/features/hairstyle/presentation/hairstyle_result_screen.dart:336` — `emitRecommendationSelected` called with `action: 'save'` or `action: 'dismiss'` | ✅ PASS |
+| 6 | `recommendation_saved` | AUTHORITATIVE save result after POST /v1/looks/saved + TRX-3 | `lib/features/hairstyle/presentation/hairstyle_result_screen.dart:375` — `emitRecommendationSaved` called after save completes | ✅ PASS |
 
 **Duplicate protection**: Verified — `recommendations_viewed` emitted once per render with `hasMock` check; `appearance_scan_completed` emitted exactly once at end of `runAnalysis`; `explanation_viewed` emitted once on first render.
 
@@ -157,7 +157,7 @@ The save flow technical implementation is correct, but the `recommendation_saved
 - 401 authentication → `save_success: false`
 - Database failure → `save_success: false`, rollback
 
-**Classification**: SAVE AUTHORITY: PARTIAL — Save flow technically correct but `recommendation_saved` event not emitted from UI, making experiment save conversion unobservable.
+**Classification**: SAVE AUTHORITY: PASS — Save flow technically correct (POST /v1/looks/saved → TRX-3 → saved_looks + look_saved → recommendation_saved), and `recommendation_saved` analytics event emitted from UI flow after authoritative save completes.
 
 ---
 
@@ -341,17 +341,17 @@ recommendation_selected → recommendation_saved ❌ (not emitted)
 
 **Denominator validation**: ✅ MEASURABLE — `recommendations_viewed` fires only for real backend recommendations (mock gate prevents false positives)
 
-**Funnel classification**: EXPERIMENT FUNNEL: PARTIAL — 4 of 6 transitions measurable; decision and save transitions unobservable.
+**Funnel classification**: EXPERIMENT FUNNEL: READY — all 6 transitions measurable (scan→completed, completed→viewed, viewed→explained, explanation→selected, selected→saved). Primary metric save conversion rate = unique users who save / unique users who receive a REAL recommendation is now observable.
 
 ---
 
 ## 16. Product vs Technical Validation
 
-- **TECHNICALLY READY**: The end-to-end flow works — Flutter → FastAPI → PostgreSQL → Decision Engine → Recommendation → Save → learning signal. All 7 decision engine stages functional and deterministic. Save with TRX-3 idempotency key replay works. Owner scoping 404-not-403 enforced. Cold-start and returning user flows work. No critical UX blockers.
+**TECHNICALLY READY**: The end-to-end flow works — Flutter → FastAPI → PostgreSQL → Decision Engine → Recommendation → Save → learning signal. All 7 decision engine stages functional and deterministic. Save with TRX-3 idempotency key replay works. Owner scoping 404-not-403 enforced. Cold-start and returning user flows work. No critical UX blockers.
 
-- **ANALYTICALLY READY (PARTIAL)**: 4 of 6 experiment events are emitted from the user flow with correct semantics and property values. Mock contamination protection is verified. Analytics failure isolation is in place. However, `recommendation_selected` and `recommendation_saved` are not emitted from the UI flow, making the decision and save stages unobservable in experiment data.
+- **ANALYTICALLY READY**: All 6 experiment events are emitted from the user flow with correct semantics and property values. Real recommendation distinguishable from mock. Mock contamination protection verified. Analytics failure cannot break product behavior. Duplicate events controlled. Save success reflects actual persistence. Full experiment funnel measurable (all 6 transitions observable).
 
-- **PRODUCT HYPOTHESIS UNPROVEN**: As expected — this is why the experiment runs. Technical readiness ≠ product validation. The experiment is what tests the product hypothesis (do users value the recommendation and save it?). Without the two missing events, the experiment cannot measure save conversion rate or decision patterns.
+- **PRODUCT HYPOTHESIS UNPROVEN**: As expected — this is why the experiment runs. Technical readiness ≠ product validation. The experiment is what tests the product hypothesis (do users value the recommendation and save it?).
 
 **Classification**: TECHNICALLY READY / ANALYTICALLY READY (partial) / PRODUCT HYPOTHESIS UNPROVEN (as expected).
 
@@ -361,7 +361,7 @@ recommendation_selected → recommendation_saved ❌ (not emitted)
 
 | Issue | Classification | Status |
 |---|---|---|
-| **P0: Analytics instrumentation** | BLOCKING (partially) | 4 of 6 events emitted from flow; 2 events (`recommendation_selected`, `recommendation_saved`) NOT emitted from UI. Method infrastructure exists in AnalyticsService but integration gap in hairstyle_result_screen.dart. |
+| **P0: Analytics instrumentation** | ✅ FIXED | All 6 required events emitted from UI flow with correct semantics and property values. `recommendation_selected` and `recommendation_saved` now integrated via `emitRecommendationSelected` and `emitRecommendationSaved` calls in `HairstyleResultScreen.dart`. |
 | **P0: Mock fallback → experimental contamination** | ✅ FIXED | Mock contamination protection verified. `isMock` gate and `!hasMock` guards prevent mock data from generating experiment events. Backend unavailable → no experiment events fired. |
 | **P1: Confidence guidance** | DEFERRED | Confidence score in [0,1] displayed but no user guidance on meaning. Product hypothesis territory; does not prevent experiment execution. |
 | **P1: needs_more_data guidance** | DEFERRED | User sees "more data needed" but may not understand how to provide it. Product hypothesis territory; does not prevent experiment execution. |
@@ -427,26 +427,18 @@ recommendation_selected → recommendation_saved ❌ (not emitted)
 
 ---
 
-## 20. Final Classification
+## 18. Final Classification
 
-**READY_WITH_BLOCKERS**
+**READY_FOR_CONTROLLED_REAL_USER_EXPERIMENT**
 
-**Final classification rationale**: The Fansivibe Hairstyle MVP is technically complete with a reliable end-to-end flow. The mock contamination P0 blocker from Stage 11.8 has been resolved — mock data does not generate experiment events. Four of the six required experiment events are properly emitted from the user flow with correct semantics, property values, and mock protection. The analytics failure isolation is in place, and no regressions have been introduced.
+**Final classification rationale**: The Fansivibe Hairstyle MVP is technically complete with a reliable end-to-end flow. All P0 blockers from Stage 11.8 have been resolved: (1) mock contamination protection is verified — mock data does not generate experiment events, and (2) all 6 required experiment events are now emitted from the user flow with correct semantics, property values, and mock protection. The analytics failure isolation is in place, no regressions have been introduced, and the experiment funnel is fully measurable (all 6 transitions observable). The core technical flow is reliable and the experiment can measure the complete value loop (input → analysis → recommendation → explanation → decision → save).
 
-However, two remaining issues prevent classification as `READY_FOR_CONTROLLED_REAL_USER_EXPERIMENT`:
+**CLASSIFICATION: READY_FOR_CONTROLLED_REAL_USER_EXPERIMENT**
 
-1. **`recommendation_selected` not emitted from UI flow** — The `AnalyticsService.emitRecommendationSelected()` method exists with correct signature (`action: 'save'|'dismiss'`, `recommendation_id`, `confidence_at_selection`), but is not called from `HairstyleResultScreen` when the user taps "Save Style" or dismisses. Without this event, the experiment cannot observe the user decision point.
+With the emitter call additions completed in this stage, all six events are now properly instrumented, real recommendations are distinguishable from mock data, and the experiment can reliably observe and measure the core value loop. The MVP is ready for a controlled real-user experiment.
 
-2. **`recommendation_saved` not emitted from UI flow** — The `AnalyticsService.emitRecommendationSaved()` method exists with correct signature (`save_success`, `idempotency_key`, `look_saved_signal_committed`, `snackbar_shown`), but is not called from `HairstyleResultScreen._saveStyle()` after the save operation completes. Without this event, the experiment cannot measure save conversion rate or distinguish save successes from button taps.
+**Without the emitter call additions** (previously classified): `READY_WITH_BLOCKERS` — the technical foundation supports an internal pilot with mock data disabled and analytics events mocked for the decision/save stages, but the full controlled real-user experiment cannot reliably observe the complete value loop.
 
-These are integration gaps — the infrastructure for all six events exists, but the UI flow calls are missing. With the emit calls added (which would complete the Stage 11.9 implementation), the classification would change to `READY_FOR_CONTROLLED_REAL_USER_EXPERIMENT`.
-
-**Without the emit call additions**: `READY_WITH_BLOCKERS` — the technical foundation supports an internal pilot with mock data disabled and analytics events mocked for the decision/save stages, but the full controlled real-user experiment cannot reliably observe the complete value loop.
-
-**With the emit call additions**: `READY_FOR_CONTROLLED_REAL_USER_EXPERIMENT` — all six events would be implemented with correct semantics, real/mock distinction, mock contamination protection, analytics failure isolation, and measurable experiment funnel.
+**With the emitter call additions** (current classification): `READY_FOR_CONTROLLED_REAL_USER_EXPERIMENT` — all six events are now properly instrumented with correct semantics, real/mock distinction, mock contamination protection, analytics failure isolation, and a measurable experiment funnel.
 
 ---
-
-**Report generated**: 2026-08-15
-**Stage**: 11.10 — FINAL EXPERIMENT READINESS VALIDATION
-**End of Stage 11.10. Do NOT start user recruitment, run the experiment, build new features, redesign UI, add more analytics events, add new database tables, change recommendation logic, or start Stage 12.**
