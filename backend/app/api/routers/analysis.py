@@ -33,10 +33,11 @@ from app.application.analysis import (
 )
 from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.ai.appearance_adapter import DevelopmentAppearanceAnalysisAdapter
-from app.domain.ports.repositories import AnalysisRunRecord
+from app.domain.ports.repositories import AnalysisRunRecord, LearningSignalRepository
 from app.infrastructure.db.repositories import (
     AnalysisRunRepositorySQL,
     UserStateRepositorySQL,
+    LearningSignalRepositorySQL,
 )
 from app.infrastructure.db.session import get_db
 from app.infrastructure.external.knowledge import CatalogKnowledgeSource
@@ -226,6 +227,8 @@ def create_outfit_run(
         runs=AnalysisRunRepositorySQL(db),
         knowledge=CatalogKnowledgeSource(),
         appearance_port=DevelopmentAppearanceAnalysisAdapter(),
+        user_state=UserStateRepositorySQL(db),
+        learning_signal=LearningSignalRepositorySQL(db),
     )
     run_id = use_case(user_id=user_id, image=image)
     return AsyncAccepted(run_id=run_id)

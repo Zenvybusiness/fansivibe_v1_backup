@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.domain.ports.repositories import (
@@ -130,6 +130,37 @@ class UserStateRepositorySQL:
             select(UserState.style_profile).where(UserState.user_id == user_id)
         ).scalar_one_or_none()
         return row or None
+
+    def update_style_profile(
+        self,
+        *,
+        user_id: UUID,
+        face_shape: str,
+        skin_tone: str,
+        body_type: str,
+        style_type: str,
+        source_run_id: str,
+    ) -> None:
+        """Update user_state.style_profile with image-derived appearance attributes (TRX-6).
+
+        Only the approved appearance fields are updated; other profile data is preserved.
+        This is the profile projection update step that makes the appearance data reusable
+        for future hairstyle/grooming runs without needing re-capture.
+        """
+        self._session.execute(
+            update(UserState)
+            .where(UserState.user_id == user_id)
+            .values(
+                style_profile={
+                    "face_shape": face_shape,
+                    "skin_tone": skin_tone,
+                    "body_type": body_type,
+                    "style_type": style_type,
+                    "source_run_id": source_run_id,
+                }
+            )
+        )
+        self._session.commit()
 
     def get_profile(self, *, user_id: UUID) -> Optional[UserProfileRecord]:
         row = self._session.execute(

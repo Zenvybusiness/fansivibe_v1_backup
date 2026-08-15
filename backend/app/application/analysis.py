@@ -20,6 +20,7 @@ from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.domain.ports.external import KnowledgeSource
 from app.domain.ports.repositories import (
     AnalysisRunRepository,
+    LearningSignalRepository,
     UserStateRepository,
 )
 from app.domain.services.analysis_rules import build_context, recommend_hairstyle
@@ -120,6 +121,11 @@ class CreateOutfitRun:
     `DevelopmentAppearanceAnalysisAdapter` for development/testing). Production
     deployment should provide a production-model adapter implementing
     `AppearanceAnalysisPort`.
+
+    After run completion, TRX-6 updates `user_state.style_profile` with the
+    image-derived appearance attributes, making the profile reusable context
+    for future hairstyle/grooming runs. A learning signal `analysis_updated`
+    is also emitted.
     """
 
     def __init__(
@@ -128,10 +134,14 @@ class CreateOutfitRun:
         runs: AnalysisRunRepository,
         knowledge: KnowledgeSource,
         appearance_port: Optional[AppearanceAnalysisPort] = None,
+        user_state: Optional[UserStateRepository] = None,
+        learning_signal: Optional[LearningSignalRepository] = None,
     ) -> None:
         self._runs = runs
         self._knowledge = knowledge
         self._appearance_port = appearance_port or DevelopmentAppearanceAnalysisAdapter()
+        self._user_state = user_state
+        self._learning_signal = learning_signal
 
     def __call__(self, *, user_id: UUID, image: any) -> UUID:
         # Validate image content-type
@@ -221,6 +231,28 @@ class CreateOutfitRun:
                 code="DATABASE_FAILURE",
                 message="Something went wrong while saving your data. Please try again.",
             )
+
+        # Step 5: TRX-6 — Update user_state.style_profile with image-derived attributes
+        # This makes the appearance profile reusable context for future runs
+        # (hairstyle, grooming) without needing re-capture.
+        if self._user_state is not None:
+            self._user_state.update_style_profile(
+                user_id=user_id,
+                face_shape=appearance_profile.faceShape,
+                skin_tone=appearance_profile.skinTone,
+                body_type=appearance_profile.bodyType,
+                style_type=appearance_profile.styleType,
+                source_run_id=str(run_id),
+            )
+
+        # Step 6: Emit learning signal that the profile was updated from an analysis run
+        if self._learning_signal is not None:
+            self._learning_signal.insert_look_saved(
+                user_id=user_id,
+                label="analysis_updated",
+                context={"run_id": str(run_id), "run_type": "outfit"},
+            )
+
         return run_id
 
 
