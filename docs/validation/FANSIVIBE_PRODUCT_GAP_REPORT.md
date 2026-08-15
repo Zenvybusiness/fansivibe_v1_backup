@@ -1,0 +1,15 @@
+# Fansivibe Product Gap Report
+
+## Section 17 — Product Gap
+
+| Gap | Experiment Requirement vs. Current App Capability | Action |
+|---|---|---|
+| **Analytics event instrumentation** | Experiment requires 6 events (`appearance_scan_started`, `appearance_scan_completed`, `recommendations_viewed`, `explanation_viewed`, `recommendation_selected`, `recommendation_saved`) to be logged from Flutter client and backend. **Current app**: None of these events are currently instrumented. The save action (`look_saved` signal) is committed at the backend TRX-3 level, but there is no client-side event tracking for the experiment. **Action**: Instrument the 6 events (not part of this audit — separate implementation). |
+| **User test execution** | Experiment is designed and ready, but has not been run with real users. **Current app**: The hairstyle flow is fully functional technically, but no user testing has occurred. **Action**: Recruit beta users and run the experiment (separate from this audit). |
+| **Explanation comprehension** | Experiment requires measuring whether users read/understand the grounded explanation. **Current app**: The explanation is generated and displayed on the result screen (grounded from catalog + score signal), but there is no data on whether users actually read or comprehend it. **Action**: Add comprehension tracking or post-session survey (separate implementation). |
+| **Confidence correlation** | Experiment requires analyzing whether confidence score correlates with save behavior. **Current app**: The confidence score is part of the `HairstyleResult` and displayed on the result screen, but no data is collected on the relationship between confidence and save/dismiss actions. **Action**: Add confidence-to-behavior analysis (separate implementation). |
+| **Pre-scan uncertainty measurement** | Experiment requires measuring whether users had hairstyle uncertainty before the scan. **Current app**: No pre-scan uncertainty data is collected; the app assumes the problem exists based on product design. **Action**: Add pre/post uncertainty survey (separate implementation). |
+| **Saved look visibility** | Experiment requires that saved appears in `SavedLooksScreen`. **Current app**: The backend TRX-3 commit and signal are implemented, and the frontend `SavedLooksScreen` exists, but whether a test user's saved look actually appears has not been verified in a live session. **Action**: Verify in a test session (part of experiment execution). |
+| **Flow drop-off tracking** | Experiment requires identifying at which step users exit the flow (scan failure, poll timeout, result screen, before save). **Current app**: The flow is instrumented at a high level (client polls, result states), but granular drop-off tracking between steps is not implemented. **Action**: Add step-level tracking (separate implementation). |
+
+**No gaps are being implemented**. This document only identifies what would be needed to run the experiment successfully, distinguishing between what currently works vs. what would need to be added.

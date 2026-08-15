@@ -5770,3 +5770,91 @@ New agents must:
 3. Inspect Git status and actual code.
 4. Discover and read task-relevant skills.
 5. Continue from repository reality.
+
+## STEP 12 — FANSIVIBE CURRENT TRUTH + MVP AUDIT — COMPLETE
+
+Task: perform STEP 12 — Fansivibe Current Truth + MVP Audit per the approved
+workflow. Cross-reference all 22 sections documenting the product truth,
+validation state, user reality, MVP boundary, and first real-user experiment
+design.
+
+### Validation State
+
+This project is classified as **PRODUCT VALIDATION** — technical implementation
+is complete and verified (384 Flutter tests pass, 85 backend tests pass, all
+15 STEP 7 scenarios and 21 STEP 8 scenarios validated), but no real-user
+product validation has been conducted. The software works correctly, but user
+value has not been established.
+
+### Documentation Created
+
+- `docs/validation/FANSIVIBE_CURRENT_TRUTH.md` — Truth ledger classifying 37+
+  claims as FACT, OBSERVATION, SUPPORTED, INTERPRETATION, HYPOTHESIS, or UNKNOWN
+  with evidence, confidence, and remaining uncertainty for each.
+- `docs/validation/FANSIVIBE_MVP_AUDIT.md` — Complete audit of every major
+  feature, screen, backend capability, AI capability, database capability, user
+  flow, recommendation flow, and design element with KEEP/POSTPONE/REMOVE
+  decisions.
+- `docs/validation/FANSIVIBE_REAL_USER_EXPERIMENT.md` — First real-user product
+  experiment design with hypothesis, target user, trigger, intervention, primary
+  metric (save conversion rate), success threshold (≥10%), failure threshold
+  (<5%), sample size rationale (200 users minimum), and test duration (2-4 weeks).
+- `docs/validation/FANSIVIBE_ANALYTICS_SPEC.md` — Minimum event
+  instrumentation (6 events) required to observe the core value loop, with
+  trigger, properties, success/failure interpretation for each.
+- `docs/validation/FANSIVIBE_PRODUCT_GAP_REPORT.md` — Documented product gaps
+  between experiment requirements and current app capability, without implementing
+  anything.
+
+### Key Audit Findings
+
+- **Technical state**: Complete — hairstyle vertical slice end-to-end (Flutter →
+  FastAPI → PostgreSQL → Decision Engine → recommendation → save → feedback
+  signal), grooming E2E validation, all 15 STEP 7 scenarios and 21 STEP 8
+  scenarios validated.
+- **Product state**: Unvalidated — no real user has tested the core value
+  mechanism. The bottleneck is product value validation, not technical.
+- **Biggest uncertainty**: Whether users understand, select, and act on
+  hairstyle recommendations in real use.
+- **Biggest bottleneck**: Product value validation — technical correctness is
+  established but user value is unproven.
+- **Core value mechanism**: Face scan → Decision engine (7-stage rules) →
+  Personalized hairstyle recommendation with explanation + confidence → User
+  decision (save/dismiss) → `look_saved` learning signal → Profile update.
+- **MVP boundary**: 10 must-exist items (face scan, engine, catalog, polling,
+  save, signal, auth seam, DB, navigation, result screen); 4 can-be-manual;
+  4 postponable (grooming, home, discover, wardrobe).
+- **Product contract**: "Given face scan input, Fansivibe produces a personalized
+  hairstyle recommendation with confidence score and grounded explanation,
+  enabling the user to make a more informed hairstyle decision, which should
+  result in the recommendation being saved to profile." Classified parts:
+  Given input → SUPPORTED; Produces recommendation → SUPPORTED; Enables user
+  decision → HYPOTHESIZED; Results in save → HYPOTHESIZED.
+- **Design system**: Intact — dark luxury visual direction, 65/35 card rule,
+  constructive product language all preserved.
+- **Architecture**: Appropriate for MVP — all layers (Flutter, API, Backend,
+  Database, Knowledge, Decision Engine, Recommendation, Feedback) KEEP.
+- **No features deleted** — audit only KEEP/POSTPONE decisions.
+
+### Remaining Limitations (carry-forwards)
+
+- 28 DB-backed tests skip cleanly (PostgreSQL unreachable, not faked); require
+  `cd backend && docker compose up postgres` to observe actual DB rows.
+- `/v1/feedback` (#35) remains gated/unmounted (M11, API-12) — the `look_saved`
+  signal is the approved feedback behavior.
+- Auth provider swap behind `deps.py` (D-AUTH-1) unchanged.
+- Grooming type system limitation between mock data and models (pre-existing,
+  doesn't affect runtime, only blocks test compilation).
+- `face_processing` with no stored face profile resolves instantly to offline
+  mock (honest: no profile → no server analysis).
+- No Docker daemon in this environment — live DB tests always skip cleanly.
+
+### Next Stage
+
+If the real-user experiment (defined in `docs/validation/FANSIVIBE_REAL_USER_EXPERIMENT.md`)
+succeeds (≥10% save conversion rate), the recommended next stage is Step 21
+productization order beginning with analytics instrumentation (Step 1), followed
+by experiment execution and decision gate evaluation. If the experiment fails
+(<5% save conversion), the bottleneck is confirmed as product value and the
+roadmap should be reconsidered.
+
