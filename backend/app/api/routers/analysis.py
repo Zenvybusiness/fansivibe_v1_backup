@@ -31,6 +31,8 @@ from app.application.analysis import (
     GetAnalysisRun,
     ListAnalysisRuns,
 )
+from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
+from app.ai.appearance_adapter import DevelopmentAppearanceAnalysisAdapter
 from app.domain.ports.repositories import AnalysisRunRecord
 from app.infrastructure.db.repositories import (
     AnalysisRunRepositorySQL,
@@ -223,6 +225,7 @@ def create_outfit_run(
     use_case = CreateOutfitRun(
         runs=AnalysisRunRepositorySQL(db),
         knowledge=CatalogKnowledgeSource(),
+        appearance_port=DevelopmentAppearanceAnalysisAdapter(),
     )
     run_id = use_case(user_id=user_id, image=image)
     return AsyncAccepted(run_id=run_id)

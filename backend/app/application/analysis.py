@@ -10,17 +10,19 @@ from __future__ import annotations
 import uuid as _uuid
 import time as _time
 
+from abc import ABC, abstractmethod
 from typing import Callable, Optional
 from uuid import UUID
 
 from app.api.errors import ApiError, validation, not_found
 from app.application.enrichment import enrich_hairstyle_result
+from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.domain.ports.external import KnowledgeSource
 from app.domain.ports.repositories import (
     AnalysisRunRepository,
     UserStateRepository,
 )
-from app.domain.services.analysis_rules import recommend_hairstyle
+from app.domain.services.analysis_rules import build_context, recommend_hairstyle
 from app.domain.services.grooming_rules import recommend_grooming
 from app.domain.value_objects import AppearanceProfile, HairstyleResult, GroomingResult
 
@@ -110,9 +112,14 @@ class CreateOutfitRun:
     """UC-44 — submit an outfit/appearance analysis (image-based pass, S-1).
 
     Validates the uploaded image, constructs a MediaRef, creates the analysis
-    run with `status=pending` and `input_media` populated, and returns the
-    run_id. The actual AI analysis pipeline is not executed here — the run
-    remains in the pending state for later completion.
+    run with `status=pending`, runs the appearance analysis adapter, feeds the
+    result into the decision engine, completes the run with a structured result,
+    and returns the run_id.
+
+    The adapter is injected via the constructor (defaults to
+    `DevelopmentAppearanceAnalysisAdapter` for development/testing). Production
+    deployment should provide a production-model adapter implementing
+    `AppearanceAnalysisPort`.
     """
 
     def __init__(
@@ -120,9 +127,11 @@ class CreateOutfitRun:
         *,
         runs: AnalysisRunRepository,
         knowledge: KnowledgeSource,
+        appearance_port: Optional[AppearanceAnalysisPort] = None,
     ) -> None:
         self._runs = runs
         self._knowledge = knowledge
+        self._appearance_port = appearance_port or DevelopmentAppearanceAnalysisAdapter()
 
     def __call__(self, *, user_id: UUID, image: any) -> UUID:
         # Validate image content-type
@@ -151,6 +160,7 @@ class CreateOutfitRun:
             "uploadedAt": _time.time.strftime(_time.gmtime(), "%Y-%m-%dT%H:%M:%SZ"),
         }
 
+        # Step 1: Create analysis run (pending)
         run_id = self._runs.create(
             user_id=user_id,
             run_type="outfit",
@@ -158,6 +168,59 @@ class CreateOutfitRun:
             input_media=media_ref,
         )
 
+        # Step 2: Run appearance analysis adapter
+        try:
+            appearance_profile = self._appearance_port.analyze(
+                media_ref=media_ref, user_id=user_id
+            )
+        except Exception:
+            # Adapter failure → honest `failed` run (PROCESSING_FAILURE,
+            # details.run_id) per §5.1/§7 — never a stuck pending run.
+            self._runs.fail(
+                run_id=run_id,
+                user_id=user_id,
+                error={
+                    "code": "PROCESSING_FAILURE",
+                    "message": "We couldn't finish this request. Please try again.",
+                    "details": {"run_id": str(run_id)},
+                },
+            )
+            return run_id
+
+        # Step 3: Feed appearance profile into decision engine
+        try:
+            context = build_context(
+                appearance=appearance_profile,
+                knowledge_version=getattr(self._knowledge, "knowledge_version", ""),
+            )
+            hairstyle_result = recommend_hairstyle(self._knowledge, appearance_profile)
+        except Exception:
+            # Pipeline failure → honest `failed` run (PROCESSING_FAILURE,
+            # details.run_id) per §5.1/§7 — never a stuck pending run.
+            self._runs.fail(
+                run_id=run_id,
+                user_id=user_id,
+                error={
+                    "code": "PROCESSING_FAILURE",
+                    "message": "We couldn't finish this request. Please try again.",
+                    "details": {"run_id": str(run_id)},
+                },
+            )
+            return run_id
+
+        # Step 4: Complete the run with the structured result
+        completed = self._runs.complete(
+            run_id=run_id,
+            user_id=user_id,
+            status="completed",
+            result=hairstyle_result.to_snapshot(),
+        )
+        if not completed:
+            raise ApiError(
+                status_code=500,
+                code="DATABASE_FAILURE",
+                message="Something went wrong while saving your data. Please try again.",
+            )
         return run_id
 
 
