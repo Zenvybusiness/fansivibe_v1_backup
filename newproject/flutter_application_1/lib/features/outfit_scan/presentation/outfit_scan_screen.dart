@@ -1,7 +1,11 @@
-import 'package:camera/camera.dart';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 import 'package:fansivibe/app/router/route_names.dart';
@@ -34,6 +38,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   _CameraUiState _uiState = _CameraUiState.initial;
   String? _errorMessage;
 
+  File? _selectedImage;
   bool get _isTestMode {
     final bindingType = WidgetsBinding.instance.runtimeType.toString();
     return bindingType.contains('TestWidgetsFlutterBinding');
@@ -178,10 +183,92 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     }
   }
 
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final pickedFile = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 1024,
+        maxHeight: 1024,
+      );
+
+      if (pickedFile == null) return;
+
+      final File imageFile = File(pickedFile.path);
+      setState(() => _selectedImage = imageFile);
+
+      // Upload to backend immediately
+      await _uploadImageAndNavigate(context, imageFile);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to pick image: $e'),
+          backgroundColor: FansivibeColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: FansivibeRadius.smdBorder,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _uploadImageAndNavigate(BuildContext context, File imageFile) async {
+    try {
+      final uri = Uri.parse('http://localhost:8000/v1/analysis/outfit');
+      final request = http.MultipartRequest('POST', uri);
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'image',
+          imageFile.path,
+        ),
+      );
+      request.headers['Authorization'] = 'Bearer dev-token';
+
+      final response = await request.send();
+      final responseBody = await http.Response.fromStream(response);
+
+      if (response.statusCode == 202) {
+        final data = jsonDecode(responseBody);
+        final runId = data['run_id'] as String;
+        context.pushNamed(RouteNames.scanProcessing, extra: runId);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Upload failed: ${response.statusCode}'),
+            backgroundColor: FansivibeColors.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: FansivibeRadius.smdBorder,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Upload error: $e'),
+          backgroundColor: FansivibeColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: FansivibeRadius.smdBorder,
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _handleCapture(BuildContext context) async {
     // In widget tests we can't access camera; keep navigation intact.
     if (_isTestMode) {
       context.pushNamed(RouteNames.scanProcessing);
+      return;
+    }
+
+    if (_selectedImage != null) {
+      // Image already picked/gallery; the upload was already done in _pickImage
+      // Just navigate processing screen will poll with the run_id
       return;
     }
 
@@ -198,7 +285,8 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
 
       final String? localPath = xFile.path.isNotEmpty ? xFile.path : null;
 
-      context.pushNamed(RouteNames.scanProcessing, extra: localPath);
+      // Upload captured image to backend
+      await _uploadImageAndNavigate(context, File(localPath!));
     } catch (e) {
       // If capture fails, still continue to existing processing flow.
       context.pushNamed(RouteNames.scanProcessing);
@@ -319,6 +407,11 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       return const CameraPreviewPlaceholder();
     }
 
+    // If we have a selected image (from gallery), show it instead of camera
+    if (_selectedImage != null) {
+      return _buildSelectedImagePreview(context);
+    }
+
     return SizedBox(
       height: 280,
       width: double.infinity,
@@ -339,7 +432,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
                 decoration: BoxDecoration(
                   color: FansivibeColors.accentGold.withValues(alpha: 0.2),
                   borderRadius: FansivibeRadius.smBorder,
-                  border: Border.all(
+                  border: Border(
                     color: FansivibeColors.accentGold.withValues(alpha: 0.4),
                   ),
                 ),
@@ -375,6 +468,64 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     );
   }
 
+  Widget _buildSelectedImagePreview(BuildContext context) {
+    return ClipRRect(
+      borderRadius: FansivibeRadius.baseBorder,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.file(
+            _selectedImage!,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+          ),
+          Positioned(
+            top: 12,
+            right: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: FansivibeColors.accentGold.withValues(alpha: 0.2),
+                borderRadius: FansivibeRadius.smBorder,
+                border: Border(
+                  color: FansivibeColors.accentGold.withValues(alpha: 0.4),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 8,
+                    height: 8,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        FansivibeColors.accentGold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'AI Analysis Active',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: FansivibeColors.accentGold,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCameraErrorCard({
     required String title,
     required String description,
@@ -387,7 +538,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       decoration: BoxDecoration(
         color: FansivibeColors.surface,
         borderRadius: FansivibeRadius.baseBorder,
-        border: Border.all(
+        border: Border(
           color: FansivibeColors.accentGold.withValues(alpha: 0.15),
         ),
       ),
@@ -438,7 +589,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       decoration: BoxDecoration(
         color: FansivibeColors.surface,
         borderRadius: FansivibeRadius.baseBorder,
-        border: Border.all(
+        border: Border(
           color: FansivibeColors.accentGold.withValues(alpha: 0.15),
         ),
       ),
@@ -497,20 +648,9 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       children: [
         Expanded(
           child: FansiButton.secondary(
-            label: 'Share',
-            icon: Icons.share_rounded,
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Gallery coming soon'),
-                  backgroundColor: FansivibeColors.accentGold,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: FansivibeRadius.smdBorder,
-                  ),
-                ),
-              );
-            },
+            label: 'Choose from Gallery',
+            icon: Icons.photo_library_rounded,
+            onPressed: () => _pickImage(ImageSource.gallery),
           ),
         ),
         const SizedBox(width: 12),

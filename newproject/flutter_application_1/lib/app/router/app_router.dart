@@ -169,35 +169,36 @@ final List<RouteBase> appRoutes = [
             name: RouteNames.stylist,
             builder: (context, state) => const StylistScreen(),
             routes: [
-              GoRoute(
-                path: 'scan-outfit',
-                name: RouteNames.scanOutfit,
-                builder: (context, state) => const OutfitScanScreen(),
-                routes: [
-                  GoRoute(
-                    path: 'processing',
-                    name: RouteNames.scanProcessing,
-                    builder: (context, state) {
-                      final localPath = state.extra as String?;
-                      return OutfitProcessingScreen(
-                        capturedImagePath: localPath,
-                      );
-                    },
+GoRoute(
+                    path: 'scan-outfit',
+                    name: RouteNames.scanOutfit,
+                    builder: (context, state) => const OutfitScanScreen(),
                     routes: [
                       GoRoute(
-                        path: 'analysis',
-                        name: RouteNames.scanAnalysis,
+                        path: 'processing',
+                        name: RouteNames.scanProcessing,
                         builder: (context, state) {
-                          final localPath = state.extra as String?;
-                          return OutfitAnalysisScreen(
-                            capturedImagePath: localPath,
+                          final runId = state.extra as String?;
+                          return OutfitProcessingScreen(
+                            runId: runId,
                           );
                         },
+                        routes: [
+                          GoRoute(
+                            path: 'analysis',
+                            name: RouteNames.scanAnalysis,
+                            builder: (context, state) {
+                              final analysisResult =
+                                  state.extra as Map<String, dynamic>?;
+                              return OutfitAnalysisScreen(
+                                analysisResult: analysisResult,
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
               GoRoute(
                 path: 'build-outfit',
                 name: RouteNames.buildOutfit,

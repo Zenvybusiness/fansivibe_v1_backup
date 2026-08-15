@@ -19,16 +19,19 @@ final GoRouter _scanRouter = GoRouter(
           path: 'processing',
           name: RouteNames.scanProcessing,
           builder: (context, state) {
-            final localPath = state.extra as String?;
-            return OutfitProcessingScreen(capturedImagePath: localPath);
+            final runId = state.extra as String?;
+            return OutfitProcessingScreen(runId: runId);
           },
           routes: [
             GoRoute(
               path: 'analysis',
               name: RouteNames.scanAnalysis,
               builder: (context, state) {
-                final localPath = state.extra as String?;
-                return OutfitAnalysisScreen(capturedImagePath: localPath);
+                final analysisResult =
+                    state.extra as Map<String, dynamic>?;
+                return OutfitAnalysisScreen(
+                  analysisResult: analysisResult,
+                );
               },
             ),
           ],
@@ -85,15 +88,20 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
 
       expect(find.text('View Analysis'), findsOneWidget);
-      expect(find.byIcon(Icons.dashboard_rounded), findsWidgets);
+      expect(find.byIcon(Icons.dashboard_rounded), findsOneWidget);
     });
 
-    testWidgets('renders Gallery and Switch Camera buttons', (
+    testWidgets('gallery picker available', (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
+
+      expect(find.text('Choose from Gallery'), findsOneWidget);
+    });
+
+    testWidgets('rescan button available', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
 
-      expect(find.text('Share'), findsOneWidget);
       expect(find.text('Rescan'), findsOneWidget);
     });
 
