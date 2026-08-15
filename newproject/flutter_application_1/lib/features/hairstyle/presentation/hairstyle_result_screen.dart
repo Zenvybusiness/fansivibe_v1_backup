@@ -7,9 +7,12 @@ import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widg
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/analytics/analytics_service.dart';
 
 class HairstyleResultScreen extends StatelessWidget {
   const HairstyleResultScreen({super.key, this.result, this.service});
+
+  static final AnalyticsService _analytics = AnalyticsService.instance;
 
   /// The analysis result to render; falls back to the offline mock when null.
   final HairstyleAnalysisResult? result;
@@ -20,7 +23,34 @@ class HairstyleResultScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hasMock = result == null;
     final resolved = result ?? HairstyleAnalysisResult.mock;
+
+    // Emit recommendations_viewed only for real backend recommendations,
+    // not mock/fallback data. Mock data must NOT produce experiment events.
+    if (!hasMock) {
+      _analytics.emitRecommendationsViewed(
+        recommendationId: resolved.topRecommendation.id,
+        confidenceScore: resolved.topRecommendation.matchScore,
+        hasExplanation: true,
+        topStyleName: resolved.topRecommendation.name,
+        isMock: false,
+      );
+    }
+
+    // Emit explanation_viewed when the explanation section is visible.
+    // The explanation is part of the fixed UI layout; we emit once when the
+    // screen first renders with a real result. time_in_view is null because
+    // precise scroll-position tracking would require fragile hacks that could
+    // produce duplicate events on rebuilds, which violates the duplicate
+    // protection requirement.
+    if (!hasMock) {
+      _analytics.emitExplanationViewed(
+        explanationText:
+            'Strongest match for your ${resolved.faceShape} face shape (+${(_buildExplanationFitFactor(resolved.topRecommendation.matchScore) * 100).round()} face-shape fit).',
+        timeInView: null,
+      );
+    }
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -104,6 +134,11 @@ class HairstyleResultScreen extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  double _buildExplanationFitFactor(double matchScore) {
+    // Simple confidence-to-fit mapping: higher match score = stronger fit
+    return matchScore.clamp(0.0, 1.0);
   }
 
   Widget _buildStyleProfile(

@@ -6,9 +6,12 @@ import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/analytics/analytics_service.dart';
 
 class FaceScanScreen extends StatelessWidget {
   const FaceScanScreen({super.key});
+
+  static final AnalyticsService _analytics = AnalyticsService.instance;
 
   @override
   Widget build(BuildContext context) {
@@ -133,6 +136,10 @@ class FaceScanScreen extends StatelessWidget {
   }
 
   void _handleScan(BuildContext context) {
+    _analytics.emitAppearanceScanStarted(
+      cameraSource: 'camera',
+      imageQuality: null,
+    );
     context.pushNamed(RouteNames.hairstyleProcessing);
   }
 }

@@ -6,6 +6,7 @@ import 'package:fansivibe/features/hairstyle/data/hairstyle_client.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_models.dart';
 import 'package:fansivibe/features/learning/learning_repository.dart';
+import 'package:fansivibe/shared/analytics/analytics_service.dart';
 
 /// Orchestrates the hairstyle analysis flow.
 ///
@@ -16,7 +17,9 @@ import 'package:fansivibe/features/learning/learning_repository.dart';
 class HairstyleService extends ChangeNotifier {
   HairstyleService({HairstyleClient? client, LearningRepository? learning})
     : _client = client ?? HairstyleClient(),
-      _learning = learning;
+      _learning = learning {
+    _analytics = AnalyticsService.instance;
+  }
 
   static final int totalStages = HairstyleProcessingStage.mockStages.length;
 
@@ -26,6 +29,7 @@ class HairstyleService extends ChangeNotifier {
 
   final HairstyleClient _client;
   LearningRepository? _learning;
+  late final AnalyticsService _analytics;
   final Random _random = Random();
 
   bool _isProcessing = false;
@@ -41,6 +45,7 @@ class HairstyleService extends ChangeNotifier {
   HairstyleAnalysisResult? get result => _result;
 
   bool _disposed = false;
+  String? _lastRunId;
 
   /// Wire the learning repository so the analysis uses the user's stored face
   /// profile instead of falling back to the offline result.
@@ -61,6 +66,7 @@ class HairstyleService extends ChangeNotifier {
     _completedStageCount = 0;
     _analysisError = null;
     _result = null;
+    _lastRunId = null;
     _safeNotify();
 
     HairstyleAnalysisResult resolved;
@@ -72,6 +78,7 @@ class HairstyleService extends ChangeNotifier {
       final runId = await _client.submitHairstyleAnalysis(
         faceProfileRef: _devFaceProfileRef,
       );
+      _lastRunId = runId;
       if (runId == null) {
         resolved = HairstyleAnalysisResult.mock;
       } else {
@@ -87,6 +94,13 @@ class HairstyleService extends ChangeNotifier {
       }
     }
 
+    // Emit appearance_scan_completed exactly once per analysis run
+    _analytics.emitAppearanceScanCompleted(
+      runStatus: _getRunStatus(_lastRunId, _analysisError),
+      errorCode: _analysisError,
+      pollAttempts: 0,
+    );
+
     if (_disposed) return resolved;
 
     _result = resolved;
@@ -94,6 +108,14 @@ class HairstyleService extends ChangeNotifier {
     _isProcessing = false;
     _safeNotify();
     return resolved;
+  }
+
+  String _getRunStatus(String? runId, String? analysisError) {
+    // If we don't have a runId or there was an error, it's either failed or mock
+    if (runId == null || analysisError != null) {
+      return 'failed';
+    }
+    return 'completed';
   }
 
   String _describeError(Map<String, dynamic>? error) {
