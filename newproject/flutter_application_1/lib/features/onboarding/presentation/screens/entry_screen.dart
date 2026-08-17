@@ -7,7 +7,6 @@ import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
-import 'package:fansivibe/shared/utils/user_session.dart';
 
 class EntryScreen extends StatefulWidget {
   const EntryScreen({super.key});
@@ -40,6 +39,10 @@ class _EntryScreenState extends State<EntryScreen>
       vsync: this,
       duration: const Duration(milliseconds: 2800),
     )..repeat(reverse: true);
+
+    _breath = Tween<double>(begin: 0.45, end: 0.85).animate(
+      CurvedAnimation(parent: _breathController, curve: Curves.easeInOut),
+    );
 
     _wordmarkAnim = _buildAnim(0.0, 0.3);
     _mirrorAnim = _buildAnim(0.15, 0.45);
@@ -80,11 +83,17 @@ class _EntryScreenState extends State<EntryScreen>
   }
 
   void _onAnalyze() {
-    context.pushNamed(RouteNames.vibeSelect, extra: {'photoPath': true, 'vibeRequired': false});
+    context.pushNamed(
+      RouteNames.vibeSelect,
+      extra: {'photoPath': true, 'vibeRequired': false},
+    );
   }
 
   void _onExplore() {
-    context.pushNamed(RouteNames.vibeSelect, extra: {'photoPath': false, 'vibeRequired': false});
+    context.pushNamed(
+      RouteNames.vibeSelect,
+      extra: {'photoPath': false, 'vibeRequired': false},
+    );
   }
 
   void _onSignIn() {
