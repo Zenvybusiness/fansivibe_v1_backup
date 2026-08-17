@@ -44,7 +44,10 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Discover screen is shown.
-    expect(find.text('Find looks tailored to your style'), findsOneWidget);
+    expect(
+      find.text('Your personalized looks, based on your style and preferences'),
+      findsOneWidget,
+    );
     expect(find.text('For You'), findsOneWidget);
     expect(find.text('Trending'), findsAtLeast(1));
 
@@ -277,7 +280,10 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Discover screen is still showing (state preserved via IndexedStack).
-    expect(find.text('Find looks tailored to your style'), findsOneWidget);
+    expect(
+      find.text('Your personalized looks, based on your style and preferences'),
+      findsOneWidget,
+    );
     expect(find.text('For You'), findsOneWidget);
     expect(find.text('Trending'), findsAtLeast(1));
   });

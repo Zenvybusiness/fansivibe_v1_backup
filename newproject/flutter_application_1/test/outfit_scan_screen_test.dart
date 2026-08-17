@@ -27,11 +27,8 @@ final GoRouter _scanRouter = GoRouter(
               path: 'analysis',
               name: RouteNames.scanAnalysis,
               builder: (context, state) {
-                final analysisResult =
-                    state.extra as Map<String, dynamic>?;
-                return OutfitAnalysisScreen(
-                  analysisResult: analysisResult,
-                );
+                final analysisResult = state.extra as Map<String, dynamic>?;
+                return OutfitAnalysisScreen(analysisResult: analysisResult);
               },
             ),
           ],
@@ -97,9 +94,7 @@ void main() {
       expect(find.text('Choose from Gallery'), findsOneWidget);
     });
 
-    testWidgets('rescan button available', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('rescan button available', (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
 
       expect(find.text('Rescan'), findsOneWidget);
@@ -115,8 +110,8 @@ void main() {
         await tester.pump(const Duration(milliseconds: 16));
       }
 
-      expect(find.text('Analyzing Outfit'), findsOneWidget);
-      expect(find.text('Detecting clothing items'), findsOneWidget);
+      expect(find.byType(OutfitProcessingScreen), findsOneWidget);
+      expect(find.text('Analysis Status'), findsOneWidget);
     });
 
     testWidgets('back button pops', (WidgetTester tester) async {

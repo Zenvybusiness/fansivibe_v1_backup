@@ -1,7 +1,78 @@
 # Fansivibe Current State
 
-Last Updated: 2026-08-16
+Last Updated: 2026-08-17
 Updated By: opencode agent
+
+## STEP — Fix all Flutter errors + stale tests, launch app — COMPLETE
+
+Task: fix every compile error and failing test so all previously-built
+functionality works, then run the app. Bug fix only; no redesign, no UI/animation
+change, no architecture/backend/DB/API changes.
+
+### Fixed (lib)
+- `outfit_scan/presentation/outfit_processing_screen.dart` — `_runId =
+  widget.runId` (was invalid `widget.runId as String?`); `jsonDecode(...)`
+  cast to `Map<String, dynamic>?`; `data?['status']`/`data?['error']`;
+  `Timer? _pollTimer` canceled in `dispose()`; `mounted` guards after awaits;
+  removed duplicate `CircularProgressIndicator` in loading state.
+- `outfit_scan/presentation/outfit_analysis_screen.dart` — `reason.toString()`;
+  `_notEmpty(dynamic)` guard for stylingTips/maintenance/bestFor; attribute
+  chips Row→Wrap; match-score reason `Expanded` (fixes 448px RenderFlex
+  overflow); `value is String && value.isNotEmpty`; removed duplicated
+  `_formatFaceShape`.
+- `discover/presentation/discover_screen.dart` — removed `_ownsService`/
+  `_service.dispose()` that disposed the shared `LearningService.instance`.
+- `grooming/presentation/grooming_processing_screen.dart` — added `_started`
+  flag so the screen shows the analyzing state during async `runAnalysis()`.
+- `grooming/data/grooming_models.dart` — `GroomingAnalysisResult.mock` top
+  recommendation now carries `beardLength`, `cheekLine`, `eyewearFrame:
+  'Rectangular'`, `eyewearRecommendation` (mirrors `grooming_mock_data.dart`;
+  screen was rendering "Recommended: N/A Frames").
+- `backend/app/api/deps.py` — `get_current_user_id(authorization)` declared
+  without `Header()` so FastAPI bound it as a **query** param, not the
+  `Authorization` header; every live request with the documented Bearer header
+  failed 422 "authorization Field required". Fixed with
+  `authorization: str | None = Header(default=None)` — header now binds;
+  missing/wrong token → 401 `AUTHENTICATION_ERROR`, valid token reaches the
+  use case.
+
+### Fixed (tests)
+- `test/outfit_scan_screen_test.dart` — capture-navigation test now asserts
+  `OutfitProcessingScreen` + "Analysis Status" (test-mode capture pushes
+  without a runId, so the screen shows the no-run-ID state, not "Analyzing
+  Outfit").
+- Stale expectations updated: `discover_screen_test.dart`, `widget_test.dart`,
+  `outfit_analysis_screen_test.dart` (92% match, "Why this works for you:"),
+  `home_screen_test.dart`, `profile_screens_test.dart` (+
+  `SharedPreferences.setMockInitialValues({})` in `setUp`).
+
+### Validation
+- `flutter analyze` → 0 errors, 35 info/warnings only (all pre-existing
+  lint-style; was 6 errors + 36 issues at baseline).
+- `flutter test` full → **389 passed / 0 failed** (baseline was 354 passed /
+  35 failed). No regressions; previously-failing discover, home, profile,
+  outfit_analysis, outfit_processing, grooming_processing, grooming_result,
+  and outfit_scan suites all green.
+- Backend `uvicorn app.main:app` started; `GET /health` → `{"status":"ok"}`
+  (log `/tmp/opencode/backend.log`).
+- Backend `pytest -q` → **149 passed, 44 skipped** (DB tests skip cleanly —
+  PostgreSQL unreachable here; not faked). No regression from the auth fix.
+- Live smoke: all mounted routes verified; header auth verified (401 on
+  bad/missing token, valid token passes auth → `DATABASE_FAILURE` only because
+  PostgreSQL is not running, a documented env limitation).
+- `flutter run -d chrome --web-port 8080` → launched cleanly, no compile
+  errors, no exceptions (log `/tmp/opencode/flutter_run.log`, pid 37613).
+  Prior Chrome compilation failure resolved.
+- UI regression: fixes are targeted (dynamic-cast guards, timer lifecycle,
+  overflow, mock data parity); layout/colors/typography/card 65/35 rule/
+  design system/navigation untouched.
+
+### Remaining
+- The 35 analyzer infos/warnings are pre-existing lint-level, out of scope.
+- Live DB-backed backend tests still need PostgreSQL (`docker compose up
+  postgres`); they skip cleanly here — not faked.
+
+---
 
 ## STEP — FIX RUNTIME LateInitializationError: _breath — COMPLETE
 

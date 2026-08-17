@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import Depends
+from fastapi import Depends, Header
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -47,7 +47,7 @@ def _seeded_dev_user(session: Session) -> UUID:
 
 
 def get_current_user_id(
-    authorization: str | None,
+    authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> UUID:
     """Bearer-token → dev user id (dev seam; D-AUTH-1 lands behind this)."""

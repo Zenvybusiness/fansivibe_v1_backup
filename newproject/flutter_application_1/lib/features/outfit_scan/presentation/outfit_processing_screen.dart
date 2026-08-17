@@ -12,6 +12,7 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+
 class OutfitProcessingScreen extends StatefulWidget {
   const OutfitProcessingScreen({super.key, this.runId});
 
@@ -31,20 +32,24 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
   int _pollAttempts = 0;
   bool _isLoading = true;
   String? _errorMessage;
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
-    _runId = widget.runId as String?;
+    _runId = widget.runId;
     _pollRunStatus();
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _pollRunStatus({int attempts = 0}) async {
+    if (!mounted) return;
+
     if (_runId == null) {
       setState(() {
         _isLoading = false;
@@ -68,24 +73,28 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
         headers: {'Authorization': 'Bearer dev-token'},
       );
 
+      if (!mounted) return;
+
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = jsonDecode(response.body) as Map<String, dynamic>?;
         setState(() {
           _runStatus = data;
           _isLoading = false;
         });
 
-        if (data['status'] == 'completed') {
+        if (data?['status'] == 'completed') {
           if (!mounted) return;
           context.pushNamed(RouteNames.scanAnalysis, extra: data);
           return;
         }
 
-        if (data['status'] == 'failed') {
+        if (data?['status'] == 'failed') {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Analysis failed: ${data['error'] ?? 'Unknown error'}'),
+              content: Text(
+                'Analysis failed: ${data?['error'] ?? 'Unknown error'}',
+              ),
               backgroundColor: FansivibeColors.error,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
@@ -94,9 +103,7 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
             ),
           );
           if (!mounted) return;
-          Navigator.of(context).popUntil(
-            (route) => route.isFirst,
-          );
+          Navigator.of(context).popUntil((route) => route.isFirst);
           return;
         }
       } else if (response.statusCode == 401) {
@@ -112,9 +119,7 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
           ),
         );
         if (!mounted) return;
-        Navigator.of(context).popUntil(
-          (route) => route.isFirst,
-        );
+        Navigator.of(context).popUntil((route) => route.isFirst);
         return;
       } else {
         setState(() {
@@ -123,13 +128,15 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Polling error: $e, retrying...';
       });
     }
 
+    if (!mounted) return;
     final backoff = _pollInterval * (1 << min(attempts, 4));
-    Timer(backoff, () => _pollRunStatus(attempts: attempts + 1));
+    _pollTimer = Timer(backoff, () => _pollRunStatus(attempts: attempts + 1));
   }
 
   @override
@@ -175,34 +182,37 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
 
                         const SizedBox(height: 40),
 
-                        if (_isLoading || _runStatus == null)
-                          const CircularProgressIndicator(strokeWidth: 4),
-
                         if (_runStatus != null &&
                             _runStatus!['status'] != 'completed' &&
                             _runStatus!['status'] != 'failed')
                           Text(
                             _errorMessage ??
                                 'Processing your outfit analysis...',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: FansivibeColors.textSecondary,
-                            ),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: FansivibeColors.textSecondary,
+                                ),
                             textAlign: TextAlign.center,
                           ),
 
                         const SizedBox(height: 40),
 
-                        if (_runStatus != null && _runStatus!['status'] == 'completed')
+                        if (_runStatus != null &&
+                            _runStatus!['status'] == 'completed')
                           FansiButton.primary(
                             label: 'View Results',
                             icon: Icons.check_circle_outline,
                             onPressed: () {
                               if (!mounted) return;
-                              context.pushNamed(RouteNames.scanAnalysis, extra: _runStatus);
+                              context.pushNamed(
+                                RouteNames.scanAnalysis,
+                                extra: _runStatus,
+                              );
                             },
                           ),
 
-                        if (_runStatus != null && _runStatus!['status'] == 'failed')
+                        if (_runStatus != null &&
+                            _runStatus!['status'] == 'failed')
                           FansiButton.secondary(
                             label: 'Retry Scan',
                             icon: Icons.refresh_rounded,
@@ -282,7 +292,9 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
           status == 'completed' ? 'Analysis Complete' : 'Analysis Failed',
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w600,
-            color: status == 'completed' ? FansivibeColors.success : FansivibeColors.error,
+            color: status == 'completed'
+                ? FansivibeColors.success
+                : FansivibeColors.error,
           ),
         ),
         const SizedBox(height: 8),

@@ -34,6 +34,7 @@ class GroomingProcessingScreen extends StatefulWidget {
 
 class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
   GroomingService? _service;
+  bool _started = false;
 
   @override
   void initState() {
@@ -43,9 +44,12 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
     if (_service!.isProcessing) {
       _service!.addListener(_handleServiceUpdate);
     } else {
+      _started = true;
       _service!.runAnalysis().then((_) {
         if (!mounted) return;
-        setState(() {});
+        setState(() {
+          _started = false;
+        });
         _handleServiceCompleted();
       });
     }
@@ -100,12 +104,14 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isProcessing = _service!.isProcessing;
+    final isProcessing = _service!.isProcessing || _started;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: isProcessing ? const Text('Analyzing Features') : const Text('Analysis Complete'),
+        title: isProcessing
+            ? const Text('Analyzing Features')
+            : const Text('Analysis Complete'),
         leading: IconButton(
           icon: Icon(
             Icons.arrow_back_rounded,
@@ -170,17 +176,18 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
 
                         const SizedBox(height: 40),
 
-                        ...GroomingProcessingStage.mockStages.asMap().entries.map(
-                          (entry) {
-                            final index = entry.key;
-                            final stage = entry.value;
-                            return GroomingStageIndicator(
-                              stage: stage,
-                              isActive: index == 0,
-                              isComplete: true,
-                            );
-                          },
-                        ),
+                        ...GroomingProcessingStage.mockStages
+                            .asMap()
+                            .entries
+                            .map((entry) {
+                              final index = entry.key;
+                              final stage = entry.value;
+                              return GroomingStageIndicator(
+                                stage: stage,
+                                isActive: index == 0,
+                                isComplete: true,
+                              );
+                            }),
 
                         const SizedBox(height: 40),
 

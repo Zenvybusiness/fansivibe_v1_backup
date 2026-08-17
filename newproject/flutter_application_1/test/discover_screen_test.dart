@@ -31,7 +31,12 @@ void main() {
 
       // Verify header elements
       expect(find.text('Discover'), findsWidgets);
-      expect(find.text('Find looks tailored to your style'), findsOneWidget);
+      expect(
+        find.text(
+          'Your personalized looks, based on your style and preferences',
+        ),
+        findsOneWidget,
+      );
       expect(find.byIcon(Icons.explore_rounded), findsWidgets);
     });
 
@@ -176,7 +181,7 @@ void main() {
       expect(find.byType(LookCard), findsWidgets);
     });
 
-testWidgets('shows results count', (WidgetTester tester) async {
+    testWidgets('shows results count', (WidgetTester tester) async {
       await tester.pumpWidget(_freshApp());
 
       // Navigate to Discover tab
@@ -189,7 +194,7 @@ testWidgets('shows results count', (WidgetTester tester) async {
       await tester.pumpAndSettle();
 
       // Verify results count is shown
-      expect(find.text('1 looks found'), findsOneWidget);
+      expect(find.text('6 looks for you'), findsOneWidget);
     });
 
     testWidgets('opening filter sheet shows filter options', (

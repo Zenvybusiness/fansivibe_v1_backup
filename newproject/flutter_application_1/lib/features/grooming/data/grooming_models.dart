@@ -29,10 +29,12 @@ class AnalysisRun {
     runId: json['run_id'] as String? ?? '',
     runType: json['run_type'] as String? ?? '',
     status: json['status'] as String? ?? 'pending',
-    createdAt:
-        json['created_at'] != null ? DateTime.tryParse(json['created_at'] as String) : null,
-    completedAt:
-        json['completed_at'] != null ? DateTime.tryParse(json['completed_at'] as String) : null,
+    createdAt: json['created_at'] != null
+        ? DateTime.tryParse(json['created_at'] as String)
+        : null,
+    completedAt: json['completed_at'] != null
+        ? DateTime.tryParse(json['completed_at'] as String)
+        : null,
     result: json['result'] as Map<String, dynamic>?,
     error: json['error'] as Map<String, dynamic>?,
   );
@@ -65,10 +67,12 @@ class GroomingRun {
     runId: json['run_id'] as String? ?? '',
     runType: json['run_type'] as String? ?? '',
     status: json['status'] as String? ?? 'pending',
-    createdAt:
-        json['created_at'] != null ? DateTime.tryParse(json['created_at'] as String) : null,
-    completedAt:
-        json['completed_at'] != null ? DateTime.tryParse(json['completed_at'] as String) : null,
+    createdAt: json['created_at'] != null
+        ? DateTime.tryParse(json['created_at'] as String)
+        : null,
+    completedAt: json['completed_at'] != null
+        ? DateTime.tryParse(json['completed_at'] as String)
+        : null,
     result: json['result'] as Map<String, dynamic>?,
     error: json['error'] as Map<String, dynamic>?,
   );
@@ -91,55 +95,58 @@ class GroomingRecommendation {
     this.eyewearRecommendation,
   });
 
-  factory GroomingRecommendation.fromBackend(Map<String, dynamic> json) => GroomingRecommendation(
-    id: json['id'] as String? ?? '',
-    name: json['name'] as String? ?? '',
-    description: json['description'] as String? ?? '',
-    matchScore: (json['matchScore'] as num? ?? 0).toDouble(),
-    reasons: (json['reasons'] as List<dynamic>? ?? [])
-        .map((e) => e as String)
-        .toList(),
-    stylingTips: json['stylingTips'] as String? ?? '',
-    maintenance: json['maintenance'] as String? ?? '',
-    bestFor: json['bestFor'] as String? ?? '',
-    icon: json['icon'] as String?,
-    beardLength: json['beardLength'] as String?,
-    cheekLine: json['cheekLine'] as String?,
-    eyewearFrame: json['eyewearFrame'] as String?,
-    eyewearRecommendation: json['eyewearRecommendation'] as String?,
-  );
+  factory GroomingRecommendation.fromBackend(Map<String, dynamic> json) =>
+      GroomingRecommendation(
+        id: json['id'] as String? ?? '',
+        name: json['name'] as String? ?? '',
+        description: json['description'] as String? ?? '',
+        matchScore: (json['matchScore'] as num? ?? 0).toDouble(),
+        reasons: (json['reasons'] as List<dynamic>? ?? [])
+            .map((e) => e as String)
+            .toList(),
+        stylingTips: json['stylingTips'] as String? ?? '',
+        maintenance: json['maintenance'] as String? ?? '',
+        bestFor: json['bestFor'] as String? ?? '',
+        icon: json['icon'] as String?,
+        beardLength: json['beardLength'] as String?,
+        cheekLine: json['cheekLine'] as String?,
+        eyewearFrame: json['eyewearFrame'] as String?,
+        eyewearRecommendation: json['eyewearRecommendation'] as String?,
+      );
 
-  GroomingRecommendation.toMock(GroomingRecommendation mock) : this(
-    id: mock.id,
-    name: mock.name,
-    description: mock.description,
-    matchScore: mock.matchScore,
-    reasons: List<String>.from(mock.reasons),
-    stylingTips: mock.stylingTips,
-    maintenance: mock.maintenance,
-    bestFor: mock.bestFor,
-    icon: mock.icon,
-    beardLength: mock.beardLength,
-    cheekLine: mock.cheekLine,
-    eyewearFrame: mock.eyewearFrame,
-    eyewearRecommendation: mock.eyewearRecommendation,
-  );
+  GroomingRecommendation.toMock(GroomingRecommendation mock)
+    : this(
+        id: mock.id,
+        name: mock.name,
+        description: mock.description,
+        matchScore: mock.matchScore,
+        reasons: List<String>.from(mock.reasons),
+        stylingTips: mock.stylingTips,
+        maintenance: mock.maintenance,
+        bestFor: mock.bestFor,
+        icon: mock.icon,
+        beardLength: mock.beardLength,
+        cheekLine: mock.cheekLine,
+        eyewearFrame: mock.eyewearFrame,
+        eyewearRecommendation: mock.eyewearRecommendation,
+      );
 
-  factory GroomingRecommendation.fromMock(GroomingRecommendation mock) => GroomingRecommendation(
-    id: mock.id,
-    name: mock.name,
-    description: mock.description,
-    matchScore: mock.matchScore,
-    reasons: List<String>.from(mock.reasons),
-    stylingTips: mock.stylingTips,
-    maintenance: mock.maintenance,
-    bestFor: mock.bestFor,
-    icon: mock.icon,
-    beardLength: mock.beardLength,
-    cheekLine: mock.cheekLine,
-    eyewearFrame: mock.eyewearFrame,
-    eyewearRecommendation: mock.eyewearRecommendation,
-  );
+  factory GroomingRecommendation.fromMock(GroomingRecommendation mock) =>
+      GroomingRecommendation(
+        id: mock.id,
+        name: mock.name,
+        description: mock.description,
+        matchScore: mock.matchScore,
+        reasons: List<String>.from(mock.reasons),
+        stylingTips: mock.stylingTips,
+        maintenance: mock.maintenance,
+        bestFor: mock.bestFor,
+        icon: mock.icon,
+        beardLength: mock.beardLength,
+        cheekLine: mock.cheekLine,
+        eyewearFrame: mock.eyewearFrame,
+        eyewearRecommendation: mock.eyewearRecommendation,
+      );
 
   final String id;
   final String name;
@@ -166,42 +173,55 @@ class GroomingAnalysisResult {
     required this.alternatives,
   });
 
-factory GroomingAnalysisResult.fromRunResult(GroomingRun? run) => run == null
-    ? GroomingAnalysisResult.mock
-    : GroomingAnalysisResult(
-        faceShape: run!.result?['appearance']?['faceShape'] as String? ?? '',
-        beardStyle: _beardStyleFromRun(run.result),
+  factory GroomingAnalysisResult.fromRunResult(GroomingRun? run) => run == null
+      ? GroomingAnalysisResult.mock
+      : GroomingAnalysisResult(
+          faceShape: run!.result?['appearance']?['faceShape'] as String? ?? '',
+          beardStyle: _beardStyleFromRun(run.result),
+          beardDensity: '',
+          beardColor: '',
+          topRecommendation: GroomingRecommendation.fromBackend(
+            run.result?['recommendations']?['top'] as Map<String, dynamic>,
+          ),
+          alternatives:
+              (run.result?['recommendations'] as List<dynamic>?)
+                      ?.map(
+                        (e) => GroomingRecommendation.fromBackend(
+                          e as Map<String, dynamic>,
+                        ),
+                      )
+                      .toList()
+                  as List<GroomingRecommendation>,
+        );
+
+  factory GroomingAnalysisResult.fromBackend(Map<String, dynamic> json) =>
+      GroomingAnalysisResult(
+        faceShape: json['appearance']['faceShape'] as String? ?? '',
+        beardStyle: json['topRecommendation']['id'] as String? ?? '',
         beardDensity: '',
         beardColor: '',
         topRecommendation: GroomingRecommendation.fromBackend(
-          run.result?['recommendations']?['top'] as Map<String, dynamic>,
+          json['recommendations']['top'] as Map<String, dynamic>,
         ),
-        alternatives: (run.result?['recommendations'] as List<dynamic>?)
-            ?.map((e) => GroomingRecommendation.fromBackend(e as Map<String, dynamic>))
-            .toList() as List<GroomingRecommendation>,
+        alternatives:
+            (json['recommendations']['alternatives'] as List<dynamic>? ?? [])
+                .map(
+                  (e) => GroomingRecommendation.fromBackend(
+                    e as Map<String, dynamic>,
+                  ),
+                )
+                .toList(),
       );
 
-  factory GroomingAnalysisResult.fromBackend(Map<String, dynamic> json) => GroomingAnalysisResult(
-    faceShape: json['appearance']['faceShape'] as String? ?? '',
-    beardStyle: json['topRecommendation']['id'] as String? ?? '',
-    beardDensity: '',
-    beardColor: '',
-    topRecommendation: GroomingRecommendation.fromBackend(
-      json['recommendations']['top'] as Map<String, dynamic>,
-    ),
-    alternatives: (json['recommendations']['alternatives'] as List<dynamic>? ?? [])
-        .map((e) => GroomingRecommendation.fromBackend(e as Map<String, dynamic>))
-        .toList(),
-  );
-
-  factory GroomingAnalysisResult.fromMock(GroomingAnalysisResult mock) => GroomingAnalysisResult(
-    faceShape: mock.faceShape,
-    beardStyle: mock.topRecommendation.id,
-    beardDensity: '',
-    beardColor: '',
-    topRecommendation: mock.topRecommendation,
-    alternatives: List.from(mock.alternatives),
-  );
+  factory GroomingAnalysisResult.fromMock(GroomingAnalysisResult mock) =>
+      GroomingAnalysisResult(
+        faceShape: mock.faceShape,
+        beardStyle: mock.topRecommendation.id,
+        beardDensity: '',
+        beardColor: '',
+        topRecommendation: mock.topRecommendation,
+        alternatives: List.from(mock.alternatives),
+      );
 
   static const GroomingAnalysisResult mock = GroomingAnalysisResult(
     faceShape: 'Oval',
@@ -223,6 +243,15 @@ factory GroomingAnalysisResult.fromRunResult(GroomingRun? run) => run == null
         'Dark brown color adds contrast against the skin for a well-defined appearance',
         'Complements rectangular eyewear frames for a cohesive facial aesthetic',
       ],
+      beardLength: 'Medium - Long (10-15mm)',
+      cheekLine: 'Natural cheek line mid-cheek',
+      eyewearFrame: 'Rectangular',
+      eyewearRecommendation:
+          'Rectangular or wayfarer frames in dark acetate. '
+          'The angular lines of rectangular frames create a complementary '
+          'contrast with the rounded oval face shape, while dark acetate '
+          'pairs well with the dark brown beard coloring. Avoid round frames '
+          'that may overemphasize the oval face silhouette.',
       stylingTips:
           'Keep the goatee edges clean and defined. Trim the beard line '
           'at the jaw to maintain contrast. Use a beard oil daily to '
@@ -303,7 +332,8 @@ factory GroomingAnalysisResult.fromRunResult(GroomingRun? run) => run == null
   final List<GroomingRecommendation> alternatives;
 
   static String _beardStyleFromRun(Map<String, dynamic>? recommendations) {
-    if (recommendations == null || recommendations is! Map<String, dynamic>) return '';
+    if (recommendations == null || recommendations is! Map<String, dynamic>)
+      return '';
     final top = recommendations['top'];
     if (top == null) return '';
     return top['id'] as String? ?? '';

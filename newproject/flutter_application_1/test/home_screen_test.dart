@@ -34,23 +34,22 @@ void main() {
 
       // Verify Today's Look card elements
       expect(find.text('TODAY\'S LOOK'), findsOneWidget);
-      expect(find.text('Modern Minimalist'), findsOneWidget);
-      expect(find.text('Work • Casual Friday'), findsOneWidget);
+      expect(find.text('Your Look'), findsOneWidget);
+      expect(find.text('Everyday'), findsOneWidget);
       expect(find.text('Style Score'), findsOneWidget);
       expect(find.text('87%'), findsWidgets); // Style score badge
 
       // Verify description
       expect(
-        find.textContaining('Clean lines meet relaxed sophistication'),
+        find.textContaining(
+          'Great start with Unstructured Blazer and Merino Crew Neck',
+        ),
         findsOneWidget,
       );
 
-      // Verify outfit items
-      expect(find.text('Charcoal Unstructured Blazer'), findsOneWidget);
-      expect(find.text('Merino Wool Crewneck'), findsOneWidget);
-      expect(find.text('Tapered Wool Trousers'), findsOneWidget);
-      expect(find.text('Leather Chelsea Boots'), findsOneWidget);
-      expect(find.text('Minimalist Leather Belt'), findsOneWidget);
+      // Verify outfit items (built from the default wardrobe)
+      expect(find.text('Unstructured Blazer'), findsOneWidget);
+      expect(find.text('Merino Crew Neck'), findsOneWidget);
 
       // Verify action buttons
       expect(find.text('Try This Look'), findsOneWidget);
@@ -128,11 +127,9 @@ void main() {
       await tester.scrollUntilVisible(find.text('AI Insight'), 500.0);
 
       expect(find.text('AI Insight'), findsOneWidget);
-      expect(find.text('Wardrobe Gap Detected'), findsOneWidget);
+      expect(find.text('Wardrobe Insight'), findsOneWidget);
       expect(
-        find.textContaining(
-          'You have 3 navy blazers but no lightweight spring jackets',
-        ),
+        find.textContaining('You have 4 outerwear pieces and 8 tops'),
         findsOneWidget,
       );
       expect(find.text('View Recommendations'), findsOneWidget);

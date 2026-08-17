@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/features/profile/presentation/preferences_screen.dart';
 import 'package:fansivibe/features/profile/presentation/saved_looks_screen.dart';
 import 'package:fansivibe/features/profile/presentation/subscription_screen.dart';
@@ -11,6 +12,10 @@ Widget wrapApp(Widget child) {
 }
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   group('PreferencesScreen Widget Tests', () {
     testWidgets('renders title and subtitle', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const PreferencesScreen()));
@@ -21,35 +26,31 @@ void main() {
 
     testWidgets('renders preference labels', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const PreferencesScreen()));
+      await tester.pumpAndSettle();
 
-      expect(find.text('Style Vibe'), findsOneWidget);
-      expect(find.text('Color Palette'), findsOneWidget);
-      expect(find.text('Fit Preference'), findsOneWidget);
       expect(find.text('Occasion Focus'), findsOneWidget);
     });
 
     testWidgets('renders option chips', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const PreferencesScreen()));
+      await tester.pumpAndSettle();
 
-      expect(find.text('Modern Minimalist'), findsOneWidget);
-      expect(find.text('Neutral Tones'), findsOneWidget);
-      expect(find.text('Tailored'), findsOneWidget);
+      expect(find.text('Casual'), findsOneWidget);
       expect(find.text('Smart Casual'), findsOneWidget);
+      expect(find.text('Business'), findsOneWidget);
+      expect(find.text('Formal'), findsOneWidget);
     });
 
     testWidgets('tapping chip changes selection', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const PreferencesScreen()));
+      await tester.pumpAndSettle();
 
-      final chipFinder = find.text('Street Style');
-      await tester.scrollUntilVisible(
-        chipFinder,
-        200,
-        scrollable: find.byType(Scrollable).last,
-      );
+      final chipFinder = find.text('Business');
+      await tester.ensureVisible(chipFinder);
       await tester.tap(chipFinder);
       await tester.pump();
 
-      expect(find.text('Street Style'), findsOneWidget);
+      expect(find.text('Saved: Business'), findsOneWidget);
     });
 
     testWidgets('back button pops', (WidgetTester tester) async {
@@ -61,11 +62,12 @@ void main() {
 
     testWidgets('renders chips for all options', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const PreferencesScreen()));
+      await tester.pumpAndSettle();
 
-      expect(find.text('Classic Elegance'), findsOneWidget);
-      expect(find.text('Street Style'), findsOneWidget);
-      expect(find.text('Bohemian'), findsOneWidget);
-      expect(find.text('Athleisure'), findsOneWidget);
+      expect(find.text('Casual'), findsOneWidget);
+      expect(find.text('Business'), findsOneWidget);
+      expect(find.text('Formal'), findsOneWidget);
+      expect(find.text('Streetwear'), findsOneWidget);
     });
   });
 

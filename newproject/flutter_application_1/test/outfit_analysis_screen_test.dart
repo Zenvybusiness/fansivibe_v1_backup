@@ -23,7 +23,8 @@ void main() {
                 'top': {
                   'id': 'leather-jacket-formal',
                   'name': 'Leather Jacket Formal',
-                  'description': 'A classic leather jacket for formal occasions',
+                  'description':
+                      'A classic leather jacket for formal occasions',
                   'matchScore': 0.92,
                   'reasons': ['Strong face shape match', 'Formal style vibe'],
                   'stylingTips': 'Keep accessories minimal',
@@ -69,9 +70,7 @@ void main() {
       expect(find.text('Style Vibe: casual'), findsOneWidget);
     });
 
-    testWidgets('renders confidence indicator', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('renders confidence indicator', (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: OutfitAnalysisScreen(
@@ -92,16 +91,12 @@ void main() {
       expect(find.text('Confidence: 78%'), findsOneWidget);
     });
 
-    testWidgets('renders needs_more_data warning', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('renders needs_more_data warning', (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: OutfitAnalysisScreen(
             analysisResult: {
-              'appearance': {
-                'faceShape': 'oval',
-              },
+              'appearance': {'faceShape': 'oval'},
               'confidence': 0.5,
               'needs_more_data': true,
             },
@@ -112,9 +107,7 @@ void main() {
       expect(find.text('Needs more data'), findsOneWidget);
     });
 
-    testWidgets('renders recommendation card', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('renders recommendation card', (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: OutfitAnalysisScreen(
@@ -131,7 +124,8 @@ void main() {
                 'top': {
                   'id': 'leather-jacket-formal',
                   'name': 'Leather Jacket Formal',
-                  'description': 'A classic leather jacket for formal occasions',
+                  'description':
+                      'A classic leather jacket for formal occasions',
                   'matchScore': 0.92,
                   'reasons': ['Strong face shape match'],
                   'stylingTips': 'Keep accessories minimal',
@@ -158,14 +152,12 @@ void main() {
 
       expect(find.text('Recommended for you'), findsOneWidget);
       expect(find.text('Leather Jacket Formal'), findsOneWidget);
-      expect(find.text('50% match'), findsOneWidget); // 0.92 * 100 = 92, rounded = 92
-      expect(find.text('Why this works for you'), findsOneWidget);
+      expect(find.text('92% match'), findsOneWidget); // 0.92 * 100 rounded
+      expect(find.text('Why this works for you:'), findsOneWidget);
       expect(find.text('Strong face shape match'), findsOneWidget);
     });
 
-    testWidgets('renders save profile button', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('renders save profile button', (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: OutfitAnalysisScreen(

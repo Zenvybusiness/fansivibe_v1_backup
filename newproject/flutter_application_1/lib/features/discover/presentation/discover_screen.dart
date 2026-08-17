@@ -14,10 +14,7 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 /// The Discover screen - Personalized style discovery.
 class DiscoverScreen extends StatefulWidget {
   /// Creates a [DiscoverScreen].
-  const DiscoverScreen({
-    super.key,
-    this.service,
-  });
+  const DiscoverScreen({super.key, this.service});
 
   /// Injectable for tests; when null the screen owns its own [LearningService].
   final LearningService? service;
@@ -42,12 +39,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   List<FilterOption> _fitOptions = FitFilters.options;
 
   late final LearningService _service;
-  bool _ownsService = false;
 
   @override
   void initState() {
     super.initState();
-    _ownsService = widget.service == null;
     _service = widget.service ?? LearningService.instance;
     _service.addListener(_onLearningChanged);
     _onLearningChanged();
@@ -56,9 +51,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   @override
   void dispose() {
     _service.removeListener(_onLearningChanged);
-    if (_ownsService) {
-      _service.dispose();
-    }
     _searchController.dispose();
     super.dispose();
   }
@@ -81,8 +73,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   /// Personalize mock looks based on user's face profile, preferences, and wardrobe.
   List<DiscoverLookData> _personalizeLooks(
-    List<DiscoverLookData> looks,
-    {
+    List<DiscoverLookData> looks, {
     FaceProfile? face,
     List<String> preferredOccasions = const [],
     List<String> savedLooks = const [],
@@ -107,7 +98,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       // Boost score if look's style tags align with user's style profile
       if (face?.styleType != null) {
         final styleTag = look.styleTags.firstOrNull;
-        if (styleTag != null && face!.styleType!.toLowerCase().contains(styleTag.toLowerCase())) {
+        if (styleTag != null &&
+            face!.styleType!.toLowerCase().contains(styleTag.toLowerCase())) {
           scoreAdjustment += 5;
         }
       }
@@ -180,8 +172,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   List<DiscoverLookData> _getFilteredLooks() {
     final baseLooks = _selectedTab == DiscoverTab.forYou
         ? _personalizedLooks.isNotEmpty
-            ? _personalizedLooks
-            : DiscoverLookData.forYouMock
+              ? _personalizedLooks
+              : DiscoverLookData.forYouMock
         : DiscoverLookData.trendingMock;
 
     if (_searchQuery.isEmpty &&
@@ -222,8 +214,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isPersonalized = _selectedTab == DiscoverTab.forYou &&
-        _personalizedLooks.isNotEmpty;
+    final isPersonalized =
+        _selectedTab == DiscoverTab.forYou && _personalizedLooks.isNotEmpty;
     final filteredLooks = _getFilteredLooks();
 
     return Scaffold(
@@ -285,7 +277,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
-Widget _buildHeader(BuildContext context, bool isPersonalized) {
+  Widget _buildHeader(BuildContext context, bool isPersonalized) {
     final theme = Theme.of(context);
 
     return Row(
@@ -535,8 +527,8 @@ Widget _buildHeader(BuildContext context, bool isPersonalized) {
 
   Widget _buildResultsHeader(BuildContext context, int count) {
     final theme = Theme.of(context);
-    final isPersonalized = _selectedTab == DiscoverTab.forYou &&
-        _personalizedLooks.isNotEmpty;
+    final isPersonalized =
+        _selectedTab == DiscoverTab.forYou && _personalizedLooks.isNotEmpty;
 
     final label = isPersonalized
         ? '${count} ${count == 1 ? 'look' : 'looks'} for you'

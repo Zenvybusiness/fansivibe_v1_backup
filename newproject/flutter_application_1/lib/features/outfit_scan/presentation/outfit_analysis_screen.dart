@@ -34,8 +34,7 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
     final recommendations =
         analysisResult?['recommendations'] as Map<String, dynamic>?;
 
-    final topRecommendation =
-        recommendations?['top'] as Map<String, dynamic>?;
+    final topRecommendation = recommendations?['top'] as Map<String, dynamic>?;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -91,8 +90,12 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
                         const SizedBox(height: 8),
 
                         // Appearance profile header
-                        _buildAppearanceProfile(context, appearance, confidence,
-                            needsMoreData),
+                        _buildAppearanceProfile(
+                          context,
+                          appearance,
+                          confidence,
+                          needsMoreData,
+                        ),
 
                         const SizedBox(height: 24),
 
@@ -128,10 +131,11 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
   }
 
   Widget _buildAppearanceProfile(
-      BuildContext context,
-      Map<String, dynamic>? appearance,
-      double confidence,
-      bool needsMoreData) {
+    BuildContext context,
+    Map<String, dynamic>? appearance,
+    double confidence,
+    bool needsMoreData,
+  ) {
     final faceShape = appearance?['faceShape'] as String?;
     final skinTone = appearance?['skinTone'] as String?;
     final bodyType = appearance?['bodyType'] as String?;
@@ -156,11 +160,13 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
           const SizedBox(height: 16),
 
           // Primary attributes in a row
-          Row(mainAxisSize: MainAxisSize.min, 
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
             children: [
               _AttributeChip(
                 label: 'Face Shape',
-                value: _formatFaceShape(faceShape),
+                value: faceShape,
                 icon: Icons.face,
                 color: FansivibeColors.accentGold,
               ),
@@ -194,13 +200,10 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
           const SizedBox(height: 16),
 
           // Confidence indicator
-          Row(mainAxisSize: MainAxisSize.min, 
+          Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.trending_up,
-                size: 16,
-                color: FansivibeColors.success,
-              ),
+              Icon(Icons.trending_up, size: 16, color: FansivibeColors.success),
               const SizedBox(width: 4),
               Text(
                 'Confidence: ${(confidence * 100).toInt()}%',
@@ -211,8 +214,10 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
               const Spacer(),
               if (needsMoreData) ...[
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: FansivibeColors.warning.withValues(alpha: 0.15),
                     borderRadius: FansivibeRadius.smBorder,
@@ -237,13 +242,14 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
   }
 
   Widget _buildRecommendationCard(
-      BuildContext context, Map<String, dynamic> topRecommendation) {
+    BuildContext context,
+    Map<String, dynamic> topRecommendation,
+  ) {
     final id = topRecommendation['id'] as String?;
     final name = topRecommendation['name'] as String?;
     final description = topRecommendation['description'] as String?;
     final matchScore = (topRecommendation['matchScore'] ?? 0.0) as double;
-    final reasons =
-        topRecommendation['reasons'] as List<dynamic>?;
+    final reasons = topRecommendation['reasons'] as List<dynamic>?;
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -257,7 +263,8 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(mainAxisSize: MainAxisSize.min, 
+          Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 Icons.auto_awesome,
@@ -301,32 +308,34 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            ...reasons.map((reason) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(mainAxisSize: MainAxisSize.min, 
-                children: [
-                  Icon(
-                    Icons.check_circle_rounded,
-                    size: 12,
-                    color: FansivibeColors.success,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      reason,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: FansivibeColors.textPrimary,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+            ...reasons.map(
+              (reason) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.check_circle_rounded,
+                      size: 12,
+                      color: FansivibeColors.success,
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        reason.toString(),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: FansivibeColors.textPrimary,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            )),
+            ),
           ],
           const SizedBox(height: 16),
-          if (topRecommendation['stylingTips'] != null &&
-              topRecommendation['stylingTips'].isNotEmpty) ...[
+          if (_notEmpty(topRecommendation['stylingTips'])) ...[
             Text(
               'Styling tip: ${topRecommendation['stylingTips']}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -335,8 +344,7 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
             ),
           ],
           const SizedBox(height: 16),
-          if (topRecommendation['maintenance'] != null &&
-              topRecommendation['maintenance'].isNotEmpty) ...[
+          if (_notEmpty(topRecommendation['maintenance'])) ...[
             Text(
               'Maintenance: ${topRecommendation['maintenance']}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -345,8 +353,7 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
             ),
           ],
           const SizedBox(height: 16),
-          if (topRecommendation['bestFor'] != null &&
-              topRecommendation['bestFor'].isNotEmpty) ...[
+          if (_notEmpty(topRecommendation['bestFor'])) ...[
             Text(
               'Best for: ${topRecommendation['bestFor']}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -364,21 +371,19 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
     final color = matchScore >= 0.9
         ? FansivibeColors.success
         : matchScore >= 0.8
-            ? FansivibeColors.accentGold
-            : matchScore >= 0.7
-                ? FansivibeColors.warning
-                : FansivibeColors.error;
+        ? FansivibeColors.accentGold
+        : matchScore >= 0.7
+        ? FansivibeColors.warning
+        : FansivibeColors.error;
 
-    return Row(mainAxisSize: MainAxisSize.min, 
+    return Row(
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.15),
             borderRadius: FansivibeRadius.smBorder,
-            border: Border.all(
-              color: color.withValues(alpha: 0.3),
-            ),
+            border: Border.all(color: color.withValues(alpha: 0.3)),
           ),
           child: Text(
             '$scorePercent% match',
@@ -389,18 +394,20 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
             ),
           ),
         ),
-        const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: FansivibeColors.surface,
-            borderRadius: FansivibeRadius.smBorder,
-          ),
-          child: Text(
-            'Reasons may include face shape match, color harmony, and style compatibility',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: FansivibeColors.textSecondary.withValues(alpha: 0.7),
-              fontSize: 10,
+        const SizedBox(width: 12),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: FansivibeColors.surface,
+              borderRadius: FansivibeRadius.smBorder,
+            ),
+            child: Text(
+              'Reasons may include face shape match, color harmony, and style compatibility',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: FansivibeColors.textSecondary.withValues(alpha: 0.7),
+                fontSize: 10,
+              ),
             ),
           ),
         ),
@@ -408,30 +415,15 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
     );
   }
 
-  Widget _formatFaceShape(String? faceShape) {
-    if (faceShape == null || faceShape.isEmpty) {
-      return Text(
-        'Not detected',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: FansivibeColors.textSecondary,
-        ),
-      );
-    }
-    return Text(
-      faceShape,
-      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-        color: FansivibeColors.textPrimary,
-        fontWeight: FontWeight.w500,
-      ),
-    );
+  bool _notEmpty(dynamic value) {
+    return value != null && value.toString().isNotEmpty;
   }
 
   Widget _buildAnalysisSections(BuildContext context) {
     final faceShape = analysisResult?['appearance']?['faceShape'] as String?;
     final skinTone = analysisResult?['appearance']?['skinTone'] as String?;
     final bodyType = analysisResult?['appearance']?['bodyType'] as String?;
-    final styleType =
-        analysisResult?['appearance']?['styleType'] as String?;
+    final styleType = analysisResult?['appearance']?['styleType'] as String?;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -488,11 +480,16 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
   }
 
   Widget _buildAnalysisSection(
-      BuildContext context, String label, String value, IconData icon,
-      Color color) {
+    BuildContext context,
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(mainAxisSize: MainAxisSize.min, 
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 16, color: color),
           const SizedBox(width: 6),
@@ -525,10 +522,7 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
         const SizedBox(height: 4),
         const Text(
           'Face and appearance attributes analyzed above',
-          style: TextStyle(
-            color: FansivibeColors.textSecondary,
-            fontSize: 12,
-          ),
+          style: TextStyle(color: FansivibeColors.textSecondary, fontSize: 12),
         ),
         const SizedBox(height: 16),
       ],
@@ -536,7 +530,8 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
   }
 
   Widget _buildActions(BuildContext context) {
-    return Row(mainAxisSize: MainAxisSize.min, 
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Expanded(
           child: FansiButton.secondary(
@@ -588,7 +583,7 @@ class _AttributeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final displayValue = value is String && value.isNotEmpty
+    final displayValue = value is String && (value as String).isNotEmpty
         ? value
         : 'Not detected';
 
@@ -597,11 +592,10 @@ class _AttributeChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: FansivibeRadius.smBorder,
-        border: Border.all(
-          color: color.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
-      child: Row(mainAxisSize: MainAxisSize.min, 
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 16, color: color),
           const SizedBox(width: 6),
