@@ -3,6 +3,70 @@
 Last Updated: 2026-08-17
 Updated By: opencode agent
 
+## STEP — BLACK SCREEN ROOT-CAUSE DIAGNOSIS — COMPLETE
+
+Task: diagnose and fix the completely black browser screen after
+`flutter run -d chrome` (app compiled, VM service connected, but UI invisible).
+Bug fix only; no redesign, no UI/animation change, no architecture/backend/API
+changes.
+
+### Root cause
+`EntryScreen` builds its whole content inside `_Reveal` wrappers driven by the
+1200 ms `_controller` through staggered `Interval` animations. `_controller`
+was created in `initState()` but its `forward()` was **never called**, so
+every `_Reveal` stayed at `Opacity(0)` and the entire screen painted only the
+bare Scaffold background (flat dark/black). Regression: commit `23ca8de`
+removed the single line `_controller.forward();` (it was present in
+`1df7455`/`bcc8141`). No exception was ever thrown — the app ran fine at
+opacity 0 — which is why widget tests (`find.text` matches regardless of
+opacity) never caught it. The `_breath` fix (9db3196) was correct but
+addressed only the earlier LateInitializationError, not this separate
+regression.
+
+### Fix (smallest safe change)
+- `entry_screen.dart` — added `_controller.forward();` in `initState()` right
+  after the `_buildAnim(...)` wiring, restoring the intended 1200 ms staggered
+  entrance animation exactly as before `23ca8de`. Nothing else changed.
+- `test/entry_screen_test.dart` — new regression test asserting the entrance
+  animation starts so content becomes visible (opacity 0 → 1).
+
+### Validation
+- `flutter clean` + `flutter pub get` + `flutter analyze` → **0 errors,
+  0 warnings** (36 pre-existing infos, none in changed files).
+- `flutter test` full → **390 passed / 0 failed** (389 baseline + 1 new
+  regression test; entry suite 3/3).
+- Live verification (`flutter run -d web-server` + headless Chrome/CDP):
+  - Before fix: `/entry` rendered a uniform flat dark surface (0% non-black
+    pixels, 1 distinct color).
+  - After fix: `/entry` renders the wordmark/mirror/CTAs (4.1% non-black,
+    48 distinct colors); `/home` + bottom NavigationBar render (26.7%
+    non-black; bottom-nav region has bright icon pixels).
+- `flutter run -d chrome` (exact user command, real host browser): compiles,
+  launches, VM service connects, first boot renders the EntryScreen (6.07%
+  non-black, 50 colors) — no exceptions, no tool-log errors, only the env
+  WebGL warning.
+- Full route sweep at the real VM window size (913×723): entry 5.1%, home
+  34.4%, discover 26.4%, stylist 30.3%, wardrobe 27.9%, profile 30.6%
+  non-black — all render with content (fresh-load harness; flutter-debug web
+  service accepts a single attach, so chrome-device reloads are flaky under
+  automation).
+- **WebGL warning (`webGLVersion is -1`, CPU fallback) is NOT related** — the
+  black screen reproduced identically with working software WebGL, and renders
+  fine now; it is an environment note only (VirtualBox VM), not a blocker.
+
+### New file
+- `docs/validation/FANSIVIBE_BLACK_SCREEN_ROOT_CAUSE_REPORT.md` — full report
+  (symptom, console, terminal, root cause, regression origin commit, WebGL
+  analysis, startup chain, exact fix, analyze/tests/chrome/console/navigation
+  validation, remaining limitations).
+
+### Remaining
+- The `webGLVersion is -1` CPU-rendering warning remains in this VirtualBox
+  environment — cosmetic, does not block rendering.
+- 36 pre-existing analyzer infos unchanged and out of scope.
+
+---
+
 ## STEP — Fix all Flutter errors + stale tests, launch app — COMPLETE
 
 Task: fix every compile error and failing test so all previously-built

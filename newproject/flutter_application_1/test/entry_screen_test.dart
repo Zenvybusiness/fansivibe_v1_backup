@@ -48,5 +48,32 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('Your best style,\ndiscovered by AI.'), findsOneWidget);
     });
+
+    testWidgets(
+      'entrance animation starts so content becomes visible (no black screen)',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(_wrap(const EntryScreen()));
+
+        opacityOf(WidgetTester t) => t
+            .widget<Opacity>(
+              find
+                  .ancestor(
+                    of: find.text('FANSIVIBE'),
+                    matching: find.byType(Opacity),
+                  )
+                  .first,
+            )
+            .opacity;
+
+        expect(opacityOf(tester), 0.0);
+
+        await tester.pump(const Duration(milliseconds: 600));
+        await tester.pump(const Duration(milliseconds: 600));
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(tester.takeException(), isNull);
+        expect(opacityOf(tester), 1.0);
+      },
+    );
   });
 }

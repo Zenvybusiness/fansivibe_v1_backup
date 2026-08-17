@@ -52,6 +52,8 @@ class _EntryScreenState extends State<EntryScreen>
     _gateAnim = _buildAnim(0.75, 0.95);
     _privacyAnim = _buildAnim(0.85, 1.0);
 
+    _controller.forward();
+
     _checkReturningUser();
   }
 
