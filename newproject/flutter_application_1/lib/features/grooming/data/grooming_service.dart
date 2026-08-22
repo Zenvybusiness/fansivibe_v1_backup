@@ -128,6 +128,16 @@ class GroomingService extends ChangeNotifier {
         .toList(growable: false);
   }
 
+  /// Lists the user's saved looks (endpoint #24).
+  ///
+  /// Returns an empty list when the backend is unreachable, matching the
+  /// app-wide graceful fallback behavior.
+  Future<List<dynamic>> listSavedLooks() async {
+    final looks = await _client.listSavedLooks();
+    if (looks == null) return const [];
+    return looks;
+  }
+
   /// Saves a grooming recommendation to the user's saved looks.
   ///
   /// Uses an idempotency key so retries never create duplicates. Returns true

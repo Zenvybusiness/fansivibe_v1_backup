@@ -4,6 +4,7 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/features/grooming/data/grooming_service.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -30,6 +31,9 @@ class GroomingResultScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final resultThis = result ?? GroomingAnalysisResult.mock;
+
+    // Automatically attach learning service if not provided
+    final effectiveService = service ?? GroomingService()..attachLearning(LearningService.instance);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -96,7 +100,7 @@ class GroomingResultScreen extends StatelessWidget {
 
                         const SizedBox(height: 24),
 
-                        _buildActions(context),
+                        _buildActions(context, effectiveService),
 
                         const SizedBox(height: 32),
                       ],
@@ -359,21 +363,21 @@ class GroomingResultScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-Text(
-              'Recommended: ${top.eyewearFrame ?? 'N/A'} Frames',
-              style: theme.textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: FansivibeColors.textPrimary,
-              ),
+          Text(
+            'Recommended: ${top.eyewearFrame ?? 'N/A'} Frames',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: FansivibeColors.textPrimary,
             ),
-            const SizedBox(height: 8),
-            Text(
-              top.eyewearRecommendation ?? 'Not specified',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: FansivibeColors.textSecondary,
-                height: 1.5,
-              ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            top.eyewearRecommendation ?? 'Not specified',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: FansivibeColors.textSecondary,
+              height: 1.5,
             ),
+          ),
         ],
       ),
     );
@@ -562,7 +566,7 @@ Text(
     );
   }
 
-  Widget _buildActions(BuildContext context) {
+  Widget _buildActions(BuildContext context, GroomingService service) {
     return Row(
       children: [
         Expanded(
@@ -582,38 +586,25 @@ Text(
             onPressed: () async {
               final rec = result?.topRecommendation ??
                   GroomingAnalysisResult.mock.topRecommendation;
-              if (service != null) {
-                final ok = await service!.saveGroomingLook(
-                  recommendation: rec,
-                  title: rec.name,
-                );
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      ok ? 'Look saved to profile' : 'Could not save look',
-                    ),
-                    backgroundColor: ok
-                        ? FansivibeColors.accentGold
-                        : FansivibeColors.surfaceContainerHigh,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: FansivibeRadius.smdBorder,
-                    ),
+              final ok = await service.saveGroomingLook(
+                recommendation: rec,
+                title: rec.name,
+              );
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    ok ? 'Look saved to profile' : 'Could not save look',
                   ),
-                );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Recommendation saved to profile'),
-                    backgroundColor: FansivibeColors.accentGold,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: FansivibeRadius.smdBorder,
-                    ),
+                  backgroundColor: ok
+                      ? FansivibeColors.accentGold
+                      : FansivibeColors.surfaceContainerHigh,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: FansivibeRadius.smdBorder,
                   ),
-                );
-              }
+                ),
+              );
             },
           ),
         ),

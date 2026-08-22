@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/features/grooming/data/grooming_service.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -16,6 +17,9 @@ class GroomingDetailsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final percentage = (recommendation.matchScore * 100).round();
+
+    // Automatically attach learning service if not provided
+    final effectiveService = service ?? GroomingService()..attachLearning(LearningService.instance);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -50,7 +54,7 @@ class GroomingDetailsScreen extends StatelessWidget {
                       children: [
                         const SizedBox(height: 8),
 
-                        _buildHeader(context, percentage),
+                        _buildHeader(context, percentage, effectiveService),
                         const SizedBox(height: 24),
 
                         _buildVisualPlaceholder(context),
@@ -125,7 +129,7 @@ class GroomingDetailsScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 28),
 
-                        _buildActions(context),
+                        _buildActions(context, effectiveService),
                         const SizedBox(height: 32),
                       ],
                     ),
@@ -139,7 +143,7 @@ class GroomingDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context, int percentage) {
+  Widget _buildHeader(BuildContext context, int percentage, GroomingService service) {
     final theme = Theme.of(context);
 
     return Row(
@@ -413,45 +417,32 @@ Icon(
     );
   }
 
-  Widget _buildActions(BuildContext context) {
+  Widget _buildActions(BuildContext context, GroomingService service) {
     return Column(
       children: [
         FansiButton.primary(
           label: 'Try This Look',
           icon: Icons.auto_awesome_rounded,
           onPressed: () async {
-            if (service != null) {
-              final ok = await service!.saveGroomingLook(
-                recommendation: recommendation,
-                title: recommendation.name,
-              );
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    ok ? '${recommendation.name} saved to profile' : 'Could not save grooming',
-                  ),
-                  backgroundColor: ok
-                      ? FansivibeColors.accentGold
-                      : FansivibeColors.surfaceContainerHigh,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: FansivibeRadius.smdBorder,
-                  ),
+            final ok = await service.saveGroomingLook(
+              recommendation: recommendation,
+              title: recommendation.name,
+            );
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  ok ? '${recommendation.name} saved to profile' : 'Could not save grooming',
                 ),
-              );
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('${recommendation.name} saved to profile'),
-                  backgroundColor: FansivibeColors.accentGold,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: FansivibeRadius.smdBorder,
-                  ),
+                backgroundColor: ok
+                    ? FansivibeColors.accentGold
+                    : FansivibeColors.surfaceContainerHigh,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: FansivibeRadius.smdBorder,
                 ),
-              );
-            }
+              ),
+            );
           },
         ),
       ],

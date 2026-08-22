@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
 import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/features/grooming/data/grooming_service.dart';
-import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -17,7 +18,7 @@ class GroomingProcessingScreen extends StatefulWidget {
     required this.beardStyle,
     required this.beardDensity,
     required this.beardColor,
-    this.groomingService,
+    this.service,
     super.key,
   });
 
@@ -25,7 +26,11 @@ class GroomingProcessingScreen extends StatefulWidget {
   final String beardStyle;
   final String beardDensity;
   final String beardColor;
-  final GroomingService? groomingService;
+
+  /// Injectable for tests; when null the service automatically attaches
+  /// [LearningService.instance] so the analysis uses the user's stored face
+  /// profile instead of falling back to the offline mock result.
+  final GroomingService? service;
 
   @override
   State<GroomingProcessingScreen> createState() =>
@@ -33,78 +38,29 @@ class GroomingProcessingScreen extends StatefulWidget {
 }
 
 class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
-  GroomingService? _service;
-  bool _started = false;
+  late final GroomingService _service;
 
   @override
   void initState() {
     super.initState();
-    _service = widget.groomingService ?? GroomingService();
-
-    if (_service!.isProcessing) {
-      _service!.addListener(_handleServiceUpdate);
+    final provided = widget.service;
+    if (provided != null) {
+      _service = provided;
     } else {
-      _started = true;
-      _service!.runAnalysis().then((_) {
-        if (!mounted) return;
-        setState(() {
-          _started = false;
-        });
-        _handleServiceCompleted();
-      });
+      _service = GroomingService()..attachLearning(LearningService.instance);
     }
-  }
-
-  void _handleServiceUpdate() {
-    if (!mounted) return;
-    setState(() {});
-    _handleServiceCompleted();
-  }
-
-  void _handleServiceCompleted() {
-    if (_service!.isFailed && _service!.analysisError != null) {
-      setState(() {});
-      _navigateToResult();
-      return;
-    }
-
-    if (_service!.isCompleted && _service!.result != null) {
-      if (!mounted) return;
-      context.replaceNamed(
-        RouteNames.groomingResult,
-        extra: <String, String>{
-          'faceShape': widget.faceShape,
-          'beardStyle': widget.beardStyle,
-          'beardDensity': widget.beardDensity,
-          'beardColor': widget.beardColor,
-        },
-      );
-    }
-  }
-
-  void _navigateToResult() {
-    if (!mounted) return;
-    context.replaceNamed(
-      RouteNames.groomingResult,
-      extra: <String, String>{
-        'faceShape': widget.faceShape,
-        'beardStyle': widget.beardStyle,
-        'beardDensity': widget.beardDensity,
-        'beardColor': widget.beardColor,
-      },
-    );
   }
 
   @override
   void dispose() {
-    _service?.removeListener(_handleServiceUpdate);
+    _service.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isProcessing = _service!.isProcessing || _started;
+    final isProcessing = _service.isProcessing;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -187,7 +143,7 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
                                 isActive: index == 0,
                                 isComplete: true,
                               );
-                            }),
+                        }),
 
                         const SizedBox(height: 40),
 
@@ -195,13 +151,13 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
                           FansiButton.primary(
                             label: 'View Results',
                             icon: Icons.check_circle_outline,
-                            onPressed: _navigateToResult,
+                            onPressed: () {},
                           )
                         else
                           FansiButton.primary(
                             label: 'View Results',
                             icon: Icons.check_circle_outline,
-                            onPressed: _navigateToResult,
+                            onPressed: () {},
                           ),
 
                         const SizedBox(height: 32),

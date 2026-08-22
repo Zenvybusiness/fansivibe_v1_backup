@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:fansivibe/features/hairstyle/data/hairstyle_models.dart';
+import 'package:fansivibe/features/grooming/data/grooming_service.dart';
 import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
-import 'package:fansivibe/features/profile/data/profile_mocks.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_hero_card.dart';
 import 'package:fansivibe/shared/components/fansi_image_well.dart';
@@ -10,90 +10,73 @@ import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
 class SavedLooksScreen extends StatefulWidget {
-  const SavedLooksScreen({super.key, this.service});
+  const SavedLooksScreen({super.key, this.groomingService, this.hairstyleService});
 
-  /// Injectable for tests; when null a temporary service is created to load
-  /// saved looks from the backend.
-  final HairstyleService? service;
+  /// Injectable for tests; when null the screen auto-creates both services.
+  final GroomingService? groomingService;
+  final HairstyleService? hairstyleService;
 
   @override
   State<SavedLooksScreen> createState() => _SavedLooksScreenState();
 }
 
 class _SavedLooksScreenState extends State<SavedLooksScreen> {
-  late final HairstyleService _service;
-  bool _ownsService = false;
-  List<SavedLookDetail>? _looks;
+  late final GroomingService _groomingService;
+  late final HairstyleService _hairstyleService;
+  bool _ownsGroomingService = false;
+  bool _ownsHairstyleService = false;
+  List<dynamic> _looks = [];
 
   @override
   void initState() {
     super.initState();
-    final provided = widget.service;
-    if (provided != null) {
-      _service = provided;
+    final groomingProvided = widget.groomingService;
+    final hairstyleProvided = widget.hairstyleService;
+
+    if (groomingProvided != null) {
+      _groomingService = groomingProvided;
+      _ownsGroomingService = false;
     } else {
-      _service = HairstyleService();
-      _ownsService = true;
+      _groomingService = GroomingService()..attachLearning(LearningService.instance);
+      _ownsGroomingService = true;
     }
+
+    if (hairstyleProvided != null) {
+      _hairstyleService = hairstyleProvided;
+      _ownsHairstyleService = false;
+    } else {
+      _hairstyleService = HairstyleService();
+      _ownsHairstyleService = true;
+    }
+
     _loadSavedLooks();
   }
 
   @override
   void dispose() {
-    if (_ownsService) {
-      _service.dispose();
+    if (_ownsGroomingService) {
+      _groomingService.dispose();
+    }
+    if (_ownsHairstyleService) {
+      _hairstyleService.dispose();
     }
     super.dispose();
   }
 
   Future<void> _loadSavedLooks() async {
-    final backendLooks = await _service.listSavedLooks();
+    final groomingLooks = await _groomingService.listSavedLooks();
+    final hairstyleLooks = await _hairstyleService.listSavedLooks();
+
     if (!mounted) return;
 
-    if (backendLooks.isNotEmpty) {
-      setState(() {
-        _looks = backendLooks.map(_toDetail).toList();
-      });
-    } else {
-      setState(() {
-        _looks = ProfileMockData.savedLooks;
-      });
-    }
-  }
-
-  SavedLookDetail _toDetail(SavedLook look) {
-    final snapshot = look.snapshot;
-    final matchScore = (snapshot?['matchScore'] as num?)?.toDouble();
-    return SavedLookDetail(
-      id: look.id,
-      title: look.title,
-      score: matchScore == null ? 0 : (matchScore * 100).round(),
-      date: 'Saved ${_formatMonthDay(look.createdAt)}',
-      items: _footerLines(snapshot),
-    );
-  }
-
-  List<String> _footerLines(Map<String, dynamic>? snapshot) {
-    if (snapshot == null) return const [];
-    final description = snapshot['description'] as String?;
-    if (description != null && description.isNotEmpty) return [description];
-    final reasons = snapshot['reasons'] as List<dynamic>? ?? const [];
-    return reasons.whereType<String>().toList();
-  }
-
-  String _formatMonthDay(DateTime dt) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    final month = dt.month >= 1 && dt.month <= 12 ? months[dt.month - 1] : '?';
-    return '$month ${dt.day}';
+    setState(() {
+      _looks = [...groomingLooks, ...hairstyleLooks];
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final looks = _looks ?? ProfileMockData.savedLooks;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -123,30 +106,30 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const SizedBox(height: 8),
-                        Text(
-                          '${looks.length} Saved Looks',
-                          style: theme.textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: FansivibeColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Your curated style collection',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: FansivibeColors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        ...looks.map(
-                          (look) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _SavedLookCard(look: look),
-                          ),
-                        ),
-                        const SizedBox(height: 32),
-                      ],
+        const SizedBox(height: 8),
+        Text(
+          '${_looks.length} Saved Looks',
+          style: theme.textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: FansivibeColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Your curated style collection',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: FansivibeColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 24),
+        ..._looks.map(
+          (look) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _SavedLookCard(look: look),
+          ),
+        ),
+        const SizedBox(height: 32),
+      ],
                     ),
                   ),
                 ),
@@ -162,19 +145,24 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
 class _SavedLookCard extends StatelessWidget {
   const _SavedLookCard({required this.look});
 
-  final SavedLookDetail look;
+  final dynamic look;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    // Determine if this is a grooming or hairstyle saved look
+    final sourceContext = look['sourceContext'] as String? ?? '';
+
     return FansiHeroCard(
-      eyebrow: 'SAVED LOOK',
+      eyebrow: sourceContext == 'grooming' ? 'GROOMING LOOK' : 'HAIRSTYLE LOOK',
       image: FansiImageWell(
-        icon: Icons.checkroom_rounded,
-        color: FansivibeColors.accentGold,
+        icon: sourceContext == 'grooming' ? Icons.spa_rounded : Icons.face_rounded,
+        color: sourceContext == 'grooming' ? FansivibeColors.accentGold : FansivibeColors.success,
       ),
-      badge: FansiBadge(score: look.score),
-      title: look.title,
-      subtitle: look.date,
+      badge: FansiBadge(score: _computeScore(look)),
+      title: look['title'] as String? ?? 'Untitled',
+      subtitle: look['sourceRunId'] != null ? 'From run ${look['sourceRunId']}' : null,
       footer: Padding(
         padding: const EdgeInsets.fromLTRB(
           FansivibeSpacing.lg,
@@ -183,7 +171,7 @@ class _SavedLookCard extends StatelessWidget {
           FansivibeSpacing.lg,
         ),
         child: Text(
-          look.items.join(' · '),
+          _buildFooterText(look),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: FansivibeTypography.bodyMediumWithFamily.copyWith(
@@ -193,5 +181,41 @@ class _SavedLookCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  int _computeScore(dynamic look) {
+    final matchScore = look['snapshot']?['matchScore'] as num?;
+    if (matchScore != null) {
+      return (matchScore * 100).round();
+    }
+    return 0;
+  }
+
+  String _buildFooterText(dynamic look) {
+    if (look == null) return '';
+
+    final sourceContext = look['sourceContext'] as String? ?? '';
+
+    if (sourceContext == 'grooming') {
+      final description = look['snapshot']?['description'] as String?;
+      if (description != null && description.isNotEmpty) {
+        return description;
+      }
+      final reasons = look['snapshot']?['reasons'] as List<dynamic>? ?? const [];
+      if (reasons.isNotEmpty) {
+        return reasons.first as String;
+      }
+      return 'Grooming style saved';
+    } else {
+      final description = look['snapshot']?['description'] as String?;
+      if (description != null && description.isNotEmpty) {
+        return description;
+      }
+      final reasons = look['snapshot']?['reasons'] as List<dynamic>? ?? const [];
+      if (reasons.isNotEmpty) {
+        return reasons.first as String;
+      }
+      return 'Hairstyle saved';
+    }
   }
 }

@@ -183,5 +183,30 @@ class GroomingClient {
     return false;
   }
 
+  /// Lists the user's saved looks (endpoint #24 `GET /v1/looks/saved`).
+  ///
+  /// Returns null when the backend is unreachable, matching the graceful
+  /// null-on-failure pattern used elsewhere in this client.
+  Future<List<dynamic>?> listSavedLooks({int page = 1, int pageSize = 50}) async {
+    try {
+      final response = await _client
+          .get(
+            Uri.parse('$baseUrl/v1/looks/saved?page=$page&page_size=$pageSize'),
+            headers: {'Authorization': 'Bearer $_devToken'},
+          )
+          .timeout(_timeout);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return decoded['items'] as List<dynamic>?;
+      }
+      debugPrint(
+        'Grooming list saved looks responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Grooming backend unreachable during saved-looks list: $error');
+    }
+    return null;
+  }
+
   void dispose() => _client.close();
 }
