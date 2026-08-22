@@ -233,6 +233,20 @@ class SavedLookRepositorySQL:
         ).scalar_one_or_none()
         return self._to_record(row) if row else None
 
+    def list_for_user(
+        self, *, user_id: UUID, page: int, page_size: int
+    ) -> tuple[list[SavedLookRecord], int]:
+        base = select(SavedLooks).where(SavedLooks.user_id == user_id)
+        total = self._session.execute(
+            select(func.count()).select_from(base.subquery())
+        ).scalar_one()
+        rows = self._session.execute(
+            base.order_by(SavedLooks.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).scalars()
+        return [self._to_record(r) for r in rows], total
+
     @staticmethod
     def _to_record(row: SavedLooks) -> SavedLookRecord:
         return SavedLookRecord(

@@ -172,3 +172,56 @@ def test_save_title_bounds_validate(db):
     )
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+# --- GET /v1/looks/saved (endpoint #24) --------------------------------------
+
+
+def test_list_returns_saved_looks_for_owner(db):
+    _make_user()
+    client.post(
+        "/v1/looks/saved",
+        json=_payload(title="Textured Quiff"),
+        headers={**HEADERS, "Idempotency-Key": "list-key-1"},
+    )
+    client.post(
+        "/v1/looks/saved",
+        json=_payload(title="Classic Pompadour", lookId="classic_pompadour"),
+        headers={**HEADERS, "Idempotency-Key": "list-key-2"},
+    )
+
+    resp = client.get("/v1/looks/saved", headers=HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 2
+    assert len(body["items"]) == 2
+    titles = [item["title"] for item in body["items"]]
+    assert set(titles) == {"Textured Quiff", "Classic Pompadour"}
+    assert body["page"] == 1
+    assert body["page_size"] == 20
+
+
+def test_list_respects_pagination(db):
+    _make_user()
+    for i in range(5):
+        client.post(
+            "/v1/looks/saved",
+            json=_payload(title=f"Look {i}"),
+            headers={**HEADERS, "Idempotency-Key": f"page-key-{i}"},
+        )
+
+    resp = client.get("/v1/looks/saved?page=2&page_size=2", headers=HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 5
+    assert len(body["items"]) == 2
+    assert body["page"] == 2
+
+
+def test_list_is_empty_for_owner_without_saves(db):
+    _make_user()
+    resp = client.get("/v1/looks/saved", headers=HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 0
+    assert body["items"] == []

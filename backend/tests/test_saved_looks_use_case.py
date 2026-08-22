@@ -17,7 +17,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.api.errors import ApiError
-from app.application.saved_looks import SaveRecommendation
+from app.application.saved_looks import ListSavedLooks, SaveRecommendation
 from app.domain.ports.repositories import SavedLookRecord
 from app.infrastructure.external.knowledge import CatalogKnowledgeSource
 
@@ -100,6 +100,16 @@ class FakeSavedLooks:
             ):
                 return row["record"]
         return None
+
+    def list_for_user(
+        self, *, user_id: UUID, page: int, page_size: int
+    ) -> tuple[list[SavedLookRecord], int]:
+        owned = [
+            row["record"] for row in self.rows if row["user_id"] == user_id
+        ]
+        owned.sort(key=lambda r: r.created_at, reverse=True)
+        start = (page - 1) * page_size
+        return owned[start : start + page_size], len(owned)
 
     def commit(self) -> None:
         self.commits += 1
@@ -360,3 +370,52 @@ def test_knowledge_catalog_lookup_is_used_for_save():
         idempotency_key="key-catalog",
     )
     assert saved[0].look_id == "textured_quiff"
+
+
+# --- ListSavedLooks (endpoint #24) -------------------------------------------
+
+
+def _seed_looks(rows: list, user_id: UUID, count: int = 3) -> None:
+    for i in range(count):
+        record = SavedLookRecord(
+            id=uuid4(),
+            look_id=f"look-{i}",
+            title=f"Look {i}",
+            snapshot=SNAPSHOT,
+            source_run_id=None,
+            created_at=datetime.now(timezone.utc),
+        )
+        rows.append({"user_id": user_id, "idempotency_key": f"list-key-{i}", "record": record})
+
+
+def test_list_returns_owned_rows_and_total():
+    saved_looks = FakeSavedLooks()
+    _seed_looks(saved_looks.rows, USER, count=3)
+    _seed_looks(saved_looks.rows, OTHER_USER, count=2)
+
+    use_case = ListSavedLooks(saved_looks=saved_looks)
+    items, total = use_case(user_id=USER, page=1, page_size=20)
+
+    assert total == 3
+    assert [item.title for item in items] == ["Look 2", "Look 1", "Look 0"]
+
+
+def test_list_respects_pagination():
+    saved_looks = FakeSavedLooks()
+    _seed_looks(saved_looks.rows, USER, count=5)
+
+    use_case = ListSavedLooks(saved_looks=saved_looks)
+    items, total = use_case(user_id=USER, page=2, page_size=2)
+
+    assert total == 5
+    assert len(items) == 2
+
+
+def test_list_is_empty_for_owner_without_saves():
+    saved_looks = FakeSavedLooks()
+
+    use_case = ListSavedLooks(saved_looks=saved_looks)
+    items, total = use_case(user_id=USER, page=1, page_size=20)
+
+    assert items == []
+    assert total == 0

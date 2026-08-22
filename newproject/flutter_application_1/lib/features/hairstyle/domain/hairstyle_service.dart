@@ -45,7 +45,26 @@ class HairstyleService extends ChangeNotifier {
   HairstyleAnalysisResult? get result => _result;
 
   bool _disposed = false;
-  String? _lastRunId;
+
+  /// How the current analysis resolved — explicit REAL vs MOCK provenance.
+  ///
+  /// `false` only when the backend produced a real completed run; every
+  /// fallback path (no face profile, unreachable, failed run) is `true`.
+  bool _usedMockResult = false;
+  bool get isMockResult => _usedMockResult;
+
+  /// Terminal outcome of the last analysis ("offline" | "completed" |
+  /// "failed" | "unreachable") used to report an honest run status.
+  String _runOutcome = 'offline';
+
+  /// The idempotency key last sent to `POST /v1/looks/saved` (authoritative
+  /// value the `recommendation_saved` analytic must report).
+  String? _lastIdempotencyKey;
+  String? get lastIdempotencyKey => _lastIdempotencyKey;
+
+  /// Whether the on-device `look_saved` signal was committed by the last save.
+  bool _lastSavedSignalCommitted = false;
+  bool get lastSavedSignalCommitted => _lastSavedSignalCommitted;
 
   /// Wire the learning repository so the analysis uses the user's stored face
   /// profile instead of falling back to the offline result.
@@ -66,37 +85,46 @@ class HairstyleService extends ChangeNotifier {
     _completedStageCount = 0;
     _analysisError = null;
     _result = null;
-    _lastRunId = null;
+    _runOutcome = 'offline';
     _safeNotify();
 
     HairstyleAnalysisResult resolved;
     final faceShape = _learning?.face?.faceShape;
 
     if (faceShape == null || faceShape.isEmpty) {
+      _usedMockResult = true;
       resolved = HairstyleAnalysisResult.mock;
     } else {
       final runId = await _client.submitHairstyleAnalysis(
         faceProfileRef: _devFaceProfileRef,
       );
-      _lastRunId = runId;
       if (runId == null) {
+        _runOutcome = 'unreachable';
+        _usedMockResult = true;
         resolved = HairstyleAnalysisResult.mock;
       } else {
         final run = await _client.pollAnalysisRun(runId: runId);
         if (run != null && run.isFailed) {
+          _runOutcome = 'failed';
+          _usedMockResult = true;
           _analysisError = _describeError(run.error);
           resolved = HairstyleAnalysisResult.mock;
         } else if (run != null) {
+          _runOutcome = 'completed';
+          _usedMockResult = false;
           resolved = hairstyleResultFromRun(run);
         } else {
+          _runOutcome = 'unreachable';
+          _usedMockResult = true;
           resolved = HairstyleAnalysisResult.mock;
         }
       }
     }
 
-    // Emit appearance_scan_completed exactly once per analysis run
+    // Emit appearance_scan_completed exactly once per analysis run with an
+    // honest run status (offline mock resolution never reports "failed").
     _analytics.emitAppearanceScanCompleted(
-      runStatus: _getRunStatus(_lastRunId, _analysisError),
+      runStatus: _getRunStatus(),
       errorCode: _analysisError,
       pollAttempts: 0,
     );
@@ -110,12 +138,17 @@ class HairstyleService extends ChangeNotifier {
     return resolved;
   }
 
-  String _getRunStatus(String? runId, String? analysisError) {
-    // If we don't have a runId or there was an error, it's either failed or mock
-    if (runId == null || analysisError != null) {
-      return 'failed';
+  String _getRunStatus() {
+    switch (_runOutcome) {
+      case 'failed':
+      case 'unreachable':
+        return 'failed';
+      case 'completed':
+      case 'offline':
+        return 'completed';
+      default:
+        return 'completed';
     }
-    return 'completed';
   }
 
   String _describeError(Map<String, dynamic>? error) {
@@ -135,16 +168,30 @@ class HairstyleService extends ChangeNotifier {
     return page?.items ?? const [];
   }
 
+  /// Lists the user's saved looks (endpoint #24).
+  ///
+  /// Returns an empty list when the backend is unreachable, matching the
+  /// app-wide graceful fallback behavior.
+  Future<List<SavedLook>> listSavedLooks() async {
+    final page = await _client.listSavedLooks();
+    return page?.items ?? const [];
+  }
+
   /// Saves a recommendation to the user's saved looks.
   ///
   /// Uses an idempotency key so retries never create duplicates. Returns true
-  /// when the backend accepted the save.
+  /// when the backend accepted the save. The authoritative key and whether the
+  /// on-device `look_saved` signal committed are exposed via
+  /// [lastIdempotencyKey] and [lastSavedSignalCommitted] so analytics can
+  /// report the actual save outcome.
   Future<bool> saveLook({
     required HairstyleRecommendation recommendation,
     required String title,
   }) async {
     final idempotencyKey =
         '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
+    _lastIdempotencyKey = idempotencyKey;
+    _lastSavedSignalCommitted = false;
     final ok = await _client.saveLook(
       lookId: recommendation.id,
       title: title,
@@ -152,7 +199,8 @@ class HairstyleService extends ChangeNotifier {
       idempotencyKey: idempotencyKey,
     );
     if (ok) {
-      _learning?.recordSignal('look_saved', recommendation.name);
+      _learning?.addSavedLook(recommendation.name);
+      _lastSavedSignalCommitted = _learning != null;
     }
     return ok;
   }
@@ -165,6 +213,8 @@ class HairstyleService extends ChangeNotifier {
   /// Test-only hook: mark the pipeline finished with [result].
   @visibleForTesting
   void completeWith(HairstyleAnalysisResult result) {
+    _usedMockResult = identical(result, HairstyleAnalysisResult.mock);
+    _runOutcome = _usedMockResult ? 'offline' : 'completed';
     _result = result;
     _completedStageCount = totalStages;
     _isProcessing = false;
@@ -174,6 +224,8 @@ class HairstyleService extends ChangeNotifier {
   /// Test-only hook: simulate a backend `failed` run.
   @visibleForTesting
   void setAnalysisError(String message) {
+    _runOutcome = 'failed';
+    _usedMockResult = true;
     _analysisError = message;
     _completedStageCount = totalStages;
     _isProcessing = false;

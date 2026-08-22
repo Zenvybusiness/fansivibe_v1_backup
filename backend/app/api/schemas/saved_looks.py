@@ -27,3 +27,12 @@ class SavedLook(BaseModel):
     snapshot: dict[str, Any]
     sourceRunId: Optional[UUID] = None
     createdAt: datetime
+
+
+class SavedLookList(BaseModel):
+    """Offset envelope for `GET /v1/looks/saved` (endpoint #24)."""
+
+    items: list[SavedLook]
+    page: int
+    page_size: int
+    total: int

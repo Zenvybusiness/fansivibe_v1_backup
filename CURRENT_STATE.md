@@ -3,6 +3,142 @@
 Last Updated: 2026-08-17
 Updated By: opencode agent
 
+## STEP — HAIRSTYLE DOMAIN EXTRACTION (docs only) — COMPLETE
+
+Task: extract, reconcile, and document the Hairstyle domain against the
+product contract and current truth. Documentation only — no code, DB, API,
+Flutter, UI, or test changes.
+
+### Deliverables (new)
+- `docs/domains/HAIRSTYLE/HAIRSTYLE_DOMAIN_BLUEPRINT.md` — domain identity,
+  verified reality check, concepts/entities, flows (scan → recommend → save,
+  backend run lifecycle, TRX-3), API + analytics + DB contracts, binding
+  decisions, marker status per component.
+- `docs/domains/HAIRSTYLE/HAIRSTYLE_GAP_REPORT.md` — 11 conflict reconciliations
+  (authority order: Current Truth → Product Contract → API → DB/domain →
+  architecture → code → tests → design system → planning → hypotheses) and 20
+  gap records (G-1…G-20).
+
+### Key findings
+- Product contract SUPPORTED half (input + personalized recommendation) is
+  realized; HYPOTHESIZED half (informed decision → durable save continuity) is
+  implemented but NOT LIVE-VERIFIED (n=5 internal pilot, 0 saves observed).
+- Stale docs reconciled: `HAIRSTYLE_RECOMMENDATION_API.md` says confidence
+  absent (code derives it); `APPEARANCE_DOMAIN_MODEL.md` says `setFace`
+  uncalled (fixed in `0ec42c0`).
+- Top gaps: face scan is a static mock gate (no real detection); live
+  PostgreSQL paths never exercised (44 backend tests skip); experiment
+  conversion hypothesis untested; analytics explanation_text and
+  recommendation_saved idempotency_key are locally approximated, not
+  authoritative.
+
+### Validation
+- Docs-only change: `git status` shows only untracked `docs/domains/`.
+- All claims verified against source (backend/app + Flutter lib + CURRENT_STATE
+  ledger + contract docs); markers used: UNKNOWN / UNTESTED / HYPOTHESIS /
+  NOT LIVE-VERIFIED / IMPLEMENTED / EXECUTION UNVERIFIED.
+
+### Hairstyle domain completion (STEP 7–8) — COMPLETE WITH KNOWN LIMITATIONS
+
+Task: resume and complete the remaining Hairstyle domain work per the
+approved implementation plan. Key changes from the previous run:
+
+- **Flutter data path**: `hairstyle_client.dart` added `listSavedLooks()` (endpoint #24);
+  `hairstyle_models.dart` added `SavedLook` snapshot/sourceRunId fields +
+  `SavedLookPage`; `hairstyle_service.dart` added `_usedMockResult`/`_runOutcome`
+  tracking, `lastIdempotencyKey`/`lastSavedSignalCommitted` exposure, honest run
+  status reporting; `face_processing_screen.dart` guards `setFace` with
+  `!_service.isMockResult` (fixes G-11); `hairstyle_result_screen.dart` converts to
+  StatefulWidget with once-guards `_viewedEmitted`/`_explanationEmitted`, uses
+  `_groundedExplanation()` from backend reasons (fixes G-6/7), emits
+  `recommendation_saved` with authoritative idempotency key and signal commitment
+  (fixes G-7); `hairstyle_details_screen.dart` attaches learning on save.
+
+- **Backend API**: `POST /v1/looks/saved` (endpoint #24) GET added with pagination
+  + `ListSavedLooks` use case; `SavedLookRepository.list_for_user` with owner
+  scoping/OW-1; `test_saved_looks.py` + `test_saved_looks_use_case.py` added 6
+  list endpoint + use case tests.
+
+- **Already-fixed gaps verified:** G-6 (explanation_viewed grounded reasons),
+  G-7 (authoritative idempotencyKey + lookSavedSignalCommitted), G-11 (face profile
+  only persisted from real results), G-19 (style_score/savedLooks sync via
+  addSavedLook + learning attachment).
+
+- **Backend test results:** 152 passed, 47 skipped (PostgreSQL-dependent, not
+  faked). Full hairstyle Flutter suite passes with the resumed changes.
+
+- **Previously completed (unchanged):** Decision engine 7-stage pipeline,
+  knowledge catalog, Save TRX-3 + idempotent replay, analytics six events +
+  mock gate, cold-start setFace fix (0ec42c0), poll path bug fix,
+  failed-run handling, backend foundation.
+
+### Hairstyle final classification
+
+**Classification:** `HAIRSTYLE_DOMAIN_COMPLETE_WITH_KNOWN_LIMITATIONS`
+
+**Rationale:**
+- All approved technical requirements are implemented and validated at the code level
+- The SUPPORTED half of the product contract (face scan → personalized hairstyle
+  recommendation with match score + grounded reasons + deterministic confidence →
+  save to profile) is realized
+- Strong unit test coverage: 73 Flutter tests, 152 backend tests (DB-free units
+  all green)
+- Decision engine 7-stage pipeline deterministic and unit-tested (21 tests)
+- Knowledge catalog 4 looks with validation and KN-3 filtering (16 tests)
+- Save TRX-3 all-or-nothing + idempotent replay (9 tests)
+- Analytics six events + mock gate fully implemented and tested
+- Cold-start `setFace` fix implemented and verified (commit `0ec42c0`)
+- Real vs mock boundary clearly delineated with `_usedMockResult` tracking
+- Save + TRX-3 flow verified end-to-end at code level
+
+**Known limitations (non-blocking, explicitly documented):**
+- Live PostgreSQL validation unavailable in this environment — 47 backend tests,
+  28 DB-backed tests skip cleanly with explicit message. Not faked. Offline DDL
+  verified (`alembic upgrade --sql head` exit 0).
+- Face scan is static mock gate, not real face detection — explicitly deferred
+  per critical face input rule; `_usedMockResult` makes mock provenance honest.
+- Experiment conversion hypothesis untested — n=5 internal pilot observed 0 saves;
+  ≥10% hypothesis requires 200 users, 2–4 weeks (documented in
+  `STAGE_11_11_INTERNAL_PILOT_REPORT.md`).
+- `recommendation_history` (P3) explicitly deferred per API contract; no history
+  table exists in this environment.
+- Analytics provider absent — `AnalyticsService` is in-memory (handlers only);
+  no Firebase/third-party sink; experiment data would be lost without durable
+  backend collector.
+- Cold-start face profile sync conditional on learning attachment — `_learning?.addSavedLook`
+  only called when service owns learning; temp save services in result/details
+  screens do not attach learning.
+- Confidence display — UI shows `matchScore` as `% match`; whether to show derived
+  engine confidence is a product decision (G-10), not a blocker.
+
+### Validation
+- `flutter analyze` → 0 errors on `lib/features/hairstyle/**` + hairstyle tests
+  + test support ("No issues found"); 7 remaining repo-wide infos are pre-existing
+  in untouched files.
+- `flutter test` → 384 passed, 0 failed (full suite). Hairstyle-only: 73 passed.
+- `dart analyze` clean on hairstyle feature ("No issues found").
+- `pyflakes` clean on all slice files; only pre-existing warnings in untouched
+  legacy files.
+- Offline DDL verified: `alembic upgrade --sql head` exit 0; `downgrade --sql
+  0002:0001` exit 0.
+- 15/15 STEP 7 scenarios pass: profile insufficiency/valid, recommendation
+  (engine + API), invalid input, unauthorized, ownership 404-not-403, AI failure
+  → `PROCESSING_FAILURE`, knowledge failure, DB failure, persistence (TRX-5), save
+  (TRX-3 idempotency), feedback (= `look_saved` signal), Flutter loading/error/
+  success states.
+- Unrelated screens unchanged — `git diff HEAD` empty for `app/`, home/discover/
+  wardrobe/profile/outfit_scan/stylist/shared/router_shell; this session's Flutter
+  diff touches exactly 5 hairstyle feature files + hairstyle tests + test support.
+
+### Remaining (unchanged, out of scope)
+- Real face-detection checks vs static mock (G-1 — explicitly deferred, no CV
+  dependencies added); live PostgreSQL verification (G-2/G-17 — Docker not
+  available in this environment, not faked); experiment conversion hypothesis
+  untested (G-4 — n=5 pilot, 0 saves); analytics provider absence (G-18 —
+  in-memory only, no third-party sink).
+
+---
+
 ## STEP — BLACK SCREEN ROOT-CAUSE DIAGNOSIS — COMPLETE
 
 Task: diagnose and fix the completely black browser screen after

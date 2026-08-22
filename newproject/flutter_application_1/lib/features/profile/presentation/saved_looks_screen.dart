@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/features/hairstyle/data/hairstyle_models.dart';
+import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
 import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_hero_card.dart';
@@ -7,13 +9,91 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
-class SavedLooksScreen extends StatelessWidget {
-  const SavedLooksScreen({super.key});
+class SavedLooksScreen extends StatefulWidget {
+  const SavedLooksScreen({super.key, this.service});
+
+  /// Injectable for tests; when null a temporary service is created to load
+  /// saved looks from the backend.
+  final HairstyleService? service;
+
+  @override
+  State<SavedLooksScreen> createState() => _SavedLooksScreenState();
+}
+
+class _SavedLooksScreenState extends State<SavedLooksScreen> {
+  late final HairstyleService _service;
+  bool _ownsService = false;
+  List<SavedLookDetail>? _looks;
+
+  @override
+  void initState() {
+    super.initState();
+    final provided = widget.service;
+    if (provided != null) {
+      _service = provided;
+    } else {
+      _service = HairstyleService();
+      _ownsService = true;
+    }
+    _loadSavedLooks();
+  }
+
+  @override
+  void dispose() {
+    if (_ownsService) {
+      _service.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _loadSavedLooks() async {
+    final backendLooks = await _service.listSavedLooks();
+    if (!mounted) return;
+
+    if (backendLooks.isNotEmpty) {
+      setState(() {
+        _looks = backendLooks.map(_toDetail).toList();
+      });
+    } else {
+      setState(() {
+        _looks = ProfileMockData.savedLooks;
+      });
+    }
+  }
+
+  SavedLookDetail _toDetail(SavedLook look) {
+    final snapshot = look.snapshot;
+    final matchScore = (snapshot?['matchScore'] as num?)?.toDouble();
+    return SavedLookDetail(
+      id: look.id,
+      title: look.title,
+      score: matchScore == null ? 0 : (matchScore * 100).round(),
+      date: 'Saved ${_formatMonthDay(look.createdAt)}',
+      items: _footerLines(snapshot),
+    );
+  }
+
+  List<String> _footerLines(Map<String, dynamic>? snapshot) {
+    if (snapshot == null) return const [];
+    final description = snapshot['description'] as String?;
+    if (description != null && description.isNotEmpty) return [description];
+    final reasons = snapshot['reasons'] as List<dynamic>? ?? const [];
+    return reasons.whereType<String>().toList();
+  }
+
+  String _formatMonthDay(DateTime dt) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    final month = dt.month >= 1 && dt.month <= 12 ? months[dt.month - 1] : '?';
+    return '$month ${dt.day}';
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final looks = ProfileMockData.savedLooks;
+    final looks = _looks ?? ProfileMockData.savedLooks;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,

@@ -69,12 +69,20 @@ class SavedLook {
     required this.lookId,
     required this.title,
     required this.createdAt,
+    this.snapshot,
+    this.sourceRunId,
   });
 
   final String id;
   final String lookId;
   final String title;
   final DateTime createdAt;
+
+  /// The frozen recommendation snapshot stored at save time (endpoint #24).
+  final Map<String, dynamic>? snapshot;
+
+  /// The producing run's id, when provenance was captured.
+  final String? sourceRunId;
 
   factory SavedLook.fromJson(Map<String, dynamic> json) => SavedLook(
     id: json['id'] as String? ?? '',
@@ -83,6 +91,33 @@ class SavedLook {
     createdAt:
         DateTime.tryParse(json['created_at'] as String? ?? '') ??
         DateTime.fromMillisecondsSinceEpoch(0),
+    snapshot: json['snapshot'] as Map<String, dynamic>?,
+    sourceRunId: json['source_run_id'] as String?,
+  );
+}
+
+class SavedLookPage {
+  const SavedLookPage({
+    required this.items,
+    required this.page,
+    required this.pageSize,
+    required this.total,
+  });
+
+  final List<SavedLook> items;
+  final int page;
+  final int pageSize;
+  final int total;
+
+  bool get isEmpty => items.isEmpty;
+
+  factory SavedLookPage.fromJson(Map<String, dynamic> json) => SavedLookPage(
+    items: (json['items'] as List<dynamic>? ?? const [])
+        .map((e) => SavedLook.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    page: json['page'] as int? ?? 1,
+    pageSize: json['page_size'] as int? ?? 0,
+    total: json['total'] as int? ?? 0,
   );
 }
 

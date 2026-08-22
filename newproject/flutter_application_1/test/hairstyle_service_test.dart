@@ -89,7 +89,9 @@ class _FakeLearningRepository implements LearningRepository {
   void setStyleType(String styleType) {}
 
   @override
-  void addSavedLook(String title) {}
+  void addSavedLook(String title) {
+    recorded.add(LearningSignal(type: 'look_saved', label: title));
+  }
 
   @override
   void addPreferredOccasion(String occasion) {}

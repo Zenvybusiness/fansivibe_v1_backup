@@ -74,6 +74,7 @@ void main() {
   group('SavedLooksScreen Widget Tests', () {
     testWidgets('renders title and subtitle', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
+      await tester.pumpAndSettle();
 
       expect(find.text('6 Saved Looks'), findsOneWidget);
       expect(find.text('Your curated style collection'), findsOneWidget);
@@ -81,6 +82,7 @@ void main() {
 
     testWidgets('renders all saved looks', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
+      await tester.pumpAndSettle();
 
       expect(find.text('Modern Minimalist'), findsOneWidget);
       expect(find.text('Weekend Casual'), findsOneWidget);
@@ -92,6 +94,7 @@ void main() {
 
     testWidgets('renders scores', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
+      await tester.pumpAndSettle();
 
       expect(find.text('87%'), findsOneWidget);
       expect(find.text('91%'), findsOneWidget);
@@ -99,6 +102,7 @@ void main() {
 
     testWidgets('renders dates', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
+      await tester.pumpAndSettle();
 
       expect(find.text('Saved Jul 12'), findsOneWidget);
       expect(find.text('Saved Jul 10'), findsOneWidget);
@@ -106,6 +110,7 @@ void main() {
 
     testWidgets('renders item descriptions', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
+      await tester.pumpAndSettle();
 
       expect(find.textContaining('White Linen Shirt'), findsOneWidget);
       expect(find.textContaining('Navy Blazer'), findsOneWidget);
@@ -113,6 +118,7 @@ void main() {
 
     testWidgets('back button pops', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.arrow_back_rounded));
       await tester.pumpAndSettle();

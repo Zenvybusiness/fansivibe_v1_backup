@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -338,6 +339,11 @@ class HairstyleDetailsScreen extends StatelessWidget {
   Future<void> _saveStyle(BuildContext context) async {
     final owned = service == null;
     final svc = service ?? HairstyleService();
+    if (owned) {
+      // Keep the on-device memory in sync so a save here also records the
+      // look_saved signal and grows the saved-looks list (G-19).
+      svc.attachLearning(LearningService.instance);
+    }
     try {
       final ok = await svc.saveLook(
         recommendation: recommendation,

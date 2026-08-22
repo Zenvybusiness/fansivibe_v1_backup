@@ -1,4 +1,4 @@
-"""Looks API router — endpoint #23 (`POST /v1/looks/saved`).
+"""Looks API router — endpoints #23 (`POST /v1/looks/saved`) and #24 (`GET /v1/looks/saved`).
 
 Requires the contract's `Idempotency-Key` header (C-12/API-33). On replay
 returns the original save; on a conflicting replay returns 409.
@@ -6,14 +6,14 @@ returns the original save; on a conflicting replay returns 409.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.orm import Session
 from uuid import UUID
 
 from app.api.deps import get_current_user_id
 from app.api.errors import validation
-from app.api.schemas.saved_looks import SaveLookRequest, SavedLook
-from app.application.saved_looks import SaveRecommendation
+from app.api.schemas.saved_looks import SaveLookRequest, SavedLook, SavedLookList
+from app.application.saved_looks import ListSavedLooks, SaveRecommendation
 from app.infrastructure.db.repositories import (
     LearningSignalRepositorySQL,
     SavedLookRepositorySQL,
@@ -67,3 +67,25 @@ def save_look(
         idempotency_key=idempotency_key,
     )
     return _record_to_schema(record)
+
+
+@router.get(
+    "/saved",
+    response_model=SavedLookList,
+    responses={422: {"model": dict}, 401: {"model": dict}},
+)
+def list_saved_looks(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> SavedLookList:
+    """Paged saved-look list for the owner (createdAt desc; OW-1)."""
+    use_case = ListSavedLooks(saved_looks=SavedLookRepositorySQL(db))
+    items, total = use_case(user_id=user_id, page=page, page_size=page_size)
+    return SavedLookList(
+        items=[_record_to_schema(item) for item in items],
+        page=page,
+        page_size=page_size,
+        total=total,
+    )

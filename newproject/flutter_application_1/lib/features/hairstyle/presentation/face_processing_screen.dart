@@ -62,18 +62,20 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
       setState(() {});
       return;
     }
-    // Store the face profile from the analysis result so that cold-start
-    // users who complete a face scan gain a valid faceProfileRef for
-    // subsequent hairstyle analyses. This is the smallest valid path:
-    // NEW USER → Hairstyle → Face Scan → faceProfileRef → REAL analysis.
-    LearningService.instance.setFace(
-      FaceProfile(
-        faceShape: result.faceShape,
-        skinTone: result.skinTone,
-        bodyType: null,
-        styleType: result.styleDna.isNotEmpty ? result.styleDna.split('•').first : '',
-      ),
-    );
+    // Persist the face profile ONLY when the analysis resolved from a real
+    // backend result — never from the offline mock fallback (G-11). This
+    // keeps cold-start users who complete a real scan on the path to a valid
+    // face profile without ever storing mock-derived attributes as if real.
+    if (!_service.isMockResult) {
+      LearningService.instance.setFace(
+        FaceProfile(
+          faceShape: result.faceShape,
+          skinTone: result.skinTone,
+          bodyType: null,
+          styleType: result.styleDna.isNotEmpty ? result.styleDna.split('•').first : '',
+        ),
+      );
+    }
     _navigateToResult(result);
   }
 

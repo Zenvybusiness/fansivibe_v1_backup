@@ -4,15 +4,14 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/analytics/analytics_service.dart';
 
-class HairstyleResultScreen extends StatelessWidget {
+class HairstyleResultScreen extends StatefulWidget {
   const HairstyleResultScreen({super.key, this.result, this.service});
-
-  static final AnalyticsService _analytics = AnalyticsService.instance;
 
   /// The analysis result to render; falls back to the offline mock when null.
   final HairstyleAnalysisResult? result;
@@ -21,14 +20,27 @@ class HairstyleResultScreen extends StatelessWidget {
   final HairstyleService? service;
 
   @override
+  State<HairstyleResultScreen> createState() => _HairstyleResultScreenState();
+}
+
+class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
+  static final AnalyticsService _analytics = AnalyticsService.instance;
+
+  /// Once-guards so the experiment events emit exactly once per real result
+  /// (duplicate protection is structural, not tied to rebuilds).
+  bool _viewedEmitted = false;
+  bool _explanationEmitted = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasMock = result == null;
-    final resolved = result ?? HairstyleAnalysisResult.mock;
+    final hasMock = widget.result == null;
+    final resolved = widget.result ?? HairstyleAnalysisResult.mock;
 
     // Emit recommendations_viewed only for real backend recommendations,
-    // not mock/fallback data. Mock data must NOT produce experiment events.
-    if (!hasMock) {
+    // not mock/fallback data, and only once per real result.
+    if (!hasMock && !_viewedEmitted) {
+      _viewedEmitted = true;
       _analytics.emitRecommendationsViewed(
         recommendationId: resolved.topRecommendation.id,
         confidenceScore: resolved.topRecommendation.matchScore,
@@ -38,16 +50,14 @@ class HairstyleResultScreen extends StatelessWidget {
       );
     }
 
-    // Emit explanation_viewed when the explanation section is visible.
-    // The explanation is part of the fixed UI layout; we emit once when the
-    // screen first renders with a real result. time_in_view is null because
-    // precise scroll-position tracking would require fragile hacks that could
-    // produce duplicate events on rebuilds, which violates the duplicate
-    // protection requirement.
-    if (!hasMock) {
+    // Emit explanation_viewed exactly once per real result using the
+    // engine's grounded reasons (never a locally derived approximation).
+    // time_in_view is null because precise scroll-position tracking would
+    // require fragile hacks that could produce duplicate events on rebuilds.
+    if (!hasMock && !_explanationEmitted) {
+      _explanationEmitted = true;
       _analytics.emitExplanationViewed(
-        explanationText:
-            'Strongest match for your ${resolved.faceShape} face shape (+${(_buildExplanationFitFactor(resolved.topRecommendation.matchScore) * 100).round()} face-shape fit).',
+        explanationText: _groundedExplanation(resolved),
         timeInView: null,
       );
     }
@@ -136,9 +146,13 @@ class HairstyleResultScreen extends StatelessWidget {
     );
   }
 
-  double _buildExplanationFitFactor(double matchScore) {
-    // Simple confidence-to-fit mapping: higher match score = stronger fit
-    return matchScore.clamp(0.0, 1.0);
+  /// The engine's grounded reason sentences for the top recommendation. This
+  /// is the authoritative explanation per the analytics contract — never a
+  /// locally computed approximation of the match score.
+  String _groundedExplanation(HairstyleAnalysisResult result) {
+    final reasons = result.topRecommendation.reasons;
+    if (reasons.isEmpty) return 'No grounded explanation available.';
+    return reasons.join('. ');
   }
 
   Widget _buildStyleProfile(
@@ -268,7 +282,7 @@ class HairstyleResultScreen extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Confidence score based on your face shape analysis',
+          'Score reflects how well this fits your current profile \u2014 advice based on the data we have, not a guarantee.',
           style: theme.textTheme.bodySmall?.copyWith(
             color: FansivibeColors.textSecondary,
           ),
@@ -363,8 +377,13 @@ class HairstyleResultScreen extends StatelessWidget {
     BuildContext context,
     HairstyleRecommendation recommendation,
   ) async {
-    final owned = service == null;
-    final svc = service ?? HairstyleService();
+    final owned = widget.service == null;
+    final svc = widget.service ?? HairstyleService();
+    if (owned) {
+      // Keep the on-device memory in sync so a save here also records the
+      // look_saved signal and grows the saved-looks list (G-19).
+      svc.attachLearning(LearningService.instance);
+    }
     try {
       final ok = await svc.saveLook(
         recommendation: recommendation,
@@ -386,10 +405,12 @@ class HairstyleResultScreen extends StatelessWidget {
           ),
         ),
       );
+      // Authoritative save result: the key actually sent and whether the
+      // on-device look_saved signal committed (G-7).
       _analytics.emitRecommendationSaved(
         saveSuccess: ok,
-        idempotencyKey: '${DateTime.now().microsecondsSinceEpoch}',
-        lookSavedSignalCommitted: ok,
+        idempotencyKey: svc.lastIdempotencyKey ?? 'unknown',
+        lookSavedSignalCommitted: svc.lastSavedSignalCommitted,
         snackbarShown: snackbarShown,
       );
     } finally {

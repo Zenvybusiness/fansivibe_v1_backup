@@ -1,10 +1,14 @@
-"""Application use case — save a recommendation (UC-15).
+"""Application use case — save a recommendation (UC-15) and list saved looks.
 
-TRX-3 true transaction: the `saved_looks` insert and the `look_saved`
-learning signal commit together (all-or-nothing). Idempotent replay via the
-contract's `Idempotency-Key` (C-12/API-33): a repeated key with the same
-payload returns the original save; a repeated key with a different payload is
-a conflict. The save never mutates the producing run.
+Save (`SaveRecommendation`) is TRX-3 true transaction: the `saved_looks`
+insert and the `look_saved` learning signal commit together (all-or-nothing).
+Idempotent replay via the contract's `Idempotency-Key` (C-12/API-33): a
+repeated key with the same payload returns the original save; a repeated key
+with a different payload is a conflict. The save never mutates the producing
+run.
+
+List (`ListSavedLooks`) is the owner-scoped read surface for endpoint #24
+(`GET /v1/looks/saved`): paginated, `createdAt`-desc, no fabrication.
 """
 
 from __future__ import annotations
@@ -116,3 +120,23 @@ class SaveRecommendation:
                 message="Something went wrong while saving your data. Please try again.",
             )
         return saved, True
+
+
+class ListSavedLooks:
+    """List the owner's saved looks (endpoint #24 `GET /v1/looks/saved`).
+
+    Owner scoping is enforced by the repository (OW-1); rows are ordered
+    `createdAt` desc per PAGINATION_FILTERING §9.3. Missing rows are simply an
+    empty page — never fabricated.
+    """
+
+    def __init__(self, *, saved_looks: SavedLookRepository) -> None:
+        self._saved_looks = saved_looks
+
+    def __call__(
+        self, *, user_id: UUID, page: int, page_size: int
+    ) -> tuple[list[SavedLookRecord], int]:
+        """Returns (saved_look records, total count) for the owner."""
+        return self._saved_looks.list_for_user(
+            user_id=user_id, page=page, page_size=page_size
+        )
