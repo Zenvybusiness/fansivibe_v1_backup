@@ -1,4 +1,5 @@
-/mo# Fansivibe — Hairstyle Domain Blueprint
+/mo
+# Fansivibe — Hairstyle Domain Blueprint
 
 > **EXTRACTION (documentation only).** Describes the Hairstyle domain as it
 > actually exists in the repository — concepts, entities, flows, contracts,
