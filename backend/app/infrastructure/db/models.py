@@ -7,6 +7,9 @@ Tables (from `docs/database/TABLE_DEFINITIONS.md`):
 - ``analysis_runs``                (append-only history, P2)
 - ``saved_looks``                  (current state, immutable rows, P0)
 - ``learning_signals``             (append-only history, P0)
+- ``wardrobe_categories``          (P0 vocabulary reference, K9.1)
+- ``colors``                       (P0 vocabulary reference, K9.1)
+- ``materials``                    (P0 vocabulary reference, K9.1)
 
 History tables are append-only at the role-grant level (PR-5); the only
 permitted mutation of ``analysis_runs`` is the guarded completion write
@@ -197,3 +200,116 @@ class LearningSignals(Base):
     label: Mapped[str] = mapped_column(Text, nullable=False)
     context: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class WardrobeCategories(Base):
+    __tablename__ = "wardrobe_categories"
+    __table_args__ = (
+        CheckConstraint("char_length(label) BETWEEN 1 AND 100", name="ck_wardrobe_categories_label_len"),
+    )
+
+    code: Mapped[str] = mapped_column(
+        Text, primary_key=True, nullable=False
+    )
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Colors(Base):
+    __tablename__ = "colors"
+    __table_args__ = (
+        CheckConstraint("char_length(label) BETWEEN 1 AND 100", name="ck_colors_label_len"),
+    )
+
+    code: Mapped[str] = mapped_column(
+        Text, primary_key=True, nullable=False
+    )
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Materials(Base):
+    __tablename__ = "materials"
+    __table_args__ = (
+        CheckConstraint("char_length(label) BETWEEN 1 AND 100", name="ck_materials_label_len"),
+    )
+
+    code: Mapped[str] = mapped_column(
+        Text, primary_key=True, nullable=False
+    )
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class WardrobeItems(Base):
+    __tablename__ = "wardrobe_items"
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    category_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("wardrobe_categories.code", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    color_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("colors.code", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    material_id: Mapped[Optional[str]] = mapped_column(
+        Text,
+        ForeignKey("materials.code", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    is_favorite: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    image_ref: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

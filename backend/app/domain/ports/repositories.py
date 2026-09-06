@@ -52,6 +52,22 @@ class SavedLookRecord:
 
 
 @dataclass(frozen=True)
+class WardrobeItemRecord:
+    """A `wardrobe_items` row (owner-scoped read)."""
+
+    id: UUID
+    user_id: UUID
+    name: str
+    category: str
+    color: str
+    material: Optional[str]
+    is_favorite: bool
+    image_ref: Optional[dict[str, Any]]
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class UserProfileRecord:
     """The owner's current profile projection (UC-6 `GET /v1/users/me`).
 
@@ -123,6 +139,45 @@ class SavedLookRepository(Protocol):
     def commit(self) -> None: ...
 
     def rollback(self) -> None: ...
+
+
+class WardrobeItemRepository(Protocol):
+    """Wardrobe item repository protocol — OW-1 owner-scoping."""
+
+    def get_for_user(
+        self, *, user_id: UUID, page: int, page_size: int
+    ) -> tuple[list["WardrobeItemRecord"], int]: ...
+
+    def get_by_id(
+        self, *, user_id: UUID, item_id: UUID
+    ) -> Optional["WardrobeItemRecord"]: ...
+
+    def create(
+        self,
+        *,
+        user_id: UUID,
+        name: str,
+        category: str,
+        color: str,
+        material: Optional[str],
+        isFavorite: bool,
+    ) -> "WardrobeItemRecord": ...
+
+    def update(
+        self,
+        *,
+        user_id: UUID,
+        item_id: UUID,
+        name: Optional[str],
+        category: Optional[str],
+        color: Optional[str],
+        material: Optional[str],
+        isFavorite: Optional[bool],
+    ) -> Optional["WardrobeItemRecord"]: ...
+
+    def delete(
+        self, *, user_id: UUID, item_id: UUID
+    ) -> None: ...
 
 
 class LearningSignalRepository(Protocol):
