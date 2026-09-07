@@ -367,7 +367,23 @@ class OutfitIntelligence:
     confidence_level: OutfitConfidenceLevel
 
     data_availability: str  # 'full', 'partial', 'sparse'
+
+    selected_item_ids: list[str]  # IDs of selected wardrobe items, from ClothingIntelligence
+
+    outfit_composition: OutfitComposition  # selected items by category
+
     explanation: StylingExplanation
+
+
+@dataclass(frozen=True)
+class OutfitComposition:
+    """Selected wardrobe items grouped by category."""
+
+    top_ids: list[str]
+    bottom_ids: list[str]
+    outerwear_ids: list[str]
+    footwear_ids: list[str]
+    accessory_ids: list[str]
 
 
 @dataclass(frozen=True)

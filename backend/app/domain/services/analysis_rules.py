@@ -1083,7 +1083,7 @@ __all__ = [
 
 
 def compute_outfit_intelligence(
-    item_category: str,
+    clothing_intelligence: ClothingIntelligence,
     item_color: str,
     item_material: Optional[str],
     item_is_favorite: bool,
@@ -1117,6 +1117,7 @@ def compute_outfit_intelligence(
         OutfitConflict,
         OutfitConfidenceLevel,
         OutfitIntelligence,
+        OutfitComposition,
         SeasonSuitability,
         Formality,
         StylingExplanation,
@@ -1126,16 +1127,10 @@ def compute_outfit_intelligence(
     )
 
     # ------------------------------------------------------------------
-    # 1. Reuse ClothingIntelligence from Steps 6A-6C
+    # 1. Reuse pre-computed ClothingIntelligence (STEP 7C)
     # ------------------------------------------------------------------
-    clothing_result = compute_clothing_intelligence(
-        item_category=item_category,
-        item_color=item_color,
-        item_material=item_material,
-        item_is_favorite=item_is_favorite,
-        wardrobe_context=wardrobe_context,
-        preferred_occasions=preferred_occasions,
-    )
+    clothing_result = clothing_intelligence
+    item_category = clothing_result.item_category
 
     # ------------------------------------------------------------------
     # 2. Category pairing (compatible categories from the item's category)
@@ -1379,6 +1374,8 @@ def compute_outfit_intelligence(
         confidence_level=confidence_level,
         data_availability=data_availability,
         explanation=explanation,
+        selected_item_ids=[],  # will be populated by Assistant engine
+        outfit_composition=OutfitComposition(top_ids=[], bottom_ids=[], outerwear_ids=[], footwear_ids=[], accessory_ids=[]),
     )
 
     return result

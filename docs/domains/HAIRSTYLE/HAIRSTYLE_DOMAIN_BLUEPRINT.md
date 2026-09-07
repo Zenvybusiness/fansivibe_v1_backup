@@ -1,4 +1,4 @@
-/mo
+
 # Fansivibe — Hairstyle Domain Blueprint
 
 > **EXTRACTION (documentation only).** Describes the Hairstyle domain as it

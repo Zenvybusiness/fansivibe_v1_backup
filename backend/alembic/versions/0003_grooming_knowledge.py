@@ -262,7 +262,8 @@ def _seed() -> None:
     for i, (code, label) in enumerate(ALL_RUN_TYPES):
         op.execute(
             f"INSERT INTO run_types (code, label, sort_order) "
-            f"VALUES ({_q(code)}, {_q(label)}, {i})"
+            f"VALUES ({_q(code)}, {_q(label)}, {i}) "
+            f"ON CONFLICT (code) DO NOTHING"
         )
 
     # Looks — add all entries (existing hairstyle + new grooming)
@@ -270,7 +271,8 @@ def _seed() -> None:
         op.execute(
             f"INSERT INTO looks (code, title, content_version, payload, published_at) "
             f"VALUES ({_q(code)}, {_q(title)}, {_q(version)}, "
-            f"CAST({_q(json.dumps(payload))} AS jsonb), now())"
+            f"CAST({_q(json.dumps(payload))} AS jsonb), now()) "
+            f"ON CONFLICT (code) DO NOTHING"
         )
 
 

@@ -248,7 +248,6 @@ class AssistantMessage {
     this.cards = const [],
     this.clarifications = const [],
     this.navigation,
-    this.outfitIntelligence,
     this.pending = false,
   });
 
@@ -257,24 +256,18 @@ class AssistantMessage {
   final List<SuggestionCard> cards;
   final List<ClarificationOption> clarifications;
   final NavigationRequest? navigation;
-  final OutfitIntelligence? outfitIntelligence;
 
   /// True while waiting for the backend reply (typing indicator).
   final bool pending;
 
   bool get isUser => role == 'user';
 
-  AssistantMessage copyWith({
-    String? text,
-    bool? pending,
-    OutfitIntelligence? outfitIntelligence,
-  }) => AssistantMessage(
+  AssistantMessage copyWith({String? text, bool? pending}) => AssistantMessage(
     role: role,
     text: text ?? this.text,
     cards: cards,
     clarifications: clarifications,
     navigation: navigation,
-    outfitIntelligence: outfitIntelligence ?? this.outfitIntelligence,
     pending: pending ?? this.pending,
   );
 }

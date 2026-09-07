@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'package:fansivibe/features/assistant/presentation/widgets/outfit_recommendation_card.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+
 import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -151,6 +154,15 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
             ],
+            if (message.outfitIntelligence != null) ...[
+              const SizedBox(height: FansivibeSpacing.md),
+              OutfitRecommendationCard(
+                outfitIntelligence: message.outfitIntelligence!,
+                wardrobeItems: message.outfitIntelligence?.selectedItemIds.isNotEmpty == true
+                    ? [] // Will be resolved internally, or pass empty for now
+                    : [],
+              ),
+            ]
           ],
         ),
       ),

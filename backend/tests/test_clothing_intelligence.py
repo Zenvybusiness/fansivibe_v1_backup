@@ -328,10 +328,24 @@ def test_styling_explanation_creation():
 
 def test_outfit_intelligence_full_casual():
     """Test full casual outfit with complete data."""
-    from app.domain.services.analysis_rules import compute_outfit_intelligence
+    from app.domain.services.analysis_rules import compute_outfit_intelligence, compute_clothing_intelligence
+
+    ci = compute_clothing_intelligence(
+        item_category="tops",
+        item_color="charcoal",
+        item_material="wool",
+        item_is_favorite=True,
+        wardrobe_context=WardrobeContext(
+            total_items=24,
+            favorite_count=8,
+            items_per_category={"tops": 8, "bottoms": 5, "outerwear": 4, "footwear": 4, "accessories": 3},
+            style_score=87,
+        ),
+        preferred_occasions=["casual", "office", "travel"],
+    )
 
     result = compute_outfit_intelligence(
-        item_category="tops",
+        ci,
         item_color="charcoal",
         item_material="wool",
         item_is_favorite=True,
@@ -369,10 +383,24 @@ def test_outfit_intelligence_full_casual():
 
 def test_outfit_intelligence_full_office():
     """Test full office outfit with complete data."""
-    from app.domain.services.analysis_rules import compute_outfit_intelligence
+    from app.domain.services.analysis_rules import compute_outfit_intelligence, compute_clothing_intelligence
+
+    ci = compute_clothing_intelligence(
+        item_category="tops",
+        item_color="navy",
+        item_material="cotton",
+        item_is_favorite=False,
+        wardrobe_context=WardrobeContext(
+            total_items=30,
+            favorite_count=5,
+            items_per_category={"tops": 10, "bottoms": 7, "outerwear": 5, "footwear": 5, "accessories": 4},
+            style_score=91,
+        ),
+        preferred_occasions=["office", "date"],
+    )
 
     result = compute_outfit_intelligence(
-        item_category="tops",
+        ci,
         item_color="navy",
         item_material="cotton",
         item_is_favorite=False,
@@ -403,10 +431,24 @@ def test_outfit_intelligence_full_office():
 
 def test_outfit_intelligence_sparse_wardrobe():
     """Test sparse wardrobe (<3 items) → low data availability (STEP 7A)."""
-    from app.domain.services.analysis_rules import compute_outfit_intelligence
+    from app.domain.services.analysis_rules import compute_outfit_intelligence, compute_clothing_intelligence
+
+    ci = compute_clothing_intelligence(
+        item_category="bottoms",
+        item_color="black",
+        item_material="cotton",
+        item_is_favorite=False,
+        wardrobe_context=WardrobeContext(
+            total_items=2,  # sparse: <3 items per STEP 7A
+            favorite_count=1,
+            items_per_category={"tops": 1, "bottoms": 1, "outerwear": 0, "footwear": 0, "accessories": 0},
+            style_score=70,
+        ),
+        preferred_occasions=["casual"],
+    )
 
     result = compute_outfit_intelligence(
-        item_category="bottoms",
+        ci,
         item_color="black",
         item_material="cotton",
         item_is_favorite=False,
@@ -428,10 +470,24 @@ def test_outfit_intelligence_sparse_wardrobe():
 
 def test_outfit_intelligence_missing_categories():
     """Test with item category that has limited coverage."""
-    from app.domain.services.analysis_rules import compute_outfit_intelligence
+    from app.domain.services.analysis_rules import compute_outfit_intelligence, compute_clothing_intelligence
+
+    ci = compute_clothing_intelligence(
+        item_category="accessories",
+        item_color="brown",
+        item_material="leather",
+        item_is_favorite=True,
+        wardrobe_context=WardrobeContext(
+            total_items=15,
+            favorite_count=3,
+            items_per_category={"tops": 6, "bottoms": 5, "outerwear": 3, "footwear": 4, "accessories": 1},
+            style_score=80,
+        ),
+        preferred_occasions=["casual", "date"],
+    )
 
     result = compute_outfit_intelligence(
-        item_category="accessories",
+        ci,
         item_color="brown",
         item_material="leather",
         item_is_favorite=True,
@@ -458,10 +514,24 @@ def test_outfit_intelligence_missing_categories():
 
 def test_outfit_intelligence_color_conflict():
     """Test color conflict detection with bright synthetic item."""
-    from app.domain.services.analysis_rules import compute_outfit_intelligence
+    from app.domain.services.analysis_rules import compute_outfit_intelligence, compute_clothing_intelligence
+
+    ci = compute_clothing_intelligence(
+        item_category="tops",
+        item_color="red",
+        item_material="polyester",  # synthetic → color conflict
+        item_is_favorite=False,
+        wardrobe_context=WardrobeContext(
+            total_items=24,
+            favorite_count=8,
+            items_per_category={"tops": 8, "bottoms": 5, "outerwear": 4, "footwear": 4, "accessories": 3},
+            style_score=87,
+        ),
+        preferred_occasions=["casual"],
+    )
 
     result = compute_outfit_intelligence(
-        item_category="tops",
+        ci,
         item_color="red",
         item_material="polyester",  # synthetic → color conflict
         item_is_favorite=False,
@@ -484,10 +554,24 @@ def test_outfit_intelligence_color_conflict():
 
 def test_outfit_intelligence_unknown_occasion():
     """Test with occasion not supported by category."""
-    from app.domain.services.analysis_rules import compute_outfit_intelligence
+    from app.domain.services.analysis_rules import compute_outfit_intelligence, compute_clothing_intelligence
+
+    ci = compute_clothing_intelligence(
+        item_category="footwear",
+        item_color="brown",
+        item_material="leather",
+        item_is_favorite=False,
+        wardrobe_context=WardrobeContext(
+            total_items=24,
+            favorite_count=8,
+            items_per_category={"tops": 8, "bottoms": 5, "outerwear": 4, "footwear": 4, "accessories": 3},
+            style_score=87,
+        ),
+        preferred_occasions=["travel"],  # footwear supports travel, but let's test edge
+    )
 
     result = compute_outfit_intelligence(
-        item_category="footwear",
+        ci,
         item_color="brown",
         item_material="leather",
         item_is_favorite=False,
@@ -518,10 +602,24 @@ def test_outfit_intelligence_unknown_occasion():
 
 def test_outfit_intelligence_low_clothing_intelligence_confidence():
     """Test when ClothingIntelligence has low confidence → OutfitIntelligence reflects it (STEP 7A)."""
-    from app.domain.services.analysis_rules import compute_outfit_intelligence
+    from app.domain.services.analysis_rules import compute_outfit_intelligence, compute_clothing_intelligence
+
+    ci = compute_clothing_intelligence(
+        item_category="unknown",  # unknown category → low confidence
+        item_color="",
+        item_material=None,
+        item_is_favorite=False,
+        wardrobe_context=WardrobeContext(
+            total_items=24,
+            favorite_count=8,
+            items_per_category={"tops": 8, "bottoms": 5, "outerwear": 4, "footwear": 4, "accessories": 3},
+            style_score=87,
+        ),
+        preferred_occasions=[],
+    )
 
     result = compute_outfit_intelligence(
-        item_category="unknown",  # unknown category → low confidence
+        ci,
         item_color="",
         item_material=None,
         item_is_favorite=False,
@@ -544,9 +642,9 @@ def test_outfit_intelligence_low_clothing_intelligence_confidence():
 
 def test_outfit_intelligence_favorite_boost():
     """Test that favorite items receive a confidence boost."""
-    from app.domain.services.analysis_rules import compute_outfit_intelligence
+    from app.domain.services.analysis_rules import compute_outfit_intelligence, compute_clothing_intelligence
 
-    result_fav = compute_outfit_intelligence(
+    ci_fav = compute_clothing_intelligence(
         item_category="tops",
         item_color="charcoal",
         item_material="wool",
@@ -560,8 +658,36 @@ def test_outfit_intelligence_favorite_boost():
         preferred_occasions=["casual"],
     )
 
-    result_non_fav = compute_outfit_intelligence(
+    ci_non_fav = compute_clothing_intelligence(
         item_category="tops",
+        item_color="charcoal",
+        item_material="wool",
+        item_is_favorite=False,
+        wardrobe_context=WardrobeContext(
+            total_items=24,
+            favorite_count=8,
+            items_per_category={"tops": 8, "bottoms": 5, "outerwear": 4, "footwear": 4, "accessories": 3},
+            style_score=87,
+        ),
+        preferred_occasions=["casual"],
+    )
+
+    result_fav = compute_outfit_intelligence(
+        ci_fav,
+        item_color="charcoal",
+        item_material="wool",
+        item_is_favorite=True,
+        wardrobe_context=WardrobeContext(
+            total_items=24,
+            favorite_count=8,
+            items_per_category={"tops": 8, "bottoms": 5, "outerwear": 4, "footwear": 4, "accessories": 3},
+            style_score=87,
+        ),
+        preferred_occasions=["casual"],
+    )
+
+    result_non_fav = compute_outfit_intelligence(
+        ci_non_fav,
         item_color="charcoal",
         item_material="wool",
         item_is_favorite=False,

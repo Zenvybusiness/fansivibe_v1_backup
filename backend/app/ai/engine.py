@@ -20,6 +20,8 @@ from app.models.schemas import (
     AssistantRequest,
     ClarificationOption,
     NavigationRequest,
+    OutfitIntelligence,
+    OutfitComposition,
     SuggestionCard,
     UserContext,
 )
@@ -200,9 +202,9 @@ def handle(request: AssistantRequest) -> AssistantReply:
                 preferred_occasions=user.preferredOccasions if user else [],
             )
 
-            # Compute outfit intelligence (STEP 7C)
+            # Compute outfit intelligence (STEP 7C) — reuse pre-computed CI
             outfit = compute_outfit_intelligence(
-                item_category=item_category,
+                clothing_intelligence=intelligence,
                 item_color=item_color,
                 item_material=item_material,
                 item_is_favorite=item_is_favorite,
@@ -272,6 +274,36 @@ def handle(request: AssistantRequest) -> AssistantReply:
                 action="open_wardrobe",
             ))
 
+            # Selected item IDs card (STEP 7C.2)
+            if outfit.selected_item_ids:
+                cards.append(SuggestionCard(
+                    kind="clothing_intelligence",
+                    title=f"Selected Items: {len(outfit.selected_item_ids)}",
+                    subtitle=", ".join(outfit.selected_item_ids[:4]) + ("..." if len(outfit.selected_item_ids) > 4 else ""),
+                    action="open_wardrobe",
+                ))
+
+            # Outfit composition by category card (STEP 7C.2)
+            comp = outfit.outfit_composition
+            comp_parts = []
+            if comp.top_ids:
+                comp_parts.append(f"Top(s): {len(comp.top_ids)}")
+            if comp.bottom_ids:
+                comp_parts.append(f"Bottom(s): {len(comp.bottom_ids)}")
+            if comp.outerwear_ids:
+                comp_parts.append(f"Outerwear: {len(comp.outerwear_ids)}")
+            if comp.footwear_ids:
+                comp_parts.append(f"Footwear: {len(comp.footwear_ids)}")
+            if comp.accessory_ids:
+                comp_parts.append(f"Accessories: {len(comp.accessory_ids)}")
+            if comp_parts:
+                cards.append(SuggestionCard(
+                    kind="clothing_intelligence",
+                    title="Outfit Composition",
+                    subtitle=" | ".join(comp_parts),
+                    action="open_wardrobe",
+                ))
+
             # Combined text: wardrobe summary + intelligence explanation + outfit info
             conf_disclaimer_text = ""
             if outfit.data_availability == "sparse":
@@ -279,10 +311,19 @@ def handle(request: AssistantRequest) -> AssistantReply:
             elif outfit.data_availability == "partial":
                 conf_disclaimer_text = " Based on partial wardrobe data."
 
+            # Build category-specific item ID mapping for the Assistant response
+            item_id_map = {}
+            for item_id in outfit.selected_item_ids:
+                # Parse item IDs to categorize them - use first letter or known mapping
+                # This is a best-effort mapping; the client should use the wardrobe screen for full details
+                item_id_map.setdefault("all", []).append(item_id)
+
             text = f"Here's what I know about your wardrobe. {explanation_text}{outfit.confidence:.1f}/1.0 ({outfit.confidence_level.level}){conf_disclaimer_text}"
         else:
             text = cards[0].subtitle if cards else tools.unknown_reply()
         reply = AssistantReply(intent=it, text=text, cards=cards)
+        if it == intent.INTENT_OUTFIT:
+            reply.outfitIntelligence = outfit  # type: ignore[assignment]
 
     # --- Optional LLM enrichment (server-side, never changes structure) ----
     if llm_backend.is_available() and reply.text:

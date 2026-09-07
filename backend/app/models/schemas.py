@@ -67,9 +67,30 @@ class NavigationRequest(BaseModel):
     label: str
 
 
+class OutfitComposition(BaseModel):
+    topIds: List[str] = Field(default_factory=list)
+    bottomIds: List[str] = Field(default_factory=list)
+    outerwearIds: List[str] = Field(default_factory=list)
+    footwearIds: List[str] = Field(default_factory=list)
+    accessoryIds: List[str] = Field(default_factory=list)
+    styleScore: int = 0
+
+
+class OutfitIntelligence(BaseModel):
+    selectedItemIds: List[str] = Field(default_factory=list)
+    outfitComposition: OutfitComposition = Field(default_factory=OutfitComposition)
+    occasion: str = ''
+    stylingRationale: str = ''
+    compatibilityRationale: str = ''
+    confidence: float = 0.0
+    explanation: str = ''
+    dataAvailability: str = 'full'
+
+
 class AssistantReply(BaseModel):
     intent: str
     text: str
     cards: List[SuggestionCard] = Field(default_factory=list)
     clarifications: List[ClarificationOption] = Field(default_factory=list)
     navigation: Optional[NavigationRequest] = None
+    outfitIntelligence: Optional[OutfitIntelligence] = None

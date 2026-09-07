@@ -77,6 +77,7 @@ class AssistantService extends ChangeNotifier {
       cards: result.cards,
       clarifications: result.clarifications,
       navigation: result.navigation,
+      outfitIntelligence: result.outfitIntelligence,
     );
     _isSending = false;
     _safeNotify();
