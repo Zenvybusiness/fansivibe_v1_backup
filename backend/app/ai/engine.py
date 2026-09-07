@@ -24,7 +24,7 @@ from app.models.schemas import (
     UserContext,
 )
 from app.data import catalog
-from app.domain.services.analysis_rules import compute_clothing_intelligence
+from app.domain.services.analysis_rules import compute_clothing_intelligence, compute_outfit_intelligence
 
 _OUTFIT_CLARIFICATION = [
     ClarificationOption(label="Casual", value="casual"),
@@ -200,7 +200,17 @@ def handle(request: AssistantRequest) -> AssistantReply:
                 preferred_occasions=user.preferredOccasions if user else [],
             )
 
-            # Build explanation text with confidence disclaimer
+            # Compute outfit intelligence (STEP 7C)
+            outfit = compute_outfit_intelligence(
+                item_category=item_category,
+                item_color=item_color,
+                item_material=item_material,
+                item_is_favorite=item_is_favorite,
+                wardrobe_context=wardrobe_context,
+                preferred_occasions=user.preferredOccasions if user else [],
+            )
+
+            # Build explanation text with confidence disclaimer (STEP 6)
             conf = intelligence.confidence
             conf_disclaimer = ""
             if conf < 0.5:
@@ -231,8 +241,45 @@ def handle(request: AssistantRequest) -> AssistantReply:
                     action="open_wardrobe",
                 ))
 
-            # Combined text: wardrobe summary + intelligence explanation
-            text = f"Here's what I know about your wardrobe. {explanation_text}"
+            # Outfit intelligence cards (STEP 7C)
+            # Confidence level card
+            cards.append(SuggestionCard(
+                kind="clothing_intelligence",
+                title=f"Confidence: {outfit.confidence_level.level}",
+                subtitle=f"{outfit.confidence:.1f}/1.0",
+                action="open_wardrobe",
+            ))
+
+            # Data availability card
+            availability_text = ""
+            if outfit.data_availability == "sparse":
+                availability_text = "Based on limited wardrobe data"
+            elif outfit.data_availability == "partial":
+                availability_text = "Based on partial wardrobe data"
+            if availability_text:
+                cards.append(SuggestionCard(
+                    kind="clothing_intelligence",
+                    title=f"Data Availability",
+                    subtitle=availability_text,
+                    action="open_wardrobe",
+                ))
+
+            # Coverage card
+            cards.append(SuggestionCard(
+                kind="clothing_intelligence",
+                title=f"Coverage: {len(outfit.outfit_coverage.missing_categories)}/5 categories missing",
+                subtitle=f"Ratio: {outfit.outfit_coverage.coverage_ratio:.0%}",
+                action="open_wardrobe",
+            ))
+
+            # Combined text: wardrobe summary + intelligence explanation + outfit info
+            conf_disclaimer_text = ""
+            if outfit.data_availability == "sparse":
+                conf_disclaimer_text = " Based on limited wardrobe data."
+            elif outfit.data_availability == "partial":
+                conf_disclaimer_text = " Based on partial wardrobe data."
+
+            text = f"Here's what I know about your wardrobe. {explanation_text}{outfit.confidence:.1f}/1.0 ({outfit.confidence_level.level}){conf_disclaimer_text}"
         else:
             text = cards[0].subtitle if cards else tools.unknown_reply()
         reply = AssistantReply(intent=it, text=text, cards=cards)

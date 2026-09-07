@@ -289,6 +289,88 @@ class StylingExplanation:
 
 
 @dataclass(frozen=True)
+class OutfitConflict:
+    """A detected conflict in an outfit combination."""
+
+    type: str  # e.g. 'color_conflict', 'seasonal_conflict', 'formality_mismatch'
+    severity: str  # 'mild', 'moderate', 'severe'
+    description: str
+
+
+@dataclass(frozen=True)
+class OutfitConfidenceLevel:
+    """Maps a confidence float to a human-readable level."""
+
+    level: str  # 'strong', 'reasonable', 'insufficient'
+    range_start: float
+    range_end: float
+
+
+@dataclass(frozen=True)
+class OutfitHarmony:
+    """Color harmony assessment for an outfit."""
+
+    is_harmonious: bool
+    rationale: str
+    accent_color: str
+
+
+@dataclass(frozen=True)
+class OutfitFormalityBalance:
+    """Formality balance assessment for an outfit."""
+
+    is_balanced: bool
+    formality_desc: str
+    items: list[str]
+
+
+@dataclass(frozen=True)
+class OutfitCoverage:
+    """Category coverage assessment for an outfit."""
+
+    covered_categories: list[str]
+    missing_categories: list[str]
+    coverage_ratio: float
+
+
+@dataclass(frozen=True)
+class OutfitIntelligence:
+    """The minimum viable Outfit Intelligence result.
+
+    Built on top of ClothingIntelligence from Steps 6A-6C, adding
+    outfit-level assessment: category pairing, color harmony,
+    seasonal consistency, formality balance, favorite boost,
+    occasion handling, category coverage, sparse wardrobe handling,
+    conflicts, confidence, confidence level, data availability,
+    and explanation.
+    """
+
+    item_id: str
+    item_category: str
+    item_color: str
+    item_is_favorite: bool
+
+    wardrobe_context: "WardrobeContext"
+
+    clothing_intelligence: ClothingIntelligence
+
+    compatible_categories: list[CompatibleCategory]
+    suitable_occasions: list[OccasionContext]
+
+    color_harmony: OutfitHarmony
+    formality_balance: OutfitFormalityBalance
+    outfit_coverage: OutfitCoverage
+
+    conflicts: list[OutfitConflict]
+
+    confidence: float  # 0.0–1.0, derived from data availability + outfit rules
+    confidence_level: OutfitConfidenceLevel
+
+    data_availability: str  # 'full', 'partial', 'sparse'
+    explanation: StylingExplanation
+
+
+@dataclass(frozen=True)
 class ClothingIntelligence:
     """The minimum viable Clothing Intelligence result.
 

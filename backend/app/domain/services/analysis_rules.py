@@ -1068,4 +1068,317 @@ def _build_explanation_clothing_intelligence(
 __all__ = [
     "compute_clothing_intelligence",
     "_build_explanation_clothing_intelligence",
+    "compute_outfit_intelligence",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Outfit Intelligence — deterministic rules (CL-1)
+# Builds on ClothingIntelligence from Steps 6A-6C, adding outfit-level
+# assessment: category pairing, color harmony, seasonal consistency,
+# formality balance, favorite boost, occasion handling, category coverage,
+# sparse wardrobe handling, conflicts, confidence, confidence level,
+# data availability, and explanation.
+# ---------------------------------------------------------------------------
+
+
+def compute_outfit_intelligence(
+    item_category: str,
+    item_color: str,
+    item_material: Optional[str],
+    item_is_favorite: bool,
+    wardrobe_context: WardrobeContext,
+    preferred_occasions: list[str],
+) -> OutfitIntelligence:
+    """Run the Outfit Intelligence engine — deterministic rules only.
+
+    Builds on the ClothingIntelligence result from Steps 6A-6C, adding
+    outfit-level assessment. No AI provider calls, no DB changes, no new
+    endpoints. Confidence follows STEP 7A exactly.
+
+    Confidence formula (STEP 7A):
+      base = 0.5
+      + category coverage adjustment
+      + favorite adjustment
+      - missing-category penalty
+      - seasonal conflict penalty
+      - color conflict penalty
+      + seasonal consistency / color harmony bonuses
+      then clamp 0.0–1.0
+      then map to strong / reasonable / insufficient
+    """
+    from app.domain.value_objects import (
+        ClothingIntelligence,
+        ColorCharacteristics,
+        MaterialCharacteristics,
+        OutfitHarmony,
+        OutfitFormalityBalance,
+        OutfitCoverage,
+        OutfitConflict,
+        OutfitConfidenceLevel,
+        OutfitIntelligence,
+        SeasonSuitability,
+        Formality,
+        StylingExplanation,
+        CompatibleCategory,
+        OccasionContext,
+        WardrobeContext,
+    )
+
+    # ------------------------------------------------------------------
+    # 1. Reuse ClothingIntelligence from Steps 6A-6C
+    # ------------------------------------------------------------------
+    clothing_result = compute_clothing_intelligence(
+        item_category=item_category,
+        item_color=item_color,
+        item_material=item_material,
+        item_is_favorite=item_is_favorite,
+        wardrobe_context=wardrobe_context,
+        preferred_occasions=preferred_occasions,
+    )
+
+    # ------------------------------------------------------------------
+    # 2. Category pairing (compatible categories from the item's category)
+    # ------------------------------------------------------------------
+    compatible = _get_compatible_categories(item_category)
+
+    # ------------------------------------------------------------------
+    # 3. Suitable occasions (from ClothingIntelligence + preference blending)
+    # ------------------------------------------------------------------
+    occasions = _get_suitable_occasions(item_category, preferred_occasions)
+
+    # ------------------------------------------------------------------
+    # 4. Color harmony assessment
+    # ------------------------------------------------------------------
+    is_neutral = item_color in _NEUTRAL_COLOR_CODES
+    mat_is_natural = (
+        _is_natural_material(item_material) if item_material else False
+    )
+    # Two items are harmonious if both are neutral, both are natural in
+    similar_neutral = is_neutral and mat_is_natural
+    # If we have a material and it's natural + color is neutral -> harmonious
+    # If both colors are neutral -> harmonious
+    # Simple heuristic: harmonious when color is neutral OR material is natural
+    if is_neutral or mat_is_natural:
+        harmony_is_harmonious = True
+        harmony_rationale = "Neutral color and natural material promote harmony"
+        harmony_accent_color = item_color
+    else:
+        harmony_is_harmonious = False
+        harmony_rationale = "Bright color with synthetic material — consider accent coordination"
+        harmony_accent_color = item_color
+
+    harmony = OutfitHarmony(
+        is_harmonious=harmony_is_harmonious,
+        rationale=harmony_rationale,
+        accent_color=harmony_accent_color,
+    )
+
+    # ------------------------------------------------------------------
+    # 5. Formality balance assessment
+    # ------------------------------------------------------------------
+    cat_formality = _CATEGORY_FORMALITY.get(
+        item_category, {"is_formal": False, "is_casual": True, "is_business": False}
+    )
+    true_keys = [k for k, v in cat_formality.items() if v]
+    formality_desc = "; ".join(
+        ["Formal attire" if k == "is_formal" else "Casual attire" if k == "is_casual" else "Business attire" for k in true_keys]
+    ) if true_keys else "Attire classification"
+    is_balanced = len(true_keys) <= 1  # single focus (formal OR casual) is balanced
+    formality_balance = OutfitFormalityBalance(
+        is_balanced=is_balanced,
+        formality_desc=formality_desc,
+        items=[item_category],
+    )
+
+    # ------------------------------------------------------------------
+    # 6. Outfit coverage (category coverage + sparse wardrobe handling)
+    # ------------------------------------------------------------------
+    all_categories = {
+        "tops", "bottoms", "outerwear", "footwear", "accessories"
+    }
+    item_categories = {item_category}
+    covered_categories = [cat for cat in all_categories if cat in item_categories]
+    missing_categories = [cat for cat in all_categories if cat not in item_categories]
+
+    total_wardrobe_categories = len(wardrobe_context.items_per_category)
+    wardrobe_size = wardrobe_context.total_items
+    # Coverage ratio: fraction of standard wardrobe categories the item belongs to
+    # plus a bonus for having a fuller wardrobe
+    if wardrobe_size >= 20:
+        coverage_ratio = min(1.0, len(covered_categories) / 5.0 + 0.1 * (wardrobe_size / 20.0))
+    else:
+        coverage_ratio = len(covered_categories) / 5.0
+
+    # Sparse wardrobe: <3 items is the sparse/minimal wardrobe condition (STEP 7A)
+    is_sparse = wardrobe_size < 3
+    data_availability = "sparse" if is_sparse else ("partial" if wardrobe_size < 20 else "full")
+
+    coverage = OutfitCoverage(
+        covered_categories=covered_categories,
+        missing_categories=missing_categories,
+        coverage_ratio=round(coverage_ratio, 2),
+    )
+
+    # ------------------------------------------------------------------
+    # 7. Conflict detection
+    # ------------------------------------------------------------------
+    conflicts: list[OutfitConflict] = []
+
+    # Color conflict: if the item color is bright and material is synthetic
+    if not is_neutral and not mat_is_natural:
+        conflicts.append(
+            OutfitConflict(
+                type="color_conflict",
+                severity="moderate",
+                description=f"{item_color} with synthetic material may not coordinate easily",
+            )
+        )
+
+    # Seasonal conflict: check if material season conflicts with item category season
+    cat_seasons = _CATEGORY_SEASON_MAP.get(item_category, set())
+    mat_seasons = _get_season_for_material(item_material) if item_material else set()
+    conflict_seasons = cat_seasons & mat_seasons  # overlap is fine, conflict is opposite
+    # Actually, conflict is when the material season is NOT in the category seasons
+    if item_material and not (mat_seasons & cat_seasons):
+        # Material season doesn't match category seasons at all
+        conflicts.append(
+            OutfitConflict(
+                type="seasonal_conflict",
+                severity="mild",
+                description=f"{item_material} may not be optimal for {item_category} season",
+            )
+        )
+
+    # Formality mismatch: if item is in a category that strongly leans one way
+    # and we have strong formality signals
+    if not is_balanced and len(conflicts) < 2:
+        conflicts.append(
+            OutfitConflict(
+                type="formality_mismatch",
+                severity="mild",
+                description=f"{item_category} tends toward {formality_desc.lower()}",
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # 8. Confidence calculation (STEP 7A exactly)
+    # ------------------------------------------------------------------
+    # STEP 7A confidence formula:
+    #   base = 0.5
+    #   + category coverage adjustment
+    #   + favorite adjustment
+    #   - missing-category penalty
+    #   - seasonal conflict penalty
+    #   - color conflict penalty
+    #   + seasonal consistency / color harmony bonuses
+    #   clamp 0.0–1.0
+    #   map to strong / reasonable / insufficient
+
+    has_all_fields = item_material is not None and item_color and item_category
+    has_preferences = len(preferred_occasions) > 0
+    is_fav = item_is_favorite
+
+    # Category coverage adjustment: full coverage = +0.1, partial = +0.05, sparse = 0
+    if coverage_ratio >= 1.0:
+        coverage_adjustment = 0.1
+    elif coverage_ratio >= 0.5:
+        coverage_adjustment = 0.05
+    else:
+        coverage_adjustment = 0.0
+
+    # Favorite adjustment
+    fav_adjustment = 0.05 if is_fav else 0.0
+
+    # Missing-category penalty: penalize if categories are missing
+    missing_penalty = 0.0 if coverage_ratio >= 1.0 else (-0.1 if coverage_ratio < 0.3 else -0.05)
+
+    # Seasonal conflict penalty
+    seasonal_conflict_penalty = -0.05 if conflicts else 0.0
+
+    # Color conflict penalty
+    color_conflict_penalty = -0.05 if any(c.type == "color_conflict" for c in conflicts) else 0.0
+
+    # Seasonal consistency / color harmony bonuses
+    harmony_bonus = 0.05 if harmony_is_harmonious else 0.0
+    consistency_bonus = 0.05 if is_balanced else 0.0
+
+    # Base computation
+    confidence_raw = (
+        0.5  # base
+        + coverage_adjustment
+        + fav_adjustment
+        + missing_penalty
+        + seasonal_conflict_penalty
+        + color_conflict_penalty
+        + harmony_bonus
+        + consistency_bonus
+    )
+
+    # Clamp 0.0–1.0
+    confidence = max(0.0, min(1.0, round(confidence_raw, 2)))
+
+    # Map to confidence level (STEP 7A exactly)
+    if confidence >= 0.7:
+        level = "strong"
+    elif confidence >= 0.3:
+        level = "reasonable"
+    else:
+        level = "insufficient"
+
+    confidence_level = OutfitConfidenceLevel(
+        level=level,
+        range_start=0.0 if level == "insufficient" else (0.5 if level == "reasonable" else 0.8),
+        range_end=0.5 if level == "insufficient" else (0.8 if level == "reasonable" else 1.0),
+    )
+
+    # ------------------------------------------------------------------
+    # 9. Explanation building
+    # ------------------------------------------------------------------
+    explanation_parts: list[str] = []
+    explanation_parts.append(f"Your {item_category} in {item_color}")
+    if item_material and item_material != "unknown":
+        nat = "natural" if _is_natural_material(item_material) else "material"
+        explanation_parts.append(f"{item_material} ({nat} material)")
+    else:
+        explanation_parts.append("material not specified")
+    if clothing_result.season_suitability.rationale:
+        explanation_parts.append(clothing_result.season_suitability.rationale)
+    explanation_parts.append(
+        f"({wardrobe_context.total_items} items in your wardrobe, {wardrobe_context.favorite_count} favorites)"
+    )
+    suitable_occasions_list = [o.occasion for o in occasions if o.confidence > 0.4]
+    if suitable_occasions_list:
+        explanation_parts.append(f"Suitable for: {', '.join(suitable_occasions_list)}")
+    if confidence < 0.5:
+        explanation_parts.append(f"(confidence: {confidence:.0f}/1.0 — based on available data)")
+    if conflicts:
+        conflict_descs = [c.description for c in conflicts]
+        explanation_parts.append(f"Note: {'; '.join(conflict_descs)}")
+    explanation_text = ". ".join(explanation_parts) + "."
+
+    explanation = StylingExplanation(text=explanation_text)
+
+    # ------------------------------------------------------------------
+    # 10. Build and return the result
+    # ------------------------------------------------------------------
+    result = OutfitIntelligence(
+        item_id="",
+        item_category=item_category,
+        item_color=item_color,
+        item_is_favorite=item_is_favorite,
+        wardrobe_context=wardrobe_context,
+        clothing_intelligence=clothing_result,
+        compatible_categories=compatible,
+        suitable_occasions=occasions,
+        color_harmony=harmony,
+        formality_balance=formality_balance,
+        outfit_coverage=coverage,
+        conflicts=conflicts,
+        confidence=confidence,
+        confidence_level=confidence_level,
+        data_availability=data_availability,
+        explanation=explanation,
+    )
+
+    return result
