@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
-import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 
 void main() {
   group('WardrobeClient.listItems', () {
@@ -40,7 +39,7 @@ void main() {
 
       expect(envelope, isNotNull);
       expect(envelope!.items.length, 1);
-      expect(envelope!.items.first.name, 'Merino Crew Neck');
+      expect(envelope.items.first.name, 'Merino Crew Neck');
       expect(envelope.page, 1);
       expect(envelope.total, 1);
     });
@@ -114,7 +113,7 @@ void main() {
 
       expect(envelope, isNotNull);
       expect(envelope!.page, 2);
-      expect(envelope!.pageSize, 50);
+      expect(envelope.pageSize, 50);
     });
 
     test('returns null on 401', () async {

@@ -1,16 +1,11 @@
-import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
-import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/features/grooming/data/grooming_service.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
-import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class GroomingProcessingScreen extends StatefulWidget {
   const GroomingProcessingScreen({

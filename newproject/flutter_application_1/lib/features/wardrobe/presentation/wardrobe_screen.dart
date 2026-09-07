@@ -314,6 +314,6 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   }
 
   void _handleItemTap(BuildContext context, WardrobeItemData item) {
-    context.pushNamed(RouteNames.wardrobeItemDetails, extra: item);
+    context.pushNamed<String>(RouteNames.wardrobeItemDetails, extra: item.id);
   }
 }

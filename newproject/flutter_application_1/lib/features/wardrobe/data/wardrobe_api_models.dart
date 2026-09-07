@@ -1,6 +1,4 @@
-import 'dart:convert';
 
-import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 
 /// Media reference for item images, as defined in §13.3 of WARDROBE_API.md.
 class MediaRef {

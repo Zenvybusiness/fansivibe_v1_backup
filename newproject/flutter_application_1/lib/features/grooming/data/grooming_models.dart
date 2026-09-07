@@ -1,6 +1,4 @@
-import 'dart:math';
 
-import 'package:flutter/material.dart';
 
 class AnalysisRun {
   const AnalysisRun({
@@ -176,7 +174,7 @@ class GroomingAnalysisResult {
   factory GroomingAnalysisResult.fromRunResult(GroomingRun? run) => run == null
       ? GroomingAnalysisResult.mock
       : GroomingAnalysisResult(
-          faceShape: run!.result?['appearance']?['faceShape'] as String? ?? '',
+          faceShape: run.result?['appearance']?['faceShape'] as String? ?? '',
           beardStyle: _beardStyleFromRun(run.result),
           beardDensity: '',
           beardColor: '',
@@ -332,8 +330,9 @@ class GroomingAnalysisResult {
   final List<GroomingRecommendation> alternatives;
 
   static String _beardStyleFromRun(Map<String, dynamic>? recommendations) {
-    if (recommendations == null || recommendations is! Map<String, dynamic>)
+    if (recommendations == null) {
       return '';
+    }
     final top = recommendations['top'];
     if (top == null) return '';
     return top['id'] as String? ?? '';

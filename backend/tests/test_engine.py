@@ -61,7 +61,7 @@ def test_wardrobe_uses_user_context():
     user = UserContext(wardrobe=[], savedLooks=["Modern Minimalist"])
     reply = _chat("show my wardrobe", user=user)
     assert reply.intent == "wardrobe"
-    assert reply.cards and reply.cards[0].kind == "wardrobe"
+    assert reply.cards and reply.cards[0].kind == "clothing_intelligence"
 
 
 def test_navigate_returns_route():

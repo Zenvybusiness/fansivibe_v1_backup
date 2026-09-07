@@ -209,10 +209,11 @@ GoRoute(
                     name: RouteNames.outfitGeneration,
                     builder: (context, state) {
                       final data = state.extra as Map<String, String>?;
-                      if (data == null)
+                      if (data == null) {
                         return _missingDataScreenWithText(
                           'Missing outfit preferences.',
                         );
+                      }
                       return OutfitGenerationScreen(
                         occasion: data['occasion']!,
                         mood: data['mood']!,
@@ -276,10 +277,11 @@ GoRoute(
                     name: RouteNames.groomingProcessing,
                     builder: (context, state) {
                       final data = state.extra as Map<String, String>?;
-                      if (data == null)
+                      if (data == null) {
                         return _missingDataScreenWithText(
                           'Missing grooming data.',
                         );
+                      }
                       return GroomingProcessingScreen(
                         faceShape: data['faceShape']!,
                         beardStyle: data['beardStyle']!,
@@ -293,10 +295,11 @@ GoRoute(
                         name: RouteNames.groomingResult,
                         builder: (context, state) {
                           final data = state.extra as Map<String, String>?;
-                          if (data == null)
+                          if (data == null) {
                             return _missingDataScreenWithText(
                               'Missing grooming data.',
                             );
+                          }
                           return GroomingResultScreen(
                             faceShape: data['faceShape']!,
                             beardStyle: data['beardStyle']!,
@@ -374,9 +377,9 @@ GoRoute(
                 path: 'item-details',
                 name: RouteNames.wardrobeItemDetails,
                 builder: (context, state) {
-                  final item = state.extra as WardrobeItemData?;
-                  return item != null
-                      ? WardrobeItemDetailsScreen(item: item)
+                  final itemId = state.extra as String?;
+                  return itemId != null
+                      ? WardrobeItemDetailsScreen(itemId: itemId)
                       : _missingDataScreen();
                 },
               ),

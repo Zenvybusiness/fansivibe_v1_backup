@@ -273,6 +273,34 @@ class LearningService extends ChangeNotifier implements LearningRepository {
   }
 
   @override
+  void removeItem(String itemId) {
+    _mutate(
+      () {
+        _model = _model.copyWith(
+          wardrobe: _model.wardrobe.where((item) => item.id != itemId).toList(),
+        );
+      },
+      signalType: 'item_removed',
+      signalLabel: 'item $itemId removed',
+    );
+  }
+
+  @override
+  void updateItem(String itemId, WardrobeEntry item) {
+    _mutate(
+      () {
+        _model = _model.copyWith(
+          wardrobe: _model.wardrobe.map((existing) =>
+              existing.id == itemId ? item : existing,
+          ).toList(),
+        );
+      },
+      signalType: 'item_updated',
+      signalLabel: '${item.name} (${item.category}) updated',
+    );
+  }
+
+  @override
   void setFace(FaceProfile face) {
     _mutate(
       () => _model = _model.copyWith(face: face),

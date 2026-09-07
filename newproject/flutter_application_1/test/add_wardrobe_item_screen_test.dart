@@ -83,9 +83,8 @@ void main() {
       expect(find.text('Please select a type and color.'), findsOneWidget);
     });
 
-    testWidgets('saves item and pops with data when valid', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('saves item and pops with data when valid (repository-backed)',
+        (WidgetTester tester) async {
       await tester.pumpWidget(createTestApp(topsCategory));
 
       // Select a type
@@ -122,6 +121,40 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Add Tops'), findsNothing);
+    });
+
+    testWidgets('shows loading indicator during submission', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(createTestApp(topsCategory));
+
+      await tester.tap(find.text('T-Shirt'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Black'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save Item'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    });
+
+    testWidgets('shows error message on API failure', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(createTestApp(topsCategory));
+
+      await tester.tap(find.text('T-Shirt'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Black'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save Item'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Failed to add item.'), findsOneWidget);
     });
   });
 }

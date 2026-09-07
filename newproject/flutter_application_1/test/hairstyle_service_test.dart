@@ -80,6 +80,12 @@ class _FakeLearningRepository implements LearningRepository {
   Future<void> load() async {}
 
   @override
+  void updateItem(String itemId, WardrobeEntry item) {
+    // Fake implementation: no-op for testing
+    recorded.add(LearningSignal(type: 'item_updated', label: '$itemId updated'));
+  }
+
+  @override
   void addItem(WardrobeEntry item) {}
 
   @override

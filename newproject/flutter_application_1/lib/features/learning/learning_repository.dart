@@ -32,4 +32,12 @@ abstract class LearningRepository {
 
   /// Record an interaction signal that feeds gradual learning.
   void recordSignal(String type, String label);
+
+  /// Update a wardrobe item by ID with new data from the server.
+  ///
+  /// The [item] parameter contains the server-returned item data that should
+  /// replace the existing item with matching [itemId] in the in-memory model.
+  /// Unrelated items are preserved. Persists the updated model and notifies
+  /// all listeners.
+  void updateItem(String itemId, WardrobeEntry item);
 }

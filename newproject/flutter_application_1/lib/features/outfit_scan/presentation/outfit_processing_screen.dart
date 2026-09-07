@@ -2,12 +2,9 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:fansivibe/app/router/route_names.dart';
-import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -67,7 +64,7 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
     }
 
     try {
-      final uri = Uri.parse('$_baseUrl/v1/analysis/runs/${_runId}');
+      final uri = Uri.parse('$_baseUrl/v1/analysis/runs/$_runId');
       final response = await http.get(
         uri,
         headers: {'Authorization': 'Bearer dev-token'},

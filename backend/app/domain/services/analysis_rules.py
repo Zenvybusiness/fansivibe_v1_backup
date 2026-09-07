@@ -18,7 +18,6 @@ The LLM (when wired) may only rewrite *wording* — never structure or scores
 (BA-8, AI-0). Scores are capped at 1.0 and stay in [0, 1].
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional, List
@@ -763,3 +762,310 @@ def _recommendation_to_grooming_snapshot(rec: GroomingRecommendation) -> dict:
         "bestFor": rec.bestFor,
         "icon": rec.icon,
     }
+
+
+# ---------------------------------------------------------------------------
+# Clothing Intelligence Engine — deterministic rules (CL-0)
+# Pure Python, no FastAPI, no SQLAlchemy, no HTTP — BA-3.
+# Mirrors the grooming engine pattern: stage-by-stage pure functions,
+# deterministic results from deterministic inputs, confidence derived
+# from data completeness without fabricating inputs (AI-0).
+# ---------------------------------------------------------------------------
+
+
+from typing import Optional
+
+from app.domain.value_objects import (
+    ClothingIntelligence,
+    ColorCharacteristics,
+    MaterialCharacteristics,
+    SeasonSuitability,
+    Formality,
+    StylingExplanation,
+    CompatibleCategory,
+    OccasionContext,
+    WardrobeContext,
+)
+
+
+# ---------------------------------------------------------------------------
+# Canonical mappings — reference data, not user-provided
+# ---------------------------------------------------------------------------
+
+# Natural material codes (from migration 0005 vocabularies)
+_NATURAL_MATERIAL_CODES = frozenset({
+    "cotton", "linen", "wool", "cashmere", "silk", "leather", "suede"
+})
+
+# Seasonal material mappings
+_MATERIAL_SEASON_MAP: dict[str, set[str]] = {
+    "spring": {"cotton", "linen"},
+    "summer": {"cotton", "linen", "silk"},
+    "fall": {"wool", "cashmere"},
+    "winter": {"heavy_wool", "leather", "fleece"},
+}
+
+# Category formality mappings
+_CATEGORY_FORMALITY: dict[str, dict[str, bool]] = {
+    "tops": {"is_formal": False, "is_casual": True, "is_business": False},
+    "bottoms": {"is_formal": False, "is_casual": True, "is_business": False},
+    "outerwear": {"is_formal": False, "is_casual": True, "is_business": False},
+    "footwear": {"is_formal": True, "is_casual": True, "is_business": False},
+    "accessories": {"is_formal": True, "is_casual": True, "is_business": False},
+}
+
+# Category seasonal suitability
+_CATEGORY_SEASON_MAP: dict[str, set[str]] = {
+    "tops": {"spring", "summer", "fall", "winter"},
+    "bottoms": {"spring", "summer", "fall", "winter"},
+    "outerwear": {"spring", "fall", "winter"},
+    "footwear": {"spring", "summer", "fall", "winter"},
+    "accessories": {"spring", "summer", "fall", "winter"},
+}
+
+# Compatible category pairings
+_COMPATIBLE_PAIRINGS: dict[str, list[str]] = {
+    "tops": ["bottoms", "outerwear"],
+    "bottoms": ["tops", "footwear"],
+    "outerwear": ["tops", "bottoms"],
+    "footwear": ["bottoms", "accessories"],
+    "accessories": ["footwear", "tops"],
+}
+
+# Preferred occasion mappings per category
+_CATEGORY_OCCASIONS: dict[str, set[str]] = {
+    "tops": {"casual", "office", "date", "party"},
+    "bottoms": {"casual", "office", "date"},
+    "outerwear": {"casual", "party", "date"},
+    "footwear": {"casual", "office", "travel"},
+    "accessories": {"casual", "office", "date"},
+}
+
+# Neutral color codes
+_NEUTRAL_COLOR_CODES = frozenset({"black", "white", "charcoal", "grey"})
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _is_neutral_color(color: str) -> bool:
+    return color in _NEUTRAL_COLOR_CODES
+
+
+def _is_natural_material(material: str) -> bool:
+    return material in _NATURAL_MATERIAL_CODES
+
+
+def _get_season_for_material(material: str) -> set[str]:
+    result: set[str] = set()
+    for season, materials in _MATERIAL_SEASON_MAP.items():
+        if material in materials:
+            result.add(season)
+    return result
+
+
+def _get_formality(category: str) -> Formality:
+    base = _CATEGORY_FORMALITY.get(category, {"is_formal": False, "is_casual": True, "is_business": False})
+    true_keys = [k for k, v in base.items() if v]
+    rationale_map = {
+        "is_formal": "Formal attire",
+        "is_casual": "Casual attire",
+        "is_business": "Business attire",
+    }
+    rationale = "; ".join(rationale_map[k] for k in true_keys) if true_keys else "Attire classification"
+    return Formality(
+        is_formal=base["is_formal"],
+        is_casual=base["is_casual"],
+        is_business=base["is_business"],
+        rationale=rationale,
+    )
+
+
+def _get_compatible_categories(category: str) -> list[CompatibleCategory]:
+    pairings = _COMPATIBLE_PAIRINGS.get(category, [])
+    return [
+        CompatibleCategory(category=pair, rationale=f"Pairs well with {category.title()} for coordinated outfits")
+        for pair in pairings
+    ]
+
+
+def _get_suitable_occasions(category: str, preferred_occasions: list[str]) -> list[OccasionContext]:
+    base_occasions = _CATEGORY_OCCASIONS.get(category, {"casual", "office", "date", "party", "travel"})
+    result: list[OccasionContext] = []
+    for occ in sorted(base_occasions):
+        overlap = len(set([occ]) & set(preferred_occasions)) if preferred_occasions else 0
+        confidence = round(
+            min(1.0, (overlap / max(1, len(preferred_occasions))) + 0.3) if preferred_occasions else 0.3,
+            2,
+        )
+        result.append(OccasionContext(
+            occasion=occ,
+            confidence=confidence,
+            rationale=f"Suitable for {occ} occasions" + (f" — you have this in your preferences" if occ in preferred_occasions else ""),
+        ))
+    return result
+
+
+def _build_explanation(intelligence: "ClothingIntelligence") -> StylingExplanation:
+    parts: list[str] = []
+    parts.append(f"Your {intelligence.item_category} in {intelligence.item_color}")
+    if intelligence.material_characteristics.material and intelligence.material_characteristics.material != "unknown":
+        nat = "natural" if _is_natural_material(intelligence.material_characteristics.material) else "material"
+        parts.append(f"{intelligence.material_characteristics.material} ({nat} material)")
+    else:
+        parts.append("material not specified")
+    if intelligence.season_suitability.rationale:
+        parts.append(intelligence.season_suitability.rationale)
+    parts.append(f"({intelligence.wardrobe_context.total_items} items in your wardrobe, {intelligence.wardrobe_context.favorite_count} favorites)")
+    suitable_occasions = [o.occasion for o in intelligence.suitable_occasions if o.confidence > 0.4]
+    if suitable_occasions:
+        parts.append(f"Suitable for: {', '.join(suitable_occasions)}")
+    if intelligence.confidence < 0.5:
+        parts.append(f"(confidence: {intelligence.confidence:.0f}/1.0 — based on available data)")
+    text = ". ".join(parts) + "."
+    return StylingExplanation(text=text)
+
+
+# ---------------------------------------------------------------------------
+# Engine — single entry point
+# ---------------------------------------------------------------------------
+
+def compute_clothing_intelligence(
+    item_category: str,
+    item_color: str,
+    item_material: Optional[str],
+    item_is_favorite: bool,
+    wardrobe_context: WardrobeContext,
+    preferred_occasions: list[str],
+) -> ClothingIntelligence:
+    """Run the Clothing Intelligence engine — deterministic rules only.
+
+    Produces a ClothingIntelligence result from existing WardrobeItem fields
+    and user wardrobe context. No AI provider calls, no DB changes, no new
+    endpoints. Confidence controls how strongly the explanation can claim
+    something (per Step 6B §4).
+    """
+    # 1. Color characteristics
+    is_neutral = _is_neutral_color(item_color)
+    color_chars = ColorCharacteristics(
+        item_color=item_color,
+        is_neutral=is_neutral,
+    )
+
+    # 2. Material characteristics
+    is_natural = _is_natural_material(item_material) if item_material else False
+    material_chars = MaterialCharacteristics(
+        material=item_material if item_material else "unknown",
+        is_natural=is_natural,
+        is_seasonal=bool(_get_season_for_material(item_material) if item_material else set()),
+    )
+
+    # 3. Season suitability
+    cat_seasons = _CATEGORY_SEASON_MAP.get(item_category, set())
+    mat_seasons = _get_season_for_material(item_material) if item_material else set()
+    all_seasons = cat_seasons | mat_seasons
+
+    season = SeasonSuitability(
+        suitable_for_spring="spring" in all_seasons,
+        suitable_for_summer="summer" in all_seasons,
+        suitable_for_fall="fall" in all_seasons,
+        suitable_for_winter="winter" in all_seasons,
+        rationale="Baseline seasonal mapping per category and material",
+    )
+
+    # 4. Formality
+    formality = _get_formality(item_category)
+
+    # 5. Compatible categories
+    compatible = _get_compatible_categories(item_category)
+
+    # 6. Suitable occasions
+    occasions = _get_suitable_occasions(item_category, preferred_occasions)
+
+    # 7. Confidence calculation
+    has_all_fields = item_material is not None and item_color and item_category
+    has_preferences = len(preferred_occasions) > 0
+    is_fav = item_is_favorite
+
+    confidence = round(
+        0.4 * (1.0 if has_all_fields else 0.5) +
+        0.3 * (1.0 if has_preferences else 0.3) +
+        0.3 * (1.0 if is_fav else 0.2),
+        2,
+    )
+
+    # 8. Explanation
+    explanation = _build_explanation(ClothingIntelligence(
+        item_id="",
+        item_category=item_category,
+        item_color=item_color,
+        item_is_favorite=item_is_favorite,
+        wardrobe_context=wardrobe_context,
+        color_characteristics=color_chars,
+        material_characteristics=material_chars,
+        season_suitability=season,
+        formality=formality,
+        compatible_categories=compatible,
+        suitable_occasions=occasions,
+        confidence=confidence,
+        explanation=StylingExplanation(text=""),
+    ))
+
+    # 9. Build the result
+    result = ClothingIntelligence(
+        item_id="",
+        item_category=item_category,
+        item_color=item_color,
+        item_is_favorite=item_is_favorite,
+        wardrobe_context=wardrobe_context,
+        color_characteristics=color_chars,
+        material_characteristics=material_chars,
+        season_suitability=season,
+        formality=formality,
+        compatible_categories=compatible,
+        suitable_occasions=occasions,
+        confidence=confidence,
+        explanation=explanation,
+    )
+
+    return result
+
+
+def _build_explanation_clothing_intelligence(
+    item_category: str,
+    item_color: str,
+    item_material: Optional[str],
+    item_is_favorite: bool,
+    wardrobe_context: WardrobeContext,
+    preferred_occasions: list[str],
+    confidence: float,
+) -> StylingExplanation:
+    """Build a human-readable explanation from the intelligence result."""
+    parts: list[str] = []
+    parts.append(f"Your {item_category} in {item_color}")
+    if item_material and item_material != "unknown":
+        nat = "natural" if _is_natural_material(item_material) else "material"
+        parts.append(f"{item_material} ({nat} material)")
+    else:
+        parts.append("material not specified")
+    if wardrobe_context.season_suitability.rationale:
+        parts.append(wardrobe_context.season_suitability.rationale)
+    parts.append(f"({wardrobe_context.total_items} items in your wardrobe, {wardrobe_context.favorite_count} favorites)")
+    suitable_occasions = [o.occasion for o in _get_suitable_occasions(item_category, preferred_occasions) if o.confidence > 0.4]
+    if suitable_occasions:
+        parts.append(f"Suitable for: {', '.join(suitable_occasions)}")
+    if confidence < 0.5:
+        parts.append(f"(confidence: {confidence:.0f}/1.0 — based on available data)")
+    text = ". ".join(parts) + "."
+    return StylingExplanation(text=text)
+
+
+# ---------------------------------------------------------------------------
+# Exported engine function
+# ---------------------------------------------------------------------------
+
+__all__ = [
+    "compute_clothing_intelligence",
+    "_build_explanation_clothing_intelligence",
+]

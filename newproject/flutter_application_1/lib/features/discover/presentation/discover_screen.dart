@@ -531,7 +531,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         _selectedTab == DiscoverTab.forYou && _personalizedLooks.isNotEmpty;
 
     final label = isPersonalized
-        ? '${count} ${count == 1 ? 'look' : 'looks'} for you'
+        ? '$count ${count == 1 ? 'look' : 'looks'} for you'
         : '$count ${count == 1 ? 'look' : 'looks'} found';
 
     return Row(

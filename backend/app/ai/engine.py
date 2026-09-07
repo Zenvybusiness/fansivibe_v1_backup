@@ -24,6 +24,7 @@ from app.models.schemas import (
     UserContext,
 )
 from app.data import catalog
+from app.domain.services.analysis_rules import compute_clothing_intelligence
 
 _OUTFIT_CLARIFICATION = [
     ClarificationOption(label="Casual", value="casual"),
@@ -158,7 +159,80 @@ def handle(request: AssistantRequest) -> AssistantReply:
                 + (cards[0].subtitle or "")
             )
         elif it == intent.INTENT_WARDROBE:
-            text = "Here's what I know about your wardrobe."
+            wardrobe = user.wardrobe if user and user.wardrobe else []
+
+            # Extract item data from the wardrobe (use first item or defaults)
+            if wardrobe:
+                first_item = wardrobe[0]
+                item_category = first_item.category
+                item_color = first_item.color
+                item_material = first_item.material
+                item_is_favorite = first_item.isFavorite
+            else:
+                item_category = ""
+                item_color = ""
+                item_material = None
+                item_is_favorite = False
+
+            # Build wardrobe context from full wardrobe
+            from app.domain.value_objects import WardrobeContext
+            items_per_category: dict[str, int] = {}
+            favorite_count = 0
+            for item in wardrobe:
+                items_per_category[item.category] = items_per_category.get(item.category, 0) + 1
+                if item.isFavorite:
+                    favorite_count += 1
+
+            wardrobe_context = WardrobeContext(
+                total_items=len(wardrobe),
+                favorite_count=favorite_count,
+                items_per_category=items_per_category,
+                style_score=87,  # default, not user-specific without LearningService
+            )
+
+            # Compute clothing intelligence with all required arguments
+            intelligence = compute_clothing_intelligence(
+                item_category=item_category,
+                item_color=item_color,
+                item_material=item_material,
+                item_is_favorite=item_is_favorite,
+                wardrobe_context=wardrobe_context,
+                preferred_occasions=user.preferredOccasions if user else [],
+            )
+
+            # Build explanation text with confidence disclaimer
+            conf = intelligence.confidence
+            conf_disclaimer = ""
+            if conf < 0.5:
+                conf_disclaimer = " (Note: limited data — this is informational only, not a strong styling claim.)"
+            elif conf < 0.3:
+                conf_disclaimer = " (Note: very limited data — this is purely informational.)"
+
+            explanation_text = intelligence.explanation.text + conf_disclaimer
+
+            # Build suggestion cards from compatible categories and suitable occasions
+            cards: List[SuggestionCard] = []
+
+            # Compatible category cards
+            for compat in intelligence.compatible_categories:
+                cards.append(SuggestionCard(
+                    kind="clothing_intelligence",
+                    title=f"Compatible: {compat.category}",
+                    subtitle=compat.rationale,
+                    action="open_wardrobe",
+                ))
+
+            # Suitable occasion cards
+            for occ in intelligence.suitable_occasions:
+                cards.append(SuggestionCard(
+                    kind="clothing_intelligence",
+                    title=f"Suitable for: {occ.occasion}",
+                    subtitle=f"Confidence: {occ.confidence:.0%}",
+                    action="open_wardrobe",
+                ))
+
+            # Combined text: wardrobe summary + intelligence explanation
+            text = f"Here's what I know about your wardrobe. {explanation_text}"
         else:
             text = cards[0].subtitle if cards else tools.unknown_reply()
         reply = AssistantReply(intent=it, text=text, cards=cards)

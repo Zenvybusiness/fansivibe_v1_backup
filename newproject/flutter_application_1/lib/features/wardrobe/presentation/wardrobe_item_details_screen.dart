@@ -1,216 +1,475 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
+import 'package:fansivibe/features/learning/data/models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+/// Converts a [WardrobeItemData] to a [WardrobeEntry] for LearningService sync.
+WardrobeEntry _toEntry(WardrobeItemData item) => WardrobeEntry(
+  id: item.id,
+  name: item.name,
+  category: item.category,
+  color: item.color,
+  material: item.material,
+  isFavorite: item.isFavorite,
+);
+
 
 /// The Wardrobe Item Details screen (WARDROBE-004).
-class WardrobeItemDetailsScreen extends StatelessWidget {
-  const WardrobeItemDetailsScreen({required this.item, super.key});
+class WardrobeItemDetailsScreen extends StatefulWidget {
+  const WardrobeItemDetailsScreen({
+    required this.itemId,
+    this.item,
+    this.repository,
+    super.key,
+  });
 
-  final WardrobeItemData item;
+  final String itemId;
+  final WardrobeItemData? item;
+  final WardrobeRepository? repository;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final category = _resolveCategory();
+  State<WardrobeItemDetailsScreen> createState() =>
+      _WardrobeItemDetailsScreenState();
+}
 
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(
-        backgroundColor: FansivibeColors.background,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back_rounded,
-            color: FansivibeColors.textPrimary,
-          ),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          item.name,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: FansivibeColors.textPrimary,
-          ),
-        ),
-      ),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final maxWidth = constraints.maxWidth;
-            final horizontalPadding = maxWidth > 600 ? 48.0 : 20.0;
-            final contentMaxWidth = maxWidth > 600 ? 600.0 : double.infinity;
+class _WardrobeItemDetailsScreenState
+    extends State<WardrobeItemDetailsScreen> {
+  late final WardrobeRepository _repository;
+  WardrobeItemData? _item;
+  bool _isLoading = true;
+  bool _isEditing = false;
+  bool _isDeleting = false;
+  final _formKey = GlobalKey<FormState>();
+  String? _newName;
+  String? _newCategory;
+  String? _newColor;
+  String? _newMaterial;
+  bool? _newFavorite;
+  String? _errorMessage;
+  bool _canEdit = true;
 
-            return SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: horizontalPadding,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 12),
-
-                        _buildVisualSection(context),
-                        const SizedBox(height: 24),
-
-                        _buildInfoCard(context, category),
-                        const SizedBox(height: 16),
-
-                        _buildMetadataCard(context),
-                        const SizedBox(height: 24),
-
-                        _buildActionsSection(context),
-                        const SizedBox(height: 32),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
+  @override
+  void initState() {
+    super.initState();
+    _repository = widget.repository ?? WardrobeRepositoryImpl();
+    _loadItem();
   }
 
-  WardrobeCategory? _resolveCategory() {
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  Future<void> _loadItem() async {
+    final item = await _repository.getItem(itemId: widget.itemId);
+    setState(() {
+      _item = item;
+      _isLoading = false;
+      if (item != null) {
+        _newName = item.name;
+        _newCategory = item.category;
+        _newColor = item.color;
+        _newMaterial = item.material;
+        _newFavorite = item.isFavorite;
+      }
+    });
+  }
+
+  void _toggleEdit() {
+    setState(() {
+      _isEditing = !_isEditing;
+      if (!_isEditing) {
+        // Save changes
+        _saveChanges();
+      }
+    });
+  }
+
+  Future<void> _saveChanges() async {
+    if (!_formKey.currentState!.validate()) {
+      setState(() {
+        _errorMessage = 'Please fix the validation errors.';
+      });
+      return;
+    }
+
+    setState(() {
+      _canEdit = false;
+      _errorMessage = null;
+    });
+
+    // Build WardrobeItemPatch with only the fields that changed
+    final changes = <String, dynamic>{};
+
+    if (_newName != _item?.name) {
+      changes['name'] = _newName;
+    }
+    if (_newCategory != _item?.category) {
+      changes['category'] = _newCategory;
+    }
+    if (_newColor != _item?.color) {
+      changes['color'] = _newColor;
+    }
+    if (_newMaterial != _item?.material) {
+      changes['material'] = _newMaterial;
+    }
+    if (_newFavorite != _item?.isFavorite) {
+      changes['isFavorite'] = _newFavorite;
+    }
+
+    if (changes.isEmpty) {
+      // No changes detected, just close edit mode
+      setState(() {
+        _isEditing = false;
+        _canEdit = true;
+      });
+      return;
+    }
+
     try {
-      return WardrobeMockData.categories.firstWhere(
-        (c) => c.id == item.category,
+      final updatedItem = await _repository.updateItem(
+        itemId: widget.itemId,
+        name: changes['name'] as String?,
+        category: changes['category'] as String?,
+        color: changes['color'] as String?,
+        material: changes['material'] as String?,
+        isFavorite: changes['isFavorite'] as bool?,
       );
-    } catch (_) {
-      return null;
+
+      if (!mounted) return;
+
+      if (updatedItem != null) {
+        // Success: treat as source of truth and sync with LearningService
+        setState(() {
+          _item = updatedItem;
+          _newName = updatedItem.name;
+          _newCategory = updatedItem.category;
+          _newColor = updatedItem.color;
+          _newMaterial = updatedItem.material;
+          _newFavorite = updatedItem.isFavorite;
+          _isEditing = false;
+          _canEdit = true;
+        });
+        // Synchronize the server-returned item into LearningService so
+        // WardrobeScreen's listener updates its grid accordingly.
+        LearningService.instance.updateItem(updatedItem.id, _toEntry(updatedItem));
+      } else {
+        // API failure
+        setState(() {
+          _errorMessage = 'Failed to update item. Please try again.';
+          _canEdit = true;
+        });
+      }
+    } catch (e) {
+      // Network/error failure
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Failed to update item. Please check your connection.';
+        _canEdit = true;
+      });
     }
   }
 
-  Widget _buildVisualSection(BuildContext context) {
-    final theme = Theme.of(context);
-    final category = _resolveCategory();
+  Future<void> _deleteItem() async {
+    if (_isDeleting) return;
 
-    return Container(
-      width: double.infinity,
-      height: 220,
-      decoration: BoxDecoration(
-        color: FansivibeColors.surfaceContainerLow,
-        borderRadius: FansivibeRadius.baseBorder,
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _categoryIcon(category?.iconName),
-                  size: 56,
-                  color: FansivibeColors.accentGold.withValues(alpha: 0.3),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  item.name,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: FansivibeColors.textSecondary.withValues(alpha: 0.7),
-                  ),
-                ),
-              ],
-            ),
+    final itemId = widget.itemId;
+    final shouldConfirm = await showDialog<bool?>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Item'),
+        content: Text('Are you sure you want to remove "${_item?.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
           ),
-          if (item.isFavorite)
-            const Positioned(
-              top: 12,
-              right: 12,
-              child: Icon(
-                Icons.favorite_rounded,
-                size: 24,
-                color: FansivibeColors.accentGold,
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldConfirm != true) return;
+
+    setState(() {
+      _isDeleting = true;
+    });
+
+    try {
+      final result = await _repository.deleteItem(itemId: itemId);
+
+      if (!mounted) return;
+
+      if (result == true) {
+        // Success: remove from LearningService and close screen
+        LearningService.instance.removeItem(itemId);
+        if (!mounted) return;
+ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Item removed from wardrobe'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8.0),
+        ),
+      ),
+    );
+        if (!mounted) return;
+        Navigator.of(context).pop();
+      } else {
+        // API failure or item already deleted
+        setState(() {
+          _errorMessage = 'Failed to delete item. Please try again.';
+          _isDeleting = false;
+        });
+        if (!mounted) return;
+ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Failed to delete item. Please try again.'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8.0),
+        ),
+      ),
+    );
+      }
+    } catch (e) {
+      // Network/error failure
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Failed to delete item. Please check your connection.';
+        _isDeleting = false;
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Failed to delete item. Please check your connection.'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8.0),
+        ),
+      ),
+    );
+    }
+  }
+
+  Widget _buildLoadingScreen(BuildContext context) {
+    return const Center(child: CircularProgressIndicator());
+  }
+
+  Widget _buildMissingItemScreen(BuildContext context) {
+    return const Center(
+      child: Text('Item not found'),
+    );
+  }
+
+  Widget _buildEditingForm(BuildContext context, WardrobeItemData item) {
+    final theme = Theme.of(context);
+
+    return Form(
+      key: _formKey,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Edit ${item.name}',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: FansivibeColors.textPrimary,
               ),
             ),
-        ],
-      ),
-    );
-  }
+            const SizedBox(height: 24),
 
-  Widget _buildInfoCard(BuildContext context, WardrobeCategory? category) {
-    final theme = Theme.of(context);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: FansivibeColors.surfaceContainerLow,
-        borderRadius: FansivibeRadius.baseBorder,
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: FansivibeColors.accentGold.withValues(alpha: 0.15),
-              borderRadius: FansivibeRadius.smdBorder,
-            ),
-            child: Icon(
-              _categoryIcon(category?.iconName),
-              size: 28,
-              color: FansivibeColors.accentGold,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  category?.name ?? item.category,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: FansivibeColors.accentGold,
-                    fontWeight: FontWeight.w600,
-                  ),
+            // Name field
+            TextFormField(
+              initialValue: _newName,
+              decoration: InputDecoration(
+                labelText: 'Name',
+                border: OutlineInputBorder(
+                  borderRadius: FansivibeRadius.baseBorder,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  item.name,
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: FansivibeColors.textPrimary,
-                  ),
+                errorBorder: OutlineInputBorder(
+                  borderRadius: FansivibeRadius.baseBorder,
+                  borderSide: const BorderSide(color: Colors.red),
+                ),
+                focusedErrorBorder: OutlineInputBorder(
+                  borderRadius: FansivibeRadius.baseBorder,
+                  borderSide: const BorderSide(color: Colors.redAccent),
+                ),
+              ),
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Please enter a name';
+                }
+                return null;
+              },
+              onChanged: (value) {
+                setState(() {
+                  _newName = value;
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Category field
+            DropdownButtonFormField<String>(
+              value: _newCategory,
+              decoration: InputDecoration(
+                labelText: 'Category',
+                border: OutlineInputBorder(
+                  borderRadius: FansivibeRadius.baseBorder,
+                ),
+              ),
+              items: const [
+                DropdownMenuItem(value: 'tops', child: Text('Tops')),
+                DropdownMenuItem(value: 'bottoms', child: Text('Bottoms')),
+                DropdownMenuItem(value: 'outerwear', child: Text('Outerwear')),
+                DropdownMenuItem(value: 'footwear', child: Text('Footwear')),
+                DropdownMenuItem(value: 'accessories', child: Text('Accessories')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _newCategory = value;
+                });
+              },
+              validator: (value) {
+                if (value == null) {
+                  return 'Please select a category';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Color field
+            TextFormField(
+              initialValue: _newColor,
+              decoration: InputDecoration(
+                labelText: 'Color',
+                border: OutlineInputBorder(
+                  borderRadius: FansivibeRadius.baseBorder,
+                ),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _newColor = value;
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Material field
+            TextFormField(
+              initialValue: _newMaterial ?? (item.material ?? ''),
+              decoration: InputDecoration(
+                labelText: 'Material (optional)',
+                border: OutlineInputBorder(
+                  borderRadius: FansivibeRadius.baseBorder,
+                ),
+                hintText: 'Leave empty to clear',
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _newMaterial = value.isEmpty ? null : value;
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Favorite toggle
+            ListTile(
+              title: const Text('Favorite'),
+              leading: Icon(
+                _newFavorite ?? item.isFavorite
+                    ? Icons.favorite_rounded
+                    : Icons.favorite_border_rounded,
+                color: FansivibeColors.accentGold,
+              ),
+              onTap: () {
+                setState(() {
+                  _newFavorite = !(_newFavorite ?? item.isFavorite);
+                });
+              },
+            ),
+            const SizedBox(height: 24),
+
+            // Buttons row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _isEditing = false;
+                    });
+                  },
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _saveChanges,
+                  child: _isEditing && _canEdit
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(FansivibeColors.background),
+                          ),
+                        )
+                      : const Text('Save'),
                 ),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildMetadataCard(BuildContext context) {
+  Widget _buildViewMode(BuildContext context, WardrobeItemData item) {
     final theme = Theme.of(context);
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: FansivibeColors.surfaceContainerLow,
-        borderRadius: FansivibeRadius.baseBorder,
-      ),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Details',
-            style: theme.textTheme.titleMedium?.copyWith(
+            item.name,
+            style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w600,
               color: FansivibeColors.textPrimary,
-              fontFamily: 'serif',
-              fontSize: 18,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
+
+          // Name
+          _metadataRow(
+            theme,
+            icon: Icons.title_rounded,
+            label: 'Name',
+            value: item.name,
+          ),
+          const SizedBox(height: 12),
+
+          // Category
+          _metadataRow(
+            theme,
+            icon: Icons.folder_rounded,
+            label: 'Category',
+            value: item.category,
+          ),
+          const SizedBox(height: 12),
+
+          // Color with swatch
           _metadataRow(
             theme,
             icon: Icons.palette_rounded,
@@ -229,35 +488,75 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
               ),
             ),
           ),
-          if (item.material != null) ...[
-            const SizedBox(height: 14),
-            _metadataRow(
-              theme,
-              icon: Icons.texture_rounded,
-              label: 'Material',
-              value: item.material!,
-            ),
-          ],
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
+
+          // Material
           _metadataRow(
             theme,
-            icon: Icons.category_rounded,
-            label: 'Category',
-            value: _resolveCategory()?.name ?? item.category,
+            icon: Icons.texture_rounded,
+            label: 'Material',
+            value: item.material ?? 'Not specified',
           ),
-          if (item.isFavorite) ...[
-            const SizedBox(height: 14),
-            _metadataRow(
-              theme,
-              icon: Icons.favorite_rounded,
-              label: 'Status',
-              value: 'Favorite',
-              valueColor: FansivibeColors.accentGold,
-            ),
-          ],
+          const SizedBox(height: 12),
+
+          // Favorite
+          _metadataRow(
+            theme,
+            icon: item.isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+            label: 'Status',
+            value: item.isFavorite ? 'Favorite' : 'Not favorite',
+            valueColor: item.isFavorite ? FansivibeColors.accentGold : null,
+          ),
+          const SizedBox(height: 12),
+
+          // Actions
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _toggleEdit,
+                icon: const Icon(Icons.edit_rounded, size: 16),
+                label: const Text('Edit'),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: _isDeleting ? null : _deleteItem,
+                icon: const Icon(Icons.delete_rounded, size: 16),
+                label: _isDeleting
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(FansivibeColors.background),
+                        ),
+                      )
+                    : const Text('Delete'),
+              ),
+            ],
+          ),
         ],
       ),
     );
+  }
+
+  Widget _buildContent(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (_isLoading) {
+      return _buildLoadingScreen(context);
+    }
+
+    if (_item == null) {
+      return _buildMissingItemScreen(context);
+    }
+
+    if (_isEditing) {
+      return _buildEditingForm(context, _item!);
+    }
+
+    return _buildViewMode(context, _item!);
   }
 
   Widget _metadataRow(
@@ -304,129 +603,8 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildActionsSection(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Column(
-      children: [
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: () => _handleEdit(context),
-            icon: const Icon(Icons.edit_rounded, size: 18),
-            label: Text(
-              'Edit Item',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: FansivibeColors.background,
-              ),
-            ),
-            style: FilledButton.styleFrom(
-              backgroundColor: FansivibeColors.accentGold,
-              foregroundColor: FansivibeColors.background,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: FansivibeRadius.baseBorder,
-              ),
-              elevation: 4,
-              shadowColor: FansivibeColors.accentGold.withValues(alpha: 0.3),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _handleAddToOutfit(context),
-                icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
-                label: Text(
-                  'Add to Outfit',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: FansivibeColors.accentGold,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: FansivibeColors.accentGold,
-                  side: BorderSide(
-                    color: FansivibeColors.accentGold.withValues(alpha: 0.4),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: FansivibeRadius.baseBorder,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _handleDelete(context),
-                icon: Icon(
-                  Icons.delete_outline_rounded,
-                  size: 18,
-                  color: Colors.redAccent.withValues(alpha: 0.8),
-                ),
-                label: Text(
-                  'Delete',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.redAccent,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.redAccent,
-                  side: BorderSide(
-                    color: Colors.redAccent.withValues(alpha: 0.4),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: FansivibeRadius.baseBorder,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  void _handleEdit(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Editing ${item.name}...'),
-        backgroundColor: FansivibeColors.accentGold,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
-      ),
-    );
-  }
-
-  void _handleDelete(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${item.name} removed from wardrobe'),
-        backgroundColor: FansivibeColors.accentGold,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
-      ),
-    );
-  }
-
-  void _handleAddToOutfit(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${item.name} added to outfit'),
-        backgroundColor: FansivibeColors.accentGold,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
-      ),
-    );
-  }
-
   IconData _categoryIcon(String? iconName) {
+    if (iconName == null) return Icons.category_rounded;
     switch (iconName) {
       case 'checkroom_rounded':
         return Icons.checkroom_rounded;
@@ -473,5 +651,32 @@ class WardrobeItemDetailsScreen extends StatelessWidget {
       default:
         return FansivibeColors.textSecondary;
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: _isEditing
+            ? Text('Edit Item')
+            : Text(_item?.name ?? 'Wardrobe Item'),
+        actions: _isEditing
+            ? [
+                IconButton(
+                  icon: const Icon(Icons.save_rounded),
+                  onPressed: _saveChanges,
+                ),
+              ]
+            : [
+                IconButton(
+                  icon: const Icon(Icons.edit_rounded),
+                  onPressed: _toggleEdit,
+                ),
+              ],
+      ),
+      body: SafeArea(
+        child: _buildContent(context),
+      ),
+    );
   }
 }

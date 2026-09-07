@@ -85,12 +85,11 @@ class GroomingService extends ChangeNotifier {
           _analysisError = 'Grooming analysis failed. Please try again.';
           _isFailed = true;
           resolved = GroomingAnalysisResult.mock;
-        } else if (run is GroomingRun?) {
-          resolved = GroomingAnalysisResult.fromRunResult(run);
-          _isCompleted = true;
         } else {
-          resolved = GroomingAnalysisResult.mock;
+          resolved = GroomingAnalysisResult.fromRunResult(run);
         }
+        _isCompleted = true;
+
       }
     }
 

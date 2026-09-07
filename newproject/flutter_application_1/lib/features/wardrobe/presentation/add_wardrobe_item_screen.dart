@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 /// Screen for filling in item details when adding a new wardrobe item.
 class AddWardrobeItemScreen extends StatefulWidget {
-  const AddWardrobeItemScreen({required this.category, super.key});
+  const AddWardrobeItemScreen({
+    required this.category,
+    super.key,
+  });
 
   final AddItemCategoryConfig category;
 
@@ -16,12 +20,20 @@ class AddWardrobeItemScreen extends StatefulWidget {
 class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
   String? _selectedType;
   ColorOption? _selectedColor;
-  TextureOption? _selectedTexture;
+  String? _selectedTextureName;
   String? _errorMessage;
+  bool _isSubmitting = false;
+  late final WardrobeRepository _repository;
 
   bool get _isValid => _selectedType != null && _selectedColor != null;
 
-  void _saveItem() {
+  @override
+  void initState() {
+    super.initState();
+    _repository = WardrobeRepositoryImpl();
+  }
+
+  Future<void> _saveItem() async {
     if (!_isValid) {
       setState(() {
         _errorMessage = 'Please select a type and color.';
@@ -29,28 +41,65 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       return;
     }
 
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+    });
+
     final newItem = WardrobeItemData(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: '',
       name: _buildItemName(),
       category: widget.category.wardrobeCategoryId,
       color: _selectedColor!.name,
-      material: _selectedTexture?.name,
+      material: _selectedTextureName != null ? _selectedTextureName : null,
     );
 
-    Navigator.pop<WardrobeItemData>(context, newItem);
+    try {
+      final createdItem = await _repository.createItem(
+        name: newItem.name,
+        category: newItem.category,
+        color: newItem.color,
+        material: newItem.material,
+      );
+
+      if (!mounted) return;
+
+      if (createdItem != null) {
+        // Success: return the server-created item as source of truth
+        Navigator.pop<WardrobeItemData>(context, createdItem);
+      } else {
+        // API failure
+        setState(() {
+          _errorMessage = 'Failed to add item. Please try again.';
+          _isSubmitting = false;
+        });
+      }
+    } catch (e) {
+      // Network/error failure
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Failed to add item. Please check your connection.';
+        _isSubmitting = false;
+      });
+    }
   }
 
   String _buildItemName() {
-    final texture = _selectedTexture != null
-        ? '${_selectedTexture!.name} '
+    final texture = _selectedTextureName != null
+        ? ' ${_selectedTextureName}'
         : '';
     final type = _selectedType ?? 'Item';
     return '$texture$type'.trim();
   }
 
   @override
+  void dispose() {
+    super.dispose();
+  }
+
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final textStyle = theme.textTheme.bodyMedium;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -114,12 +163,10 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                           items: AddItemConfig.textures
                               .map((t) => t.name)
                               .toList(),
-                          selectedItem: _selectedTexture?.name,
+                          selectedItem: _selectedTextureName,
                           onSelected: (value) {
                             setState(() {
-                              _selectedTexture = value != null
-                                  ? TextureOption(name: value)
-                                  : null;
+                              _selectedTextureName = value != null ? value : null;
                               _errorMessage = null;
                             });
                           },
@@ -144,11 +191,11 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                                   color: Colors.redAccent,
                                   size: 18,
                                 ),
-                                const SizedBox(width: 8),
+SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     _errorMessage!,
-                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                    style: textStyle!.copyWith(
                                       color: Colors.redAccent,
                                     ),
                                   ),
@@ -162,32 +209,37 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                         // Save button
                         SizedBox(
                           width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: _saveItem,
-                            icon: const Icon(Icons.save_rounded, size: 18),
-                            label: Text(
-                              'Save Item',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                                color: FansivibeColors.background,
-                              ),
-                            ),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: FansivibeColors.accentGold,
-                              foregroundColor: FansivibeColors.background,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 14,
-                                horizontal: 16,
-                              ),
-                              minimumSize: const Size(0, 48),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: FansivibeRadius.baseBorder,
-                              ),
-                              elevation: 4,
-                              shadowColor: FansivibeColors.accentGold
-                                  .withValues(alpha: 0.3),
-                            ),
-                          ),
+                          child: _isSubmitting
+                              ? const CircularProgressIndicator(
+                                  valueColor:
+                                      AlwaysStoppedAnimation<Color>(FansivibeColors.accentGold),
+                                )
+                              : FilledButton.icon(
+                                  onPressed: _saveItem,
+                                  icon: const Icon(Icons.save_rounded, size: 18),
+                                  label: Text(
+                                    'Save Item',
+                                    style: textStyle!.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: FansivibeColors.background,
+                                    ),
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: FansivibeColors.accentGold,
+                                    foregroundColor: FansivibeColors.background,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                      horizontal: 16,
+                                    ),
+                                    minimumSize: const Size(0, 48),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: FansivibeRadius.baseBorder,
+                                    ),
+                                    elevation: 4,
+                                    shadowColor: FansivibeColors.accentGold
+                                        .withValues(alpha: 0.3),
+                                  ),
+                                ),
                         ),
                         const SizedBox(height: 32),
                       ],
@@ -258,7 +310,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
             ),
             child: Text(
               item,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              style: Theme.of(context).textTheme.bodyMedium!.copyWith(
                 color: isSelected
                     ? FansivibeColors.accentGold
                     : FansivibeColors.textSecondary,
@@ -315,17 +367,15 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                       width: 1,
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  color.name,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: isSelected
-                        ? FansivibeColors.accentGold
-                        : FansivibeColors.textSecondary,
-                    fontWeight: isSelected
-                        ? FontWeight.w600
-                        : FontWeight.normal,
+const SizedBox(width: 8),
+                  Text(
+                    color.name,
+                    style: theme.textTheme.bodyMedium!.copyWith(
+                      color: isSelected
+                          ? FansivibeColors.accentGold
+                          : FansivibeColors.textSecondary,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
                   ),
                 ),
               ],

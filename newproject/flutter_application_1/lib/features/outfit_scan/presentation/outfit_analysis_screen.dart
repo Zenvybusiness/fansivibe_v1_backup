@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:fansivibe/app/router/route_names.dart';
-import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -573,7 +571,6 @@ class _AttributeChip extends StatelessWidget {
     required this.value,
     required this.icon,
     required this.color,
-    super.key,
   });
 
   final String label;

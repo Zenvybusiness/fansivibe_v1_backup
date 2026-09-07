@@ -171,3 +171,148 @@ def _recommendation_to_grooming_snapshot(rec: GroomingRecommendation) -> dict:
         "bestFor": rec.bestFor,
         "icon": rec.icon,
     }
+
+###############################################################################
+# Clothing Intelligence — domain value objects
+# Mirrors the pattern from hairstyle/grooming result DTOs
+# BA-3: application/domain layer depends on these only
+###############################################################################
+
+
+@dataclass(frozen=True)
+class ColorCharacteristics:
+    """Color characteristics of a wardrobe item.
+
+    Deterministic / reference-derived fields only for the MVP.
+    AI-inferred color harmonies are out of scope.
+    """
+
+    item_color: str  # the item's color code (e.g. 'charcoal', 'navy')
+    is_neutral: bool = False  # true if black/white/grey/navy
+
+
+@dataclass(frozen=True)
+class MaterialCharacteristics:
+    """Material characteristics of a wardrobe item.
+
+    Reference-derived natural/synthetic classification for MVP.
+    """
+
+    material: str  # the item's material code (e.g. 'wool', 'cotton')
+    is_natural: bool = False  # true if cotton/linen/wool/silk/leather/suede
+    is_seasonal: bool = False  # derived seasonal mapping
+
+
+@dataclass(frozen=True)
+class SeasonSuitability:
+    """Season suitability derived from item category + material.
+
+    Baseline heuristics — not personalized certainty.
+    """
+
+    suitable_for_spring: bool = False
+    suitable_for_summer: bool = False
+    suitable_for_fall: bool = False
+    suitable_for_winter: bool = False
+    rationale: str = ""
+
+
+@dataclass(frozen=True)
+class Formality:
+    """Formality classification based on item category.
+
+    Baseline heuristics — not personalized certainty.
+    """
+
+    is_formal: bool = False
+    is_casual: bool = True
+    is_business: bool = False
+    rationale: str = ""
+
+
+@dataclass(frozen=True)
+class StylingCharacteristic:
+    """A styling characteristic for an item.
+
+    Type determines how the label/rationale should be interpreted.
+    """
+
+    type: str  # e.g. 'favorite', 'seasonal', 'baseline', 'key-piece'
+    label: str
+    rationale: str
+
+
+@dataclass(frozen=True)
+class CompatibleCategory:
+    """A category that complements the item's category.
+
+    Rationale explains the pairing.
+    """
+
+    category: str  # e.g. 'tops', 'bottoms'
+    rationale: str
+
+
+@dataclass(frozen=True)
+class OccasionContext:
+    """An occasion this item is suitable for.
+
+    Confidence reflects the degree of support from available data.
+    """
+
+    occasion: str  # e.g. 'casual', 'date', 'office', 'party', 'travel'
+    confidence: float = 0.0
+    rationale: str = ""
+
+
+@dataclass(frozen=True)
+class WardrobeContext:
+    """The user's full wardrobe context surrounding a single item.
+
+    Derived from LearningService.wardrobe — deterministic counts.
+    """
+
+    total_items: int
+    favorite_count: int
+    items_per_category: dict[str, int]
+    style_score: int
+
+
+@dataclass(frozen=True)
+class StylingExplanation:
+    """Human-readable explanation for the Clothing Intelligence result.
+
+    Synthesized from deterministic + reference-derived fields only.
+    """
+
+    text: str
+
+
+@dataclass(frozen=True)
+class ClothingIntelligence:
+    """The minimum viable Clothing Intelligence result.
+
+    Only fields justified by the existing product architecture and
+    producible from current WardrobeItem + available user context
+    without new DB columns, API changes, or AI provider calls.
+
+    All fields are classified in Step 6B §3.
+    """
+
+    item_id: str
+    item_category: str
+    item_color: str
+    item_is_favorite: bool
+
+    wardrobe_context: WardrobeContext
+
+    color_characteristics: ColorCharacteristics
+    material_characteristics: MaterialCharacteristics
+    season_suitability: SeasonSuitability
+    formality: Formality
+
+    compatible_categories: list[CompatibleCategory]
+    suitable_occasions: list[OccasionContext]
+
+    confidence: float  # 0.0–1.0, derived from data availability
+    explanation: StylingExplanation

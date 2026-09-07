@@ -1,4 +1,3 @@
-import 'dart:async';
 
 /// Signature for analytics event callbacks.
 typedef AnalyticsEventHandler = void Function(Map<String, dynamic> event);

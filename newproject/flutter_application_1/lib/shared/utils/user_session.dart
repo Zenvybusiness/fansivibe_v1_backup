@@ -1,6 +1,7 @@
 /// Session-scoped user progress shared across features.
 ///
 /// Persists state across app launches via [LocalStorage].
+library;
 import 'package:fansivibe/shared/utils/local_storage.dart';
 
 class UserSession {

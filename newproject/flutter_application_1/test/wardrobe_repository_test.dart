@@ -6,7 +6,6 @@ import 'package:http/testing.dart';
 
 import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
-import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 
 void main() {
