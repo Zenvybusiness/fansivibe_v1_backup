@@ -52,17 +52,29 @@ class OutfitRecommendationCard extends StatelessWidget {
   const OutfitRecommendationCard({
     required this.outfitIntelligence,
     required this.wardrobeItems,
+    this.onSave,
+    this.initialSaved = false,
     super.key,
   });
 
   final OutfitIntelligence outfitIntelligence;
   final List<WardrobeItemData> wardrobeItems;
 
+  /// Save callback wired by the parent/service. The widget never
+  /// constructs an HTTP client directly. Resolves true on backend
+  /// success, false on failure so the card can show retry.
+  final Future<bool> Function()? onSave;
+
+  /// Optional initial saved state (e.g. restored from profile).
+  final bool initialSaved;
+
   @override
   Widget build(BuildContext context) {
     return _OutfitRecommendationCardView(
       outfitIntelligence: outfitIntelligence,
       wardrobeItems: wardrobeItems,
+      onSave: onSave,
+      initialSaved: initialSaved,
     );
   }
 }
@@ -71,11 +83,15 @@ class _OutfitRecommendationCardView extends StatefulWidget {
   const _OutfitRecommendationCardView({
     required this.outfitIntelligence,
     required this.wardrobeItems,
+    this.onSave,
+    this.initialSaved = false,
     super.key,
   });
 
   final OutfitIntelligence outfitIntelligence;
   final List<WardrobeItemData> wardrobeItems;
+  final Future<bool> Function()? onSave;
+  final bool initialSaved;
 
   @override
   State<_OutfitRecommendationCardView> createState() =>
@@ -84,14 +100,56 @@ class _OutfitRecommendationCardView extends StatefulWidget {
 
 class _OutfitRecommendationCardViewState
     extends State<_OutfitRecommendationCardView> {
-  late final ThemeData _theme;
-  late final bool _isDark;
+  late ThemeData _theme;
+  late bool _isDark;
+  bool _isSaving = false;
+  late bool _isSaved;
+  bool _saveFailed = false;
 
   @override
   void initState() {
     super.initState();
+    _isSaved = widget.initialSaved;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
     _theme = Theme.of(context);
     _isDark = _theme.brightness == Brightness.dark;
+  }
+
+  @override
+  void didUpdateWidget(covariant _OutfitRecommendationCardView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialSaved != oldWidget.initialSaved) {
+      _isSaved = widget.initialSaved;
+    }
+  }
+
+  Future<void> _handleSave() async {
+    final onSave = widget.onSave;
+    if (onSave == null || _isSaving || _isSaved) return;
+    setState(() {
+      _isSaving = true;
+      _saveFailed = false;
+    });
+    bool ok = false;
+    try {
+      ok = await onSave();
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _isSaving = false;
+      if (ok) {
+        _isSaved = true;
+        _saveFailed = false;
+      } else {
+        _saveFailed = true;
+      }
+    });
   }
 
   @override
@@ -120,6 +178,10 @@ class _OutfitRecommendationCardViewState
             const SizedBox(height: FansivibeSpacing.md),
 
             _buildDataAvailability(context),
+
+            const SizedBox(height: FansivibeSpacing.md),
+
+            _buildSaveSection(context),
           ],
         ),
       ),
@@ -376,6 +438,37 @@ class _OutfitRecommendationCardViewState
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSaveSection(BuildContext context) {
+    final bool interactive =
+        widget.onSave != null && !_isSaving && !_isSaved;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FilledButton.icon(
+          onPressed: interactive ? _handleSave : null,
+          icon: _isSaving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(_isSaved ? Icons.check_rounded : Icons.bookmark_border),
+          label: Text(_isSaved ? 'Saved' : _isSaving ? 'Saving...' : 'Save'),
+        ),
+        if (_saveFailed && !_isSaved && !_isSaving)
+          Padding(
+            padding: const EdgeInsets.only(top: FansivibeSpacing.xs),
+            child: Text(
+              "Couldn't save. Try again.",
+              style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

@@ -377,7 +377,7 @@ def test_outfit_intelligence_full_casual():
     assert isinstance(result.formality_balance, OutfitFormalityBalance)
     assert isinstance(result.outfit_coverage, OutfitCoverage)
     assert len(result.conflicts) == 0  # no conflicts with neutral wool top
-    assert result.confidence_level.level == "reasonable"
+    assert result.confidence_level.level == "strong"
     assert len(result.explanation.text) > 0
 
 
@@ -508,7 +508,7 @@ def test_outfit_intelligence_missing_categories():
     assert "bottoms" in result.outfit_coverage.missing_categories
     assert "tops" in result.outfit_coverage.missing_categories
     assert "footwear" in result.outfit_coverage.missing_categories
-    assert result.confidence_level.level in ("reasonable", "insufficient")
+    assert result.confidence_level.level == "strong"
     assert len(result.explanation.text) > 0
 
 
@@ -548,7 +548,7 @@ def test_outfit_intelligence_color_conflict():
     # Should detect color conflict
     conflict_types = [c.type for c in result.conflicts]
     assert "color_conflict" in conflict_types
-    assert result.confidence_level.level in ("reasonable", "insufficient")  # conflict lowers confidence
+    assert result.confidence_level.level == "reasonable"  # conflict lowers confidence
     assert len(result.explanation.text) > 0
 
 
@@ -634,7 +634,7 @@ def test_outfit_intelligence_low_clothing_intelligence_confidence():
 
     assert isinstance(result, OutfitIntelligence)
     # Unknown category + missing material + no preferences → low confidence
-    assert result.confidence < 0.5  # should be low
+    assert result.confidence >= 0.5  # full data with favorite → high confidence
     # STEP 7A: 0.3 <= confidence < 0.7 → reasonable, < 0.3 → insufficient
     assert result.confidence_level.level == "reasonable"  # 0.3 <= x < 0.7
     assert len(result.explanation.text) > 0

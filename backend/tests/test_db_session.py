@@ -67,4 +67,4 @@ def test_knowledge_seed_run_and_signal_types(db):
             select(text("code")).select_from(text("signal_types"))
         ).scalars().all()
     assert run_types == ["hairstyle"]
-    assert signal_types == ["analysis_updated", "look_saved"]
+    assert signal_types == ["analysis_updated", "look_saved", "outfit_selected"]

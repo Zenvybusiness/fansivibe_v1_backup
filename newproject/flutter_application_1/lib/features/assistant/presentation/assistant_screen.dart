@@ -90,6 +90,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
     if (context.mounted) context.goNamed(route);
   }
 
+  /// Outfit Save: delegates to the existing service orchestration, which
+  /// POSTs the snapshot and returns backend-confirmed success/failure.
+  /// No local learning signals: the backend owns look_saved/outfit_selected.
+  Future<bool> _onOutfitSave(OutfitIntelligence intelligence) =>
+      _service.saveOutfit(intelligence);
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -153,6 +159,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                           onCardAction: _onCardAction,
                           onClarification: _onClarification,
                           onNavigation: _onNavigationRequest,
+                          onOutfitSave: _onOutfitSave,
                         );
                       },
                     ),

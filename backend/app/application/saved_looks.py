@@ -25,7 +25,7 @@ from app.domain.ports.repositories import (
     SavedLookRepository,
 )
 
-_SOURCE_CONTEXTS = {"hairstyle", "grooming"}
+_SOURCE_CONTEXTS = {"hairstyle", "grooming", "outfit"}
 
 
 def _source_run_id_from_snapshot(snapshot: dict) -> Optional[UUID]:

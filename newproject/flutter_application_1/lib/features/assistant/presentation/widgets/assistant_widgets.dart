@@ -15,6 +15,7 @@ class MessageBubble extends StatelessWidget {
     this.onCardAction,
     this.onClarification,
     this.onNavigation,
+    this.onOutfitSave,
     super.key,
   });
 
@@ -22,6 +23,11 @@ class MessageBubble extends StatelessWidget {
   final void Function(SuggestionCard card)? onCardAction;
   final void Function(ClarificationOption option)? onClarification;
   final void Function(NavigationRequest request)? onNavigation;
+
+  /// Save callback for the outfit recommendation card. Receives the exact
+  /// [OutfitIntelligence] shown by the current message; the parent wires it
+  /// to `AssistantService.saveOutfit()`. Null leaves Save disabled.
+  final Future<bool> Function(OutfitIntelligence)? onOutfitSave;
 
   @override
   Widget build(BuildContext context) {
@@ -161,6 +167,9 @@ class MessageBubble extends StatelessWidget {
                 wardrobeItems: message.outfitIntelligence?.selectedItemIds.isNotEmpty == true
                     ? [] // Will be resolved internally, or pass empty for now
                     : [],
+                onSave: onOutfitSave == null
+                    ? null
+                    : () => onOutfitSave!(message.outfitIntelligence!),
               ),
             ]
           ],

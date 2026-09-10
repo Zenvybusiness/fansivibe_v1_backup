@@ -33,10 +33,10 @@ class _GroomingInputScreenState extends State<GroomingInputScreen> {
     context.pushNamed(
       RouteNames.groomingProcessing,
       extra: <String, String>{
-        'faceShapeId': faceShape,
-        'beardStyleId': beardStyle,
-        'beardDensityId': density,
-        'beardColorId': color,
+        'faceShape': faceShape,
+        'beardStyle': beardStyle,
+        'beardDensity': density,
+        'beardColor': color,
       },
     );
   }

@@ -54,5 +54,47 @@ class AssistantClient {
     return null;
   }
 
+  /// Saves an Outfit via the existing contract `POST /v1/looks/saved`.
+  ///
+  /// Sends `lookId: null`, `title`, `snapshot`, `sourceContext: "outfit"`
+  /// with the caller-provided [idempotencyKey] as the `Idempotency-Key`
+  /// header. Returns the saved record on 200/201, null otherwise so the
+  /// caller can leave the outfit unsaved and allow a retry.
+  Future<SavedOutfitLook?> saveOutfitLook({
+    required OutfitSaveRequest request,
+    required String idempotencyKey,
+  }) async {
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/looks/saved'),
+            headers: {
+              'Content-Type': 'application/json; charset=UTF-8',
+              'Idempotency-Key': idempotencyKey,
+            },
+            body: jsonEncode(request.toJson()),
+          )
+          .timeout(_timeout);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        final dynamic nested =
+            decoded['savedLook'] ?? decoded['saved_look'] ?? decoded['data'];
+        final Map<String, dynamic> payload = nested is Map<String, dynamic>
+            ? nested
+            : nested is Map
+            ? Map<String, dynamic>.from(nested)
+            : decoded;
+        return SavedOutfitLook.fromJson(payload);
+      }
+      debugPrint(
+        'Save outfit backend responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Save outfit backend unreachable: $error');
+    }
+    return null;
+  }
+
   void dispose() => _client.close();
 }

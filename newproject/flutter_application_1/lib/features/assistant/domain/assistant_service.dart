@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 
 import 'package:fansivibe/features/assistant/data/assistant_client.dart';
@@ -87,6 +89,29 @@ class AssistantService extends ChangeNotifier {
   Future<void> selectClarification(ClarificationOption option) =>
       send(option.value);
 
+  /// Save the current [OutfitIntelligence] via `POST /v1/looks/saved`.
+  ///
+  /// Builds the request (lookId = null, sourceContext = "outfit",
+  /// snapshot from the intelligence), generates a fresh Idempotency-Key
+  /// for each new save attempt (pass [idempotencyKey] to keep the key
+  /// stable across retries of the SAME attempt), and returns true only
+  /// when the backend confirms the save.
+  ///
+  /// Never emits local learning signals: `look_saved` / `outfit_selected`
+  /// are backend-owned and committed atomically with the saved look.
+  Future<bool> saveOutfit(
+    OutfitIntelligence intelligence, {
+    String? idempotencyKey,
+  }) async {
+    final request = OutfitSaveRequest.fromOutfitIntelligence(intelligence);
+    final key = idempotencyKey ?? newOutfitIdempotencyKey();
+    final saved = await _client.saveOutfitLook(
+      request: request,
+      idempotencyKey: key,
+    );
+    return saved != null;
+  }
+
   /// Record that the user opened a suggestion so the model can learn from it.
   void onCardOpened(SuggestionCard card) {
     _learning?.recordSignal('suggestion_opened', card.title);
@@ -113,4 +138,21 @@ class AssistantService extends ChangeNotifier {
     _client.dispose();
     super.dispose();
   }
+}
+
+/// Generates a fresh v4-style client idempotency key for one save attempt.
+///
+/// No new dependency: 122 random bits formatted as UUID text. The backend
+/// remains authoritative for idempotency; Flutter only guarantees a fresh
+/// key per new attempt.
+@visibleForTesting
+String newOutfitIdempotencyKey() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0F) | 0x40;
+  bytes[8] = (bytes[8] & 0x3F) | 0x80;
+  String hex(int v) => v.toRadixString(16).padLeft(2, '0');
+  final h = bytes.map(hex).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-'
+      '${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
 }

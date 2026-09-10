@@ -254,6 +254,14 @@ class CreateOutfitRun:
                 context={"run_id": str(run_id), "run_type": "outfit"},
             )
 
+        # Step 7: Emit learning signal that an outfit selection/generation occurred
+        if self._learning_signal is not None:
+            self._learning_signal.insert_look_saved(
+                user_id=user_id,
+                label="outfit_selected",
+                context={"source_context": "outfit", "run_id": str(run_id), "run_type": "outfit"},
+            )
+
         return run_id
 
 

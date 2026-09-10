@@ -133,6 +133,108 @@ class OutfitIntelligence {
   };
 }
 
+/// Save request for the existing backend contract `POST /v1/looks/saved`.
+///
+/// Outfit saves always use `lookId = null` (no outfit look catalog) and
+/// `sourceContext = "outfit"`. The title is derived from the occasion;
+/// the snapshot preserves the generated [OutfitIntelligence].
+class OutfitSaveRequest {
+  const OutfitSaveRequest({
+    this.lookId,
+    required this.title,
+    required this.snapshot,
+    this.sourceContext = 'outfit',
+  });
+
+  /// Always null for Outfit saves (backend has no outfit look catalog).
+  final String? lookId;
+
+  /// Derived from the occasion: `"X Outfit"` or `"Saved Outfit"`.
+  final String title;
+
+  /// Snapshot built ONLY from existing [OutfitIntelligence] data.
+  final Map<String, dynamic> snapshot;
+
+  /// Always "outfit" for this flow.
+  final String sourceContext;
+
+  /// Derives `"X Outfit"`, falling back to `"Saved Outfit"`.
+  static String titleForOccasion(String occasion) {
+    final trimmed = occasion.trim();
+    if (trimmed.isEmpty || trimmed.toLowerCase() == 'unknown') {
+      return 'Saved Outfit';
+    }
+    return '${trimmed[0].toUpperCase()}${trimmed.substring(1)} Outfit';
+  }
+
+  factory OutfitSaveRequest.fromOutfitIntelligence(
+    OutfitIntelligence intelligence,
+  ) => OutfitSaveRequest(
+    lookId: null,
+    title: titleForOccasion(intelligence.occasion),
+    snapshot: {
+      'selectedItemIds': intelligence.selectedItemIds,
+      'outfitComposition': intelligence.outfitComposition.toJson(),
+      'occasion': intelligence.occasion,
+      'stylingRationale': intelligence.stylingRationale,
+      'compatibilityRationale': intelligence.compatibilityRationale,
+      'confidence': intelligence.confidence,
+      'explanation': intelligence.explanation,
+      'dataAvailability': intelligence.dataAvailability,
+    },
+    sourceContext: 'outfit',
+  );
+
+  Map<String, dynamic> toJson() => {
+    'lookId': lookId,
+    'title': title,
+    'snapshot': snapshot,
+    'sourceContext': sourceContext,
+  };
+}
+
+/// Minimal saved-look record returned by `POST /v1/looks/saved`.
+///
+/// Parses leniently (camelCase or snake_case) so only the fields the
+/// backend provides are read; the UI only needs the saved identity.
+class SavedOutfitLook {
+  const SavedOutfitLook({
+    required this.id,
+    required this.title,
+    required this.sourceContext,
+    this.snapshot = const {},
+  });
+
+  final String id;
+  final String title;
+  final String sourceContext;
+  final Map<String, dynamic> snapshot;
+
+  factory SavedOutfitLook.fromJson(Map<String, dynamic> json) {
+    final rawSnapshot = json['snapshot'];
+    return SavedOutfitLook(
+      id: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      sourceContext:
+          json['sourceContext'] as String? ??
+          json['source_context'] as String? ??
+          'outfit',
+      snapshot: rawSnapshot is Map<String, dynamic>
+          ? rawSnapshot
+          : rawSnapshot is Map
+          ? Map<String, dynamic>.from(rawSnapshot)
+          : const {},
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'sourceContext': sourceContext,
+    'snapshot': snapshot,
+  };
+}
+
 class SuggestionCard {
   const SuggestionCard({
     required this.kind,

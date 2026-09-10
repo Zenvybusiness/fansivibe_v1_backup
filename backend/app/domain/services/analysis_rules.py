@@ -1274,27 +1274,24 @@ def compute_outfit_intelligence(
     has_preferences = len(preferred_occasions) > 0
     is_fav = item_is_favorite
 
-    # Category coverage adjustment: full coverage = +0.1, partial = +0.05, sparse = 0
-    if coverage_ratio >= 1.0:
-        coverage_adjustment = 0.1
-    elif coverage_ratio >= 0.5:
-        coverage_adjustment = 0.05
-    else:
-        coverage_adjustment = 0.0
+    # Category coverage adjustment: +0.1 per category covered, maximum +0.5
+    categories_covered = sum(1 for cat in all_categories if cat in wardrobe_context.items_per_category)
+    coverage_adjustment = min(0.1 * categories_covered, 0.5)
 
-    # Favorite adjustment
-    fav_adjustment = 0.05 if is_fav else 0.0
+    # Favorite adjustment: +0.1 per favorite, maximum +0.3
+    fav_adjustment = 0.1 if is_fav else 0.0
 
-    # Missing-category penalty: penalize if categories are missing
-    missing_penalty = 0.0 if coverage_ratio >= 1.0 else (-0.1 if coverage_ratio < 0.3 else -0.05)
+    # Missing-category penalty: -0.1 per missing category, minimum confidence floor 0.1
+    categories_missing = 5 - categories_covered
+    missing_penalty = -0.1 * categories_missing
 
     # Seasonal conflict penalty
-    seasonal_conflict_penalty = -0.05 if conflicts else 0.0
+    seasonal_conflict_penalty = -0.2 if conflicts else 0.0
 
     # Color conflict penalty
-    color_conflict_penalty = -0.05 if any(c.type == "color_conflict" for c in conflicts) else 0.0
+    color_conflict_penalty = -0.3 if any(c.type == "color_conflict" for c in conflicts) else 0.0
 
-    # Seasonal consistency / color harmony bonuses
+    # Seasonal consistency / color harmony bonuses (preserve existing)
     harmony_bonus = 0.05 if harmony_is_harmonious else 0.0
     consistency_bonus = 0.05 if is_balanced else 0.0
 
@@ -1310,9 +1307,8 @@ def compute_outfit_intelligence(
         + consistency_bonus
     )
 
-    # Clamp 0.0–1.0
-    confidence = max(0.0, min(1.0, round(confidence_raw, 2)))
-
+    # Clamp to 0.0-1.0, then apply minimum floor of 0.1
+    confidence = max(0.1, max(0.0, min(1.0, round(confidence_raw, 2))))
     # Map to confidence level (STEP 7A exactly)
     if confidence >= 0.7:
         level = "strong"

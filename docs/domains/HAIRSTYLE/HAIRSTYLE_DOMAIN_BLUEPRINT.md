@@ -12,7 +12,7 @@
 > contract (`docs/product/CORE_USER_JOURNEY_TARGET.md`,
 > `docs/product/STEP_9_CORE_USER_JOURNEY_REPORT.md`, `PROJECT_CONTEXT.md`),
 > the API/DB/domain contracts, and the current-truth ledger in `CURRENT_STATE.md`
-> (git HEAD `b83de46`, working tree clean).
+> (git HEAD `b83de46`, working tree clean).c
 
 > **Marker legend:** `UNKNOWN` (not determinable), `UNTESTED` (no automated
 > coverage found), `HYPOTHESIS` (plausible, not verified), `NOT LIVE-VERIFIED`
