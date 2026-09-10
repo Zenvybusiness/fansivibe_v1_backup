@@ -6221,3 +6221,85 @@ Task: thoroughly explore the Wardrobe domain in /home/tony/fansivibe_02/fansivib
 
 ### Classification: WARDROBE_DOMAIN_EXPLORED_COMPLETE
 Wardrobe domain thoroughly explored: all files read, router/navigation verified, cross-feature references cataloged, pubspec checked, backend/model code examined, test files reviewed. All implementation is mock/default-backed with local persistence support via LearningService.
+
+## STEP 10.5 recovery — REAL_SCAN_WIRED (PROVIDER_RUNTIME_PENDING) — 2026-09-10
+
+Recovered the stuck STEP 10.5 execution by continuing from the working tree
+(no restart, no rework of completed wiring).
+
+Already completed before recovery (left untouched): backend hairstyle image
+branch (`analysis.py` router → `CreateHairstyleImageRun` +
+`OllamaVisionAppearanceAdapter`, 202, XOR, validation), `media.py` SHA-256
+helpers, `vision_appearance_adapter.py`, port `image_bytes` seam, vision
+settings, backend wiring tests, Flutter `FaceScanScreen` (consent-gated
+image_picker, in-memory bytes), `HairstyleClient` multipart upload + XOR,
+`HairstyleService` image path + mock provenance, `FaceProcessingScreen`
+image handoff + real-only `setFace`, router `extra` handoff, `image_picker`
+dep.
+
+Completed in this recovery (test-only fixes, no production code touched):
+- `flutter/.../test/hairstyle_client_test.dart`: added `_CapturingClient`
+  (`http.BaseClient` that captures the unfinalized `MultipartRequest`;
+  `MockClient` re-wraps as plain `Request` so the cast could never succeed).
+- `flutter/.../test/hairstyle_scan_screen_test.dart`: `_tapVisible` helper
+  (`ensureVisible` + duration pumps; `pumpAndSettle` never settles on this
+  screen) and real 1x1 PNG bytes for the preview (`Image.memory` rejects
+  `[1,2,3,4]`).
+
+Validation: backend DB-free `test_analysis_use_case` +
+`test_hairstyle_image_router` + `test_vision_appearance_adapter`: 76 passed.
+Flutter `hairstyle_client` + `hairstyle_scan_screen` + `hairstyle_service`:
+46 passed. `dart analyze` on all touched Flutter files: clean.
+DB-backed `test_analysis_api.py` completion tests fail on a pre-existing
+psycopg `dict`-adapt env issue (fails identically on the clean tree; fixing
+it would touch the persistence layer, out of STEP 10.5 scope).
+Live Ollama unreachable at `http://localhost:11434`
+(PROVIDER_RUNTIME_NOT_AVAILABLE); wiring proven with mocked analyzer only.
+
+## STEP 10.5-RUNTIME — PROVIDER_RUNTIME_READY — 2026-09-10
+
+Ollama vision provider runtime closed (no production code changed):
+- Installed standalone Ollama v0.34.0 user-space (`~/ollama`, from
+  `ollama-linux-amd64.tar.zst`; no root used), serving at
+  `http://localhost:11434` (CPU-only inference compute).
+- Pulled exactly the configured model `llama3.2-vision` (11B Q4_K_M,
+  7.8 GB, capabilities include `vision`); `/api/tags` lists
+  `llama3.2-vision:latest`.
+- No appearance-analysis image test run; no test face image created.
+
+## STEP 10 REAL APPEARANCE SCAN — 2026-09-10
+
+Status:
+REAL_SCAN_WIRED — LIVE_INFERENCE_BLOCKED
+
+Verified:
+- Flutter consent-gated real image capture
+- in-memory image bytes
+- multipart upload
+- FastAPI hairstyle image branch
+- CreateHairstyleImageRun
+- real SHA-256 MediaRef
+- AppearanceAnalysisPort
+- OllamaVisionAppearanceAdapter
+- Ollama runtime reachable
+- llama3.2-vision downloaded and reports vision capability
+- real request reached FastAPI and Ollama through the application path
+- no image persistence
+- focused backend/Flutter tests passing
+
+Infrastructure blockers:
+1. Local Ollama runner cannot load llama3.2-vision mllama architecture.
+2. Existing psycopg environment cannot adapt dict → JSONB on fail_analysis_run(), leaving failed smoke runs pending.
+3. Successful live face inference therefore remains unverified.
+
+Test artifacts (smoke runs left `pending` in local dev DB only; not deleted
+or mutated by this step):
+- 0e9c419d-cc6c-4426-b15a-dcdab51a6cf3 (Ollama v0.34.0 attempt)
+- f04b909f-9dcb-41e6-b01e-453789cb0aee (Ollama v0.33.3 attempt)
+
+Important:
+- These blockers must NOT be solved by changing production architecture in this step.
+- Do NOT replace the configured vision model.
+- Do NOT modify persistence code.
+- Do NOT add fake appearance data.
+- Do NOT claim real face analysis is production-verified.

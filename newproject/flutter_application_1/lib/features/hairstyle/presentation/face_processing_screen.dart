@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
@@ -10,10 +12,22 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class FaceProcessingScreen extends StatefulWidget {
-  const FaceProcessingScreen({super.key, this.service});
+  const FaceProcessingScreen({
+    super.key,
+    this.service,
+    this.imageBytes,
+    this.imageFilename,
+    this.imageContentType,
+  });
 
   /// Injectable for tests; when null the screen owns a real [HairstyleService].
   final HairstyleService? service;
+
+  /// Real scan image held in memory by the scan screen (never persisted,
+  /// never logged). When null the existing profile-only path is used.
+  final Uint8List? imageBytes;
+  final String? imageFilename;
+  final String? imageContentType;
 
   @override
   State<FaceProcessingScreen> createState() => _FaceProcessingScreenState();
@@ -53,7 +67,11 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
   }
 
   Future<void> _start() async {
-    final result = await _service.runAnalysis();
+    final result = await _service.runAnalysis(
+      imageBytes: widget.imageBytes,
+      imageFilename: widget.imageFilename,
+      imageContentType: widget.imageContentType,
+    );
     if (!mounted) return;
     // A genuine backend failure (`status=failed`) surfaces an honest error
     // state instead of silently navigating to the offline mock (required

@@ -22,6 +22,16 @@ class AssistantClient {
   final http.Client _client;
   static const Duration _timeout = Duration(seconds: 12);
 
+  static const String _devToken = String.fromEnvironment(
+    'FANSIVIBE_DEV_TOKEN',
+    defaultValue: 'dev',
+  );
+
+  Map<String, String> get _authJsonHeaders => const {
+    'Content-Type': 'application/json; charset=UTF-8',
+    'Authorization': 'Bearer $_devToken',
+  };
+
   Future<AssistantReply?> chat({
     required List<AssistantMessage> history,
     required AssistantUserContext context,
@@ -94,6 +104,67 @@ class AssistantClient {
       debugPrint('Save outfit backend unreachable: $error');
     }
     return null;
+  }
+
+  /// Fetches the server-persisted `preferredOccasions` (`GET /v1/users/me`).
+  ///
+  /// Returns the authoritative `preferences.preferredOccasions` list — `[]`
+  /// is a valid clear and is returned as such. Returns null on any failure
+  /// or when the key is missing/malformed, so the caller keeps local state.
+  /// Same timeout/error degradation conventions as [chat].
+  Future<List<String>?> fetchPreferredOccasions() async {
+    try {
+      final response = await _client
+          .get(
+            Uri.parse('$baseUrl/v1/users/me'),
+            headers: _authJsonHeaders,
+          )
+          .timeout(_timeout);
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        final preferences = decoded['preferences'];
+        if (preferences is Map<String, dynamic>) {
+          final raw = preferences['preferredOccasions'];
+          if (raw is List && raw.every((e) => e is String)) {
+            return List<String>.from(raw);
+          }
+        }
+        debugPrint('User profile missing preferredOccasions.');
+      } else {
+        debugPrint(
+          'User profile backend responded ${response.statusCode}: ${response.body}',
+        );
+      }
+    } catch (error) {
+      debugPrint('User profile backend unreachable: $error');
+    }
+    return null;
+  }
+
+  /// Persists `preferredOccasions` (`PATCH /v1/users/me`).
+  ///
+  /// Sends exactly `{"preferredOccasions": [...]}` (`[]` clears). Returns
+  /// true only when the backend confirms (200). Same timeout/error
+  /// degradation conventions as [chat]: false on any failure, never throws.
+  Future<bool> updatePreferredOccasions(List<String> occasions) async {
+    try {
+      final response = await _client
+          .patch(
+            Uri.parse('$baseUrl/v1/users/me'),
+            headers: _authJsonHeaders,
+            body: jsonEncode({'preferredOccasions': occasions}),
+          )
+          .timeout(_timeout);
+
+      if (response.statusCode == 200) return true;
+      debugPrint(
+        'Update preferences backend responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Update preferences backend unreachable: $error');
+    }
+    return false;
   }
 
   void dispose() => _client.close();

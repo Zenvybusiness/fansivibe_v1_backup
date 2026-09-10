@@ -113,6 +113,8 @@ class UserStateRepository(Protocol):
 
     def get_profile(self, *, user_id: UUID) -> Optional[UserProfileRecord]: ...
 
+    def update_preferences(self, *, user_id: UUID, preferences: dict) -> None: ...
+
 
 class SavedLookRepository(Protocol):
     def insert(

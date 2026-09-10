@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_client.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
@@ -16,12 +18,19 @@ class _FakeHairstyleClient extends HairstyleClient {
   int listCalls = 0;
   final List<String> savedLookIds = [];
   final List<String> savedTitles = [];
+  String? lastFaceProfileRef;
+  Uint8List? lastImageBytes;
 
   @override
   Future<String?> submitHairstyleAnalysis({
-    required String faceProfileRef,
+    String? faceProfileRef,
+    Uint8List? imageBytes,
+    String? imageFilename,
+    String? imageContentType,
   }) async {
     submitCalls++;
+    lastFaceProfileRef = faceProfileRef;
+    lastImageBytes = imageBytes;
     return submitResult;
   }
 
@@ -251,6 +260,64 @@ void main() {
 
       expect(second.topRecommendation.name, 'Textured Quiff');
       expect(service.analysisError, isNull);
+    });
+
+    test('uploads image bytes instead of the profile reference', () async {
+      final client = _FakeHairstyleClient()
+        ..submitResult = 'run-1'
+        ..pollResult = AnalysisRun(
+          runId: 'run-1',
+          runType: 'hairstyle',
+          status: 'completed',
+          result: _wireResult(),
+        );
+      final service = HairstyleService(client: client);
+      addTearDown(service.dispose);
+      final image = Uint8List.fromList([1, 2, 3, 4]);
+
+      final result = await service.runAnalysis(imageBytes: image);
+
+      expect(client.submitCalls, 1);
+      expect(client.lastImageBytes, image);
+      expect(client.lastFaceProfileRef, isNull);
+      expect(result.faceShape, 'Oval');
+      expect(service.isMockResult, isFalse);
+    });
+
+    test('image upload failure falls back to mock without error', () async {
+      final client = _FakeHairstyleClient()..submitResult = null;
+      final service = HairstyleService(client: client);
+      addTearDown(service.dispose);
+
+      final result = await service.runAnalysis(
+        imageBytes: Uint8List.fromList([9, 9, 9]),
+      );
+
+      expect(client.submitCalls, 1);
+      expect(result.faceShape, HairstyleAnalysisResult.mock.faceShape);
+      expect(service.isMockResult, isTrue);
+      expect(service.analysisError, isNull);
+    });
+
+    test('failed image run surfaces the typed error', () async {
+      final client = _FakeHairstyleClient()
+        ..submitResult = 'run-1'
+        ..pollResult = AnalysisRun(
+          runId: 'run-1',
+          runType: 'hairstyle',
+          status: 'failed',
+          error: const {
+            'code': 'PROCESSING_FAILURE',
+            'message': "We couldn't finish this request.",
+          },
+        );
+      final service = HairstyleService(client: client);
+      addTearDown(service.dispose);
+
+      await service.runAnalysis(imageBytes: Uint8List.fromList([7, 7]));
+
+      expect(service.analysisError, "We couldn't finish this request.");
+      expect(service.isMockResult, isTrue);
     });
   });
 

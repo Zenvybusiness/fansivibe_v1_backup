@@ -74,13 +74,21 @@ class HairstyleService extends ChangeNotifier {
 
   /// Runs the analysis and returns the result.
   ///
-  /// Drives [completedStageCount] forward as real transitions happen: the
-  /// pipeline completes when the backend run is finished (or when the offline
-  /// fallback has produced its result). When the backend is reachable but the
-  /// run ends in `failed`, [analysisError] is set so callers can surface the
-  /// typed failure; the offline fallback still resolves so the flow never
-  /// breaks (documented Stage 6-7 design decision).
-  Future<HairstyleAnalysisResult> runAnalysis() async {
+  /// When [imageBytes] are supplied (real face-scan photo held in memory by
+  /// the scan screen), they are uploaded as a real multipart `image` part and
+  /// analyzed by the backend appearance analyzer. Otherwise the stored face
+  /// profile path is used. Drives [completedStageCount] forward as real
+  /// transitions happen: the pipeline completes when the backend run is
+  /// finished (or when the offline fallback has produced its result). When
+  /// the backend is reachable but the run ends in `failed`, [analysisError]
+  /// is set so callers can surface the typed failure; the offline fallback
+  /// still resolves so the flow never breaks (documented Stage 6-7 design
+  /// decision). A backend-produced real analysis is never marked as mock.
+  Future<HairstyleAnalysisResult> runAnalysis({
+    Uint8List? imageBytes,
+    String? imageFilename,
+    String? imageContentType,
+  }) async {
     _isProcessing = true;
     _completedStageCount = 0;
     _analysisError = null;
@@ -89,35 +97,26 @@ class HairstyleService extends ChangeNotifier {
     _safeNotify();
 
     HairstyleAnalysisResult resolved;
-    final faceShape = _learning?.face?.faceShape;
-
-    if (faceShape == null || faceShape.isEmpty) {
-      _usedMockResult = true;
-      resolved = HairstyleAnalysisResult.mock;
-    } else {
-      final runId = await _client.submitHairstyleAnalysis(
-        faceProfileRef: _devFaceProfileRef,
+    if (imageBytes != null && imageBytes.isNotEmpty) {
+      resolved = await _resolveBackendRun(
+        _client.submitHairstyleAnalysis(
+          imageBytes: imageBytes,
+          imageFilename: imageFilename,
+          imageContentType: imageContentType,
+        ),
       );
-      if (runId == null) {
-        _runOutcome = 'unreachable';
+    } else {
+      final faceShape = _learning?.face?.faceShape;
+
+      if (faceShape == null || faceShape.isEmpty) {
         _usedMockResult = true;
         resolved = HairstyleAnalysisResult.mock;
       } else {
-        final run = await _client.pollAnalysisRun(runId: runId);
-        if (run != null && run.isFailed) {
-          _runOutcome = 'failed';
-          _usedMockResult = true;
-          _analysisError = _describeError(run.error);
-          resolved = HairstyleAnalysisResult.mock;
-        } else if (run != null) {
-          _runOutcome = 'completed';
-          _usedMockResult = false;
-          resolved = hairstyleResultFromRun(run);
-        } else {
-          _runOutcome = 'unreachable';
-          _usedMockResult = true;
-          resolved = HairstyleAnalysisResult.mock;
-        }
+        resolved = await _resolveBackendRun(
+          _client.submitHairstyleAnalysis(
+            faceProfileRef: _devFaceProfileRef,
+          ),
+        );
       }
     }
 
@@ -136,6 +135,36 @@ class HairstyleService extends ChangeNotifier {
     _isProcessing = false;
     _safeNotify();
     return resolved;
+  }
+
+  /// Submits [submitFuture] then polls to a terminal run, mapping the
+  /// outcome to a result with honest mock provenance. Shared by the image
+  /// and profile-reference submit paths so polling/failed handling stays
+  /// identical (30 attempts, 600 ms interval live in the client).
+  Future<HairstyleAnalysisResult> _resolveBackendRun(
+    Future<String?> submitFuture,
+  ) async {
+    final runId = await submitFuture;
+    if (runId == null) {
+      _runOutcome = 'unreachable';
+      _usedMockResult = true;
+      return HairstyleAnalysisResult.mock;
+    }
+    final run = await _client.pollAnalysisRun(runId: runId);
+    if (run != null && run.isFailed) {
+      _runOutcome = 'failed';
+      _usedMockResult = true;
+      _analysisError = _describeError(run.error);
+      return HairstyleAnalysisResult.mock;
+    } else if (run != null) {
+      _runOutcome = 'completed';
+      _usedMockResult = false;
+      return hairstyleResultFromRun(run);
+    } else {
+      _runOutcome = 'unreachable';
+      _usedMockResult = true;
+      return HairstyleAnalysisResult.mock;
+    }
   }
 
   String _getRunStatus() {

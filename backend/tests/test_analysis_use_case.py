@@ -12,6 +12,8 @@ AppearanceProfile flows through the decision engine pipeline correctly.
 
 from __future__ import annotations
 
+import hashlib
+import io
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -438,6 +440,7 @@ def test_outfit_run_creates_with_development_adapter():
     class MockImage:
         content_type = "image/jpeg"
         size = 1_000_000  # 1 MB, under 20 MB limit
+        file = io.BytesIO(b"fake-image-bytes-for-outfit-scan")
 
     run_id = use_case(user_id=USER, image=MockImage())
     record = runs.get_for_user(user_id=USER, run_id=run_id)
@@ -476,6 +479,7 @@ def test_outfit_run_profile_updated_with_image_attributes():
     class MockImage:
         content_type = "image/jpeg"
         size = 1_000_000
+        file = io.BytesIO(b"fake-image-bytes-for-outfit-scan")
 
     run_id = use_case(user_id=USER, image=MockImage())
     record = runs.get_for_user(user_id=USER, run_id=run_id)
@@ -523,6 +527,7 @@ def test_outfit_run_learning_signal_emitted():
     class MockImage:
         content_type = "image/jpeg"
         size = 1_000_000
+        file = io.BytesIO(b"fake-image-bytes-for-outfit-scan")
 
     run_id = use_case(user_id=USER, image=MockImage())
     record = runs.get_for_user(user_id=USER, run_id=run_id)
@@ -547,6 +552,7 @@ def test_outfit_run_with_development_adapter_full_structure():
     class MockImage:
         content_type = "image/jpeg"
         size = 1_000_000
+        file = io.BytesIO(b"fake-image-bytes-for-outfit-scan")
 
     run_id = use_case(user_id=USER, image=MockImage())
     record = runs.get_for_user(user_id=USER, run_id=run_id)
@@ -597,6 +603,7 @@ def test_outfit_run_with_sparse_profile_sets_needs_more_data():
     class MockImage:
         content_type = "image/jpeg"
         size = 1_000_000
+        file = io.BytesIO(b"fake-image-bytes-for-outfit-scan")
 
     run_id = use_case(user_id=USER, image=MockImage())
     record = runs.get_for_user(user_id=USER, run_id=run_id)
@@ -778,6 +785,7 @@ def test_recommendation_deterministic_with_image_appearance_profile():
     class MockImage:
         content_type = "image/jpeg"
         size = 1_000_000
+        file = io.BytesIO(b"fake-image-bytes-for-outfit-scan")
 
     # Two runs with different image keys should produce different (deterministic) profiles
     # but each run should be internally deterministic
@@ -834,6 +842,834 @@ def test_confidence_deterministic_regardless_of_source():
     )
     sparse_result = recommend_hairstyle(KNOWLEDGE, sparse_profile)
     assert sparse_result.confidence < 0.5
+
+
+# ============================================================================
+# STEP 10.3 — media hashing + hairstyle image-run infrastructure tests
+#
+# DB-free. Proves: real SHA-256 contentHash from received bytes, the
+# hairstyle image path creates a hairstyle-typed run (never via
+# CreateOutfitRun), and error payloads carry no image bytes.
+# ============================================================================
+
+
+def _image_with_bytes(payload: bytes, content_type: str = "image/jpeg", size=None):
+    class MockImage:
+        pass
+
+    img = MockImage()
+    img.content_type = content_type
+    img.size = len(payload) if size is None else size
+    img.file = io.BytesIO(payload)
+    return img
+
+
+class StubAppearancePort:
+    """Explicit stub AppearanceAnalysisPort — records calls, returns a fixed
+    measured profile. Never the development/hash adapter."""
+
+    def __init__(self, profile) -> None:
+        self._profile = profile
+        self.calls: list = []
+
+    def analyze(self, *, media_ref, user_id, image_bytes=None):
+        self.calls.append(
+            {"media_ref": media_ref, "user_id": user_id, "image_bytes": image_bytes}
+        )
+        return self._profile
+
+    def validate_result(self, result) -> bool:
+        return True
+
+
+def _measured_profile(**overrides):
+    from app.domain.value_objects import AppearanceProfile
+
+    base = {
+        "faceShape": "oval",
+        "skinTone": "C01",
+        "bodyType": "average",
+        "styleType": "casual",
+        "sourceRunId": "",
+    }
+    base.update(overrides)
+    return AppearanceProfile(**base)
+
+
+class FakeLearningSignal:
+    """Recording LearningSignalRepository double."""
+
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    def insert_look_saved(self, *, user_id, label, context):
+        self.calls.append({"user_id": user_id, "label": label, "context": context})
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+
+# --- Change 1: real SHA-256 content hash ------------------------------------
+
+
+def test_sha256_helper_matches_hashlib_vector():
+    from app.application.media import sha256_hex
+
+    digest = sha256_hex(b"abc")
+    assert digest == hashlib.sha256(b"abc").hexdigest()
+    assert len(digest) == 64
+    assert all(c in "0123456789abcdef" for c in digest)
+
+
+def test_same_bytes_same_hash_different_bytes_differ():
+    from app.application.analysis import CreateOutfitRun
+    from app.ai.appearance_adapter import DevelopmentAppearanceAnalysisAdapter
+
+    runs = FakeRuns()
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=DevelopmentAppearanceAnalysisAdapter(),
+        user_state=FakeUserState(None),
+        learning_signal=None,
+    )
+    run_a = use_case(user_id=USER, image=_image_with_bytes(b"same-bytes"))
+    run_b = use_case(user_id=USER, image=_image_with_bytes(b"same-bytes"))
+    run_c = use_case(user_id=USER, image=_image_with_bytes(b"other-bytes"))
+    hash_a = runs.get_for_user(user_id=USER, run_id=run_a).input_media["contentHash"]
+    hash_b = runs.get_for_user(user_id=USER, run_id=run_b).input_media["contentHash"]
+    hash_c = runs.get_for_user(user_id=USER, run_id=run_c).input_media["contentHash"]
+    assert hash_a == hash_b
+    assert hash_a != hash_c
+
+
+def test_outfit_media_ref_content_hash_is_real_sha256():
+    from app.application.analysis import CreateOutfitRun
+    from app.ai.appearance_adapter import DevelopmentAppearanceAnalysisAdapter
+
+    payload = b"real-bytes-for-hash-check"
+    runs = FakeRuns()
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=DevelopmentAppearanceAnalysisAdapter(),
+        user_state=FakeUserState(None),
+        learning_signal=None,
+    )
+    run_id = use_case(user_id=USER, image=_image_with_bytes(payload))
+    media = runs.get_for_user(user_id=USER, run_id=run_id).input_media
+    assert media["contentHash"] == hashlib.sha256(payload).hexdigest()
+    assert len(media["contentHash"]) == 64
+    assert media["isGenerated"] is False
+    assert media["key"].startswith(f"users/{USER}/scans/")
+    assert media["mediaType"] == "image/jpeg"
+    assert media["sizeBytes"] == len(payload)
+    # No image bytes in the persisted MediaRef — metadata only.
+    assert not any(isinstance(v, (bytes, bytearray)) for v in media.values())
+
+
+# --- Change 2: hairstyle-typed image run ------------------------------------
+
+
+def test_hairstyle_image_run_creates_hairstyle_typed_run():
+    from app.application.analysis import CreateHairstyleImageRun
+
+    payload = b"hairstyle-scan-bytes"
+    runs = FakeRuns()
+    user_state = FakeUserState(None)
+    learning_signal = FakeLearningSignal()
+    port = StubAppearancePort(_measured_profile())
+    use_case = CreateHairstyleImageRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=port,
+        user_state=user_state,
+        learning_signal=learning_signal,
+    )
+    run_id = use_case(user_id=USER, image=_image_with_bytes(payload))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.run_type == "hairstyle"
+    assert record.status == "completed"
+    assert record.error is None
+    # Measured appearance flows through; provenance anchored to the run.
+    assert record.result["appearance"]["faceShape"] == "oval"
+    assert record.result["appearance"]["sourceRunId"] == str(run_id)
+    assert record.input_media["contentHash"] == hashlib.sha256(payload).hexdigest()
+    # The injected port was used exactly once (never CreateOutfitRun).
+    assert len(port.calls) == 1
+    assert port.calls[0]["user_id"] == USER
+    # TRX-6 persisted the measured profile for future runs.
+    profile = user_state.get_style_profile(user_id=USER)
+    assert profile is not None
+    assert profile["face_shape"] == "oval"
+    assert profile["source_run_id"] == str(run_id)
+    # analysis_updated signal emitted; no outfit_selected leakage.
+    labels = [c["label"] for c in learning_signal.calls]
+    assert "analysis_updated" in labels
+    assert "outfit_selected" not in labels
+
+
+def test_hairstyle_image_run_requires_explicit_port():
+    from app.application.analysis import CreateHairstyleImageRun
+
+    with pytest.raises(TypeError):
+        CreateHairstyleImageRun(
+            runs=FakeRuns(),
+            knowledge=_knowledge_with_catalog(),
+        )
+
+
+def test_hairstyle_image_run_empty_face_shape_fails_honestly():
+    from app.application.analysis import CreateHairstyleImageRun
+
+    runs = FakeRuns()
+    user_state = FakeUserState(None)
+    use_case = CreateHairstyleImageRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(_measured_profile(faceShape="")),
+        user_state=user_state,
+        learning_signal=None,
+    )
+    run_id = use_case(user_id=USER, image=_image_with_bytes(b"no-face-bytes"))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.run_type == "hairstyle"
+    assert record.status == "failed"
+    assert record.result is None
+    assert record.error["code"] == "PROCESSING_FAILURE"
+    assert record.error["details"]["run_id"] == str(run_id)
+    # Nothing fabricated into the profile.
+    assert user_state.get_style_profile(user_id=USER) is None
+
+
+def test_hairstyle_image_run_validation_unchanged():
+    from app.application.analysis import CreateHairstyleImageRun
+
+    runs = FakeRuns()
+
+    def _use_case():
+        return CreateHairstyleImageRun(
+            runs=runs,
+            knowledge=_knowledge_with_catalog(),
+            appearance_port=StubAppearancePort(_measured_profile()),
+            user_state=FakeUserState(None),
+            learning_signal=None,
+        )
+
+    with pytest.raises(ApiError) as excinfo:
+        _use_case()(
+            user_id=USER,
+            image=_image_with_bytes(b"bytes", content_type="image/gif"),
+        )
+    assert excinfo.value.status_code == 422
+    assert excinfo.value.code == "VALIDATION_ERROR"
+
+    with pytest.raises(ApiError) as excinfo:
+        _use_case()(
+            user_id=USER,
+            image=_image_with_bytes(b"bytes", size=50 * 1024 * 1024),
+        )
+    assert excinfo.value.status_code == 422
+    assert excinfo.value.code == "VALIDATION_ERROR"
+    # Rejected inputs create no runs.
+    assert runs.rows == {}
+
+
+def test_image_error_payloads_carry_no_bytes():
+    from app.application.analysis import CreateHairstyleImageRun
+
+    use_case = CreateHairstyleImageRun(
+        runs=FakeRuns(),
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(_measured_profile()),
+        user_state=FakeUserState(None),
+        learning_signal=None,
+    )
+    with pytest.raises(ApiError) as excinfo:
+        use_case(
+            user_id=USER,
+            image=_image_with_bytes(b"bytes", content_type="image/gif"),
+        )
+    assert not any(
+        isinstance(v, (bytes, bytearray)) for v in excinfo.value.details.values()
+    )
+
+
+# ============================================================================
+# STEP 11.2 — save → memory → hairstyle ranking loop (DB-free, fake repos)
+#
+# Proves CreateHairstyleRun reads the owner's saved_looks via the EXISTING
+# SavedLookRepository.list_for_user() and maps valid saved hairstyle look IDs
+# into the EXISTING HairstylePreferences.preferredLookIds consumed by the
+# existing filtering/ranking path. No schema, API, or Flutter changes.
+# ============================================================================
+
+from app.domain.ports.repositories import SavedLookRecord
+
+
+class FakeSavedLooks:
+    """In-memory SavedLookRepository double (owner-scoped, OW-1)."""
+
+    def __init__(self) -> None:
+        self._rows: list[tuple[UUID, SavedLookRecord]] = []
+        self.calls: list = []
+
+    def add(self, user_id: UUID, look_id, title: str = "Saved look") -> None:
+        self._rows.append(
+            (
+                user_id,
+                SavedLookRecord(
+                    id=uuid4(),
+                    look_id=look_id,
+                    title=title,
+                    snapshot={},
+                    source_run_id=None,
+                    created_at=datetime.now(timezone.utc),
+                ),
+            )
+        )
+
+    def list_for_user(self, *, user_id: UUID, page: int, page_size: int):
+        self.calls.append({"user_id": user_id, "page": page, "page_size": page_size})
+        owned = [rec for uid, rec in self._rows if uid == user_id]
+        return owned, len(owned)
+
+    def commit(self) -> None:
+        pass
+
+    def rollback(self) -> None:
+        pass
+
+
+def _hairstyle_use_case(runs, saved_looks=None):
+    return CreateHairstyleRun(
+        runs=runs,
+        user_state=FakeUserState({"face_shape": "Oval", "skin_tone": "Warm Medium"}),
+        knowledge=_knowledge_with_catalog(),
+        saved_looks=saved_looks,
+    )
+
+
+def test_11_2_no_saved_looks_existing_behavior_unchanged():
+    """A. No saved looks → existing recommendation behavior (top quiff)."""
+    runs = FakeRuns()
+    run_id = _hairstyle_use_case(runs, FakeSavedLooks())(
+        user_id=USER, face_profile_ref=str(uuid4())
+    )
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    recs = record.result["recommendations"]
+    assert recs["top"]["id"] == "textured_quiff"
+    assert len(recs["alternatives"]) == 3
+
+
+def test_11_2_no_saved_looks_repo_wired_behavior_unchanged():
+    """A2. Backward compat: callers without saved_looks still complete."""
+    runs = FakeRuns()
+    run_id = _hairstyle_use_case(runs)(
+        user_id=USER, face_profile_ref=str(uuid4())
+    )
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    assert record.result["recommendations"]["top"]["id"] == "textured_quiff"
+
+
+def test_11_2_saved_hairstyle_look_populates_preferred():
+    """B. Saved hairstyle look ID lands in preferredLookIds (never excluded)."""
+    from app.application import analysis as analysis_module
+
+    runs = FakeRuns()
+    saved = FakeSavedLooks()
+    saved.add(USER, "classic_pompadour")
+    use_case = _hairstyle_use_case(runs, saved)
+
+    captured: dict = {}
+    real_recommend = analysis_module.recommend_hairstyle
+
+    def spy(knowledge, appearance, preferences=None, **kwargs):
+        captured["preferences"] = preferences
+        return real_recommend(knowledge, appearance, preferences, **kwargs)
+
+    with patch.object(analysis_module, "recommend_hairstyle", spy):
+        run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+
+    prefs = captured["preferences"]
+    assert prefs is not None
+    assert "classic_pompadour" in prefs.preferredLookIds
+    assert len(prefs.excludedLookIds) == 0
+    # Owner scoping: the read used the caller's own user_id.
+    assert saved.calls and saved.calls[0]["user_id"] == USER
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+
+
+def test_11_2_other_user_saved_look_cannot_influence():
+    """C. Another user's saved look never influences the current user."""
+    from app.application import analysis as analysis_module
+
+    runs = FakeRuns()
+    saved = FakeSavedLooks()
+    saved.add(uuid4(), "classic_pompadour")  # someone else's save
+    use_case = _hairstyle_use_case(runs, saved)
+
+    captured: dict = {}
+    real_recommend = analysis_module.recommend_hairstyle
+
+    def spy(knowledge, appearance, preferences=None, **kwargs):
+        captured["preferences"] = preferences
+        return real_recommend(knowledge, appearance, preferences, **kwargs)
+
+    with patch.object(analysis_module, "recommend_hairstyle", spy):
+        run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+
+    assert len(captured["preferences"].preferredLookIds) == 0
+    assert len(captured["preferences"].excludedLookIds) == 0
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record.result["recommendations"]["top"]["id"] == "textured_quiff"
+
+
+def test_11_2_filtering_ranking_consume_populated_preferences():
+    """D. Existing filtering keeps + ranking boosts the saved hairstyle look."""
+    from app.application import analysis as analysis_module
+    from app.domain.services.analysis_rules import (
+        build_context,
+        filter_candidates,
+        generate_candidates,
+        score_candidates,
+    )
+    from app.domain.value_objects import AppearanceProfile
+
+    runs = FakeRuns()
+    saved = FakeSavedLooks()
+    saved.add(USER, "classic_pompadour")
+    use_case = _hairstyle_use_case(runs, saved)
+
+    captured: dict = {}
+    real_recommend = analysis_module.recommend_hairstyle
+
+    def spy(knowledge, appearance, preferences=None, **kwargs):
+        captured["preferences"] = preferences
+        return real_recommend(knowledge, appearance, preferences, **kwargs)
+
+    with patch.object(analysis_module, "recommend_hairstyle", spy):
+        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+
+    prefs = captured["preferences"]
+    knowledge = _knowledge_with_catalog()
+    appearance = AppearanceProfile(faceShape="Oval")
+    context = build_context(appearance, prefs)
+    candidates = generate_candidates(knowledge, context)
+    filtered = filter_candidates(candidates, context)
+    # Filtering (hard exclusion) must NOT drop the saved look.
+    assert any(look.id == "classic_pompadour" for look in filtered)
+    scored = {s.id: s for s in score_candidates(filtered, context)}
+    # Ranking (soft preference) must credit it via the existing signal.
+    assert scored["classic_pompadour"].signals["preference"] == 0.03
+
+
+def test_11_2_non_hairstyle_and_unknown_ids_ignored():
+    """Only valid hairstyle catalog IDs map; titles are never inferred from."""
+    from app.application import analysis as analysis_module
+
+    runs = FakeRuns()
+    saved = FakeSavedLooks()
+    saved.add(USER, None, title="Saved Outfit")  # outfit save: look_id=None
+    saved.add(USER, "structured_goatee", title="Goatee")  # grooming catalog ID
+    saved.add(USER, "not_a_real_look", title="classic_pompadour")  # unknown code
+    use_case = _hairstyle_use_case(runs, saved)
+
+    captured: dict = {}
+    real_recommend = analysis_module.recommend_hairstyle
+
+    def spy(knowledge, appearance, preferences=None, **kwargs):
+        captured["preferences"] = preferences
+        return real_recommend(knowledge, appearance, preferences, **kwargs)
+
+    with patch.object(analysis_module, "recommend_hairstyle", spy):
+        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+
+    assert len(captured["preferences"].preferredLookIds) == 0
+    assert len(captured["preferences"].excludedLookIds) == 0
+
+
+def test_11_2_no_schema_migration_required():
+    """E. The loop is DB-free composition: no DDL in the use-case module."""
+    import pathlib
+
+    source = pathlib.Path("app/application/analysis.py").read_text()
+    assert "CREATE TABLE" not in source
+    assert "ALTER TABLE" not in source
+    assert "alembic" not in source.lower()
+    # And it runs entirely against fake repos (no database).
+    runs = FakeRuns()
+    run_id = _hairstyle_use_case(runs, FakeSavedLooks())(
+        user_id=USER, face_profile_ref=str(uuid4())
+    )
+    assert runs.get_for_user(user_id=USER, run_id=run_id).status == "completed"
+
+
+# ============================================================================
+# STEP 11.2.1 — production wiring: router injects SavedLookRepositorySQL(db)
+# into CreateHairstyleRun(saved_looks=...). DB-free: the use case is spied,
+# the real SavedLookRepositorySQL class is asserted (session passthrough only,
+# no DB hit).
+# ============================================================================
+
+
+def test_11_2_1_router_injects_saved_look_repo_into_create_hairstyle_run(monkeypatch):
+    import time as _time_mod
+    from datetime import datetime as _dt, timezone as _tz
+
+    # Neutralize this module's autouse time.time fixture (struct_time) which
+    # breaks Starlette TestClient cookie handling; the wiring path needs a
+    # real float timestamp.
+    _time_mod.time = lambda: _dt.now(_tz.utc).timestamp()
+
+    import uuid as _uuid
+
+    from fastapi.testclient import TestClient
+
+    import app.api.routers.analysis as analysis_router
+    from app.infrastructure.db.repositories import SavedLookRepositorySQL
+
+    router_user = _uuid.uuid4()
+    db_session = object()
+    run_id = _uuid.uuid4()
+    captured: dict = {}
+
+    class SpyCreateHairstyleRun:
+        def __init__(self, **kwargs) -> None:
+            captured["kwargs"] = kwargs
+
+        def __call__(self, *, user_id, face_profile_ref):
+            captured["user_id"] = user_id
+            captured["face_profile_ref"] = face_profile_ref
+            return run_id
+
+    monkeypatch.setattr(analysis_router, "CreateHairstyleRun", SpyCreateHairstyleRun)
+
+    from app.main import app
+    from app.api.deps import get_current_user_id
+    from app.infrastructure.db.session import get_db
+
+    old_db = app.dependency_overrides.get(get_db)
+    old_user = app.dependency_overrides.get(get_current_user_id)
+    app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_current_user_id] = lambda: router_user
+    try:
+        client = TestClient(app)
+        ref = str(_uuid.uuid4())
+        resp = client.post("/v1/analysis/hairstyle", data={"faceProfileRef": ref})
+        assert resp.status_code == 202
+        assert resp.json()["run_id"] == str(run_id)
+    finally:
+        if old_db is not None:
+            app.dependency_overrides[get_db] = old_db
+        else:
+            app.dependency_overrides.pop(get_db, None)
+        if old_user is not None:
+            app.dependency_overrides[get_current_user_id] = old_user
+        else:
+            app.dependency_overrides.pop(get_current_user_id, None)
+
+    saved_looks = captured["kwargs"].get("saved_looks")
+    assert isinstance(saved_looks, SavedLookRepositorySQL)
+    assert saved_looks._session is db_session
+    assert captured["user_id"] == router_user
+    assert captured["face_profile_ref"] == ref
+
+
+# ============================================================================
+# STEP 11.3 — save → memory → grooming ranking loop (DB-free, fake repos)
+#
+# Proves CreateGroomingRun reads the owner's saved_looks via the EXISTING
+# SavedLookRepository.list_for_user() and maps valid saved grooming look IDs
+# into the EXISTING HairstylePreferences.preferredLookIds consumed by the
+# canonical grooming_rules.recommend_grooming path. No schema, API, scoring,
+# or Flutter changes. The analysis_rules.py shadow grooming implementation
+# (saved_look_ids / personalization_context) is NOT used.
+# ============================================================================
+
+
+def _grooming_use_case(runs, saved_looks=None):
+    return CreateGroomingRun(
+        runs=runs,
+        user_state=FakeUserState({"face_shape": "Oval", "skin_tone": "Warm Medium", "body_type": "Athletic", "style_type": "Modern Classic"}),
+        knowledge=_knowledge_with_catalog(),
+        saved_looks=saved_looks,
+    )
+
+
+def test_11_3_no_saved_looks_existing_behavior_unchanged():
+    """A. No saved looks → existing recommendation behavior (top goatee)."""
+    runs = FakeRuns()
+    run_id = _grooming_use_case(runs, FakeSavedLooks())(
+        user_id=USER, face_profile_ref=str(uuid4())
+    )
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    recs = record.result["recommendations"]
+    assert recs["top"]["id"] == "structured_goatee"
+    assert len(recs["alternatives"]) == 3
+
+
+def test_11_3_no_saved_looks_repo_wired_behavior_unchanged():
+    """B. Backward compat: callers without saved_looks still complete."""
+    runs = FakeRuns()
+    run_id = _grooming_use_case(runs)(
+        user_id=USER, face_profile_ref=str(uuid4())
+    )
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    assert record.result["recommendations"]["top"]["id"] == "structured_goatee"
+
+
+def test_11_3_saved_grooming_look_populates_preferred():
+    """C. Saved grooming look ID lands in preferredLookIds (never excluded)."""
+    from app.application import analysis as analysis_module
+
+    runs = FakeRuns()
+    saved = FakeSavedLooks()
+    saved.add(USER, "classic_stubble")
+    use_case = _grooming_use_case(runs, saved)
+
+    captured: dict = {}
+    real_recommend = analysis_module.recommend_grooming
+
+    def spy(knowledge, appearance, preferences=None, **kwargs):
+        captured["preferences"] = preferences
+        return real_recommend(knowledge, appearance, preferences, **kwargs)
+
+    with patch.object(analysis_module, "recommend_grooming", spy):
+        run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+
+    prefs = captured["preferences"]
+    assert prefs is not None
+    assert "classic_stubble" in prefs.preferredLookIds
+    assert len(prefs.excludedLookIds) == 0
+    # Owner scoping: the read used the caller's own user_id.
+    assert saved.calls and saved.calls[0]["user_id"] == USER
+    assert saved.calls[0]["page"] == 1
+    assert saved.calls[0]["page_size"] == 100
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+
+
+def test_11_3_other_user_saved_look_cannot_influence():
+    """D. Another user's saved grooming look never influences the user."""
+    from app.application import analysis as analysis_module
+
+    runs = FakeRuns()
+    saved = FakeSavedLooks()
+    saved.add(uuid4(), "classic_stubble")  # someone else's save
+    use_case = _grooming_use_case(runs, saved)
+
+    captured: dict = {}
+    real_recommend = analysis_module.recommend_grooming
+
+    def spy(knowledge, appearance, preferences=None, **kwargs):
+        captured["preferences"] = preferences
+        return real_recommend(knowledge, appearance, preferences, **kwargs)
+
+    with patch.object(analysis_module, "recommend_grooming", spy):
+        run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+
+    assert len(captured["preferences"].preferredLookIds) == 0
+    assert len(captured["preferences"].excludedLookIds) == 0
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record.result["recommendations"]["top"]["id"] == "structured_goatee"
+
+
+def test_11_3_saved_hairstyle_id_ignored():
+    """E. Saved hairstyle IDs are ignored by grooming personalization."""
+    from app.application import analysis as analysis_module
+
+    runs = FakeRuns()
+    saved = FakeSavedLooks()
+    saved.add(USER, "classic_pompadour")  # hairstyle catalog ID
+    saved.add(USER, "textured_quiff")  # hairstyle catalog ID
+    use_case = _grooming_use_case(runs, saved)
+
+    captured: dict = {}
+    real_recommend = analysis_module.recommend_grooming
+
+    def spy(knowledge, appearance, preferences=None, **kwargs):
+        captured["preferences"] = preferences
+        return real_recommend(knowledge, appearance, preferences, **kwargs)
+
+    with patch.object(analysis_module, "recommend_grooming", spy):
+        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+
+    assert len(captured["preferences"].preferredLookIds) == 0
+    assert len(captured["preferences"].excludedLookIds) == 0
+
+
+def test_11_3_none_outfit_and_unknown_ids_ignored():
+    """F+G. look_id=None (outfit save) and unknown codes map to nothing."""
+    from app.application import analysis as analysis_module
+
+    runs = FakeRuns()
+    saved = FakeSavedLooks()
+    saved.add(USER, None, title="Saved Outfit")  # outfit save: look_id=None
+    saved.add(USER, "", title="Empty ID")
+    saved.add(USER, "not_a_real_look", title="classic_stubble")  # unknown code
+    use_case = _grooming_use_case(runs, saved)
+
+    captured: dict = {}
+    real_recommend = analysis_module.recommend_grooming
+
+    def spy(knowledge, appearance, preferences=None, **kwargs):
+        captured["preferences"] = preferences
+        return real_recommend(knowledge, appearance, preferences, **kwargs)
+
+    with patch.object(analysis_module, "recommend_grooming", spy):
+        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+
+    assert len(captured["preferences"].preferredLookIds) == 0
+    assert len(captured["preferences"].excludedLookIds) == 0
+
+
+def test_11_3_filtering_ranking_consume_populated_preferences():
+    """C (boost). Existing grooming filtering keeps + ranking boosts the look."""
+    from app.application import analysis as analysis_module
+    from app.domain.services.grooming_rules import (
+        build_grooming_context,
+        filter_grooming_candidates,
+        generate_grooming_candidates,
+        score_grooming_candidates,
+    )
+    from app.domain.value_objects import AppearanceProfile
+
+    runs = FakeRuns()
+    saved = FakeSavedLooks()
+    saved.add(USER, "classic_stubble")
+    use_case = _grooming_use_case(runs, saved)
+
+    captured: dict = {}
+    real_recommend = analysis_module.recommend_grooming
+
+    def spy(knowledge, appearance, preferences=None, **kwargs):
+        captured["preferences"] = preferences
+        return real_recommend(knowledge, appearance, preferences, **kwargs)
+
+    with patch.object(analysis_module, "recommend_grooming", spy):
+        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+
+    prefs = captured["preferences"]
+    knowledge = _knowledge_with_catalog()
+    appearance = AppearanceProfile(faceShape="Oval")
+    context = build_grooming_context(appearance, prefs)
+    candidates = generate_grooming_candidates(knowledge, context)
+    filtered = filter_grooming_candidates(candidates, context)
+    # Filtering (hard exclusion) must NOT drop the saved look.
+    assert any(look.id == "classic_stubble" for look in filtered)
+    scored = {s.id: s for s in score_grooming_candidates(filtered, context)}
+    # Ranking (soft preference) must credit it via the existing signal.
+    assert scored["classic_stubble"].signals["preference"] == 0.03
+
+
+def test_11_3_repository_failure_degrades_to_empty_preferences():
+    """H. Saved-look read failure → recommendation still succeeds."""
+    from app.application import analysis as analysis_module
+
+    class FailingSavedLooks(FakeSavedLooks):
+        def list_for_user(self, *, user_id, page, page_size):
+            raise RuntimeError("db unavailable")
+
+    runs = FakeRuns()
+    use_case = _grooming_use_case(runs, FailingSavedLooks())
+
+    captured: dict = {}
+    real_recommend = analysis_module.recommend_grooming
+
+    def spy(knowledge, appearance, preferences=None, **kwargs):
+        captured["preferences"] = preferences
+        return real_recommend(knowledge, appearance, preferences, **kwargs)
+
+    with patch.object(analysis_module, "recommend_grooming", spy):
+        run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+
+    assert len(captured["preferences"].preferredLookIds) == 0
+    assert len(captured["preferences"].excludedLookIds) == 0
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    assert record.result["recommendations"]["top"]["id"] == "structured_goatee"
+
+
+def test_11_3_router_injects_saved_look_repo_into_create_grooming_run(monkeypatch):
+    """I. Grooming router injects SavedLookRepositorySQL(db) (11.2.1 pattern)."""
+    import time as _time_mod
+    from datetime import datetime as _dt, timezone as _tz
+
+    # Neutralize this module's autouse time.time fixture (struct_time) which
+    # breaks Starlette TestClient cookie handling; the wiring path needs a
+    # real float timestamp.
+    _time_mod.time = lambda: _dt.now(_tz.utc).timestamp()
+
+    import uuid as _uuid
+
+    from fastapi.testclient import TestClient
+
+    import app.api.routers.analysis as analysis_router
+    from app.infrastructure.db.repositories import SavedLookRepositorySQL
+
+    router_user = _uuid.uuid4()
+    db_session = object()
+    run_id = _uuid.uuid4()
+    captured: dict = {}
+
+    class SpyCreateGroomingRun:
+        def __init__(self, **kwargs) -> None:
+            captured["kwargs"] = kwargs
+
+        def __call__(self, *, user_id, face_profile_ref):
+            captured["user_id"] = user_id
+            captured["face_profile_ref"] = face_profile_ref
+            return run_id
+
+    monkeypatch.setattr(analysis_router, "CreateGroomingRun", SpyCreateGroomingRun)
+
+    from app.main import app
+    from app.api.deps import get_current_user_id
+    from app.infrastructure.db.session import get_db
+
+    old_db = app.dependency_overrides.get(get_db)
+    old_user = app.dependency_overrides.get(get_current_user_id)
+    app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_current_user_id] = lambda: router_user
+    try:
+        client = TestClient(app)
+        ref = str(_uuid.uuid4())
+        resp = client.post("/v1/analysis/grooming", json={"face_profile_ref": ref})
+        assert resp.status_code == 202
+        assert resp.json()["run_id"] == str(run_id)
+    finally:
+        if old_db is not None:
+            app.dependency_overrides[get_db] = old_db
+        else:
+            app.dependency_overrides.pop(get_db, None)
+        if old_user is not None:
+            app.dependency_overrides[get_current_user_id] = old_user
+        else:
+            app.dependency_overrides.pop(get_current_user_id, None)
+
+    saved_looks = captured["kwargs"].get("saved_looks")
+    assert isinstance(saved_looks, SavedLookRepositorySQL)
+    assert saved_looks._session is db_session
+    assert captured["user_id"] == router_user
+    assert captured["face_profile_ref"] == ref
 
 
 # ============================================================================

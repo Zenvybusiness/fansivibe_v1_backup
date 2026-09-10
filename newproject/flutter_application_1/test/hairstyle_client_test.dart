@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -7,9 +9,30 @@ import 'package:fansivibe/features/hairstyle/data/hairstyle_client.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_models.dart';
 
+/// Captures the outgoing [http.BaseRequest] without finalizing it, so tests
+/// can assert on the real multipart `image` part.
+///
+/// `package:http`'s `MockClient` re-wraps every request as a plain
+/// [http.Request] (which cannot carry files), so a cast to
+/// [http.MultipartRequest] inside a `MockClient` handler always fails.
+class _CapturingClient extends http.BaseClient {
+  _CapturingClient(this._respond);
+
+  final Future<http.Response> Function(http.BaseRequest request) _respond;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final response = await _respond(request);
+    return http.StreamedResponse(
+      Stream.value(response.bodyBytes),
+      response.statusCode,
+      headers: response.headers,
+    );
+  }
+}
+
 void main() {
-  group('HairstyleClient.submitHairstyleAnalysis', () {
-    test('returns run id on 202', () async {
+  group('HairstyleClient.submitHairstyleAnalysis', () {    test('returns run id on 202', () async {
       final client = HairstyleClient(
         client: MockClient((request) async {
           expect(request.url.path, '/v1/analysis/hairstyle');
@@ -402,6 +425,101 @@ void main() {
 
       final result = hairstyleResultFromRun(run);
       expect(result.faceShape, HairstyleAnalysisResult.mock.faceShape);
+    });
+  });
+
+  group('HairstyleClient.submitHairstyleAnalysis with image', () {
+    test('sends a real multipart image part and no faceProfileRef', () async {
+      final image = Uint8List.fromList([1, 2, 3, 4, 5]);
+      final client = HairstyleClient(
+        client: _CapturingClient((request) async {
+          expect(request.url.path, '/v1/analysis/hairstyle');
+          expect(request.headers['Authorization'], 'Bearer dev');
+          final multipart = request as http.MultipartRequest;
+          // Real file part — never a fake string/path field.
+          expect(multipart.fields, isEmpty);
+          expect(multipart.fields.containsKey('faceProfileRef'), isFalse);
+          expect(multipart.files, hasLength(1));
+          final file = multipart.files.single;
+          expect(file.field, 'image');
+          expect(file.filename, 'face.jpg');
+          expect(file.contentType.mimeType, 'image/jpeg');
+          final bytes = await file.finalize().toBytes();
+          expect(bytes, image);
+          return http.Response('{"run_id": "run-9"}', 202);
+        }),
+      );
+
+      final runId = await client.submitHairstyleAnalysis(
+        imageBytes: image,
+        imageFilename: 'face.jpg',
+      );
+
+      expect(runId, 'run-9');
+    });
+
+    test('derives png content type from the filename', () async {
+      final client = HairstyleClient(
+        client: _CapturingClient((request) async {
+          final multipart = request as http.MultipartRequest;
+          expect(multipart.files.single.contentType.mimeType, 'image/png');
+          return http.Response('{"run_id": "run-1"}', 202);
+        }),
+      );
+
+      final runId = await client.submitHairstyleAnalysis(
+        imageBytes: Uint8List.fromList([9, 9]),
+        imageFilename: 'scan.png',
+      );
+
+      expect(runId, 'run-1');
+    });
+
+    test('returns null when both image and faceProfileRef are sent', () async {
+      var sent = false;
+      final client = HairstyleClient(
+        client: MockClient((request) async {
+          sent = true;
+          return http.Response('{"run_id": "run-1"}', 202);
+        }),
+      );
+
+      final runId = await client.submitHairstyleAnalysis(
+        faceProfileRef: 'profile-1',
+        imageBytes: Uint8List.fromList([1]),
+      );
+
+      expect(runId, isNull);
+      expect(sent, isFalse);
+    });
+
+    test('returns null when neither image nor faceProfileRef is sent', () async {
+      var sent = false;
+      final client = HairstyleClient(
+        client: MockClient((request) async {
+          sent = true;
+          return http.Response('{"run_id": "run-1"}', 202);
+        }),
+      );
+
+      expect(await client.submitHairstyleAnalysis(), isNull);
+      expect(sent, isFalse);
+    });
+
+    test('returns null for empty image bytes', () async {
+      var sent = false;
+      final client = HairstyleClient(
+        client: MockClient((request) async {
+          sent = true;
+          return http.Response('{"run_id": "run-1"}', 202);
+        }),
+      );
+
+      expect(
+        await client.submitHairstyleAnalysis(imageBytes: Uint8List(0)),
+        isNull,
+      );
+      expect(sent, isFalse);
     });
   });
 }

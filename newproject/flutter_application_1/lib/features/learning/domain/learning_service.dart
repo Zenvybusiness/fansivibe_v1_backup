@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'package:fansivibe/features/learning/data/local_store.dart';
@@ -200,6 +202,17 @@ class LearningService extends ChangeNotifier implements LearningRepository {
   UserModel _model = UserModel(wardrobe: defaultWardrobe);
   bool _loaded = false;
 
+  /// Server sync hooks for preference persistence (STEP 11.8). Null means
+  /// local-only mode: the service behaves exactly as before (instant UI +
+  /// on-device persistence, no network).
+  Future<bool> Function(List<String> occasions)? _pushPreferences;
+  Future<List<String>?> Function()? _pullPreferences;
+
+  /// Guards preferredOccasions against stale hydration responses: bumped on
+  /// every local preference mutation; hydration only applies when the
+  /// generation it captured is still current.
+  int _preferenceGeneration = 0;
+
   @override
   List<WardrobeEntry> get wardrobe => List.unmodifiable(_model.wardrobe);
 
@@ -239,6 +252,10 @@ class LearningService extends ChangeNotifier implements LearningRepository {
     }
     _loaded = true;
     notifyListeners();
+    // STEP 11.8: best-effort server hydration on the existing startup path.
+    // Fire-and-forget so local UI is never blocked; without an attached sync
+    // client (or on network failure) this no-ops and local state stands.
+    unawaited(hydratePreferences());
   }
 
   Future<void> _persist() async {
@@ -338,6 +355,69 @@ class LearningService extends ChangeNotifier implements LearningRepository {
       signalType: 'occasion_preferred',
       signalLabel: occasion,
     );
+    _preferenceGeneration++;
+    // Write-through: push a snapshot; failure never undoes the local
+    // mutation and never throws into the UI.
+    _pushPreferencesNow(List.of(_model.preferredOccasions));
+  }
+
+  /// Replaces the complete local preferredOccasions list (STEP 11.8).
+  ///
+  /// Used for server hydration: wholesale replace, never merge, values kept
+  /// verbatim (dedup preserved, no normalization). Persists locally via the
+  /// existing mechanism. Records no learning signal — the values did not
+  /// originate from a local user action.
+  void replacePreferredOccasions(List<String> occasions) {
+    _mutate(
+      () => _model = _model.copyWith(
+        preferredOccasions: <String>{...occasions}.toList(),
+      ),
+    );
+    _preferenceGeneration++;
+  }
+
+  /// Attaches the server preference sync (typically once at startup).
+  /// Pass nulls (or nothing) to detach back to local-only mode.
+  void attachPreferenceSync({
+    Future<bool> Function(List<String> occasions)? push,
+    Future<List<String>?> Function()? pull,
+  }) {
+    _pushPreferences = push;
+    _pullPreferences = pull;
+  }
+
+  /// Hydrates preferredOccasions from the server (STEP 11.8).
+  ///
+  /// On success the server list replaces the local list wholesale (`[]`
+  /// clears) and is persisted locally. On failure — or when a newer local
+  /// mutation landed while the request was in flight (generation guard) —
+  /// local state is kept untouched. Never throws. Idempotent.
+  Future<void> hydratePreferences() async {
+    final pull = _pullPreferences;
+    if (pull == null) return;
+    final generation = _preferenceGeneration;
+    late final List<String>? server;
+    try {
+      server = await pull();
+    } catch (error) {
+      debugPrint('Preference hydration failed: $error');
+      return;
+    }
+    if (server == null) return;
+    if (generation != _preferenceGeneration) return;
+    replacePreferredOccasions(server);
+  }
+
+  void _pushPreferencesNow(List<String> snapshot) {
+    final push = _pushPreferences;
+    if (push == null) return;
+    unawaited(() async {
+      try {
+        await push(snapshot);
+      } catch (error) {
+        debugPrint('Preference push failed: $error');
+      }
+    }());
   }
 
   @override
@@ -357,5 +437,8 @@ class LearningService extends ChangeNotifier implements LearningRepository {
   void resetForTest() {
     _model = UserModel(wardrobe: defaultWardrobe);
     _loaded = false;
+    _pushPreferences = null;
+    _pullPreferences = null;
+    _preferenceGeneration = 0;
   }
 }

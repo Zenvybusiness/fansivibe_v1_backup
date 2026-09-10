@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'package:fansivibe/features/hairstyle/data/hairstyle_models.dart';
 
@@ -30,20 +31,59 @@ class HairstyleClient {
   static const Duration _timeout = Duration(seconds: 12);
   final Duration _pollInterval;
 
-  /// Submits a hairstyle analysis for the given face profile reference.
+  /// Submits a hairstyle analysis, either for a face profile reference or
+  /// for a real captured/selected image — never both (XOR, enforced here
+  /// and authoritatively by the backend).
   ///
-  /// Returns the submitted run id, or null when the backend is unreachable.
+  /// Image upload sends the actual file bytes as a real multipart `image`
+  /// part (`POST /v1/analysis/hairstyle`, `multipart/form-data`), never as a
+  /// string/path field. The backend remains authoritative for media
+  /// validation (JPEG/PNG/WebP, 20 MB max, content checks); this client only
+  /// derives the part content type from the filename for transport.
+  ///
+  /// Returns the submitted run id, or null when the backend is unreachable
+  /// or rejects the request.
   Future<String?> submitHairstyleAnalysis({
-    required String faceProfileRef,
+    String? faceProfileRef,
+    Uint8List? imageBytes,
+    String? imageFilename,
+    String? imageContentType,
   }) async {
+    final hasRef = faceProfileRef != null && faceProfileRef.isNotEmpty;
+    final bytes = imageBytes;
+    final hasImage = bytes != null;
+    if (hasImage == hasRef) {
+      debugPrint(
+        'Hairstyle submit requires exactly one of imageBytes or faceProfileRef.',
+      );
+      return null;
+    }
+    if (bytes != null && bytes.isEmpty) {
+      debugPrint('Hairstyle submit refused empty image bytes.');
+      return null;
+    }
     try {
       final request =
           http.MultipartRequest(
               'POST',
               Uri.parse('$baseUrl/v1/analysis/hairstyle'),
             )
-            ..headers['Authorization'] = 'Bearer $_devToken'
-            ..fields['faceProfileRef'] = faceProfileRef;
+            ..headers['Authorization'] = 'Bearer $_devToken';
+      if (bytes != null) {
+        final filename = imageFilename ?? 'face_scan.jpg';
+        final contentType =
+            imageContentType ?? _contentTypeForFilename(filename);
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'image',
+            bytes,
+            filename: filename,
+            contentType: MediaType.parse(contentType),
+          ),
+        );
+      } else {
+        request.fields['faceProfileRef'] = faceProfileRef!;
+      }
 
       final streamed = await _client.send(request).timeout(_timeout);
       final response = await http.Response.fromStream(
@@ -61,6 +101,17 @@ class HairstyleClient {
       debugPrint('Hairstyle backend unreachable during submit: $error');
     }
     return null;
+  }
+
+  /// Derives the multipart part content type from the filename extension.
+  ///
+  /// Transport hint only — the backend validates the actual media type and
+  /// content authoritatively.
+  static String _contentTypeForFilename(String filename) {
+    final lower = filename.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
   }
 
   /// Fetches an analysis run and polls until it is completed, failed, or times out.

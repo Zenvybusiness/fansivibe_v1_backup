@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
@@ -11,9 +12,17 @@ class ControllableHairstyleService extends HairstyleService {
   bool started = false;
   bool finished = false;
 
+  /// Image bytes the processing screen handed over (null on skip).
+  Uint8List? receivedImageBytes;
+
   @override
-  Future<HairstyleAnalysisResult> runAnalysis() {
+  Future<HairstyleAnalysisResult> runAnalysis({
+    Uint8List? imageBytes,
+    String? imageFilename,
+    String? imageContentType,
+  }) {
     started = true;
+    receivedImageBytes = imageBytes;
     return _completer.future;
   }
 

@@ -1,5 +1,10 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'dart:async';
 
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+
+import 'package:fansivibe/features/assistant/data/assistant_client.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 
@@ -175,6 +180,184 @@ void main() {
 
       // The wardrobe should be unchanged (still has 24 items from default)
       expect(LearningService.instance.wardrobe.length, 24);
+    });
+  });
+
+  group('Preference sync (STEP 11.8)', () {
+    test('1. PATCH serializes preferredOccasions exactly', () async {
+      late http.Request captured;
+      final client = AssistantClient(
+        client: MockClient((request) async {
+          captured = request;
+          return http.Response('{"displayName":"Alex"}', 200);
+        }),
+      );
+
+      final ok = await client.updatePreferredOccasions(['smart_casual']);
+
+      expect(ok, isTrue);
+      expect(captured.method, 'PATCH');
+      expect(captured.url.path, '/v1/users/me');
+      expect(captured.headers['Authorization'], 'Bearer dev');
+      expect(captured.body, '{"preferredOccasions":["smart_casual"]}');
+    });
+
+    test('2. PATCH serializes an empty list for clearing', () async {
+      late http.Request captured;
+      final client = AssistantClient(
+        client: MockClient((request) async {
+          captured = request;
+          return http.Response('{"displayName":"Alex"}', 200);
+        }),
+      );
+
+      final ok = await client.updatePreferredOccasions([]);
+
+      expect(ok, isTrue);
+      expect(captured.method, 'PATCH');
+      expect(captured.body, '{"preferredOccasions":[]}');
+    });
+
+    test('3. PATCH failure returns false and keeps local state', () async {
+      final failing = AssistantClient(
+        client: MockClient((_) async => http.Response('boom', 500)),
+      );
+      expect(await failing.updatePreferredOccasions(['date']), isFalse);
+
+      final throwing = AssistantClient(
+        client: MockClient((_) => throw Exception('offline')),
+      );
+      expect(await throwing.updatePreferredOccasions(['date']), isFalse);
+
+      // Service-level: a failed push never undoes the local mutation.
+      LearningService.instance.attachPreferenceSync(
+        push: (_) async => false,
+      );
+      LearningService.instance.addPreferredOccasion('date');
+      await Future<void>.delayed(Duration.zero);
+      expect(LearningService.instance.preferredOccasions, ['date']);
+    });
+
+    test('4. replacePreferredOccasions replaces instead of merging', () {
+      LearningService.instance.addPreferredOccasion('date');
+      LearningService.instance.addPreferredOccasion('office');
+
+      LearningService.instance.replacePreferredOccasions(['business']);
+
+      expect(LearningService.instance.preferredOccasions, ['business']);
+    });
+
+    test('5. hydration success replaces local state wholesale', () async {
+      LearningService.instance.addPreferredOccasion('weekend');
+      LearningService.instance.attachPreferenceSync(
+        pull: () async => ['business'],
+      );
+
+      await LearningService.instance.hydratePreferences();
+
+      expect(LearningService.instance.preferredOccasions, ['business']);
+    });
+
+    test('6. hydration with an empty server list clears local state', () async {
+      LearningService.instance.addPreferredOccasion('weekend');
+      LearningService.instance.attachPreferenceSync(pull: () async => []);
+
+      await LearningService.instance.hydratePreferences();
+
+      expect(LearningService.instance.preferredOccasions, isEmpty);
+    });
+
+    test('7. hydration failure keeps local state unchanged', () async {
+      LearningService.instance.addPreferredOccasion('weekend');
+
+      LearningService.instance.attachPreferenceSync(pull: () async => null);
+      await LearningService.instance.hydratePreferences();
+      expect(LearningService.instance.preferredOccasions, ['weekend']);
+
+      LearningService.instance.attachPreferenceSync(
+        pull: () => throw Exception('offline'),
+      );
+      await LearningService.instance.hydratePreferences();
+      expect(LearningService.instance.preferredOccasions, ['weekend']);
+    });
+
+    test('8. addPreferredOccasion writes through to PATCH', () async {
+      final pushed = <List<String>>[];
+      LearningService.instance.attachPreferenceSync(
+        push: (occasions) async {
+          pushed.add(occasions);
+          return true;
+        },
+      );
+
+      LearningService.instance.addPreferredOccasion('date');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(pushed, [
+        ['date'],
+      ]);
+    });
+
+    test('9. dedup behavior unchanged and pushes once', () async {
+      var pushes = 0;
+      LearningService.instance.attachPreferenceSync(
+        push: (_) async {
+          pushes++;
+          return true;
+        },
+      );
+
+      LearningService.instance.addPreferredOccasion('date');
+      LearningService.instance.addPreferredOccasion('date');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(LearningService.instance.preferredOccasions, ['date']);
+      expect(pushes, 1);
+    });
+
+    test('10. stale hydration cannot overwrite a newer mutation', () async {
+      final gate = Completer<List<String>?>();
+      LearningService.instance.attachPreferenceSync(
+        push: (_) async => true,
+        pull: () => gate.future,
+      );
+      LearningService.instance.addPreferredOccasion('weekend');
+
+      final hydrating = LearningService.instance.hydratePreferences();
+      LearningService.instance.addPreferredOccasion('office');
+      gate.complete(['stale']);
+      await hydrating;
+
+      expect(LearningService.instance.preferredOccasions, [
+        'weekend',
+        'office',
+      ]);
+    });
+
+    test('11. hydrated occasions flow to the Assistant context source', () async {
+      LearningService.instance.attachPreferenceSync(
+        pull: () async => ['business'],
+      );
+      await LearningService.instance.hydratePreferences();
+
+      // AssistantService._buildContext reads exactly this getter.
+      expect(LearningService.instance.preferredOccasions, ['business']);
+    });
+
+    test('load() triggers best-effort hydration without blocking', () async {
+      var pulls = 0;
+      LearningService.instance.attachPreferenceSync(
+        pull: () async {
+          pulls++;
+          return ['business'];
+        },
+      );
+
+      await LearningService.instance.load();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(pulls, 1);
+      expect(LearningService.instance.preferredOccasions, ['business']);
     });
   });
 }

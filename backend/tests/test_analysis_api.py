@@ -71,14 +71,149 @@ def test_submit_rejects_malformed_profile_ref(db):
     assert resp.status_code == 422
 
 
-def test_image_upload_refused_honestly(db):
-    # Media pipeline sealed (MS10.3) — must not fake a scan.
+def test_image_upload_reaches_production_image_run(db, monkeypatch):
+    # STEP 10.5: the hairstyle image branch now wires CreateHairstyleImageRun
+    # with the production adapter (202 {run_id}) instead of refusing honestly.
+    seen: dict = {}
+
+    from app.domain.value_objects import AppearanceProfile
+
+    class RecordingVisionPort:
+        adapter_id = "ollama-vision-v1"
+
+        def analyze(self, *, media_ref, user_id, image_bytes=None):
+            seen["image_bytes"] = image_bytes
+            seen["media_ref"] = media_ref
+            return AppearanceProfile(
+                faceShape="oval",
+                skinTone="",
+                bodyType="",
+                styleType="",
+                sourceRunId="",
+            )
+
+        def validate_result(self, result) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.OllamaVisionAppearanceAdapter",
+        RecordingVisionPort,
+    )
+    payload = b"real-scan-bytes-for-api-test"
+    resp = client.post(
+        "/v1/analysis/hairstyle",
+        files={"image": ("face.jpg", payload, "image/jpeg")},
+        headers=HEADERS,
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+    assert run_id
+    # The actual received bytes reached the production analyzer.
+    assert seen["image_bytes"] == payload
+
+    got = client.get(f"/v1/analysis/runs/{run_id}", headers=HEADERS)
+    assert got.status_code == 200
+    body = got.json()
+    assert body["run_type"] == "hairstyle"
+    assert body["status"] == "completed"
+    assert body["result"]["appearance"]["faceShape"] == "oval"
+    assert body["result"]["appearance"]["sourceRunId"] == run_id
+    assert body["input_media"]["analyzer"] == "ollama-vision-v1"
+
+
+def test_hairstyle_image_does_not_route_through_outfit(db, monkeypatch):
+    # STEP 10.5: the hairstyle image branch must invoke CreateHairstyleImageRun
+    # with the production adapter — never CreateOutfitRun and never the
+    # development/hash adapter.
+    def _boom(*args, **kwargs):
+        raise AssertionError("hairstyle image must not route through CreateOutfitRun")
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.CreateOutfitRun", _boom
+    )
+
+    def _boom_dev(*args, **kwargs):
+        raise AssertionError(
+            "hairstyle image must not use DevelopmentAppearanceAnalysisAdapter"
+        )
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.DevelopmentAppearanceAnalysisAdapter", _boom_dev
+    )
+
+    from app.domain.value_objects import AppearanceProfile
+
+    class RecordingVisionPort:
+        adapter_id = "ollama-vision-v1"
+
+        def analyze(self, *, media_ref, user_id, image_bytes=None):
+            return AppearanceProfile(
+                faceShape="oval",
+                skinTone="",
+                bodyType="",
+                styleType="",
+                sourceRunId="",
+            )
+
+        def validate_result(self, result) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.OllamaVisionAppearanceAdapter",
+        RecordingVisionPort,
+    )
     resp = client.post(
         "/v1/analysis/hairstyle",
         files={"image": ("face.jpg", b"fakebytes", "image/jpeg")},
         headers=HEADERS,
     )
+    assert resp.status_code == 202
+    assert resp.json()["run_id"]
+
+
+def test_hairstyle_image_xor_still_rejects_both(db):
+    resp = client.post(
+        "/v1/analysis/hairstyle",
+        data={"faceProfileRef": str(uuid.uuid4())},
+        files={"image": ("face.jpg", b"fakebytes", "image/jpeg")},
+        headers=HEADERS,
+    )
     assert resp.status_code == 422
+
+
+def test_hairstyle_image_failed_analyzer_marks_run_failed(db, monkeypatch):
+    # Analyzer failure → honest terminal `failed` run with PROCESSING_FAILURE.
+    from app.ai.vision_appearance_adapter import AppearanceAnalysisError
+
+    class FailingVisionPort:
+        adapter_id = "ollama-vision-v1"
+
+        def analyze(self, *, media_ref, user_id, image_bytes=None):
+            raise AppearanceAnalysisError("no_face_detected")
+
+        def validate_result(self, result) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.OllamaVisionAppearanceAdapter",
+        FailingVisionPort,
+    )
+    resp = client.post(
+        "/v1/analysis/hairstyle",
+        files={"image": ("face.jpg", b"no-face-bytes", "image/jpeg")},
+        headers=HEADERS,
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+
+    got = client.get(f"/v1/analysis/runs/{run_id}", headers=HEADERS)
+    assert got.status_code == 200
+    body = got.json()
+    assert body["status"] == "failed"
+    assert body["result"] is None
+    assert body["error"]["code"] == "PROCESSING_FAILURE"
+    assert body["error"]["details"]["run_id"] == run_id
+    assert body["error"]["details"]["reason"] == "no_face_detected"
 
 
 def test_submit_without_profile_returns_insufficient_data(db):

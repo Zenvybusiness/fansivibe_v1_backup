@@ -1,8 +1,10 @@
-"""Users API router — endpoint #06 (`GET /v1/users/me`).
+"""Users API router — endpoint #06 (`GET /v1/users/me`, `PATCH /v1/users/me`).
 
 Owner-only read of the caller's own profile (OW-1, 404-not-403) per
 `AUTH_API.md` §5.5. The response is always the authenticated user's own
 identity; a valid token whose profile projection is gone → 404.
+`PATCH /me` (STEP 11.6) persists `preferred_occasions` via a JSONB merge and
+returns the same `ProfileView` contract as `GET /me`.
 """
 
 from __future__ import annotations
@@ -11,12 +13,14 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id
-from app.api.schemas.users import ProfileView, StyleProfile
-from app.application.users import GetProfile
+from app.api.schemas.users import ProfileView, StyleProfile, UpdatePreferencesRequest
+from app.application.users import GetProfile, UpdatePreferences
 from app.domain.ports.repositories import UserProfileRecord
+from app.infrastructure.db.models import SavedLooks
 from app.infrastructure.db.repositories import UserStateRepositorySQL
 from app.infrastructure.db.session import get_db
 
@@ -100,10 +104,35 @@ def get_me(
     """Return the authenticated user's profile (`ProfileView`, bare)."""
     use_case = GetProfile(user_state=UserStateRepositorySQL(db))
     record = use_case(user_id=user_id)
+    return _build_profile_view(db, record)
 
+
+@router.patch(
+    "/me",
+    response_model=ProfileView,
+    responses={401: {"model": dict}, 404: {"model": dict}, 422: {"model": dict}},
+)
+def update_me(
+    request: UpdatePreferencesRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> ProfileView:
+    """Persist the caller's `preferred_occasions` (JSONB merge) and return the
+    updated profile (same `ProfileView` contract as `GET /me`)."""
+    use_case = UpdatePreferences(user_state=UserStateRepositorySQL(db))
+    record = use_case(
+        user_id=user_id, preferred_occasions=request.preferredOccasions
+    )
+    return _build_profile_view(db, record)
+
+
+def _build_profile_view(db: Session, record: UserProfileRecord) -> ProfileView:
+    """Render a `ProfileView` with the saved-look count and occasions summary.
+
+    Shared by `GET /me` and `PATCH /me` so both return the identical contract.
+    """
+    user_id = record.user_id
     # Compute saved looks count from the database
-    from sqlalchemy import select, func
-    from app.infrastructure.db.models import SavedLooks
     saved_looks_count = 0
     try:
         count = db.execute(

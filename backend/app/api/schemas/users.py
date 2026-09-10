@@ -30,3 +30,10 @@ class ProfileView(BaseModel):
     flags: dict[str, Any]
     version: int
     memorySummary: Optional[dict[str, Any]] = None
+
+
+class UpdatePreferencesRequest(BaseModel):
+    """Body for `PATCH /v1/users/me` (STEP 11.6) — the existing persisted
+    preference only. `[]` clears `preferred_occasions`."""
+
+    preferredOccasions: list[str]

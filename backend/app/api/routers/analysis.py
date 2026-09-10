@@ -26,17 +26,21 @@ from app.api.schemas.analysis import (
     CreateHairstyleScanRequest,
 )
 from app.application.analysis import (
+    CreateGroomingRun,
+    CreateHairstyleImageRun,
     CreateHairstyleRun,
     CreateOutfitRun,
     GetAnalysisRun,
     ListAnalysisRuns,
 )
+from app.ai.vision_appearance_adapter import OllamaVisionAppearanceAdapter
 from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.ai.appearance_adapter import DevelopmentAppearanceAnalysisAdapter
 from app.domain.ports.repositories import AnalysisRunRecord, LearningSignalRepository
 from app.infrastructure.db.repositories import (
     AnalysisRunRepositorySQL,
     UserStateRepositorySQL,
+    SavedLookRepositorySQL,
     LearningSignalRepositorySQL,
 )
 from app.infrastructure.db.session import get_db
@@ -97,9 +101,19 @@ def create_hairstyle_run(
             raise validation(
                 [{"field": "image", "error": f"image too large ({image.size} bytes), max 20 MB"}]
             )
-        use_case = CreateOutfitRun(
+        # STEP 10.5: production wiring. The image branch runs the
+        # hairstyle-typed `CreateHairstyleImageRun` with the production
+        # `OllamaVisionAppearanceAdapter` (settings-driven, never the
+        # development/hash adapter). Analyzer failures surface as honest
+        # terminal `failed` runs via the use case — no fallback, no
+        # fabrication. Adapter construction is inline, matching the
+        # established outfit-branch seam (no new DI framework).
+        use_case = CreateHairstyleImageRun(
             runs=AnalysisRunRepositorySQL(db),
             knowledge=CatalogKnowledgeSource(),
+            appearance_port=OllamaVisionAppearanceAdapter(),
+            user_state=UserStateRepositorySQL(db),
+            learning_signal=LearningSignalRepositorySQL(db),
         )
         run_id = use_case(user_id=user_id, image=image)
         return AsyncAccepted(run_id=run_id)
@@ -118,6 +132,7 @@ def create_hairstyle_run(
         runs=AnalysisRunRepositorySQL(db),
         user_state=UserStateRepositorySQL(db),
         knowledge=CatalogKnowledgeSource(),
+        saved_looks=SavedLookRepositorySQL(db),
     )
     run_id = use_case(user_id=user_id, face_profile_ref=faceProfileRef)
     return AsyncAccepted(run_id=run_id)
@@ -188,6 +203,7 @@ def create_grooming_run(
         runs=AnalysisRunRepositorySQL(db),
         user_state=UserStateRepositorySQL(db),
         knowledge=CatalogKnowledgeSource(),
+        saved_looks=SavedLookRepositorySQL(db),
     )
     run_id = use_case(user_id=user_id, face_profile_ref=face_profile_ref)
     return AsyncAccepted(run_id=run_id)

@@ -12,7 +12,7 @@ Structure is always ours; the LLM only writes natural language.
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from app.ai import intent, llm_backend, tools
 from app.models.schemas import (
@@ -91,9 +91,26 @@ def _navigation_for(message: str) -> NavigationRequest | None:
     return None
 
 
-def handle(request: AssistantRequest) -> AssistantReply:
+def handle(
+    request: AssistantRequest,
+    *,
+    preferred_occasions: Optional[List[str]] = None,
+) -> AssistantReply:
+    """Handle one assistant turn.
+
+    ``preferred_occasions`` carries the already-resolved occasions list:
+    STEP 11.10 lets the entry point prefer the server-persisted list while
+    callers that pass ``None`` keep the historical client-driven behavior
+    (``request.user.preferredOccasions``). The engine itself stays free of
+    database concerns.
+    """
     messages = request.messages
     user = request.user
+    request_occasions = (
+        preferred_occasions
+        if preferred_occasions is not None
+        else (user.preferredOccasions if user else [])
+    )
     if not messages:
         return AssistantReply(
             intent=intent.INTENT_GREETING,
@@ -199,7 +216,7 @@ def handle(request: AssistantRequest) -> AssistantReply:
                 item_material=item_material,
                 item_is_favorite=item_is_favorite,
                 wardrobe_context=wardrobe_context,
-                preferred_occasions=user.preferredOccasions if user else [],
+                preferred_occasions=request_occasions,
             )
 
             # Compute outfit intelligence (STEP 7C) — reuse pre-computed CI
@@ -209,7 +226,7 @@ def handle(request: AssistantRequest) -> AssistantReply:
                 item_material=item_material,
                 item_is_favorite=item_is_favorite,
                 wardrobe_context=wardrobe_context,
-                preferred_occasions=user.preferredOccasions if user else [],
+                preferred_occasions=request_occasions,
             )
 
             # Build explanation text with confidence disclaimer (STEP 6)
@@ -323,7 +340,18 @@ def handle(request: AssistantRequest) -> AssistantReply:
             text = cards[0].subtitle if cards else tools.unknown_reply()
         reply = AssistantReply(intent=it, text=text, cards=cards)
         if it == intent.INTENT_OUTFIT:
-            reply.outfitIntelligence = outfit  # type: ignore[assignment]
+            # STEP 11.4.1: the domain `outfit` object is bound only inside the
+            # INTENT_WARDROBE branch, so referencing it here raised NameError
+            # on the outfit path — and its domain shape never matched the wire
+            # `AssistantReply.outfitIntelligence` contract. Build the wire
+            # object directly from the existing recommendation outputs (the
+            # detected occasion + the recommended card's own text); every other
+            # field keeps the schema's existing default. No scoring change, no
+            # selection change, no personalization input.
+            reply.outfitIntelligence = OutfitIntelligence(
+                occasion=occasion or "",
+                stylingRationale=cards[0].subtitle if cards else "",
+            )
 
     # --- Optional LLM enrichment (server-side, never changes structure) ----
     if llm_backend.is_available() and reply.text:

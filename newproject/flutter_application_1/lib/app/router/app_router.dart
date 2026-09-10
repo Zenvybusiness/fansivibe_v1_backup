@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
@@ -237,10 +239,19 @@ GoRoute(
                 name: RouteNames.hairstyle,
                 builder: (context, state) => const FaceScanScreen(),
                 routes: [
-                  GoRoute(
-                    path: 'processing',
-                    name: RouteNames.hairstyleProcessing,
-                    builder: (context, state) => const FaceProcessingScreen(),
+              GoRoute(
+                path: 'processing',
+                name: RouteNames.hairstyleProcessing,
+                builder: (context, state) {
+                  // Optional real-scan image handoff from FaceScanScreen
+                  // (in-memory bytes only; absent on skip/profile-only path).
+                  final extra = state.extra as Map<String, dynamic>?;
+                  return FaceProcessingScreen(
+                    imageBytes: extra?['imageBytes'] as Uint8List?,
+                    imageFilename: extra?['imageFilename'] as String?,
+                    imageContentType: extra?['imageContentType'] as String?,
+                  );
+                },
                     routes: [
                       GoRoute(
                         path: 'result',

@@ -27,6 +27,15 @@ class Settings(BaseSettings):
 
     database_url: str = Field(default=_DEFAULT_DATABASE_URL)
     dev_token: str = Field(default="dev", alias="FANSIVIBE_DEV_TOKEN")
+    vision_host: str = Field(
+        default="http://localhost:11434", alias="FANSIVIBE_VISION_HOST"
+    )
+    vision_model: str = Field(
+        default="llama3.2-vision", alias="FANSIVIBE_VISION_MODEL"
+    )
+    vision_timeout_s: float = Field(
+        default=20.0, alias="FANSIVIBE_VISION_TIMEOUT_S"
+    )
 
 
 @lru_cache

@@ -24,10 +24,12 @@ class AppearanceAnalysisPort:
 
     Implementations must:
     - Accept a media reference dict and user ID
+    - Accept the actual image bytes via the optional ``image_bytes`` parameter
+      whenever the caller holds them (STEP 10 boundary fix — see ``analyze``)
     - Return an AppearanceProfile with only the attributes approved in the
       data contract (faceShape, skinTone, bodyType, styleType, sourceRunId)
     - NOT depend on OpenAI SDK, Gemini SDK, Claude SDK, TensorFlow, PyTorch,
-      or OpenCV
+      or OpenCV (plain-HTTP provider clients, e.g. via httpx, are permitted)
     - Produce deterministic, rules-based output suitable for development and
       testing
     - Clearly document when the implementation is DEVELOPMENT IMPLEMENTATION —
@@ -35,7 +37,13 @@ class AppearanceAnalysisPort:
     """
 
     @abstractmethod
-    def analyze(self, *, media_ref: dict, user_id: UUID) -> AppearanceProfile:
+    def analyze(
+        self,
+        *,
+        media_ref: dict,
+        user_id: UUID,
+        image_bytes: bytes | None = None,
+    ) -> AppearanceProfile:
         """Analyze appearance from a media reference.
 
         Args:
@@ -43,6 +51,18 @@ class AppearanceAnalysisPort:
                 to contain at minimum a "key" field with the owner-scoped object
                 storage path.
             user_id: The authenticated user ID, used for owner-scoped processing.
+            image_bytes: The actual received image bytes for this scan, when the
+                caller holds them in the request lifecycle.
+
+                STEP 10 boundary fix (explicit, backwards compatible): the
+                persisted ``media_ref`` is metadata only and no object storage
+                exists, so an adapter physically cannot obtain image bytes from
+                ``media_ref`` alone. Callers that hold the bytes (e.g.
+                ``CreateHairstyleImageRun``) MUST pass them here; production
+                adapters MUST analyze these bytes and MUST NOT fall back to
+                deterministic derivation from the media key. Adapters that do
+                not need bytes (e.g. the development adapter) ignore this
+                parameter, so existing callers are unaffected.
 
         Returns:
             AppearanceProfile with faceShape, skinTone, bodyType, styleType, and

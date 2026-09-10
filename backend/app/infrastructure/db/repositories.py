@@ -9,7 +9,8 @@ from __future__ import annotations
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import cast, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.domain.ports.repositories import (
@@ -184,6 +185,26 @@ class UserStateRepositorySQL:
             flags=state.flags or {},
             version=state.version,
         )
+
+    def update_preferences(self, *, user_id: UUID, preferences: dict) -> None:
+        """Merge a JSONB patch into `user_state.preferences` (STEP 11.6).
+
+        Uses PostgreSQL `||` concatenation (`existing || patch`) so sibling
+        keys survive — the object is never wholesale replaced. The write is
+        owner-scoped to the authenticated `user_id` row (OW-1); when no such
+        row exists the statement matches nothing (callers surface 404 via
+        `get_profile`). `style_profile` (TRX-6) is untouched.
+        """
+        self._session.execute(
+            update(UserState)
+            .where(UserState.user_id == user_id)
+            .values(
+                preferences=UserState.preferences.op("||")(
+                    cast(preferences, JSONB)
+                )
+            )
+        )
+        self._session.commit()
 
 
 class SavedLookRepositorySQL:
