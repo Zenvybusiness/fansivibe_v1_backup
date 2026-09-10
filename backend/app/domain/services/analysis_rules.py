@@ -20,6 +20,7 @@ The LLM (when wired) may only rewrite *wording* — never structure or scores
 
 
 from dataclasses import dataclass, field, replace
+from itertools import product
 from typing import FrozenSet, Optional, List
 
 from app.domain.ports.external import KnowledgeError, KnowledgeSource
@@ -1209,6 +1210,13 @@ CANDIDATE_SKELETONS: tuple[tuple[str, ...], ...] = (
     ("tops", "bottoms", "outerwear", "footwear", "accessories"),
 )
 
+# STEP 13.11 generation bounds (not configurable; no config infrastructure).
+# Per-category representatives (lexically smallest owned IDs, scoring-blind)
+# keep each skeleton's combinations small; the global cap bounds the total
+# across all skeletons (deterministic prefix — skeleton order, then lexical).
+_MAX_REPRESENTATIVES_PER_CATEGORY = 3
+_MAX_CANDIDATES = 25
+
 # Candidate score budget (0–100): compatibility 0–70, preference 0–15,
 # favorite 0–15. The preference sub-range mirrors the Step 11 mechanism
 # (+0.05/item, +0.15 cap → ×100). The favorite sub-range and per-item weight
@@ -1381,18 +1389,21 @@ def _skeleton_compatible(skeleton: tuple[str, ...]) -> bool:
 
 
 def generate_outfit_candidates(wardrobe_items: list) -> list:
-    """Generate legal outfit candidates from wardrobe items (STEP 13.3).
+    """Generate legal outfit candidates from wardrobe items (STEP 13.11).
 
     Accepts WardrobeItem instances (only ``.id``/``.category`` are read).
-    Exactly one candidate per satisfiable skeleton in CANDIDATE_SKELETONS
-    order: tops+bottoms are mandatory (absent → no candidates at all);
-    optional slots fill only from owned items. Slot representative = the
-    lexically smallest owned item ID in that category — the simplest
-    deterministic information available; NO scoring, NO preference points,
-    NO favorite points (those belong to the scoring step). Unknown
+    Bounded multi-item generation: per category the owned IDs sort lexically
+    and at most the first ``_MAX_REPRESENTATIVES_PER_CATEGORY`` (3)
+    participate — chosen WITHOUT scoring/preference/favorites (scoring
+    happens later). Per satisfiable skeleton (CANDIDATE_SKELETONS order),
+    combinations enumerate deterministically (lexical, slot order);
+    tops+bottoms are mandatory (absent → no candidates at all). A hard
+    global cap (``_MAX_CANDIDATES`` = 25) stops generation immediately once
+    reached — deterministic prefix behavior. Scores stay the neutral 0.0
+    default; NO scoring, NO preference/favorite points here. Unknown
     categories, empty/non-string IDs are ignored, never fabricated.
-    Output order is deterministic; identical wardrobes (any input order)
-    yield identical candidates. Duplicate ID combinations are emitted once.
+    Duplicate ID combinations are emitted once. Identical wardrobes (any
+    input order) yield identical candidates.
     """
     by_category: dict[str, list[str]] = {category: [] for category in _GENERATOR_CATEGORIES}
     for item in wardrobe_items or []:
@@ -1403,27 +1414,32 @@ def generate_outfit_candidates(wardrobe_items: list) -> list:
         if category not in by_category:
             continue
         by_category[category].append(item_id)
-    for ids in by_category.values():
-        ids.sort()
-    if not by_category["tops"] or not by_category["bottoms"]:
+    representatives: dict[str, list[str]] = {}
+    for category, ids in by_category.items():
+        representatives[category] = sorted(set(ids))[:_MAX_REPRESENTATIVES_PER_CATEGORY]
+    if not representatives["tops"] or not representatives["bottoms"]:
         return []
     candidates: list = []
     seen: set[tuple[str, ...]] = set()
     for skeleton in CANDIDATE_SKELETONS:
         if not _skeleton_compatible(skeleton):
             continue
-        if any(not by_category[category] for category in skeleton):
+        slot_lists = [representatives[category] for category in skeleton]
+        if any(not slot for slot in slot_lists):
             continue
-        buckets = {
-            _SKELETON_ATTRS[category]: (by_category[category][0],)
-            for category in skeleton
-        }
-        candidate = OutfitCandidate(**buckets)
-        key = candidate_item_ids(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        candidates.append(candidate)
+        for combination in product(*slot_lists):
+            if len(candidates) >= _MAX_CANDIDATES:
+                return candidates
+            buckets = {
+                _SKELETON_ATTRS[category]: (combination[index],)
+                for index, category in enumerate(skeleton)
+            }
+            candidate = OutfitCandidate(**buckets)
+            key = candidate_item_ids(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(candidate)
     return candidates
 
 

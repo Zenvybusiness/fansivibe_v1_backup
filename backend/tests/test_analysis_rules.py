@@ -378,7 +378,10 @@ def test_13_3_deterministic_output_and_reversed_input():
 
 
 def test_13_3_no_combinatorial_explosion():
-    """15. 3 tops × 3 bottoms × 2 footwear + outerwear + accessory → 5, not 90+."""
+    """15 (STEP 13.11 update). 3 tops × 3 bottoms × 2 footwear + outerwear +
+    accessory → global cap 25, not 5 (one-per-skeleton superseded) and not
+    90+ (bounded reps + cap). First 9 are (tops, bottoms) shapes in lexical
+    order — skeleton ordering preserved under the cap."""
     tops = [f"aaaaaaaa-0000-4000-8000-00000000010{i}" for i in range(3)]
     bottoms = [f"bbbbbbbb-0000-4000-8000-00000000020{i}" for i in range(3)]
     shoes = [f"cccccccc-0000-4000-8000-00000000030{i}" for i in range(2)]
@@ -386,8 +389,9 @@ def test_13_3_no_combinatorial_explosion():
              + [(s, "footwear") for s in shoes]
              + [(_OUTER, "outerwear"), (_ACC, "accessories")])
     out = generate_outfit_candidates(_13_3_wardrobe(*pairs))
-    assert len(out) == 5
-    assert out[0].top_ids == (min(tops),)  # lexical slot representative, documented
+    assert len(out) == 25
+    assert all(not c.footwear_ids for c in out[:9])
+    assert out[0].top_ids == (min(tops),)
 
 
 def test_13_3_only_audited_skeletons_generated():
@@ -692,3 +696,106 @@ def test_13_5_score_boundaries_and_sparse_shapes():
     out = rank_outfit_candidates([none, full])
     assert out == [full, none]
     assert select_best_outfit_candidate([none, full]) is full
+
+
+# ============================================================================
+# STEP 13.11 — bounded multi-item generation (≤3 reps/category, ≤25 total).
+# Generation ONLY: no scoring (scores stay 0.0), no ranking, no engine change.
+# The 13.3 one-per-skeleton contract is superseded by the approved bounded
+# contract (only the count test above changed shape; all other 13.3 tests
+# hold verbatim for single-representative wardrobes).
+# ============================================================================
+
+from app.domain.services.analysis_rules import (
+    generate_outfit_candidates as _13_11_generate,
+)
+
+
+def _13_11_ids(prefix, n):
+    return [f"{prefix}-0000-4000-8000-{i:012d}" for i in range(n)]
+
+
+def test_13_11_same_category_competition():
+    """H. Top A and Top B both appear across candidates with Bottom A."""
+    tops = _13_11_ids("aaaaaaaa", 2)
+    bottom = _13_11_ids("bbbbbbbb", 1)[0]
+    out = _13_11_generate(_13_3_wardrobe(
+        *([(t, "tops") for t in tops] + [(bottom, "bottoms")])))
+    by_top = {c.top_ids[0] for c in out}
+    assert by_top == set(tops)
+    assert all(c.bottom_ids == (bottom,) for c in out)
+
+
+def test_13_11_representative_limit_three():
+    """B. 10 tops → only the 3 lexically smallest participate (scoring-blind)."""
+    tops = _13_11_ids("aaaaaaaa", 10)
+    bottom = _13_11_ids("bbbbbbbb", 1)[0]
+    out = _13_11_generate(_13_3_wardrobe(
+        *([(t, "tops") for t in tops] + [(bottom, "bottoms")])))
+    assert len(out) == 3
+    assert [c.top_ids[0] for c in out] == sorted(tops)[:3]
+
+
+def test_13_11_multi_category_combinations():
+    """I. 3×3×3 across tops/bottoms/footwear → multiple distinct combos."""
+    tops = _13_11_ids("aaaaaaaa", 3)
+    bottoms = _13_11_ids("bbbbbbbb", 3)
+    shoes = _13_11_ids("cccccccc", 3)
+    out = _13_11_generate(_13_3_wardrobe(
+        *([(t, "tops") for t in tops] + [(b, "bottoms") for b in bottoms]
+          + [(s, "footwear") for s in shoes])))
+    triples = [c for c in out if c.footwear_ids]
+    assert len(triples) > 1
+    assert len({(c.top_ids, c.bottom_ids, c.footwear_ids) for c in triples}) == len(triples)
+    assert len(out) <= 25
+
+
+def test_13_11_global_cap_exactly_25():
+    """J. Oversupply (4×4×3+outerwear+accessory) stops at exactly 25."""
+    pairs = ([(t, "tops") for t in _13_11_ids("aaaaaaaa", 4)]
+             + [(b, "bottoms") for b in _13_11_ids("bbbbbbbb", 4)]
+             + [(s, "footwear") for s in _13_11_ids("cccccccc", 3)]
+             + [(_OUTER, "outerwear"), (_ACC, "accessories")])
+    assert len(_13_11_generate(_13_3_wardrobe(*pairs))) == 25
+
+
+def test_13_11_sparse_single_items():
+    """L. Single top → []; single bottom → []."""
+    assert _13_11_generate(_13_3_wardrobe((_TOP, "tops"))) == []
+    assert _13_11_generate(_13_3_wardrobe((_BOTTOM, "bottoms"))) == []
+
+
+def test_13_11_multi_item_input_order_independence():
+    """M. Shuffled multi-item wardrobe → identical candidates in order."""
+    tops = _13_11_ids("aaaaaaaa", 3)
+    bottoms = _13_11_ids("bbbbbbbb", 2)
+    pairs = [(t, "tops") for t in tops] + [(b, "bottoms") for b in bottoms]
+    assert (_13_11_generate(_13_3_wardrobe(*pairs))
+            == _13_11_generate(_13_3_wardrobe(*reversed(pairs))))
+
+
+def test_13_11_generated_ids_exist_in_wardrobe():
+    """N. Every emitted ID comes from the input; five-category ceiling holds."""
+    tops = _13_11_ids("aaaaaaaa", 4)
+    bottoms = _13_11_ids("bbbbbbbb", 4)
+    owned = set(tops + bottoms)
+    out = _13_11_generate(_13_3_wardrobe(
+        *([(t, "tops") for t in tops] + [(b, "bottoms") for b in bottoms])))
+    for c in out:
+        ids = (c.top_ids + c.bottom_ids + c.outerwear_ids + c.footwear_ids
+               + c.accessory_ids)
+        assert set(ids) <= owned and len(ids) == len(set(ids))
+
+
+def test_13_11_downstream_score_rank_select_compatible():
+    """P. Generated candidates flow through scoring→ranking→selection."""
+    from app.domain.services.analysis_rules import (
+        rank_outfit_candidates, score_outfit_candidate,
+        select_best_outfit_candidate)
+    top, bottom = _13_11_ids("aaaaaaaa", 1)[0], _13_11_ids("bbbbbbbb", 1)[0]
+    items = {top: _13_3_item(top, "tops"), bottom: _13_3_item(bottom, "bottoms")}
+    out = _13_11_generate([items[top], items[bottom]])
+    scored = [score_outfit_candidate(c, items, frozenset(), []) for c in out]
+    winner = select_best_outfit_candidate(rank_outfit_candidates(scored))
+    assert winner is not None
+    assert set(winner.top_ids + winner.bottom_ids) == {top, bottom}
