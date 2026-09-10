@@ -23,6 +23,7 @@ from app.domain.ports.repositories import (
     LearningSignalRepository,
     SavedLookRecord,
     SavedLookRepository,
+    WardrobeItemRepository,
 )
 
 _SOURCE_CONTEXTS = {"hairstyle", "grooming", "outfit"}
@@ -40,6 +41,25 @@ def _source_run_id_from_snapshot(snapshot: dict) -> Optional[UUID]:
         return None
 
 
+def _invalid_selected_item_ids(details: str) -> ApiError:
+    """422 for a malformed outfit `selectedItemIds` field (not a list, or a
+    member that is not a UUID string). Unknown or foreign item IDs are a 404
+    via `not_found()` instead — the item does not exist for this owner."""
+    return ApiError(
+        status_code=422,
+        code="VALIDATION_ERROR",
+        message="Some of the provided values are not valid. Please check your input.",
+        details={
+            "field_errors": [
+                {
+                    "field": "snapshot.selectedItemIds",
+                    "error": details,
+                }
+            ]
+        },
+    )
+
+
 class SaveRecommendation:
     def __init__(
         self,
@@ -47,10 +67,47 @@ class SaveRecommendation:
         saved_looks: SavedLookRepository,
         signals: LearningSignalRepository,
         knowledge: KnowledgeSource,
+        wardrobe_items: WardrobeItemRepository,
     ) -> None:
         self._saved_looks = saved_looks
         self._signals = signals
         self._knowledge = knowledge
+        self._wardrobe_items = wardrobe_items
+
+    def _validated_outfit_snapshot(
+        self, *, user_id: UUID, snapshot: dict
+    ) -> dict:
+        """Validate and normalize `snapshot.selectedItemIds` for an outfit save.
+
+        `source_context` is authoritative: this runs only for outfit saves, and
+        outfit identity is never inferred from the snapshot itself. Hairstyle /
+        grooming snapshots pass through untouched. Returns the snapshot to
+        persist — identical except `selectedItemIds`, when supplied, becomes
+        the deterministic sorted list of unique canonical UUID strings.
+        """
+        if not isinstance(snapshot, dict):
+            raise _invalid_selected_item_ids("snapshot must be an object")
+        if "selectedItemIds" not in snapshot:
+            return snapshot
+        raw_ids = snapshot["selectedItemIds"]
+        if not isinstance(raw_ids, list):
+            raise _invalid_selected_item_ids("must be a list of wardrobe item IDs")
+        parsed: list[UUID] = []
+        for raw in raw_ids:
+            if not isinstance(raw, str):
+                raise _invalid_selected_item_ids("every item ID must be a UUID string")
+            try:
+                parsed.append(UUID(raw))
+            except (ValueError, TypeError):
+                raise _invalid_selected_item_ids(f"not a valid UUID: {raw}")
+        for item_id in parsed:
+            if self._wardrobe_items.get_by_id(user_id=user_id, item_id=item_id) is None:
+                # Owner-scoped lookup: nonexistent and foreign IDs are
+                # indistinguishable by design (OW-1, 404-not-403). The save is
+                # rejected outright — foreign IDs are never silently dropped.
+                raise not_found()
+        canonical = sorted({str(item_id) for item_id in parsed})
+        return {**snapshot, "selectedItemIds": canonical}
 
     def __call__(
         self,
@@ -82,6 +139,15 @@ class SaveRecommendation:
         if look_id is not None and self._knowledge.lookup_hairstyle_look(look_id) is None and self._knowledge.lookup_grooming_look(look_id) is None:
             raise not_found()
 
+        if source_context == "outfit":
+            # Normalized BEFORE the idempotency check so a byte-identical
+            # replay compares against the canonical persisted form and
+            # returns the original row (C-12/API-33), instead of conflicting
+            # with its own normalization.
+            snapshot = self._validated_outfit_snapshot(
+                user_id=user_id, snapshot=snapshot
+            )
+
         existing = self._saved_looks.get_by_idempotency(
             user_id=user_id, idempotency_key=idempotency_key
         )
@@ -89,6 +155,7 @@ class SaveRecommendation:
             same_payload = (
                 existing.look_id == look_id
                 and existing.title == title
+                and existing.source_context == source_context
                 and json.dumps(existing.snapshot, sort_keys=True)
                 == json.dumps(snapshot, sort_keys=True)
             )
@@ -102,12 +169,14 @@ class SaveRecommendation:
                 user_id=user_id,
                 look_id=look_id,
                 title=title,
+                source_context=source_context,
                 snapshot=snapshot,
                 idempotency_key=idempotency_key,
                 source_run_id=source_run_id,
             )
             self._signals.insert_look_saved(
                 user_id=user_id,
+                signal_type="look_saved",
                 label=title,
                 context={"source_context": source_context, "look_id": look_id},
             )

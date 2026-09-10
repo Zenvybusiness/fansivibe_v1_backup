@@ -17,6 +17,7 @@ from app.application.saved_looks import ListSavedLooks, SaveRecommendation
 from app.infrastructure.db.repositories import (
     LearningSignalRepositorySQL,
     SavedLookRepositorySQL,
+    WardrobeItemRepositorySQL,
 )
 from app.infrastructure.db.session import get_db
 from app.infrastructure.external.knowledge import CatalogKnowledgeSource
@@ -29,6 +30,7 @@ def _record_to_schema(record) -> SavedLook:
         id=record.id,
         lookId=record.look_id,
         title=record.title,
+        sourceContext=record.source_context,
         snapshot=record.snapshot,
         sourceRunId=record.source_run_id,
         createdAt=record.created_at,
@@ -57,6 +59,7 @@ def save_look(
         saved_looks=SavedLookRepositorySQL(db),
         signals=LearningSignalRepositorySQL(db),
         knowledge=CatalogKnowledgeSource(),
+        wardrobe_items=WardrobeItemRepositorySQL(db),
     )
     record, created = use_case(
         user_id=user_id,

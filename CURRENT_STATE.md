@@ -6303,3 +6303,309 @@ Important:
 - Do NOT modify persistence code.
 - Do NOT add fake appearance data.
 - Do NOT claim real face analysis is production-verified.
+
+---
+
+## STEP 11.16 — OUTFIT SAVE CONTRACT (source_context + selectedItemIds) — PASS
+
+Task: unblock the 11.15 outfit-personalization contract — backend-owned
+saved-look discriminator + trustworthy outfit selected-item contract. Data
+contract and persistence boundary only; no ranking, no OI changes, no
+learning consumer, no Flutter.
+
+### Contract
+- `saved_looks.source_context` (migration 0009, CHECK `hairstyle/grooming/
+  outfit`, NULL = legacy/unknown, no DB default; dev DB had 0 legacy rows).
+  New writes always non-null (application-enforced). ORM + CHECK mirror.
+- `SaveLookRequest.sourceContext` is now `Literal[hairstyle,grooming,outfit]`
+  (422 on unknown, same taxonomy); `SavedLook`/`GET /v1/looks/saved` return
+  `sourceContext` (camelCase).
+- `SaveRecommendation` persists the validated context, validates outfit
+  snapshots only (`selectedItemIds`: list → UUIDs → owner check via existing
+  `WardrobeItemRepository.get_by_id` → sorted-unique canonical persist;
+  unknown/foreign → 404, malformed → 422, nothing stored either way).
+  Normalization runs before the idempotency check so byte-identical outfit
+  replays return the original row; changed payload (incl. context) → 409.
+  Hairstyle/grooming snapshots pass through untouched. TRX-3 + `look_saved`
+  signal unchanged.
+- Incidental required fix: `WardrobeItemRepositorySQL._to_record` referenced
+  an unimported `WardrobeItemRecord` (NameError on any wardrobe read) —
+  added the import (one line, same allowed file).
+
+### Validation (live PostgreSQL, head 0009)
+- Offline DDL up/down render clean; migration applied live with column+CHECK.
+- New tests: 16 unit (use-case) + 6 API (DB-backed) — all pass.
+- Neighbors: `test_analysis_use_case` + `test_update_preferences` +
+  `test_decision_engine` → 128 passed.
+- Live end-to-end: hairstyle/grooming/outfit saves persist with context;
+  canonical ids; foreign → 404; malformed → 422; GET round-trips; 3 rows +
+  3 `look_saved` signals atomically; replay → same id; changed → 409.
+  Verification data cleaned (0 rows left).
+- Pre-existing failures (proven identical at HEAD baseline, untouched):
+  5 `test_saved_looks` FK failures (shared SNAPSHOT's fake `sourceRunId`
+  violates `saved_looks_source_run_id_fkey` — never runnable live);
+  `test_hairstyle_image_router` leaks `get_db` override breaking later
+  DB-backed modules in full-suite runs; stale `test_users_api`
+  (memorySummary), `test_grooming_api` (2), `test_db_session` seeds (2),
+  `test_wardrobe_api` fixture misuse. None caused or worsened by this step.
+
+---
+
+## STEP 11.17 — SAVED-OUTFIT PERSONALIZATION (first consumer) — PASS
+
+Task: smallest real outfit personalization consumer on the 11.16 contract.
+Backend-authoritative `saved_looks` only; no signals, no learning engine, no
+ML, no schema/migration, no Flutter, no CreateOutfitRun change.
+
+### Behavior
+- `resolve_preferred_item_ids()` (new, `analysis_rules.py`): reads existing
+  `SavedLookRepository.list_for_user()`, keeps only `source_context=="outfit"`
+  rows (hairstyle/grooming/legacy-NULL ignored; titles/`look_id` never
+  inspected), canonicalizes `snapshot.selectedItemIds`, ignores malformed
+  legacy entries, degrades to empty on repository failure. `learning_signals`
+  is not an input anywhere (no such parameter exists).
+- `preference_contribution()` (new, pure): +0.05 per distinct preferred ID
+  evaluated, +0.15 total cap, set-intersection (repeats never stack).
+- `compute_outfit_intelligence()` gains keyword-only `item_id=""` and
+  `preferred_item_ids=None` (existing positional callers unaffected). The
+  STEP 7A formula, 0.7/0.3 thresholds, and all sub-rules are untouched; the
+  contribution is added ONLY to the final confidence value, and the result's
+  existing `item_id` field is populated (was always ""). None/empty input
+  reproduces baseline output exactly.
+- `engine.handle()` gains keyword-only `preferred_item_ids` (11.10 pattern);
+  INTENT_WARDROBE forwards the evaluated item's ID + frozenset. All other
+  intents untouched.
+
+### Honest architectural limit (per §10, not hidden)
+OI evaluates the single item the engine passes (wardrobe[0]); there is no
+multi-item ranking, and none was invented — `selected_item_ids` stays [].
+The +0.05 moves that item's OI confidence (visible on the Confidence card
+and reply text, can flip reasonable→strong at the margin). Cap is enforced
+in the formula; single-item calls yield at most +0.05.
+
+### Validation (focused only, live PG where DB-backed)
+- New: 10 OI/seam tests (`test_decision_engine.py`) + 5 resolver tests
+  (`test_analysis_use_case.py`) — all pass (A–K incl. cap, no-stack,
+  no-signal-input, repo-failure, assistant integration via spy + card).
+- Regression: full `test_decision_engine.py` + `test_analysis_use_case.py`
+  → 125 passed; `test_clothing_intelligence.py` → 22 passed (positional OI
+  callers unaffected); save-path files → only the 5 pre-existing FK
+  failures proven at the 11.16 HEAD baseline.
+- `py_compile` clean on both production files. Full suite not run per scope.
+
+---
+
+## STEP 12.3 — KNOWLEDGE VERSION + PROVENANCE — PASS
+
+Task: explicit OI rule-knowledge version + per-run provenance, behavior
+identical except added provenance.
+
+### Contract
+- `OI_KNOWLEDGE_VERSION = "1.0"` beside the OI maps (`analysis_rules.py`);
+  `KNOWLEDGE_VERSION = "1.1"` untouched. `knowledge_provenance()` builds
+  `"1.1+1.0"` from the two constants (no literal duplication).
+- `analysis_runs.knowledge_version` (migration 0010, nullable Text, no
+  default/backfill; legacy NULL = unknown). ORM/port/SQL updated; `create()`
+  is the seam (completion fn untouched). Wire API schemas unchanged.
+- All four run creators (hairstyle, grooming, outfit, hairstyle-image) pass
+  the helper value. Grooming/hairstyle rows carry "1.1+1.0" as the shared
+  boundary value (catalog half applies; no OI-rules claim for those runs).
+  `engine_version` fully independent.
+
+### Validation
+- New: 3 version/provenance tests (`test_knowledge.py`) + 4 run tests
+  (`test_analysis_use_case.py`) — pass. Full focused files
+  (use_case/decision_engine/clothing/router/vision) → 195 passed.
+- Offline DDL up/down render clean; live single head 0010, nullable column,
+  created run → `knowledge_version=1.1+1.0`, `engine_version=rules-v1`,
+  top=t textured_quiff (behavior intact); legacy NULL row reads via real repo;
+  all verification data cleaned.
+- K-exception (reported before modifying): two out-of-scope fakes required
+  the additive kwarg — `test_hairstyle_image_router.py:38`,
+  `test_vision_appearance_adapter.py:285` (one-line each; also fixed a latent
+  hardcoded-engine_version in the vision fake).
+
+---
+
+## STEP 12.5 — CATALOG VERSION PARITY CORRECTION — PASS
+
+Task: declare the 8-look catalog homogeneous at 1.1 (12.4 labeling mismatch;
+content was already identical).
+
+### Change
+- Migration 0011 only: scoped `UPDATE looks SET content_version='1.1' WHERE
+  code IN (4 hairstyle codes)`; downgrade restores those 4 to '1.0'. No
+  tables/columns/indexes/constraints; payloads, grooming rows untouched.
+- No production code touched (provenance still `knowledge_provenance()` →
+  "1.1+1.0"; constants unchanged).
+
+### Validation (live PG, single head 0011)
+- Pre-change: 8/8 codes present, payloads identical, only hairstyle 4×1.0,
+  grooming 4×1.1.
+- Post-change: 8 rows, all 1.1, codes intact, no dupes, payloads == catalog.
+- New: 5 parity tests (`test_db_session.py`, incl. in-test downgrade→upgrade
+  round trip) — pass. Offline downgrade SQL renders scoped.
+
+---
+
+## STEP 13.2 — OUTFIT CANDIDATE CONTRACT — PASS
+
+Task: internal deterministic candidate contract without behavior change.
+
+### Contract
+- `OutfitCandidate` (frozen VO): category buckets as tuples (empty = unfilled,
+  never placeholders) + `compatibility/preference/favorite/score` signals.
+- Score 0–100, composed only: compatibility 0–70 + preference 0–15 +
+  favorite 0–15, each clamped. Preference reuses Step 11 exactly (+5/item,
+  cap 15, set semantics) via `candidate_preference_points`. Favorite
+  `+5/member cap 15` is an explicit Step 13.2 design decision (final
+  confidence untouched). Compatibility derivation is future work — the
+  composer takes it as input.
+- `CANDIDATE_SKELETONS`: exactly the 5 audited structures over the 5
+  categories. `rank_outfit_candidates`: score desc → item count desc
+  (coverage-justified) → canonical lexical IDs; pure ordering, no
+  recomputation, no randomness/timestamps/row order.
+- Mapping to `selectedItemIds`/`OutfitComposition` proven in-test; no schema
+  change; no production mapping added. engine.py untouched (wardrobe[0]
+  intact); confidence/styleScore/APIs/DB/Flutter unchanged.
+
+### Validation
+- New: 8 contract tests (`test_analysis_rules.py`) — pass (18/18 file).
+- Regression: `test_decision_engine` + `test_clothing_intelligence` +
+  `test_knowledge` → 110 passed. `py_compile` clean.
+
+---
+
+## STEP 13.3 — OUTFIT CANDIDATE GENERATION — PASS
+
+Task: deterministic generation only (no scoring/ranking/wiring).
+
+### Contract
+- `generate_outfit_candidates(wardrobe_items)` (pure, `analysis_rules.py`):
+  reads `.id`/`.category` (real WardrobeItems pass through); groups the 5
+  known categories (unknown ignored, empty IDs ignored); tops+bottoms
+  mandatory; one candidate per satisfiable skeleton in CANDIDATE_SKELETONS
+  order; slot representative = lexically smallest owned ID (documented —
+  the only choice available without scoring); legality via
+  `_skeleton_compatible` reusing `_COMPATIBLE_PAIRINGS` (core mutual pair +
+  each optional category paired either direction with an accepted member);
+  dedup by canonical key; scores stay neutral 0.0 (no compose call, no
+  preference/favorite points); output order deterministic (input order
+  irrelevant — grouping + sorting).
+- engine.py untouched (wardrobe[0] intact, generator uncalled); no API/
+  schema/DB/Flutter/signal/confidence/styleScore change.
+
+### Validation
+- New: 14 generation tests (Q1–Q16 minus ranking/score which belong to
+  13.2/13.4) — pass (32/32 file).
+- Regression: decision + clothing + knowledge → 110 passed. py_compile clean.
+
+---
+
+## STEP 13.4 — OUTFIT CANDIDATE SCORING — PASS
+
+Task: deterministic candidate evaluation only (no ranking/winner/wiring).
+
+### Contract
+- `score_outfit_candidate(candidate, items_by_id=None, preferred_item_ids=None,
+  preferred_occasions=None)` (pure, `analysis_rules.py`): returns immutable
+  `replace()` with compatibility/preference/favorite/score populated.
+- Compatibility (0–70, rule-faithful sub-terms, all constants named):
+  coverage +8/filled category (mirrors OI coverage); color pairwise neutral
+  gate +10 / bright–bright −10 (no analogous/hue/contrast invented — none
+  exist); all-natural material +5 else neutral; season intersection +5 /
+  disjoint −5 (defensive: unreachable via real categories, documented);
+  single-register formality +5 else neutral; common requested occasion +5
+  else neutral (absent occasion never fabricated).
+- Preference/favorite reuse 13.2/Step-11 exactly (+5/cap 15, set semantics);
+  total via `compose_candidate_score` (0–100). Each mechanism counted once;
+  saved_looks/signals never read. Unknown attrs degrade neutrally (category-
+  derived seasons/formality still apply — real data).
+- Score NEVER touches confidence (pinned 1.0/strong in-test), styleScore,
+  engine (wardrobe[0] intact, scoring uncalled), APIs, schemas, DB, Flutter.
+
+### Validation
+- New: 11 scoring tests (T1–T18 minus ranking) — pass (43/43 file,
+  incl. exact hand-computed 36.0/16.0/39.0 and determinism/immutability).
+- Regression: decision + clothing + knowledge → 110 passed. py_compile clean.
+
+---
+
+## STEP 13.5 — OUTFIT CANDIDATE RANKING & WINNER SELECTION — PASS
+
+Task: pure ranking/winner layer only (no wiring, no behavior change).
+
+### Contract
+- `rank_outfit_candidates()` already satisfied the 13.2/A–D contract verbatim
+  (score DESC → deduped-count DESC → canonical lexical IDs; new list; no
+  recompute/DB/AI) — verified, not rewritten. Duplicates supplied directly
+  are preserved deterministically (no merge, no invention).
+- New: `select_best_outfit_candidate()` = `ranked[0] or None`; delegates to
+  the single ranking contract (proven via referenced-globals check); returns
+  the existing object unmutated; no confidence/styleScore/API fields.
+- Generation = validity / Scoring = quality / Ranking = order / Selection =
+  first — separation held; engine.py untouched (wardrobe[0] intact, new
+  helpers uncalled).
+
+### Validation
+- New: 10 determinism/edge tests (Q1–Q14 + R) — pass (53/53 file).
+- Regression: `test_decision_engine` → 69 passed. py_compile clean.
+- Scope: only `analysis_rules.py` (+winner, `__all__`) and
+  `test_analysis_rules.py` changed this step.
+
+---
+
+## STEP 13.6 — CANDIDATE PIPELINE PRODUCTION INTEGRATION — PASS
+
+Task: wire generate→score→rank→select into INTENT_WARDROBE (integration only).
+
+### Integration (engine.py only; analysis_rules.py untouched this step)
+- WARDROBE branch: `items_by_id` lookup (stable IDs, no repo/DB) →
+  `generate_outfit_candidates(wardrobe)` → `score_outfit_candidate` per
+  candidate (existing inputs: candidate, items_by_id, resolved preferred
+  set, request occasions) → `rank_outfit_candidates` →
+  `select_best_outfit_candidate`. No second ranking anywhere.
+- Winner drives evaluation: its primary item (top, skeleton order) feeds the
+  unchanged CI/OI calls (formula, thresholds, preference/favorite
+  contributions intact); winner IDs populate the domain
+  `selectedItemIds`/`outfitComposition` via immutable `replace()`, activating
+  the existing STEP 7C.2 cards. No-candidate wardrobes fall through to the
+  byte-identical historical wardrobe[0] path (all 11.4.1/11.10/11.17 tests
+  green unmodified).
+- styleScore: preserved as-is (candidate.score is NOT an approved styleScore;
+  no formula invented — reported per K). Occasions unchanged. No signals
+  emitted. Wire/API/DB/Flutter/saves untouched.
+
+### Validation
+- New: 8 integration tests — sparse/empty fallback, winner IDs + composition
+  cards, multi-candidate domain equality, wardrobe[0]-bottoms proof (text
+  flips to tops + both IDs selected), determinism, preferred-set spy +
+  exact +0.05 domain delta with faithful card rendering.
+- 130/130 (`test_decision_engine` 77 + `test_analysis_rules` 53).
+  py_compile clean. Full suite not run per scope.
+
+---
+
+## STEP 13.7 — WINNER MAPPING & EXPLANATION AUDIT — PASS
+
+Task: verify winner representation at the AssistantReply boundary (audit).
+
+### Findings
+- Winner is sole source for selectedItemIds (exact winner IDs, skeleton
+  order — deterministic; set-content = canonical union) and all five
+  composition buckets (bucket-exact, no placeholders, no wardrobe[0] staleness).
+- Occasion behavior unchanged (pass-through, no normalization/invention).
+- styleScore unchanged (context constant 87; wire default 0; candidate.score
+  never copied — engine has zero `candidate.score` references).
+- Confidence separation held (STEP 7A only; ranking never consults it).
+- Explanation grounded (owned items + deterministic signals only; banned-claim
+  scan pinned in-test). compatibilityRationale intentionally empty (no field
+  generation exists; prose not invented). Availability honest; low-conf
+  disclaimers intact. Sparse paths honest via historical fallback.
+- No production defect found → NO production change (per R).
+- Added 2 audit-proof tests (incompatible-pair fallback, explanation
+  grounding). Pre-existing dead local `item_id_map` noted, untouched.
+
+### Validation
+- 132/132 (`test_decision_engine` 79 + `test_analysis_rules` 53).
+  py_compile clean. Full suite not run per scope.

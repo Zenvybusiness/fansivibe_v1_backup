@@ -59,6 +59,7 @@ class FakeSavedLooks:
         user_id: UUID,
         look_id: Optional[str],
         title: str,
+        source_context: str,
         snapshot: dict,
         idempotency_key: str,
         source_run_id: Optional[UUID],
@@ -69,6 +70,7 @@ class FakeSavedLooks:
             id=uuid4(),
             look_id=look_id,
             title=title,
+            source_context=source_context,
             snapshot=snapshot,
             source_run_id=source_run_id,
             created_at=datetime.now(timezone.utc),
@@ -125,15 +127,31 @@ class FakeSignals:
     rollbacks: int = 0
 
     def insert_look_saved(
-        self, *, user_id: UUID, label: str, context: Optional[dict]
+        self, *, user_id: UUID, signal_type: str = "look_saved", label: str, context: Optional[dict]
     ) -> None:
-        self.signals.append({"user_id": user_id, "label": label, "context": context})
+        self.signals.append({"user_id": user_id, "signal_type": signal_type, "label": label, "context": context})
 
     def commit(self) -> None:
         self.commits += 1
 
     def rollback(self) -> None:
         self.rollbacks += 1
+
+
+@dataclass
+class FakeWardrobeItems:
+    """In-memory WardrobeItemRepository double (owner-scoped, OW-1)."""
+
+    rows: list = field(default_factory=list)  # (user_id, item_id)
+
+    def add(self, user_id: UUID, item_id: UUID) -> None:
+        self.rows.append((user_id, item_id))
+
+    def get_by_id(self, *, user_id: UUID, item_id: UUID):
+        for owner, owned_id in self.rows:
+            if owner == user_id and owned_id == item_id:
+                return object()
+        return None
 
 
 SNAPSHOT = {
@@ -164,6 +182,7 @@ def _make(*, has_look: bool = True) -> tuple[SaveRecommendation, FakeSavedLooks,
         saved_looks=saved_looks,
         signals=signals,
         knowledge=FakeKnowledge(has_look=has_look),
+        wardrobe_items=FakeWardrobeItems(),
     )
     return use_case, saved_looks, signals
 
@@ -190,12 +209,14 @@ def test_save_inserts_look_and_signal_and_commits():
     assert created is True
     assert saved.look_id == "textured_quiff"
     assert saved.title == "Textured Quiff"
+    assert saved.source_context == "hairstyle"
     assert str(saved.source_run_id) == "00000000-0000-0000-0000-000000000001"
     assert saved_looks.commits == 1
     assert saved_looks.rollbacks == 0
     assert signals.signals == [
         {
             "user_id": USER,
+            "signal_type": "look_saved",
             "label": "Textured Quiff",
             "context": {"source_context": "hairstyle", "look_id": "textured_quiff"},
         }
@@ -360,6 +381,7 @@ def test_knowledge_catalog_lookup_is_used_for_save():
         saved_looks=FakeSavedLooks(),
         signals=FakeSignals(),
         knowledge=knowledge,
+        wardrobe_items=FakeWardrobeItems(),
     )
     saved = use_case(
         user_id=USER,
@@ -381,6 +403,7 @@ def _seed_looks(rows: list, user_id: UUID, count: int = 3) -> None:
             id=uuid4(),
             look_id=f"look-{i}",
             title=f"Look {i}",
+            source_context="hairstyle",
             snapshot=SNAPSHOT,
             source_run_id=None,
             created_at=datetime.now(timezone.utc),
@@ -419,3 +442,304 @@ def test_list_is_empty_for_owner_without_saves():
 
     assert items == []
     assert total == 0
+
+# ============================================================================
+# STEP 11.16 — outfit save contract: backend-owned source_context discriminator
+# + validated/normalized snapshot.selectedItemIds for outfit saves.
+# DB-free (fake repos). source_context is authoritative; look_id NULL, titles,
+# and snapshot shape are never used as domain discriminators.
+# ============================================================================
+
+OUTFIT_SNAPSHOT = {
+    "appearance": {
+        "faceShape": "Oval",
+    },
+    "outfit": {"occasion": "date"},
+}
+
+
+def _make_with_wardrobe(*, owner_items=(), other_items=()):
+    """SaveRecommendation with a wardrobe double: `owner_items` belong to
+    USER, `other_items` belong to OTHER_USER."""
+    saved_looks = FakeSavedLooks()
+    signals = FakeSignals()
+    wardrobe = FakeWardrobeItems()
+    for item_id in owner_items:
+        wardrobe.add(USER, item_id)
+    for item_id in other_items:
+        wardrobe.add(OTHER_USER, item_id)
+    use_case = SaveRecommendation(
+        saved_looks=saved_looks,
+        signals=signals,
+        knowledge=FakeKnowledge(has_look=False),
+        wardrobe_items=wardrobe,
+    )
+    return use_case, saved_looks, signals
+
+
+def _outfit_snapshot(item_ids=None):
+    import copy
+
+    snapshot = copy.deepcopy(OUTFIT_SNAPSHOT)
+    if item_ids is not None:
+        snapshot["selectedItemIds"] = item_ids
+    return snapshot
+
+
+# --- A: save context persistence --------------------------------------------
+
+
+def test_11_16_hairstyle_context_persisted():
+    use_case, saved_looks, _ = _make()
+    saved, created = use_case(
+        user_id=USER,
+        look_id="textured_quiff",
+        title="Textured Quiff",
+        snapshot=SNAPSHOT,
+        source_context="hairstyle",
+        idempotency_key="ctx-hair",
+    )
+    assert created is True
+    assert saved.source_context == "hairstyle"
+    assert saved_looks.rows[0]["record"].source_context == "hairstyle"
+
+
+def test_11_16_grooming_context_persisted_without_selected_item_ids():
+    use_case, saved_looks, _ = _make()
+    saved, created = use_case(
+        user_id=USER,
+        look_id="textured_quiff",
+        title="Goatee",
+        snapshot=dict(SNAPSHOT),
+        source_context="grooming",
+        idempotency_key="ctx-groom",
+    )
+    assert created is True
+    assert saved.source_context == "grooming"
+    assert "selectedItemIds" not in saved.snapshot
+
+
+def test_11_16_outfit_context_persisted_with_null_look_id():
+    use_case, saved_looks, _ = _make()
+    saved, created = use_case(
+        user_id=USER,
+        look_id=None,
+        title="Date Night Outfit",
+        snapshot=_outfit_snapshot(),
+        source_context="outfit",
+        idempotency_key="ctx-outfit",
+    )
+    assert created is True
+    assert saved.source_context == "outfit"
+    assert saved.look_id is None
+
+
+# --- C: valid owner item IDs accepted + normalized ---------------------------
+
+
+def test_11_16_outfit_valid_item_ids_normalized_to_canonical_sorted():
+    item_b = uuid4()
+    item_a = uuid4()
+    use_case, saved_looks, _ = _make_with_wardrobe(owner_items=(item_a, item_b))
+    saved, created = use_case(
+        user_id=USER,
+        look_id=None,
+        title="Outfit",
+        snapshot=_outfit_snapshot([str(item_b), str(item_a).upper()]),
+        source_context="outfit",
+        idempotency_key="ctx-norm",
+    )
+    assert created is True
+    assert saved.snapshot["selectedItemIds"] == sorted([str(item_a), str(item_b)])
+    # Unrelated snapshot fields are untouched.
+    assert saved.snapshot["outfit"] == {"occasion": "date"}
+    assert saved.snapshot["appearance"] == {"faceShape": "Oval"}
+
+
+# --- D: duplicates ------------------------------------------------------------
+
+
+def test_11_16_outfit_duplicate_ids_become_one_canonical_id():
+    item = uuid4()
+    use_case, _, _ = _make_with_wardrobe(owner_items=(item,))
+    saved, _ = use_case(
+        user_id=USER,
+        look_id=None,
+        title="Outfit",
+        snapshot=_outfit_snapshot([str(item), str(item).upper(), str(item)]),
+        source_context="outfit",
+        idempotency_key="ctx-dupe",
+    )
+    assert saved.snapshot["selectedItemIds"] == [str(item)]
+
+
+# --- E/F/K: foreign + unknown IDs rejected, atomically ------------------------
+
+
+def test_11_16_outfit_foreign_item_id_rejected_without_rows_or_signal():
+    mine = uuid4()
+    theirs = uuid4()
+    use_case, saved_looks, signals = _make_with_wardrobe(
+        owner_items=(mine,), other_items=(theirs,)
+    )
+    with pytest.raises(ApiError) as excinfo:
+        use_case(
+            user_id=USER,
+            look_id=None,
+            title="Outfit",
+            snapshot=_outfit_snapshot([str(mine), str(theirs)]),
+            source_context="outfit",
+            idempotency_key="ctx-foreign",
+        )
+    assert excinfo.value.status_code == 404
+    assert excinfo.value.code == "NOT_FOUND"
+    assert len(saved_looks.rows) == 0
+    assert len(signals.signals) == 0
+    assert saved_looks.commits == 0
+
+
+def test_11_16_outfit_unknown_item_id_rejected_without_rows_or_signal():
+    use_case, saved_looks, signals = _make_with_wardrobe()
+    with pytest.raises(ApiError) as excinfo:
+        use_case(
+            user_id=USER,
+            look_id=None,
+            title="Outfit",
+            snapshot=_outfit_snapshot([str(uuid4())]),
+            source_context="outfit",
+            idempotency_key="ctx-unknown",
+        )
+    assert excinfo.value.status_code == 404
+    assert excinfo.value.code == "NOT_FOUND"
+    assert len(saved_looks.rows) == 0
+    assert len(signals.signals) == 0
+
+
+# --- G: malformed selectedItemIds rejected ------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_ids",
+    [
+        "not-a-list",
+        {"id": "x"},
+        ["not-a-uuid"],
+        [123],
+        [None],
+    ],
+)
+def test_11_16_outfit_malformed_selected_item_ids_rejected(bad_ids):
+    use_case, saved_looks, signals = _make_with_wardrobe()
+    snapshot = _outfit_snapshot()
+    snapshot["selectedItemIds"] = bad_ids
+    with pytest.raises(ApiError) as excinfo:
+        use_case(
+            user_id=USER,
+            look_id=None,
+            title="Outfit",
+            snapshot=snapshot,
+            source_context="outfit",
+            idempotency_key=f"ctx-bad-{len(saved_looks.rows)}",
+        )
+    assert excinfo.value.status_code == 422
+    assert excinfo.value.code == "VALIDATION_ERROR"
+    assert len(saved_looks.rows) == 0
+    assert len(signals.signals) == 0
+
+
+# --- H: hairstyle/grooming compatibility --------------------------------------
+
+
+def test_11_16_hairstyle_snapshot_without_selected_item_ids_untouched():
+    use_case, _, _ = _make()
+    saved, _ = use_case(
+        user_id=USER,
+        look_id="textured_quiff",
+        title="Textured Quiff",
+        snapshot=dict(SNAPSHOT),
+        source_context="hairstyle",
+        idempotency_key="ctx-compat",
+    )
+    assert saved.snapshot == SNAPSHOT
+
+
+# --- J: idempotency with source_context ---------------------------------------
+
+
+def test_11_16_same_key_changed_context_returns_conflict():
+    use_case, saved_looks, signals = _make()
+    use_case(
+        user_id=USER,
+        look_id="textured_quiff",
+        title="Textured Quiff",
+        snapshot=SNAPSHOT,
+        source_context="hairstyle",
+        idempotency_key="ctx-change",
+    )
+    with pytest.raises(ApiError) as excinfo:
+        use_case(
+            user_id=USER,
+            look_id="textured_quiff",
+            title="Textured Quiff",
+            snapshot=SNAPSHOT,
+            source_context="grooming",
+            idempotency_key="ctx-change",
+        )
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.code == "CONFLICT"
+    assert len(saved_looks.rows) == 1
+    assert len(signals.signals) == 1
+
+
+# --- L: outfit save still emits exactly one intact look_saved signal ---------
+
+
+def test_11_16_outfit_save_emits_single_intact_look_saved_signal():
+    item = uuid4()
+    use_case, saved_looks, signals = _make_with_wardrobe(owner_items=(item,))
+    use_case(
+        user_id=USER,
+        look_id=None,
+        title="Date Night Outfit",
+        snapshot=_outfit_snapshot([str(item)]),
+        source_context="outfit",
+        idempotency_key="ctx-signal",
+    )
+    assert saved_looks.commits == 1
+    assert signals.signals == [
+        {
+            "user_id": USER,
+            "signal_type": "look_saved",
+            "label": "Date Night Outfit",
+            "context": {"source_context": "outfit", "look_id": None},
+        }
+    ]
+
+
+def test_11_16_outfit_byte_identical_replay_returns_original():
+    """J (outfit). Replay of the exact bytes returns the original row even
+    though the persisted snapshot is the canonical normalized form."""
+    item = uuid4()
+    use_case, saved_looks, signals = _make_with_wardrobe(owner_items=(item,))
+    payload = _outfit_snapshot([str(item).upper(), str(item)])
+    first, created = use_case(
+        user_id=USER,
+        look_id=None,
+        title="Outfit",
+        snapshot=payload,
+        source_context="outfit",
+        idempotency_key="ctx-replay",
+    )
+    assert created is True
+    replayed, created = use_case(
+        user_id=USER,
+        look_id=None,
+        title="Outfit",
+        snapshot=payload,
+        source_context="outfit",
+        idempotency_key="ctx-replay",
+    )
+    assert created is False
+    assert replayed is first
+    assert len(saved_looks.rows) == 1
+    assert len(signals.signals) == 1

@@ -387,6 +387,30 @@ class OutfitComposition:
 
 
 @dataclass(frozen=True)
+class OutfitCandidate:
+    """Internal outfit candidate (STEP 13.2) — deterministic selection contract.
+
+    Not a wire object: no Pydantic mirror, no API surface. Buckets hold real
+    wardrobe item IDs only (tuples preserve slot order; empty tuple = slot
+    not filled — never placeholder or null IDs). ``score`` is the candidate
+    score (0–100, see ``compose_candidate_score``), conceptually separate
+    from final OutfitIntelligence confidence and from styleScore. Component
+    fields record the separated signals (compatibility / preference /
+    favorite) that composed the score.
+    """
+
+    top_ids: tuple[str, ...] = ()
+    bottom_ids: tuple[str, ...] = ()
+    outerwear_ids: tuple[str, ...] = ()
+    footwear_ids: tuple[str, ...] = ()
+    accessory_ids: tuple[str, ...] = ()
+    compatibility: float = 0.0
+    preference: float = 0.0
+    favorite: float = 0.0
+    score: float = 0.0
+
+
+@dataclass(frozen=True)
 class ClothingIntelligence:
     """The minimum viable Clothing Intelligence result.
 

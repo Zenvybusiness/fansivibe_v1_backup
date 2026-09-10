@@ -24,7 +24,7 @@ from app.domain.ports.repositories import (
     SavedLookRepository,
     UserStateRepository,
 )
-from app.domain.services.analysis_rules import build_context, recommend_hairstyle
+from app.domain.services.analysis_rules import build_context, recommend_hairstyle, knowledge_provenance
 from app.domain.services.grooming_rules import recommend_grooming
 from app.domain.value_objects import (
     AppearanceProfile,
@@ -118,6 +118,7 @@ class CreateHairstyleRun:
             user_id=user_id,
             run_type="hairstyle",
             input_media=None,  # profile-only pass; no image (MS10.3 sealed)
+            knowledge_version=knowledge_provenance(),
         )
 
         appearance = AppearanceProfile(
@@ -223,6 +224,7 @@ class CreateOutfitRun:
             run_type="outfit",
             engine_version="vision-v1",
             input_media=media_ref,
+            knowledge_version=knowledge_provenance(),
         )
 
         # Step 2: Run appearance analysis adapter
@@ -292,21 +294,25 @@ class CreateOutfitRun:
                 source_run_id=str(run_id),
             )
 
-        # Step 6: Emit learning signal that the profile was updated from an analysis run
+        # Step 6+7 (STEP 11.13): the run's learning signals, typed verbatim.
+        # `outfit_selected` keeps its existing meaning here — completed outfit
+        # generation/run lifecycle, not an explicit UI selection. Both inserts
+        # are committed together below: one commit covers the run's signals
+        # (never one commit per insert). TRX-6 above is untouched.
         if self._learning_signal is not None:
             self._learning_signal.insert_look_saved(
                 user_id=user_id,
+                signal_type="analysis_updated",
                 label="analysis_updated",
                 context={"run_id": str(run_id), "run_type": "outfit"},
             )
-
-        # Step 7: Emit learning signal that an outfit selection/generation occurred
-        if self._learning_signal is not None:
             self._learning_signal.insert_look_saved(
                 user_id=user_id,
+                signal_type="outfit_selected",
                 label="outfit_selected",
                 context={"source_context": "outfit", "run_id": str(run_id), "run_type": "outfit"},
             )
+            self._learning_signal.commit()
 
         return run_id
 
@@ -374,6 +380,7 @@ class CreateHairstyleImageRun:
             run_type="hairstyle",
             engine_version="vision-v1",
             input_media=media_ref,
+            knowledge_version=knowledge_provenance(),
         )
 
         # Step 2: Run appearance analysis through the injected port.
@@ -470,13 +477,16 @@ class CreateHairstyleImageRun:
                 source_run_id=str(run_id),
             )
 
-        # Step 6: Emit learning signal that the profile was updated from an analysis run
+        # Step 6 (STEP 11.13): the run's learning signal, typed verbatim and
+        # committed with the run (TRX-6 above is untouched).
         if self._learning_signal is not None:
             self._learning_signal.insert_look_saved(
                 user_id=user_id,
+                signal_type="analysis_updated",
                 label="analysis_updated",
                 context={"run_id": str(run_id), "run_type": "hairstyle"},
             )
+            self._learning_signal.commit()
 
         return run_id
 
@@ -557,6 +567,7 @@ class CreateGroomingRun:
             run_type="grooming",
             engine_version="rules-v1",
             input_media=None,  # profile-only pass; no image (MS10.3 sealed)
+            knowledge_version=knowledge_provenance(),
         )
 
         appearance = AppearanceProfile(

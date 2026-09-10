@@ -18,6 +18,7 @@ from app.domain.ports.repositories import (
     AnalysisRunSummary,
     SavedLookRecord,
     UserProfileRecord,
+    WardrobeItemRecord,
 )
 from app.infrastructure.db.models import (
     AnalysisRuns,
@@ -45,12 +46,14 @@ class AnalysisRunRepositorySQL:
         run_type: str,
         engine_version: str = _ENGINE_VERSION,
         input_media: Optional[dict] = None,
+        knowledge_version: Optional[str] = None,
     ) -> UUID:
         row = AnalysisRuns(
             user_id=user_id,
             run_type=run_type,
             status="pending",
             engine_version=engine_version,
+            knowledge_version=knowledge_version,
             input_media=input_media,
         )
         self._session.add(row)
@@ -85,16 +88,28 @@ class AnalysisRunRepositorySQL:
     def complete(
         self, *, run_id: UUID, user_id: UUID, status: str, result: Optional[dict]
     ) -> bool:
+        # STEP 11.13: `cast(..., JSONB)` so SQLAlchemy serializes the dict
+        # client-side — psycopg3 cannot adapt a raw Python dict, which made
+        # every live completion fail (TRX-5 write-once guard itself is
+        # unchanged; the server function still receives jsonb).
         outcome = self._session.execute(
-            select(func.complete_analysis_run(run_id, user_id, status, result))
+            select(
+                func.complete_analysis_run(
+                    run_id, user_id, status, cast(result, JSONB)
+                )
+            )
         ).scalar_one()
         self._session.commit()
         return bool(outcome)
 
     def fail(self, *, run_id: UUID, user_id: UUID, error: Optional[dict]) -> bool:
-        """Mark a pending run `failed` with its frozen error body (TRX-5)."""
+        """Mark a pending run `failed` with its frozen error body (TRX-5).
+
+        Same STEP 11.13 JSONB cast as `complete` — the raw dict never reaches
+        the driver unadapted.
+        """
         outcome = self._session.execute(
-            select(func.fail_analysis_run(run_id, user_id, error))
+            select(func.fail_analysis_run(run_id, user_id, cast(error, JSONB)))
         ).scalar_one()
         self._session.commit()
         return bool(outcome)
@@ -111,6 +126,7 @@ class AnalysisRunRepositorySQL:
             input_media=row.input_media,
             result=row.result,
             error=row.error,
+            knowledge_version=row.knowledge_version,
         )
 
     @staticmethod
@@ -223,6 +239,7 @@ class SavedLookRepositorySQL:
         user_id: UUID,
         look_id: Optional[str],
         title: str,
+        source_context: str,
         snapshot: dict,
         idempotency_key: str,
         source_run_id: Optional[UUID],
@@ -231,6 +248,7 @@ class SavedLookRepositorySQL:
             user_id=user_id,
             look_id=look_id,
             title=title,
+            source_context=source_context,
             snapshot=snapshot,
             idempotency_key=idempotency_key,
             source_run_id=source_run_id,
@@ -278,6 +296,7 @@ class SavedLookRepositorySQL:
             id=row.id,
             look_id=row.look_id,
             title=row.title,
+            source_context=row.source_context,
             snapshot=row.snapshot,
             source_run_id=row.source_run_id,
             created_at=row.created_at,
@@ -295,12 +314,24 @@ class LearningSignalRepositorySQL:
         self._session.rollback()
 
     def insert_look_saved(
-        self, *, user_id: UUID, label: str, context: Optional[dict]
+        self,
+        *,
+        user_id: UUID,
+        signal_type: str = "look_saved",
+        label: str,
+        context: Optional[dict],
     ) -> None:
+        """Persist one learning-signal row with the requested type verbatim.
+
+        Validity is enforced by the existing `signal_types` FK (`RESTRICT`):
+        unknown codes raise on flush and store nothing — no new vocabulary
+        source, no silent fallback. Owner scoping comes from the caller-supplied
+        `user_id` (OW-1), matching every other repository here.
+        """
         self._session.add(
             LearningSignals(
                 user_id=user_id,
-                signal_type="look_saved",
+                signal_type=signal_type,
                 label=label,
                 context=context,
             )

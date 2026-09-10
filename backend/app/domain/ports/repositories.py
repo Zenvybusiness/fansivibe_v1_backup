@@ -13,7 +13,11 @@ from uuid import UUID
 
 @dataclass(frozen=True)
 class AnalysisRunRecord:
-    """A bare `analysis_runs` row (owner-scoped read)."""
+    """A bare `analysis_runs` row (owner-scoped read).
+
+    ``knowledge_version`` is the combined knowledge provenance (STEP 12.3,
+    ``<catalog>+<OI>``); ``None`` marks a legacy row — unknown, never inferred.
+    """
 
     id: UUID
     run_type: str
@@ -24,6 +28,7 @@ class AnalysisRunRecord:
     input_media: Optional[dict]
     result: Optional[dict]
     error: Optional[dict]
+    knowledge_version: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -41,7 +46,12 @@ class AnalysisRunSummary:
 
 @dataclass(frozen=True)
 class SavedLookRecord:
-    """A `saved_looks` row (owner-scoped read)."""
+    """A `saved_looks` row (owner-scoped read).
+
+    ``source_context`` is the backend-owned domain discriminator (STEP 11.16:
+    hairstyle/grooming/outfit). It defaults to ``None``, which marks a legacy
+    row written before the contract — domain unknown, never inferred.
+    """
 
     id: UUID
     look_id: Optional[str]
@@ -49,6 +59,7 @@ class SavedLookRecord:
     snapshot: dict
     source_run_id: Optional[UUID]
     created_at: datetime
+    source_context: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -93,6 +104,7 @@ class AnalysisRunRepository(Protocol):
         run_type: str,
         engine_version: str,
         input_media: Optional[dict] = None,
+        knowledge_version: Optional[str] = None,
     ) -> UUID: ...
 
     def get_for_user(self, *, user_id: UUID, run_id: UUID) -> Optional[AnalysisRunRecord]: ...
@@ -123,6 +135,7 @@ class SavedLookRepository(Protocol):
         user_id: UUID,
         look_id: Optional[str],
         title: str,
+        source_context: str,
         snapshot: dict,
         idempotency_key: str,
         source_run_id: Optional[UUID],
@@ -184,7 +197,12 @@ class WardrobeItemRepository(Protocol):
 
 class LearningSignalRepository(Protocol):
     def insert_look_saved(
-        self, *, user_id: UUID, label: str, context: Optional[dict]
+        self,
+        *,
+        user_id: UUID,
+        signal_type: str = "look_saved",
+        label: str,
+        context: Optional[dict],
     ) -> None: ...
 
     def commit(self) -> None: ...

@@ -36,7 +36,7 @@ class FakeRuns:
     rows: dict[UUID, dict] = field(default_factory=dict)
     next_id: UUID = field(default_factory=uuid4)
 
-    def create(self, *, user_id, run_type, engine_version="rules-v1", input_media=None) -> UUID:
+    def create(self, *, user_id, run_type, engine_version="rules-v1", input_media=None, knowledge_version=None) -> UUID:
         run_id = self.next_id
         self.next_id = uuid4()
         self.rows[run_id] = {
@@ -50,6 +50,7 @@ class FakeRuns:
             "input_media": input_media,
             "result": None,
             "error": None,
+            "knowledge_version": knowledge_version,
         }
         return run_id
 
@@ -507,7 +508,7 @@ def test_outfit_run_learning_signal_emitted():
     runs = FakeRuns()
     # Use a concrete class that satisfies the LearningSignalRepository protocol
     class FakeLearningSignal:
-        def insert_look_saved(self, *, user_id, label, context):
+        def insert_look_saved(self, *, user_id, signal_type="look_saved", label, context):
             pass
         def commit(self):
             pass
@@ -902,8 +903,8 @@ class FakeLearningSignal:
     def __init__(self) -> None:
         self.calls: list = []
 
-    def insert_look_saved(self, *, user_id, label, context):
-        self.calls.append({"user_id": user_id, "label": label, "context": context})
+    def insert_look_saved(self, *, user_id, signal_type="look_saved", label, context):
+        self.calls.append({"user_id": user_id, "signal_type": signal_type, "label": label, "context": context})
 
     def commit(self):
         pass
@@ -1673,6 +1674,183 @@ def test_11_3_router_injects_saved_look_repo_into_create_grooming_run(monkeypatc
 
 
 # ============================================================================
+# STEP 11.13 C — analysis lifecycle persists typed signals (DB-backed).
+#
+# Runs when PostgreSQL is reachable, skips otherwise (like every other
+# DB-backed test here). Uses real SQL repositories: the completed run must
+# leave exactly its typed signal rows behind — previously the flush-only
+# inserts were discarded on session close.
+# ============================================================================
+
+
+def _11_13_session():
+    from tests.conftest import make_session
+
+    return make_session()()
+
+
+@pytest.fixture
+def _11_13_db(migrated_db: str):
+    """Function-scoped DB fixture for the STEP 11.13 lifecycle tests.
+
+    The module `db` fixture cannot be used here: this module's autouse time
+    fixture replaces `time.time` with a struct_time, under which SQLAlchemy
+    connection pools cannot be created during fixture setup. Restoring a real
+    float clock first (same workaround as the STEP 11.2.1 router test) keeps
+    truncation + sessions working; the autouse fixture restores its patch
+    afterwards.
+    """
+    import time as _time_mod
+    from datetime import datetime as _dt, timezone as _tz
+    from sqlalchemy import text
+
+    from tests.conftest import _TRUNCATE, make_session
+
+    _time_mod.time = lambda: _dt.now(_tz.utc).timestamp()
+    Session = make_session(migrated_db)
+    with Session() as session:
+        session.execute(text(_TRUNCATE))
+        session.commit()
+    yield Session
+    with Session() as session:
+        session.execute(text(_TRUNCATE))
+        session.commit()
+
+
+def _11_13_seed_user(session, subject="signal-user"):
+    from app.infrastructure.db.models import Users, UserState
+
+    user = Users(auth_provider="dev", auth_subject=subject, display_name="Sig")
+    session.add(user)
+    session.flush()
+    session.add(
+        UserState(
+            user_id=user.id,
+            style_profile={
+                "face_shape": "Oval",
+                "skin_tone": "Warm Medium",
+                "body_type": "Athletic",
+                "style_type": "Modern Classic",
+            },
+        )
+    )
+    session.commit()
+    return user.id
+
+
+def _11_13_signal_rows(session, user_id):
+    from sqlalchemy import select
+
+    from app.infrastructure.db.models import LearningSignals
+
+    return session.execute(
+        select(
+            LearningSignals.signal_type,
+            LearningSignals.label,
+            LearningSignals.context,
+        )
+        .where(LearningSignals.user_id == user_id)
+        .order_by(LearningSignals.occurred_at)
+    ).all()
+
+
+def test_11_13_outfit_run_persists_typed_signals_db(_11_13_db):
+    """C. Completed outfit run → exactly analysis_updated + outfit_selected."""
+    from sqlalchemy import text
+
+    from app.application.analysis import CreateOutfitRun
+    from app.ai.appearance_adapter import DevelopmentAppearanceAnalysisAdapter
+    from app.infrastructure.db.repositories import (
+        AnalysisRunRepositorySQL,
+        LearningSignalRepositorySQL,
+        UserStateRepositorySQL,
+    )
+
+    Session = _11_13_db
+    session = Session()
+    try:
+        session.execute(
+            text(
+                "INSERT INTO run_types (code, label, sort_order) "
+                "VALUES ('outfit', 'Outfit', 3) ON CONFLICT (code) DO NOTHING"
+            )
+        )
+        session.commit()
+        uid = _11_13_seed_user(session)
+        use_case = CreateOutfitRun(
+            runs=AnalysisRunRepositorySQL(session),
+            knowledge=_knowledge_with_catalog(),
+            appearance_port=DevelopmentAppearanceAnalysisAdapter(),
+            user_state=UserStateRepositorySQL(session),
+            learning_signal=LearningSignalRepositorySQL(session),
+        )
+
+        class MockImage:
+            content_type = "image/jpeg"
+            size = 1_000_000
+            file = io.BytesIO(b"lifecycle-probe-bytes")
+
+        run_id = use_case(user_id=uid, image=MockImage())
+        record = AnalysisRunRepositorySQL(session).get_for_user(
+            user_id=uid, run_id=run_id
+        )
+        assert record is not None
+        assert record.status == "completed"
+
+        rows = _11_13_signal_rows(session, uid)
+        assert [(r[0], r[1]) for r in rows] == [
+            ("analysis_updated", "analysis_updated"),
+            ("outfit_selected", "outfit_selected"),
+        ]
+        assert rows[0][2] == {"run_id": str(run_id), "run_type": "outfit"}
+        assert rows[1][2] == {
+            "source_context": "outfit",
+            "run_id": str(run_id),
+            "run_type": "outfit",
+        }
+    finally:
+        # Release the temporary vocab seed: the test run row references it
+        # (RESTRICT), so remove dependent rows first. The fixture teardown
+        # truncates the transactional tables afterwards regardless.
+        session.execute(
+            text("DELETE FROM analysis_runs WHERE run_type = 'outfit'")
+        )
+        session.execute(text("DELETE FROM run_types WHERE code = 'outfit'"))
+        session.commit()
+        session.close()
+
+
+def test_11_13_hairstyle_image_run_persists_typed_signal_db(_11_13_db):
+    """C. Completed hairstyle image run → exactly one analysis_updated."""
+    from app.application.analysis import CreateHairstyleImageRun
+    from app.infrastructure.db.repositories import (
+        AnalysisRunRepositorySQL,
+        LearningSignalRepositorySQL,
+        UserStateRepositorySQL,
+    )
+
+    Session = _11_13_db
+    session = Session()
+    try:
+        uid = _11_13_seed_user(session, subject="signal-user-2")
+        use_case = CreateHairstyleImageRun(
+            runs=AnalysisRunRepositorySQL(session),
+            knowledge=_knowledge_with_catalog(),
+            appearance_port=StubAppearancePort(_measured_profile()),
+            user_state=UserStateRepositorySQL(session),
+            learning_signal=LearningSignalRepositorySQL(session),
+        )
+        run_id = use_case(user_id=uid, image=_image_with_bytes(b"hair-bytes"))
+        rows = _11_13_signal_rows(session, uid)
+        assert [(r[0], r[1]) for r in rows] == [
+            ("analysis_updated", "analysis_updated")
+        ]
+        assert rows[0][2] == {"run_id": str(run_id), "run_type": "hairstyle"}
+    finally:
+        session.close()
+
+
+# ============================================================================
 # TEST CONSTRAINTS (per strict rules)
 # ============================================================================
 
@@ -1692,3 +1870,201 @@ def test_11_3_router_injects_saved_look_repo_into_create_grooming_run(monkeypatc
 # ---------------------------------------------------------------------------
 # Tests run against fake/in-memory repositories where appropriate
 # ============================================================================
+
+# ============================================================================
+# STEP 11.17 — resolve_preferred_item_ids: saved-outfit read path (DB-free).
+#
+# The resolver is the production-boundary read: existing
+# SavedLookRepository.list_for_user() + backend-persisted source_context.
+# Only source_context == "outfit" contributes; titles/look_id are never
+# inspected; learning_signals is not an input (no such parameter exists).
+# ============================================================================
+
+from uuid import uuid4 as _11_17_uuid4
+
+
+class _11_17_FakeSavedLooks:
+    """SavedLookRepository double with snapshot support (owner-scoped)."""
+
+    def __init__(self, rows=None, fail=False) -> None:
+        self._rows = list(rows or [])
+        self._fail = fail
+
+    def list_for_user(self, *, user_id, page, page_size):
+        if self._fail:
+            raise RuntimeError("db unavailable")
+        owned = [rec for uid, rec in self._rows if uid == user_id]
+        return owned, len(owned)
+
+    def commit(self) -> None:
+        pass
+
+    def rollback(self) -> None:
+        pass
+
+
+def _11_17_row(user_id, source_context, snapshot):
+    from datetime import datetime, timezone
+
+    return (
+        user_id,
+        SavedLookRecord(
+            id=_11_17_uuid4(),
+            look_id=None,
+            title="Saved",
+            snapshot=snapshot,
+            source_run_id=None,
+            created_at=datetime.now(timezone.utc),
+            source_context=source_context,
+        ),
+    )
+
+
+def test_11_17_resolver_collects_outfit_ids_across_saves_once():
+    """Outfit rows contribute canonical IDs; repeats across saves don't stack."""
+    from app.domain.services.analysis_rules import resolve_preferred_item_ids
+
+    item_a, item_b = _11_17_uuid4(), _11_17_uuid4()
+    repo = _11_17_FakeSavedLooks(
+        rows=[
+            _11_17_row(USER, "outfit", {"selectedItemIds": [str(item_a), str(item_b)]}),
+            _11_17_row(USER, "outfit", {"selectedItemIds": [str(item_a).upper()]}),
+        ]
+    )
+    assert resolve_preferred_item_ids(saved_looks=repo, user_id=USER) == frozenset(
+        [str(item_a), str(item_b)]
+    )
+
+
+def test_11_17_resolver_ignores_non_outfit_and_legacy_rows():
+    """G+H. Hairstyle/grooming/NULL rows never contribute — even when their
+    snapshots carry a selectedItemIds field (source_context is authoritative)."""
+    from app.domain.services.analysis_rules import resolve_preferred_item_ids
+
+    item = str(_11_17_uuid4())
+    repo = _11_17_FakeSavedLooks(
+        rows=[
+            _11_17_row(USER, "hairstyle", {"selectedItemIds": [item]}),
+            _11_17_row(USER, "grooming", {"selectedItemIds": [item]}),
+            _11_17_row(USER, None, {"selectedItemIds": [item]}),
+            _11_17_row(USER, "outfit", {"other": True}),
+        ]
+    )
+    assert resolve_preferred_item_ids(saved_looks=repo, user_id=USER) == frozenset()
+
+
+def test_11_17_resolver_ignores_malformed_entries_without_failing():
+    """Malformed legacy snapshots are skipped, valid IDs still collected."""
+    from app.domain.services.analysis_rules import resolve_preferred_item_ids
+
+    good = _11_17_uuid4()
+    repo = _11_17_FakeSavedLooks(
+        rows=[
+            _11_17_row(USER, "outfit", {"selectedItemIds": ["not-a-uuid", 42, None]}),
+            _11_17_row(USER, "outfit", {"selectedItemIds": "not-a-list"}),
+            _11_17_row(USER, "outfit", "not-a-dict"),
+            _11_17_row(USER, "outfit", {"selectedItemIds": [str(good)]}),
+        ]
+    )
+    assert resolve_preferred_item_ids(saved_looks=repo, user_id=USER) == frozenset(
+        [str(good)]
+    )
+
+
+def test_11_17_resolver_is_owner_scoped():
+    """Another user's outfit rows never enter the set."""
+    from app.domain.services.analysis_rules import resolve_preferred_item_ids
+
+    other = _11_17_uuid4()
+    mine = _11_17_uuid4()
+    repo = _11_17_FakeSavedLooks(
+        rows=[
+            _11_17_row(other, "outfit", {"selectedItemIds": [str(_11_17_uuid4())]}),
+            _11_17_row(USER, "outfit", {"selectedItemIds": [str(mine)]}),
+        ]
+    )
+    assert resolve_preferred_item_ids(saved_looks=repo, user_id=USER) == frozenset(
+        [str(mine)]
+    )
+
+
+def test_11_17_resolver_failure_degrades_to_empty():
+    """J. Unreadable repository → empty set, recommendation proceeds."""
+    from app.domain.services.analysis_rules import resolve_preferred_item_ids
+
+    assert (
+        resolve_preferred_item_ids(saved_looks=_11_17_FakeSavedLooks(fail=True), user_id=USER)
+        == frozenset()
+    )
+
+
+# ============================================================================
+# STEP 12.3 — analysis-run knowledge provenance (DB-free, fake repos).
+#
+# New runs persist knowledge_version = "1.1+1.0" built from the two version
+# constants; legacy rows (no value) read as NULL/None; engine_version stays
+# an independent concept. Recommendation behavior is unchanged (all
+# pre-existing tests above still assert exact tops/scores).
+# ============================================================================
+
+
+def test_12_3_hairstyle_run_persists_knowledge_version():
+    """4. New hairstyle run carries the combined provenance."""
+    runs = FakeRuns()
+    use_case = CreateHairstyleRun(
+        runs=runs,
+        user_state=FakeUserState({"face_shape": "Oval", "skin_tone": "Warm Medium"}),
+        knowledge=_knowledge_with_catalog(),
+    )
+    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.knowledge_version == "1.1+1.0"
+
+
+def test_12_3_grooming_run_persists_knowledge_version():
+    """4b. Grooming runs share the same provenance boundary (catalog version
+    applies; the OI half is the current shared value, not a grooming claim)."""
+    runs = FakeRuns()
+    use_case = CreateGroomingRun(
+        runs=runs,
+        user_state=FakeUserState({"face_shape": "Oval"}),
+        knowledge=_knowledge_with_catalog(),
+    )
+    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.knowledge_version == "1.1+1.0"
+
+
+def test_12_3_legacy_run_without_provenance_reads_none():
+    """5. Legacy rows (no knowledge_version) remain readable as NULL/None."""
+    record = AnalysisRunRecord(
+        id=uuid4(),
+        run_type="hairstyle",
+        status="completed",
+        engine_version="rules-v1",
+        created_at=datetime.now(timezone.utc),
+        completed_at=None,
+        input_media=None,
+        result=None,
+        error=None,
+    )
+    assert record.knowledge_version is None
+
+
+def test_12_3_engine_version_remains_separate():
+    """6. engine_version and knowledge_version are independent concepts."""
+    runs = FakeRuns()
+    use_case = CreateHairstyleRun(
+        runs=runs,
+        user_state=FakeUserState({"face_shape": "Oval"}),
+        knowledge=_knowledge_with_catalog(),
+    )
+    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.engine_version == "rules-v1"
+    assert record.knowledge_version == "1.1+1.0"
+    assert record.engine_version != record.knowledge_version
+    assert "rules-v1" not in (record.knowledge_version or "")

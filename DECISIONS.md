@@ -138,3 +138,16 @@ D-AUTH-1/MS10.3 is a documented, dev-seam-only deviation (no fake 200s); the
 analysis run contract, `{error:{code,message,details}}` taxonomy, and the
 202-`{run_id}` never-idempotent submit follow
 `docs/api/FANSIVIBE_API_CONTRACT_V1.md`.
+## DEC-010 — Saved-Look Domain Discriminator (STEP 11.16)
+
+Status: Accepted
+
+`saved_looks.source_context` (`hairstyle`/`grooming`/`outfit`, CHECK-guarded,
+NULL = legacy row written before the contract) is the authoritative
+backend-owned answer to "is this save an outfit, hairstyle, or grooming
+save". `look_id IS NULL`, title text, `learning_signals.context`, and
+unvalidated snapshot inspection must never be used as domain discriminators.
+Outfit `snapshot.selectedItemIds` is validated (UUID list), ownership-checked
+against the owner's wardrobe via the existing owner-scoped lookup, and
+persisted canonically (sorted unique UUID strings). Unknown/foreign item IDs
+reject the save (404, nothing stored); malformed IDs are 422.

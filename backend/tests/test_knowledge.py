@@ -165,3 +165,29 @@ def test_protocol_is_satisfied_by_catalog_source():
     source: KnowledgeSource = CatalogKnowledgeSource()
     assert source.lookup_hairstyle_look("textured_quiff") is not None
     assert source.retrieve_hairstyle_looks()
+
+
+# --- STEP 12.3: OI rule knowledge version + combined provenance ----------------
+
+
+def test_oi_knowledge_version_exists_and_is_1_0():
+    """1. OI rule knowledge carries its own explicit version beside the maps."""
+    from app.domain.services.analysis_rules import OI_KNOWLEDGE_VERSION
+
+    assert OI_KNOWLEDGE_VERSION == "1.0"
+
+
+def test_catalog_knowledge_version_unchanged():
+    """2. The existing catalog version is untouched."""
+    assert catalog.KNOWLEDGE_VERSION == "1.1"
+
+
+def test_combined_provenance_resolves_to_1_1_plus_1_0():
+    """3. The persisted provenance is built from the two constants (no literal)."""
+    from app.domain.services.analysis_rules import (
+        OI_KNOWLEDGE_VERSION,
+        knowledge_provenance,
+    )
+
+    assert knowledge_provenance() == f"{catalog.KNOWLEDGE_VERSION}+{OI_KNOWLEDGE_VERSION}"
+    assert knowledge_provenance() == "1.1+1.0"

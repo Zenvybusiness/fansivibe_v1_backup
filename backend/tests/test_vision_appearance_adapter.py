@@ -282,7 +282,7 @@ class FakeRuns:
     rows: dict[UUID, dict] = field(default_factory=dict)
     next_id: UUID = field(default_factory=uuid4)
 
-    def create(self, *, user_id, run_type, engine_version="rules-v1", input_media=None) -> UUID:
+    def create(self, *, user_id, run_type, engine_version="rules-v1", input_media=None, knowledge_version=None) -> UUID:
         run_id = self.next_id
         self.next_id = uuid4()
         self.rows[run_id] = {
@@ -296,6 +296,7 @@ class FakeRuns:
             "input_media": input_media,
             "result": None,
             "error": None,
+            "knowledge_version": knowledge_version,
         }
         return run_id
 
@@ -347,8 +348,14 @@ class FakeLearningSignal:
     def __init__(self) -> None:
         self.calls: list = []
 
-    def insert_look_saved(self, *, user_id, label, context):
-        self.calls.append({"user_id": user_id, "label": label, "context": context})
+    def insert_look_saved(self, *, user_id, signal_type="look_saved", label, context):
+        self.calls.append({"user_id": user_id, "signal_type": signal_type, "label": label, "context": context})
+
+    def commit(self) -> None:
+        pass
+
+    def rollback(self) -> None:
+        pass
 
 
 def _knowledge():

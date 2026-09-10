@@ -12,6 +12,7 @@ Structure is always ours; the LLM only writes natural language.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import List, Optional
 
 from app.ai import intent, llm_backend, tools
@@ -26,7 +27,14 @@ from app.models.schemas import (
     UserContext,
 )
 from app.data import catalog
-from app.domain.services.analysis_rules import compute_clothing_intelligence, compute_outfit_intelligence
+from app.domain.services.analysis_rules import (
+    compute_clothing_intelligence,
+    compute_outfit_intelligence,
+    generate_outfit_candidates,
+    rank_outfit_candidates,
+    score_outfit_candidate,
+    select_best_outfit_candidate,
+)
 
 _OUTFIT_CLARIFICATION = [
     ClarificationOption(label="Casual", value="casual"),
@@ -95,6 +103,7 @@ def handle(
     request: AssistantRequest,
     *,
     preferred_occasions: Optional[List[str]] = None,
+    preferred_item_ids: Optional[List[str]] = None,
 ) -> AssistantReply:
     """Handle one assistant turn.
 
@@ -103,6 +112,12 @@ def handle(
     callers that pass ``None`` keep the historical client-driven behavior
     (``request.user.preferredOccasions``). The engine itself stays free of
     database concerns.
+
+    ``preferred_item_ids`` carries the already-resolved saved-outfit wardrobe
+    IDs (STEP 11.17: ``resolve_preferred_item_ids`` over the owner's
+    ``saved_looks`` at the entry point). Callers that pass ``None`` (or an
+    empty list) keep the exact pre-11.17 behavior. Only the INTENT_WARDROBE
+    path consumes it; every other intent is untouched.
     """
     messages = request.messages
     user = request.user
@@ -180,9 +195,46 @@ def handle(
         elif it == intent.INTENT_WARDROBE:
             wardrobe = user.wardrobe if user and user.wardrobe else []
 
-            # Extract item data from the wardrobe (use first item or defaults)
-            if wardrobe:
-                first_item = wardrobe[0]
+            # STEP 13.6: candidate pipeline (pure domain helpers; no DB/IO).
+            # Wardrobe → generate → score → rank → winner. The winner's
+            # primary item becomes the evaluated item below; its IDs populate
+            # the selection fields. No viable candidate (e.g. sparse wardrobe
+            # without tops+bottoms) falls through to the historical
+            # wardrobe[0] path, byte-identical to before this step.
+            preferred_set = (
+                frozenset(preferred_item_ids)
+                if preferred_item_ids
+                else frozenset()
+            )
+            items_by_id = {
+                item.id: item for item in wardrobe
+                if getattr(item, "id", None)
+            }
+            winner = select_best_outfit_candidate(
+                rank_outfit_candidates([
+                    score_outfit_candidate(
+                        candidate, items_by_id, preferred_set, request_occasions,
+                    )
+                    for candidate in generate_outfit_candidates(wardrobe)
+                ])
+            )
+            if winner is None:
+                first_item = wardrobe[0] if wardrobe else None
+                winner_ids: List[str] = []
+                winner_buckets: tuple = ((), (), (), (), ())
+            else:
+                winner_buckets = (
+                    winner.top_ids, winner.bottom_ids, winner.outerwear_ids,
+                    winner.footwear_ids, winner.accessory_ids,
+                )
+                winner_ids = [item_id for bucket in winner_buckets for item_id in bucket]
+                first_item = items_by_id.get(winner_ids[0]) if winner_ids else None
+                if first_item is None:
+                    first_item = wardrobe[0] if wardrobe else None
+
+            # Extract item data from the featured item (wardrobe[0] when no
+            # winner; the winner's primary item otherwise).
+            if first_item is not None:
                 item_category = first_item.category
                 item_color = first_item.color
                 item_material = first_item.material
@@ -194,6 +246,9 @@ def handle(
                 item_is_favorite = False
 
             # Build wardrobe context from full wardrobe
+            from app.domain.value_objects import (
+                OutfitComposition as DomainOutfitComposition,
+            )
             from app.domain.value_objects import WardrobeContext
             items_per_category: dict[str, int] = {}
             favorite_count = 0
@@ -219,7 +274,9 @@ def handle(
                 preferred_occasions=request_occasions,
             )
 
-            # Compute outfit intelligence (STEP 7C) — reuse pre-computed CI
+            # Compute outfit intelligence (STEP 7C) — reuse pre-computed CI.
+            # STEP 11.17: the evaluated item's own ID plus the resolved
+            # saved-outfit set flow into OI; None/empty keeps baseline output.
             outfit = compute_outfit_intelligence(
                 clothing_intelligence=intelligence,
                 item_color=item_color,
@@ -227,7 +284,26 @@ def handle(
                 item_is_favorite=item_is_favorite,
                 wardrobe_context=wardrobe_context,
                 preferred_occasions=request_occasions,
+                item_id=first_item.id if first_item is not None else "",
+                preferred_item_ids=preferred_set,
             )
+
+            # STEP 13.6: surface the winner through the existing selection
+            # fields (STEP 7C.2 rendering below already handles populated
+            # fields). No-API/schema change: domain object copy only.
+            if winner_ids:
+                top, bottom, outer, shoe, acc = winner_buckets
+                outfit = replace(
+                    outfit,
+                    selected_item_ids=list(winner_ids),
+                    outfit_composition=DomainOutfitComposition(
+                        top_ids=list(top),
+                        bottom_ids=list(bottom),
+                        outerwear_ids=list(outer),
+                        footwear_ids=list(shoe),
+                        accessory_ids=list(acc),
+                    ),
+                )
 
             # Build explanation text with confidence disclaimer (STEP 6)
             conf = intelligence.confidence

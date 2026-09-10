@@ -148,6 +148,10 @@ class AnalysisRuns(Base):
     )
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
     engine_version: Mapped[str] = mapped_column(Text, nullable=False)
+    # STEP 12.3 — combined knowledge provenance (`<catalog>+<OI>`, e.g.
+    # "1.1+1.0"). Nullable: legacy rows predate the contract (NULL = unknown).
+    # Independent from engine_version (rules-code revision).
+    knowledge_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     input_media: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     error: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
@@ -159,6 +163,10 @@ class SavedLooks(Base):
     __tablename__ = "saved_looks"
     __table_args__ = (
         CheckConstraint("char_length(title) BETWEEN 1 AND 200", name="ck_saved_looks_title_len"),
+        CheckConstraint(
+            "source_context IN ('hairstyle', 'grooming', 'outfit')",
+            name="ck_saved_looks_source_context",
+        ),
         UniqueConstraint("user_id", "idempotency_key", name="uq_saved_looks_idempotency"),
         Index("ix_saved_looks_user_id_created_at", "user_id", "created_at"),
     )
@@ -173,6 +181,10 @@ class SavedLooks(Base):
         Text, ForeignKey("looks.code", ondelete="SET NULL"), nullable=True
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
+    # STEP 11.16 — backend-owned domain discriminator (hairstyle/grooming/
+    # outfit). Nullable only for legacy rows written before this contract
+    # (NULL = unknown); all new writes supply a non-null value.
+    source_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
     source_run_id: Mapped[Optional[UUID]] = mapped_column(

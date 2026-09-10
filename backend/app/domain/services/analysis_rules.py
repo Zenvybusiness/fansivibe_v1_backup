@@ -19,8 +19,8 @@ The LLM (when wired) may only rewrite *wording* — never structure or scores
 """
 
 
-from dataclasses import dataclass, field
-from typing import Optional, List
+from dataclasses import dataclass, field, replace
+from typing import FrozenSet, Optional, List
 
 from app.domain.ports.external import KnowledgeError, KnowledgeSource
 from app.domain.value_objects import (
@@ -784,6 +784,7 @@ from app.domain.value_objects import (
     StylingExplanation,
     CompatibleCategory,
     OccasionContext,
+    OutfitCandidate,
     WardrobeContext,
 )
 
@@ -791,6 +792,25 @@ from app.domain.value_objects import (
 # ---------------------------------------------------------------------------
 # Canonical mappings — reference data, not user-provided
 # ---------------------------------------------------------------------------
+
+# STEP 12.3 — version of the deterministic Outfit Intelligence rule knowledge
+# below (maps + OI assessment logic). Distinct from the look-catalog
+# KNOWLEDGE_VERSION: bump when any OI rule map or formula changes. The maps
+# themselves stay exactly where they are (deterministic domain logic).
+OI_KNOWLEDGE_VERSION = "1.0"
+
+
+def knowledge_provenance() -> str:
+    """Combined knowledge provenance for a persisted analysis run.
+
+    ``<catalog knowledge version>+<OI knowledge version>`` (currently
+    ``1.1+1.0``), constructed from the two constants — never duplicated as a
+    literal. Stored on the analysis run; ``engine_version`` stays independent.
+    """
+    from app.data import catalog
+
+    return f"{catalog.KNOWLEDGE_VERSION}+{OI_KNOWLEDGE_VERSION}"
+
 
 # Natural material codes (from migration 0005 vocabularies)
 _NATURAL_MATERIAL_CODES = frozenset({
@@ -1069,7 +1089,528 @@ __all__ = [
     "compute_clothing_intelligence",
     "_build_explanation_clothing_intelligence",
     "compute_outfit_intelligence",
+    "resolve_preferred_item_ids",
+    "preference_contribution",
+    "CANDIDATE_SKELETONS",
+    "candidate_preference_points",
+    "candidate_favorite_points",
+    "compose_candidate_score",
+    "candidate_item_ids",
+    "rank_outfit_candidates",
+    "generate_outfit_candidates",
+    "score_outfit_candidate",
+    "select_best_outfit_candidate",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Saved-outfit preference — deterministic, bounded (STEP 11.17)
+# Consumer of the STEP 11.16 saved-outfit contract. Reads ONLY backend-owned
+# `saved_looks` rows via the existing `SavedLookRepository.list_for_user()`
+# path; `learning_signals` is never read here (a save's `look_saved` signal
+# echo therefore contributes nothing). No ranking framework is invented:
+# the contribution applies to the single item OI already evaluates.
+# ---------------------------------------------------------------------------
+
+# +0.05 per distinct preferred item evaluated; +0.15 total cap.
+_PREFERENCE_PER_ITEM = 0.05
+_PREFERENCE_CAP = 0.15
+
+
+def _canonical_item_id(value: object) -> Optional[str]:
+    """Canonical UUID string for a wardrobe item ID, or None if unparseable."""
+    try:
+        from uuid import UUID as _UUID
+
+        return str(_UUID(str(value)))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def preference_contribution(
+    preferred_item_ids: Optional[FrozenSet[str]],
+    evaluated_item_ids: list,
+) -> float:
+    """Bounded preference contribution for the evaluated item IDs.
+
+    +0.05 per distinct preferred ID present, capped at +0.15 total.
+    Membership is by set intersection, so repeats never stack. Both sides
+    are canonicalized defensively; unparseable IDs simply never match.
+    Deterministic: identical inputs → identical output.
+    """
+    if not preferred_item_ids or not evaluated_item_ids:
+        return 0.0
+    preferred = {
+        canonical
+        for raw in preferred_item_ids
+        if (canonical := _canonical_item_id(raw)) is not None
+    }
+    if not preferred:
+        return 0.0
+    distinct = {
+        canonical
+        for raw in evaluated_item_ids
+        if (canonical := _canonical_item_id(raw)) is not None
+    }
+    return round(min(_PREFERENCE_CAP, _PREFERENCE_PER_ITEM * len(distinct & preferred)), 2)
+
+
+def resolve_preferred_item_ids(*, saved_looks, user_id) -> FrozenSet[str]:
+    """Build the preferred wardrobe-item set from the owner's saved outfits.
+
+    Reads the existing `SavedLookRepository.list_for_user()` (owner scoping
+    enforced by the repository, OW-1). A row contributes iff its
+    backend-persisted `source_context == "outfit"` — hairstyle, grooming,
+    and legacy/NULL rows are ignored; titles and `look_id` are never
+    inspected. `snapshot.selectedItemIds` entries are canonicalized;
+    malformed legacy entries are ignored, never fatal. Any repository
+    failure degrades to the empty set so recommendation never breaks.
+    """
+    try:
+        rows, _ = saved_looks.list_for_user(user_id=user_id, page=1, page_size=100)
+    except Exception:
+        return frozenset()
+    preferred: set[str] = set()
+    for row in rows or []:
+        try:
+            if getattr(row, "source_context", None) != "outfit":
+                continue
+            snapshot = getattr(row, "snapshot", None)
+            if not isinstance(snapshot, dict):
+                continue
+            raw_ids = snapshot.get("selectedItemIds")
+            if not isinstance(raw_ids, list):
+                continue
+            for raw in raw_ids:
+                canonical = _canonical_item_id(raw)
+                if canonical is not None:
+                    preferred.add(canonical)
+        except Exception:
+            continue
+    return frozenset(preferred)
+
+
+# ---------------------------------------------------------------------------
+# Outfit candidate contract — deterministic selection primitives (STEP 13.2)
+# Internal domain contract only: representation + score composition +
+# deterministic ordering. No candidate generation, no production wiring
+# (engine.py still evaluates wardrobe[0]); final confidence and styleScore
+# are untouched. Score lives on a 0–100 scale deliberately separate from
+# the 0–1 confidence range so the two can never be confused.
+# ---------------------------------------------------------------------------
+
+# Legal category skeletons a candidate may fill (one slot per category max
+# in MVP; buckets stay tuples so slot order is explicit and stable).
+CANDIDATE_SKELETONS: tuple[tuple[str, ...], ...] = (
+    ("tops", "bottoms"),
+    ("tops", "bottoms", "footwear"),
+    ("tops", "bottoms", "outerwear", "footwear"),
+    ("tops", "bottoms", "footwear", "accessories"),
+    ("tops", "bottoms", "outerwear", "footwear", "accessories"),
+)
+
+# Candidate score budget (0–100): compatibility 0–70, preference 0–15,
+# favorite 0–15. The preference sub-range mirrors the Step 11 mechanism
+# (+0.05/item, +0.15 cap → ×100). The favorite sub-range and per-item weight
+# are STEP 13.2 design decisions (bounded, deterministic); final confidence
+# is unaffected.
+_CANDIDATE_COMPATIBILITY_MAX = 70.0
+_CANDIDATE_PREFERENCE_MAX = 15.0
+_CANDIDATE_FAVORITE_MAX = 15.0
+_CANDIDATE_FAVORITE_PER_ITEM = 5.0
+
+
+def candidate_preference_points(
+    preferred_item_ids: Optional[FrozenSet[str]],
+    candidate_item_ids: list,
+) -> float:
+    """Preference sub-score (0–15) reusing the exact Step 11 mechanism.
+
+    +5 per distinct matched preferred item (i.e. +0.05 × 100), capped at 15
+    (i.e. +0.15 × 100). Set semantics: repeats never stack. Same
+    coefficients, same cap, no second preference system.
+    """
+    return round(preference_contribution(preferred_item_ids, candidate_item_ids) * 100, 2)
+
+
+def candidate_favorite_points(is_favorite_flags: list) -> float:
+    """Favorite sub-score (0–15): +5 per favorite member, capped at 15.
+
+    Candidate-level ranking influence only; the final-confidence favorite
+    logic is untouched. Truthy/falsy flags accepted; unknown attributes
+    simply contribute nothing (never crash, never fabricate).
+    """
+    try:
+        count = sum(1 for flag in (is_favorite_flags or []) if flag)
+    except TypeError:
+        return 0.0
+    return round(min(_CANDIDATE_FAVORITE_MAX, _CANDIDATE_FAVORITE_PER_ITEM * count), 2)
+
+
+def compose_candidate_score(
+    compatibility: float, preference: float, favorite: float
+) -> float:
+    """Compose the bounded candidate score (0–100) from separated signals.
+
+    Each component is clamped to its sub-range (compatibility 0–70,
+    preference 0–15, favorite 0–15); non-numeric input degrades to 0 for
+    that component. Deterministic: identical inputs → identical score.
+    This is NOT final confidence and MUST NOT be mapped to confidence
+    thresholds.
+    """
+    def _clamp(value: object, maximum: float) -> float:
+        try:
+            number = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 0.0
+        if number != number:  # NaN guard
+            return 0.0
+        return max(0.0, min(maximum, number))
+
+    return round(
+        _clamp(compatibility, _CANDIDATE_COMPATIBILITY_MAX)
+        + _clamp(preference, _CANDIDATE_PREFERENCE_MAX)
+        + _clamp(favorite, _CANDIDATE_FAVORITE_MAX),
+        2,
+    )
+
+
+def candidate_item_ids(candidate: OutfitCandidate) -> tuple[str, ...]:
+    """All item IDs of a candidate, deduplicated and canonically ordered.
+
+    The canonical representation doubles as the final ranking tie-break.
+    Buckets are trusted as real IDs (never placeholders); ordering here is
+    purely lexical and deterministic (no set iteration leaks out).
+    """
+    return tuple(
+        sorted(
+            {
+                item_id
+                for bucket in (
+                    candidate.top_ids,
+                    candidate.bottom_ids,
+                    candidate.outerwear_ids,
+                    candidate.footwear_ids,
+                    candidate.accessory_ids,
+                )
+                for item_id in bucket
+            }
+        )
+    )
+
+
+def rank_outfit_candidates(candidates: list) -> list:
+    """Deterministic candidate ordering (contract level — ordering only).
+
+    1. candidate score descending;
+    2. number of selected items descending (fuller outfits first, mirroring
+       the existing coverage preference for more categories);
+    3. canonical selected-item-ID representation ascending (lexical; stable
+       identifiers are the only tie-break source — no randomness,
+       timestamps, or row order).
+    Scores are never recomputed here. Identical inputs → identical order.
+    """
+    return sorted(
+        list(candidates or []),
+        key=lambda c: (-c.score, -len(candidate_item_ids(c)), candidate_item_ids(c)),
+    )
+
+
+def select_best_outfit_candidate(candidates: list):
+    """Select the winning candidate (STEP 13.5 — selection only).
+
+    Empty list → None. Otherwise the highest-ranked candidate under the
+    single deterministic ranking contract (rank_outfit_candidates — no
+    second comparison logic). Returns the actual existing candidate object
+    unmutated: no confidence/styleScore calculation, no API fields, no
+    legality/score re-evaluation (generation = validity, scoring = quality,
+    ranking = order, selection = first).
+    """
+    ranked = rank_outfit_candidates(candidates)
+    return ranked[0] if ranked else None
+
+
+# ---------------------------------------------------------------------------
+# Outfit candidate generation — deterministic combinations (STEP 13.3)
+# Generation ONLY: legal skeletons → one candidate each. No scoring (scores
+# stay the neutral 0.0 default), no ranking, no preference/favorite points,
+# no engine wiring. Slot choice uses the simplest deterministic information
+# available (see below); anything smarter belongs to candidate scoring.
+# ---------------------------------------------------------------------------
+
+# Categories the generator understands (the only legal wardrobe categories).
+_GENERATOR_CATEGORIES = ("tops", "bottoms", "outerwear", "footwear", "accessories")
+
+# Skeleton attribute on OutfitCandidate per category, in skeleton order.
+_SKELETON_ATTRS: dict[str, str] = {
+    "tops": "top_ids",
+    "bottoms": "bottom_ids",
+    "outerwear": "outerwear_ids",
+    "footwear": "footwear_ids",
+    "accessories": "accessory_ids",
+}
+
+
+def _skeleton_compatible(skeleton: tuple[str, ...]) -> bool:
+    """Category-level legality gate reusing _COMPATIBLE_PAIRINGS (no copy).
+
+    The core pair (tops, bottoms) must be mutually paired; every optional
+    category must pair with at least one other skeleton member in either
+    direction. Item-level compatibility data does not exist, so the gate is
+    category-level only. Unknown categories fail closed.
+    """
+    if len(skeleton) < 2 or "tops" not in skeleton or "bottoms" not in skeleton:
+        return False
+    members = set(skeleton)
+    if not members <= set(_GENERATOR_CATEGORIES):
+        return False
+    if "bottoms" not in _COMPATIBLE_PAIRINGS.get(
+        "tops", []
+    ) and "tops" not in _COMPATIBLE_PAIRINGS.get("bottoms", []):
+        return False
+    accepted: set[str] = {"tops", "bottoms"}
+    for category in skeleton:
+        if category in accepted:
+            continue
+        partners = set(_COMPATIBLE_PAIRINGS.get(category, []))
+        reverse = {other for other, pals in _COMPATIBLE_PAIRINGS.items() if category in pals}
+        if not ((partners | reverse) & accepted):
+            return False
+        accepted.add(category)
+    return True
+
+
+def generate_outfit_candidates(wardrobe_items: list) -> list:
+    """Generate legal outfit candidates from wardrobe items (STEP 13.3).
+
+    Accepts WardrobeItem instances (only ``.id``/``.category`` are read).
+    Exactly one candidate per satisfiable skeleton in CANDIDATE_SKELETONS
+    order: tops+bottoms are mandatory (absent → no candidates at all);
+    optional slots fill only from owned items. Slot representative = the
+    lexically smallest owned item ID in that category — the simplest
+    deterministic information available; NO scoring, NO preference points,
+    NO favorite points (those belong to the scoring step). Unknown
+    categories, empty/non-string IDs are ignored, never fabricated.
+    Output order is deterministic; identical wardrobes (any input order)
+    yield identical candidates. Duplicate ID combinations are emitted once.
+    """
+    by_category: dict[str, list[str]] = {category: [] for category in _GENERATOR_CATEGORIES}
+    for item in wardrobe_items or []:
+        item_id = getattr(item, "id", None)
+        category = getattr(item, "category", None)
+        if not isinstance(item_id, str) or not item_id:
+            continue
+        if category not in by_category:
+            continue
+        by_category[category].append(item_id)
+    for ids in by_category.values():
+        ids.sort()
+    if not by_category["tops"] or not by_category["bottoms"]:
+        return []
+    candidates: list = []
+    seen: set[tuple[str, ...]] = set()
+    for skeleton in CANDIDATE_SKELETONS:
+        if not _skeleton_compatible(skeleton):
+            continue
+        if any(not by_category[category] for category in skeleton):
+            continue
+        buckets = {
+            _SKELETON_ATTRS[category]: (by_category[category][0],)
+            for category in skeleton
+        }
+        candidate = OutfitCandidate(**buckets)
+        key = candidate_item_ids(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(candidate)
+    return candidates
+
+
+# ---------------------------------------------------------------------------
+# Outfit candidate scoring — deterministic evaluation (STEP 13.4)
+# Scoring ONLY: candidate → scored replacement (immutable `replace`, the
+# frozen-dataclass convention). No ranking, no winner selection, no engine
+# wiring. Formula: score = compatibility + preference + favorite, composed
+# by compose_candidate_score() (0–100). NEVER mapped to final confidence
+# (0–1, STEP 7A) or styleScore. Unknown attributes degrade neutrally.
+# ---------------------------------------------------------------------------
+
+# Compatibility budget (0–70) sub-terms. Each mirrors an existing OI rule at
+# candidate level; every constant is named (no hidden multipliers).
+_COVERAGE_PER_CATEGORY = 8.0  # mirrors OI per-category coverage preference
+_COLOR_HARMONY_BONUS = 10.0
+_COLOR_CONFLICT_PENALTY = -10.0
+_MATERIAL_CONSISTENCY_BONUS = 5.0
+_SEASON_CONSISTENCY_BONUS = 5.0
+_SEASON_CONFLICT_PENALTY = -5.0
+_FORMALITY_CONSISTENCY_BONUS = 5.0
+_OCCASION_MATCH_BONUS = 5.0
+
+
+def _candidate_members(candidate: OutfitCandidate, items_by_id) -> list:
+    """Per-member facts in deterministic (skeleton, then bucket) order.
+
+    Each member: category (from its bucket — always known), color/material
+    (from items_by_id when present, else unknown-neutral), is_favorite flag.
+    Missing items or attributes degrade to neutral; nothing is fabricated.
+    """
+    lookup = items_by_id or {}
+    members: list = []
+    for category in _GENERATOR_CATEGORIES:
+        for item_id in getattr(candidate, _SKELETON_ATTRS[category], ()):
+            item = lookup.get(item_id)
+            color = getattr(item, "color", None) if item is not None else None
+            material = getattr(item, "material", None) if item is not None else None
+            flag = False
+            if item is not None:
+                flag = bool(
+                    getattr(item, "isFavorite", getattr(item, "is_favorite", False))
+                )
+            members.append(
+                {
+                    "id": item_id,
+                    "category": category,
+                    "color": color if isinstance(color, str) and color else None,
+                    "material": material if isinstance(material, str) and material else None,
+                    "is_favorite": flag,
+                }
+            )
+    return members
+
+
+def _coverage_points(members: list) -> float:
+    """+8 per distinct filled category (mirrors OI coverage preference)."""
+    return round(_COVERAGE_PER_CATEGORY * len({m["category"] for m in members}), 2)
+
+
+def _color_points(members: list) -> float:
+    """Pairwise neutral-vocabulary gate: every pair needs a neutral member
+    for harmony (+10); any bright–bright pair is a conflict (−10); fewer
+    than two known colors is neutral (0). Material register is NOT reused
+    here (it has its own term — no double counting). Analogous/hue-family
+    and light/dark rules do not exist in the codebase and are not invented.
+    """
+    colors = [m["color"] for m in members if m["color"]]
+    if len(colors) < 2:
+        return 0.0
+    for index, first in enumerate(colors):
+        for second in colors[index + 1:]:
+            if not _is_neutral_color(first) and not _is_neutral_color(second):
+                return _COLOR_CONFLICT_PENALTY
+    return _COLOR_HARMONY_BONUS
+
+
+def _material_points(members: list) -> float:
+    """+5 when every known material is natural (existing natural set);
+    otherwise neutral — including all-unknown and all-synthetic, since no
+    existing rule privileges synthetic. "unknown" is never a material.
+    """
+    known = [m["material"] for m in members if m["material"] and m["material"] != "unknown"]
+    if not known:
+        return 0.0
+    if all(_is_natural_material(material) for material in known):
+        return _MATERIAL_CONSISTENCY_BONUS
+    return 0.0
+
+
+def _season_points(members: list) -> float:
+    """Season intersection across informative members: common season → +5,
+    disjoint → −5 (mirrors the OI seasonal conflict), fewer than two
+    informative members → neutral. Derives from the existing maps only.
+    """
+    season_sets = []
+    for member in members:
+        seasons = set(_CATEGORY_SEASON_MAP.get(member["category"], set()))
+        if member["material"]:
+            seasons |= _get_season_for_material(member["material"])
+        if seasons:
+            season_sets.append(seasons)
+    if len(season_sets) < 2:
+        return 0.0
+    if set.intersection(*season_sets):
+        return _SEASON_CONSISTENCY_BONUS
+    return _SEASON_CONFLICT_PENALTY
+
+
+def _formality_points(members: list) -> float:
+    """Single dominant formality register across members → +5, else neutral.
+    Uses only the existing per-category flags; no new levels, no invented
+    mismatch penalty (neutral, not negative, when mixed).
+    """
+    registers: set = set()
+    for member in members:
+        flags = _CATEGORY_FORMALITY.get(member["category"], {})
+        registers.update(key for key, value in flags.items() if value)
+    if not registers:
+        return 0.0
+    return _FORMALITY_CONSISTENCY_BONUS if len(registers) == 1 else 0.0
+
+
+def _occasion_points(members: list, preferred_occasions) -> float:
+    """+5 when one requested occasion suits every member (existing
+    category→occasion sets); unavailable/empty occasions → neutral (never
+    fabricated); a member suiting none of the requested occasions → neutral.
+    """
+    if not preferred_occasions:
+        return 0.0
+    preferred = set(preferred_occasions)
+    suitable = [
+        set(_CATEGORY_OCCASIONS.get(member["category"], set(_flatten_occasions()))) & preferred
+        for member in members
+    ]
+    if not suitable or any(not options for options in suitable):
+        return 0.0
+    if set.intersection(*suitable):
+        return _OCCASION_MATCH_BONUS
+    return 0.0
+
+
+def _flatten_occasions() -> set:
+    """All occasions known to the existing category map (neutral default)."""
+    known: set = set()
+    for options in _CATEGORY_OCCASIONS.values():
+        known |= set(options)
+    return known
+
+
+def score_outfit_candidate(
+    candidate: OutfitCandidate,
+    items_by_id=None,
+    preferred_item_ids: Optional[FrozenSet[str]] = None,
+    preferred_occasions=None,
+) -> OutfitCandidate:
+    """Score one candidate deterministically (STEP 13.4 — scoring only).
+
+    Compatibility sums the rule-faithful sub-terms (coverage, color,
+    material, season, formality, occasion); preference reuses the exact Step
+    11 mechanism over the candidate's own IDs (saved_looks never read here,
+    learning_signals never touched); favorite reuses the Step 13.2
+    candidate term. Each mechanism counted exactly once. Returns an
+    immutable replacement with compatibility/preference/favorite/score
+    populated; the input is untouched. Identical inputs → identical output.
+    """
+    members = _candidate_members(candidate, items_by_id)
+    ids = [member["id"] for member in members]
+    compatibility = round(
+        _coverage_points(members)
+        + _color_points(members)
+        + _material_points(members)
+        + _season_points(members)
+        + _formality_points(members)
+        + _occasion_points(members, preferred_occasions),
+        2,
+    )
+    preference = candidate_preference_points(preferred_item_ids, ids)
+    favorite = candidate_favorite_points([m["is_favorite"] for m in members])
+    score = compose_candidate_score(compatibility, preference, favorite)
+    return replace(
+        candidate,
+        compatibility=compatibility,
+        preference=preference,
+        favorite=favorite,
+        score=score,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1089,12 +1630,24 @@ def compute_outfit_intelligence(
     item_is_favorite: bool,
     wardrobe_context: WardrobeContext,
     preferred_occasions: list[str],
+    *,
+    item_id: str = "",
+    preferred_item_ids: Optional[FrozenSet[str]] = None,
 ) -> OutfitIntelligence:
     """Run the Outfit Intelligence engine — deterministic rules only.
 
     Builds on the ClothingIntelligence result from Steps 6A-6C, adding
     outfit-level assessment. No AI provider calls, no DB changes, no new
     endpoints. Confidence follows STEP 7A exactly.
+
+    STEP 11.17 — saved-outfit preference (additive only): when the evaluated
+    item's ID is in ``preferred_item_ids`` (wardrobe IDs previously saved in
+    outfits, resolved via ``resolve_preferred_item_ids``), a bounded
+    ``preference_contribution`` (+0.05, +0.15 total cap, no stacking) is
+    added to the final confidence value. The STEP 7A formula, the 0.7/0.3
+    level thresholds, and every compatibility/scoring sub-rule are
+    untouched. ``item_id`` populates the result's existing item field (was
+    always ""). Omitted/empty inputs reproduce the pre-11.17 output exactly.
 
     Confidence formula (STEP 7A):
       base = 0.5
@@ -1104,6 +1657,7 @@ def compute_outfit_intelligence(
       - seasonal conflict penalty
       - color conflict penalty
       + seasonal consistency / color harmony bonuses
+      + saved-outfit preference contribution (STEP 11.17, 0 or +0.05 here)
       then clamp 0.0–1.0
       then map to strong / reasonable / insufficient
     """
@@ -1296,6 +1850,11 @@ def compute_outfit_intelligence(
     consistency_bonus = 0.05 if is_balanced else 0.0
 
     # Base computation
+    # STEP 11.17: the saved-outfit preference is the ONLY additive term
+    # beyond STEP 7A — every adjustment above is byte-identical to before.
+    preference_bonus = preference_contribution(
+        preferred_item_ids, [item_id] if item_id else []
+    )
     confidence_raw = (
         0.5  # base
         + coverage_adjustment
@@ -1305,6 +1864,7 @@ def compute_outfit_intelligence(
         + color_conflict_penalty
         + harmony_bonus
         + consistency_bonus
+        + preference_bonus
     )
 
     # Clamp to 0.0-1.0, then apply minimum floor of 0.1
@@ -1354,7 +1914,7 @@ def compute_outfit_intelligence(
     # 10. Build and return the result
     # ------------------------------------------------------------------
     result = OutfitIntelligence(
-        item_id="",
+        item_id=item_id,
         item_category=item_category,
         item_color=item_color,
         item_is_favorite=item_is_favorite,

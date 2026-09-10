@@ -35,7 +35,7 @@ class FakeRuns:
     def __init__(self, db=None) -> None:
         pass
 
-    def create(self, *, user_id, run_type, engine_version="rules-v1", input_media=None) -> UUID:
+    def create(self, *, user_id, run_type, engine_version="rules-v1", input_media=None, knowledge_version=None) -> UUID:
         run_id = uuid.uuid4()
         FakeRuns.rows[run_id] = {
             "id": run_id,
@@ -48,6 +48,7 @@ class FakeRuns:
             "input_media": input_media,
             "result": None,
             "error": None,
+            "knowledge_version": knowledge_version,
         }
         return run_id
 
@@ -107,8 +108,14 @@ class FakeLearningSignal:
     def __init__(self, db=None) -> None:
         pass
 
-    def insert_look_saved(self, *, user_id, label, context):
-        FakeLearningSignal.calls.append({"user_id": user_id, "label": label, "context": context})
+    def insert_look_saved(self, *, user_id, signal_type="look_saved", label, context):
+        FakeLearningSignal.calls.append({"user_id": user_id, "signal_type": signal_type, "label": label, "context": context})
+
+    def commit(self) -> None:
+        pass
+
+    def rollback(self) -> None:
+        pass
 
 
 class RecordingVisionPort:
