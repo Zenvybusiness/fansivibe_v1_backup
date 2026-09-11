@@ -109,7 +109,7 @@ def assemble_personalization_context(
 def personalization_context_to_decision_context(
     personalization: PersonalizationContext,
     knowledge_version: str = "",
-) -> DecisionContext:
+) -> "DecisionContext":
     """Map PersonalizationContext to DecisionContext for the existing engine.
 
     Only fields that the Decision Engine actually needs are included.
@@ -1649,7 +1649,7 @@ def compute_outfit_intelligence(
     *,
     item_id: str = "",
     preferred_item_ids: Optional[FrozenSet[str]] = None,
-) -> OutfitIntelligence:
+) -> "OutfitIntelligence":
     """Run the Outfit Intelligence engine — deterministic rules only.
 
     Builds on the ClothingIntelligence result from Steps 6A-6C, adding

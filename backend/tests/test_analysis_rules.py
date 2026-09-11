@@ -799,3 +799,72 @@ def test_13_11_downstream_score_rank_select_compatible():
     winner = select_best_outfit_candidate(rank_outfit_candidates(scored))
     assert winner is not None
     assert set(winner.top_ids + winner.bottom_ids) == {top, bottom}
+
+
+def test_13_11_exact_generation_bounds():
+    """B+E. Per-category representatives capped at exactly 3; global cap 25."""
+    from app.domain.services.analysis_rules import (
+        _MAX_CANDIDATES, _MAX_REPRESENTATIVES_PER_CATEGORY)
+
+    assert _MAX_REPRESENTATIVES_PER_CATEGORY == 3
+    assert _MAX_CANDIDATES == 25
+
+
+def test_13_11_generation_never_scores():
+    """O. Generation must not call score_outfit_candidate(); every emitted
+    candidate keeps neutral/default score values (multi-item wardrobe)."""
+    tops = _13_11_ids("aaaaaaaa", 2)
+    bottoms = _13_11_ids("bbbbbbbb", 2)
+    out = _13_11_generate(_13_3_wardrobe(
+        *([(t, "tops") for t in tops] + [(b, "bottoms") for b in bottoms])))
+    assert "score_outfit_candidate" not in _13_11_generate.__code__.co_names
+    assert out
+    for c in out:
+        assert c.score == 0.0
+        assert (c.compatibility, c.preference, c.favorite) == (0.0, 0.0, 0.0)
+
+
+def test_13_11_sparse_single_non_core_item():
+    """L. A lone item that cannot form tops+bottoms → [] (any category)."""
+    assert _13_11_generate(_13_3_wardrobe((_SHOE, "footwear"))) == []
+    assert _13_11_generate(_13_3_wardrobe((_OUTER, "outerwear"))) == []
+    assert _13_11_generate(_13_3_wardrobe((_ACC, "accessories"))) == []
+
+
+def test_13_11_top_bottom_footwear_multiple_with_reps():
+    """L.6. top + bottom + footwear with several tops → multiple candidates."""
+    tops = _13_11_ids("aaaaaaaa", 2)
+    bottom = _13_11_ids("bbbbbbbb", 1)[0]
+    shoe = _13_11_ids("cccccccc", 1)[0]
+    out = _13_11_generate(_13_3_wardrobe(
+        *([(t, "tops") for t in tops] + [(bottom, "bottoms"), (shoe, "footwear")])))
+    assert len(out) == 4
+    assert [c for c in out if not c.footwear_ids] != []
+    assert [c for c in out if c.footwear_ids == (shoe,)] != []
+
+
+def test_13_11_skeleton_major_prefix_order():
+    """K. Earlier skeletons enumerate fully before later ones (2×2×1)."""
+    tops = _13_11_ids("aaaaaaaa", 2)
+    bottoms = _13_11_ids("bbbbbbbb", 2)
+    shoe = _13_11_ids("cccccccc", 1)[0]
+    out = _13_11_generate(_13_3_wardrobe(
+        *([(t, "tops") for t in tops] + [(b, "bottoms") for b in bottoms]
+          + [(shoe, "footwear")])))
+    assert len(out) == 8
+    assert [(c.top_ids, c.bottom_ids, c.footwear_ids) for c in out[:4]] == [
+        ((tops[0],), (bottoms[0],), ()),
+        ((tops[0],), (bottoms[1],), ()),
+        ((tops[1],), (bottoms[0],), ()),
+        ((tops[1],), (bottoms[1],), ()),
+    ]
+    assert all(c.footwear_ids == (shoe,) for c in out[4:])
+
+
+def test_13_11_duplicate_inputs_deduped_multi_item():
+    """G. Duplicated multi-item inputs emit each combination exactly once."""
+    tops = _13_11_ids("aaaaaaaa", 2)
+    bottom = _13_11_ids("bbbbbbbb", 1)[0]
+    pairs = [(tops[0], "tops"), (tops[1], "tops"), (bottom, "bottoms")]
+    assert (_13_11_generate(_13_3_wardrobe(*pairs))
+            == _13_11_generate(_13_3_wardrobe(*(pairs + pairs))))
