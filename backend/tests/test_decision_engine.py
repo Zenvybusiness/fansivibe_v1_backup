@@ -1759,3 +1759,237 @@ def test_13_12_outfit_intent_untouched(monkeypatch):
     assert isinstance(reply.outfitIntelligence, WireOI)
     assert reply.outfitIntelligence.selectedItemIds == []
     assert _13_12_alt_cards(reply) == []
+
+
+# ============================================================================
+# STEP 13.13 — OUTFIT-intent owned-wardrobe winner integration.
+# engine.py INTENT_OUTFIT branch reuses the frozen pipeline
+# (generate→score→rank→select); the winner populates the EXISTING wire
+# selection fields. Empty/sparse wardrobes keep the historical static-catalog
+# shell; no-occasion keeps the clarification gate with no pipeline call.
+# No alternatives in OUTFIT; no confidence/styleScore involvement; no
+# schema/Flutter/DB change.
+# ============================================================================
+
+_OUTFIT_MESSAGE = "what should i wear for date night"
+
+
+def _13_13_outfit_request(items, message=_OUTFIT_MESSAGE, occasions=None):
+    return _13_6_request(items, message=message, occasions=occasions)
+
+
+def _13_13_expected_winner(items, occasions=None):
+    from app.domain.services.analysis_rules import (
+        generate_outfit_candidates, rank_outfit_candidates,
+        score_outfit_candidate, select_best_outfit_candidate)
+    occ = list(occasions) if occasions else ["date"]
+    by_id = {i.id: i for i in items}
+    return select_best_outfit_candidate(rank_outfit_candidates(
+        [score_outfit_candidate(c, by_id, frozenset(), occ)
+         for c in generate_outfit_candidates(items)]))
+
+
+def _13_13_winner_ids(winner):
+    return (list(winner.top_ids) + list(winner.bottom_ids)
+            + list(winner.outerwear_ids) + list(winner.footwear_ids)
+            + list(winner.accessory_ids))
+
+
+def test_13_13_outfit_winner_selected_ids_owned(monkeypatch):
+    """Occasion + valid tops/bottoms → owned winner IDs on the wire."""
+    engine = _13_6_no_llm(monkeypatch)
+    top, bottom = str(_13_6_uuid4()), str(_13_6_uuid4())
+    items = [_13_6_item(top, "tops"), _13_6_item(bottom, "bottoms")]
+    reply = engine.handle(_13_13_outfit_request(items))
+    assert reply.intent == "outfit"
+    assert reply.outfitIntelligence is not None
+    selected = reply.outfitIntelligence.selectedItemIds
+    assert set(selected) == {top, bottom}
+    assert set(selected) <= {i.id for i in items}
+
+
+def test_13_13_outfit_winner_matches_domain_pipeline(monkeypatch):
+    """Wire selection + composition buckets equal the independent pipeline."""
+    engine = _13_6_no_llm(monkeypatch)
+    tops = [f"aaaaaaaa-0000-4000-8000-{i:012d}" for i in range(2)]
+    bottoms = [f"bbbbbbbb-0000-4000-8000-{i:012d}" for i in range(2)]
+    shoe = f"cccccccc-0000-4000-8000-{0:012d}"
+    items = ([_13_6_item(t, "tops") for t in tops]
+             + [_13_6_item(b, "bottoms") for b in bottoms]
+             + [_13_6_item(shoe, "footwear")])
+    reply = engine.handle(_13_13_outfit_request(items))
+    expected = _13_13_expected_winner(items)
+    assert expected is not None
+    wire = reply.outfitIntelligence
+    assert wire.selectedItemIds == _13_13_winner_ids(expected)
+    comp = wire.outfitComposition
+    assert comp.topIds == list(expected.top_ids)
+    assert comp.bottomIds == list(expected.bottom_ids)
+    assert comp.outerwearIds == list(expected.outerwear_ids)
+    assert comp.footwearIds == list(expected.footwear_ids)
+    assert comp.accessoryIds == list(expected.accessory_ids)
+
+
+def test_13_13_outfit_reversed_input_identical_selection(monkeypatch):
+    """Reversed wardrobe → identical wire selection and composition."""
+    engine = _13_6_no_llm(monkeypatch)
+    tops = [f"aaaaaaaa-0000-4000-8000-{i:012d}" for i in range(2)]
+    bottoms = [f"bbbbbbbb-0000-4000-8000-{i:012d}" for i in range(2)]
+    items = ([_13_6_item(t, "tops") for t in tops]
+             + [_13_6_item(b, "bottoms") for b in bottoms])
+    first = engine.handle(_13_13_outfit_request(items))
+    second = engine.handle(_13_13_outfit_request(list(reversed(items))))
+    assert (first.outfitIntelligence.selectedItemIds
+            == second.outfitIntelligence.selectedItemIds)
+    assert (first.outfitIntelligence.outfitComposition.model_dump()
+            == second.outfitIntelligence.outfitComposition.model_dump())
+
+
+def test_13_13_outfit_empty_wardrobe_static_fallback(monkeypatch):
+    """Empty wardrobe → catalog card, empty selection, default composition."""
+    from app.models.schemas import OutfitIntelligence as WireOI
+    engine = _13_6_no_llm(monkeypatch)
+    reply = engine.handle(_13_13_outfit_request([]))
+    assert reply.intent == "outfit"
+    assert reply.cards and reply.cards[0].kind == "outfit"
+    assert isinstance(reply.outfitIntelligence, WireOI)
+    assert reply.outfitIntelligence.selectedItemIds == []
+    comp = reply.outfitIntelligence.outfitComposition
+    assert (comp.topIds, comp.bottomIds, comp.outerwearIds,
+            comp.footwearIds, comp.accessoryIds) == ([], [], [], [], [])
+    assert _13_12_alt_cards(reply) == []
+
+
+def test_13_13_outfit_sparse_wardrobes_static_fallback(monkeypatch):
+    """Tops-only / no-bottoms → catalog fallback, empty selection."""
+    engine = _13_6_no_llm(monkeypatch)
+    single = engine.handle(_13_13_outfit_request(
+        [_13_6_item(str(_13_6_uuid4()), "tops")]))
+    assert single.intent == "outfit"
+    assert single.cards and single.cards[0].kind == "outfit"
+    assert single.outfitIntelligence.selectedItemIds == []
+    assert _13_12_alt_cards(single) == []
+    nobottom = engine.handle(_13_13_outfit_request(
+        [_13_6_item(str(_13_6_uuid4()), "tops"),
+         _13_6_item(str(_13_6_uuid4()), "tops")]))
+    assert nobottom.intent == "outfit"
+    assert nobottom.cards and nobottom.cards[0].kind == "outfit"
+    assert nobottom.outfitIntelligence.selectedItemIds == []
+    assert _13_12_alt_cards(nobottom) == []
+
+
+def test_13_13_outfit_no_occasion_clarification_no_scoring(monkeypatch):
+    """No occasion → clarification gate; pipeline never invoked."""
+    from app.ai import engine as assistant_engine
+    engine = _13_6_no_llm(monkeypatch)
+    real_score = assistant_engine.score_outfit_candidate
+    calls = []
+
+    def spy(candidate, items_by_id, preferred, occasions):
+        calls.append((candidate, preferred, occasions))
+        return real_score(candidate, items_by_id, preferred, occasions)
+
+    monkeypatch.setattr(assistant_engine, "score_outfit_candidate", spy)
+    top, bottom = str(_13_6_uuid4()), str(_13_6_uuid4())
+    reply = engine.handle(_13_13_outfit_request(
+        [_13_6_item(top, "tops"), _13_6_item(bottom, "bottoms")],
+        message="what should i wear"))
+    assert reply.intent == "outfit"
+    assert reply.outfitIntelligence is None
+    assert calls == []
+    assert [c.value for c in reply.clarifications] == [
+        "casual", "office", "date", "party", "travel"]
+
+
+def test_13_13_outfit_preferred_set_reaches_scorer(monkeypatch):
+    """Resolved preferred IDs flow into the existing scorer per candidate."""
+    from app.ai import engine as assistant_engine
+    engine = _13_6_no_llm(monkeypatch)
+    top, bottom = str(_13_6_uuid4()), str(_13_6_uuid4())
+    items = [_13_6_item(top, "tops"), _13_6_item(bottom, "bottoms")]
+    seen = []
+    real_score = assistant_engine.score_outfit_candidate
+
+    def spy(candidate, items_by_id, preferred, occasions):
+        seen.append((candidate, preferred, occasions))
+        return real_score(candidate, items_by_id, preferred, occasions)
+
+    monkeypatch.setattr(assistant_engine, "score_outfit_candidate", spy)
+    base = engine.handle(_13_13_outfit_request(items))
+    assert seen and all(p == frozenset() for _, p, _ in seen)
+    assert all(o == ["date"] for _, _, o in seen)
+    assert base.outfitIntelligence.selectedItemIds
+    seen.clear()
+    pref = engine.handle(_13_13_outfit_request(items),
+                         preferred_item_ids=[top])
+    assert seen and all(p == frozenset([top]) for _, p, _ in seen)
+    assert pref.outfitIntelligence.selectedItemIds
+
+
+def test_13_13_outfit_wire_stylescore_default(monkeypatch):
+    """Winner present → wire styleScore stays at the existing default."""
+    engine = _13_6_no_llm(monkeypatch)
+    top, bottom = str(_13_6_uuid4()), str(_13_6_uuid4())
+    reply = engine.handle(_13_13_outfit_request(
+        [_13_6_item(top, "tops"), _13_6_item(bottom, "bottoms")]))
+    assert reply.outfitIntelligence.selectedItemIds
+    assert reply.outfitIntelligence.outfitComposition.styleScore == 0
+
+
+def test_13_13_outfit_no_score_confidence_style_leakage(monkeypatch):
+    """Cards/text carry catalog copy only — no scores, confidence, style."""
+    from app.domain.services.analysis_rules import (
+        generate_outfit_candidates, rank_outfit_candidates,
+        score_outfit_candidate)
+    engine = _13_6_no_llm(monkeypatch)
+    tops = [f"aaaaaaaa-0000-4000-8000-{i:012d}" for i in range(2)]
+    bottoms = [f"bbbbbbbb-0000-4000-8000-{i:012d}" for i in range(2)]
+    items = ([_13_6_item(t, "tops") for t in tops]
+             + [_13_6_item(b, "bottoms") for b in bottoms])
+    reply = engine.handle(_13_13_outfit_request(items))
+    assert _13_12_alt_cards(reply) == []
+    assert "Alternative" not in reply.text
+    for card in reply.cards:
+        blob = f"{card.title} {card.subtitle}".lower()
+        assert "confidence" not in blob and "style" not in blob
+    by_id = {i.id: i for i in items}
+    ranked = rank_outfit_candidates(
+        [score_outfit_candidate(c, by_id, frozenset(), ["date"])
+         for c in generate_outfit_candidates(items)])
+    for candidate in ranked:
+        for card in reply.cards:
+            assert str(candidate.score) not in (card.subtitle or "")
+
+
+def test_13_13_outfit_occasion_and_rationale_preserved(monkeypatch):
+    """Occasion + stylingRationale keep their pre-13.13 derivation."""
+    from app.data import catalog as app_catalog
+    engine = _13_6_no_llm(monkeypatch)
+    top, bottom = str(_13_6_uuid4()), str(_13_6_uuid4())
+    reply = engine.handle(_13_13_outfit_request(
+        [_13_6_item(top, "tops"), _13_6_item(bottom, "bottoms")]))
+    assert reply.outfitIntelligence.occasion == "date"
+    assert (reply.outfitIntelligence.stylingRationale
+            == app_catalog.OCCASION_TO_LOOK.get(
+                "date", app_catalog.REFINED_OFFICE).subtitle)
+
+
+def test_13_13_wardrobe_behavior_unchanged(monkeypatch):
+    """WARDROBE winner + alternatives identical after the OUTFIT change."""
+    engine = _13_6_no_llm(monkeypatch)
+    tops = [f"aaaaaaaa-0000-4000-8000-{i:012d}" for i in range(2)]
+    bottoms = [f"bbbbbbbb-0000-4000-8000-{i:012d}" for i in range(2)]
+    shoe = f"cccccccc-0000-4000-8000-{0:012d}"
+    items = ([_13_6_item(t, "tops") for t in tops]
+             + [_13_6_item(b, "bottoms") for b in bottoms]
+             + [_13_6_item(shoe, "footwear")])
+    reply = engine.handle(_13_6_request(items))
+    ranked = _13_12_expected_ranked(items)
+    cards = _13_6_cards(reply)
+    winner_ids = (list(ranked[0].top_ids) + list(ranked[0].bottom_ids)
+                  + list(ranked[0].outerwear_ids) + list(ranked[0].footwear_ids)
+                  + list(ranked[0].accessory_ids))
+    assert cards.get(f"Selected Items: {len(winner_ids)}") is not None
+    expected_alts = [(f"Alternative {n}", _13_12_expected_subtitle(c))
+                     for n, c in enumerate(ranked[1:3], start=1)]
+    assert _13_12_alt_cards(reply) == expected_alts

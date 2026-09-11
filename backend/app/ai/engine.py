@@ -117,8 +117,9 @@ def handle(
     ``preferred_item_ids`` carries the already-resolved saved-outfit wardrobe
     IDs (STEP 11.17: ``resolve_preferred_item_ids`` over the owner's
     ``saved_looks`` at the entry point). Callers that pass ``None`` (or an
-    empty list) keep the exact pre-11.17 behavior. Only the INTENT_WARDROBE
-    path consumes it; every other intent is untouched.
+    empty list) keep the exact pre-11.17 behavior. The INTENT_WARDROBE and
+    INTENT_OUTFIT (STEP 13.13) paths consume it; every other intent is
+    untouched.
     """
     messages = request.messages
     user = request.user
@@ -451,10 +452,62 @@ def handle(
             # detected occasion + the recommended card's own text); every other
             # field keeps the schema's existing default. No scoring change, no
             # selection change, no personalization input.
+            # STEP 13.13: owned-wardrobe winner integration (integration
+            # only; the frozen pipeline is reused unmodified). Wardrobe →
+            # generate → score → rank → select; the winner's IDs populate
+            # the existing selection fields below. No viable candidate (e.g.
+            # empty/sparse wardrobe) keeps the historical static-catalog
+            # wire shell (empty selection, default composition). No
+            # alternatives in OUTFIT (WARDROBE-only); no confidence /
+            # styleScore involvement.
+            outfit_wardrobe = user.wardrobe if user and user.wardrobe else []
+            outfit_preferred = (
+                frozenset(preferred_item_ids)
+                if preferred_item_ids
+                else frozenset()
+            )
+            outfit_items_by_id = {
+                item.id: item for item in outfit_wardrobe
+                if getattr(item, "id", None)
+            }
+            outfit_winner = select_best_outfit_candidate(
+                rank_outfit_candidates([
+                    score_outfit_candidate(
+                        candidate, outfit_items_by_id, outfit_preferred,
+                        request_occasions,
+                    )
+                    for candidate in generate_outfit_candidates(outfit_wardrobe)
+                ])
+            )
             reply.outfitIntelligence = OutfitIntelligence(
                 occasion=occasion or "",
                 stylingRationale=cards[0].subtitle if cards else "",
             )
+            if outfit_winner is not None:
+                outfit_winner_ids = [
+                    item_id
+                    for bucket in (
+                        outfit_winner.top_ids, outfit_winner.bottom_ids,
+                        outfit_winner.outerwear_ids, outfit_winner.footwear_ids,
+                        outfit_winner.accessory_ids,
+                    )
+                    for item_id in bucket
+                ]
+                if outfit_winner_ids:
+                    reply.outfitIntelligence = OutfitIntelligence(
+                        occasion=reply.outfitIntelligence.occasion,
+                        stylingRationale=(
+                            reply.outfitIntelligence.stylingRationale
+                        ),
+                        selectedItemIds=list(outfit_winner_ids),
+                        outfitComposition=OutfitComposition(
+                            topIds=list(outfit_winner.top_ids),
+                            bottomIds=list(outfit_winner.bottom_ids),
+                            outerwearIds=list(outfit_winner.outerwear_ids),
+                            footwearIds=list(outfit_winner.footwear_ids),
+                            accessoryIds=list(outfit_winner.accessory_ids),
+                        ),
+                    )
 
     # --- Optional LLM enrichment (server-side, never changes structure) ----
     if llm_backend.is_available() and reply.text:
