@@ -81,11 +81,11 @@ def test_knowledge_seed_run_and_signal_types(db):
 # ============================================================================
 
 
-def _signal_user(session):
+def _signal_user(session, subject="signal-user"):
     from app.infrastructure.db.models import Users, UserState
 
     user = Users(
-        auth_provider="dev", auth_subject="signal-user", display_name="Sig"
+        auth_provider="dev", auth_subject=subject, display_name="Sig"
     )
     session.add(user)
     session.flush()
@@ -283,3 +283,328 @@ def test_12_5_migration_downgrade_upgrade_round_trip(db):
     versions = _look_versions()
     assert set(versions.values()) == {"1.1"}
     assert len(versions) == 8
+
+
+# --- STEP 15.3: wardrobe_wear_events foundation (migration 0012) ------------
+#
+# Schema/model foundation only: table + columns, UNIQUE(user_id,
+# idempotency_key), the two user_id-leading indexes, user FK CASCADE,
+# NO FK on wardrobe_item_id, and zero backfilled rows. No endpoint, use
+# case, or intelligence coverage here (those land in 15.4/15.6).
+# ---------------------------------------------------------------------------
+
+
+def _wear_table_exists(session) -> bool:
+    return (
+        session.execute(
+            text("SELECT to_regclass('public.wardrobe_wear_events')")
+        ).scalar_one()
+        is not None
+    )
+
+
+def _wear_columns(session):
+    return session.execute(
+        text(
+            "SELECT column_name, data_type, is_nullable "
+            "FROM information_schema.columns "
+            "WHERE table_name = 'wardrobe_wear_events' "
+            "ORDER BY ordinal_position"
+        )
+    ).all()
+
+
+def test_15_3_wear_events_table_exists_with_required_columns(db):
+    """1. 0012 applied: table + the 7 approved columns with exact types."""
+    Session = make_session()
+    with Session() as session:
+        assert _wear_table_exists(session) is True
+        cols = [(r[0], r[1], r[2]) for r in _wear_columns(session)]
+    assert cols == [
+        ("id", "uuid", "NO"),
+        ("user_id", "uuid", "NO"),
+        ("wardrobe_item_id", "uuid", "NO"),
+        ("worn_at", "timestamp with time zone", "NO"),
+        ("wear_group_id", "uuid", "NO"),
+        ("idempotency_key", "text", "NO"),
+        ("created_at", "timestamp with time zone", "NO"),
+    ]
+
+
+def test_15_3_wear_events_unique_user_idempotency(db):
+    """2. UNIQUE(user_id, idempotency_key, wardrobe_item_id) — corrected to
+    per-row scope by migration 0013 (STEP 15.4 finding): one logging action
+    shares a key across its item rows, so per-group uniqueness rejected
+    every multi-item group. Same key + same item replays conflict for one
+    owner; same key + different item (group mate) or owner never blocks."""
+    import sqlalchemy.exc
+    import uuid
+    from datetime import datetime, timezone
+
+    from app.infrastructure.db.models import WardrobeWearEvents
+
+    def _row(user_id, key, item_id):
+        return WardrobeWearEvents(
+            user_id=user_id,
+            wardrobe_item_id=item_id,
+            worn_at=datetime.now(timezone.utc),
+            wear_group_id=uuid.uuid4(),
+            idempotency_key=key,
+        )
+
+    Session = make_session()
+    with Session() as session:
+        uid = _signal_user(session)
+        other = _signal_user(session, "signal-user-2")
+        item_a, item_b = uuid.uuid4(), uuid.uuid4()
+        session.add(_row(uid, "wear-key-1", item_a))
+        session.commit()
+        with pytest.raises(sqlalchemy.exc.IntegrityError):
+            session.add(_row(uid, "wear-key-1", item_a))
+            session.commit()
+        session.rollback()
+        # Same key + different item (a group mate) is a distinct row.
+        session.add(_row(uid, "wear-key-1", item_b))
+        session.commit()
+        # Same key under a different owner is a distinct idempotency scope.
+        session.add(_row(other, "wear-key-1", item_a))
+        session.commit()
+        count = session.execute(
+            text("SELECT count(*) FROM wardrobe_wear_events")
+        ).scalar_one()
+    assert count == 3
+
+
+def test_15_3_wear_events_indexes_exist(db):
+    """3. Both user_id-leading btree indexes exist; nothing speculative."""
+    Session = make_session()
+    with Session() as session:
+        names = session.execute(
+            text(
+                "SELECT indexname FROM pg_indexes "
+                "WHERE tablename = 'wardrobe_wear_events' "
+                "ORDER BY indexname"
+            )
+        ).scalars().all()
+    assert "ix_wardrobe_wear_events_user_id_wardrobe_item_id_worn_at" in names
+    assert "ix_wardrobe_wear_events_user_id_worn_at" in names
+
+
+def test_15_3_wear_events_user_fk_cascades_item_ref_has_no_fk(db):
+    """4. Exactly one FK (user_id → users CASCADE); wardrobe_item_id has NO
+    FK — a row referencing a nonexistent item persists, and deleting the
+    user erases its rows (composition rule)."""
+    import uuid
+    from datetime import datetime, timezone
+
+    from app.infrastructure.db.models import WardrobeWearEvents
+
+    Session = make_session()
+    with Session() as session:
+        fk_defs = session.execute(
+            text(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid = 'public.wardrobe_wear_events'::regclass "
+                "AND contype = 'f'"
+            )
+        ).scalars().all()
+        assert len(fk_defs) == 1
+        assert "users" in fk_defs[0]
+        assert "CASCADE" in fk_defs[0]
+        assert "wardrobe_item_id" not in fk_defs[0]
+
+        uid = _signal_user(session)
+        phantom_item = uuid.uuid4()
+        session.add(
+            WardrobeWearEvents(
+                user_id=uid,
+                wardrobe_item_id=phantom_item,
+                worn_at=datetime.now(timezone.utc),
+                wear_group_id=uuid.uuid4(),
+                idempotency_key="wear-phantom-1",
+            )
+        )
+        session.commit()
+        # Item deletion analogue: no FK means the row survives on its own.
+        session.execute(
+            text("DELETE FROM users WHERE id = :uid"), {"uid": str(uid)}
+        )
+        session.commit()
+        count = session.execute(
+            text("SELECT count(*) FROM wardrobe_wear_events")
+        ).scalar_one()
+    assert count == 0
+
+
+def test_15_3_wear_events_no_backfill(db):
+    """5. Fresh migration carries zero rows — history is never manufactured."""
+    Session = make_session()
+    with Session() as session:
+        count = session.execute(
+            text("SELECT count(*) FROM wardrobe_wear_events")
+        ).scalar_one()
+    assert count == 0
+
+
+def test_15_3_migration_0012_downgrade_upgrade_round_trip(db):
+    """6. 0012 downgrade removes the table cleanly; upgrade restores it empty
+    (established alembic round-trip pattern, same as 12.5 test 5)."""
+    config = _alembic_config()
+    command.downgrade(config, "0011")
+    Session = make_session()
+    with Session() as session:
+        assert _wear_table_exists(session) is False
+    command.upgrade(config, "head")
+    with Session() as session:
+        assert _wear_table_exists(session) is True
+        count = session.execute(
+            text("SELECT count(*) FROM wardrobe_wear_events")
+        ).scalar_one()
+    assert count == 0
+
+
+# --- STEP 15.4B: wardrobe_wear_groups ledger (migration 0014) ---------------
+#
+# The durable identity of one logical wear action: UNIQUE(user_id,
+# idempotency_key) arbitrates whole-request idempotency; flat
+# `wardrobe_wear_events` rows stay the only intelligence input.
+# ---------------------------------------------------------------------------
+
+
+def _wear_group_table_exists(session) -> bool:
+    return (
+        session.execute(
+            text("SELECT to_regclass('public.wardrobe_wear_groups')")
+        ).scalar_one()
+        is not None
+    )
+
+
+def test_15_4b_wear_groups_table_exists_with_required_columns(db):
+    """1. 0014 applied: ledger table + the 6 approved columns, exact types."""
+    Session = make_session()
+    with Session() as session:
+        assert _wear_group_table_exists(session) is True
+        cols = [
+            (r[0], r[1], r[2])
+            for r in session.execute(
+                text(
+                    "SELECT column_name, data_type, is_nullable "
+                    "FROM information_schema.columns "
+                    "WHERE table_name = 'wardrobe_wear_groups' "
+                    "ORDER BY ordinal_position"
+                )
+            ).all()
+        ]
+    assert cols == [
+        ("id", "uuid", "NO"),
+        ("user_id", "uuid", "NO"),
+        ("idempotency_key", "text", "NO"),
+        ("item_ids", "jsonb", "NO"),
+        ("worn_at", "timestamp with time zone", "NO"),
+        ("created_at", "timestamp with time zone", "NO"),
+    ]
+
+
+def test_15_4b_wear_groups_unique_user_key(db):
+    """2. UNIQUE(user_id, idempotency_key): one logical action per key per
+    owner; same key under another owner is independent."""
+    import sqlalchemy.exc
+    import uuid
+    from datetime import datetime, timezone
+
+    from app.infrastructure.db.models import WardrobeWearGroups
+
+    def _group(user_id, key):
+        return WardrobeWearGroups(
+            user_id=user_id,
+            idempotency_key=key,
+            item_ids=[str(uuid.uuid4())],
+            worn_at=datetime.now(timezone.utc),
+        )
+
+    Session = make_session()
+    with Session() as session:
+        uid = _signal_user(session)
+        other = _signal_user(session, "signal-user-2")
+        session.add(_group(uid, "wear-group-key-1"))
+        session.commit()
+        with pytest.raises(sqlalchemy.exc.IntegrityError):
+            session.add(_group(uid, "wear-group-key-1"))
+            session.commit()
+        session.rollback()
+        session.add(_group(other, "wear-group-key-1"))
+        session.commit()
+        count = session.execute(
+            text("SELECT count(*) FROM wardrobe_wear_groups")
+        ).scalar_one()
+    assert count == 2
+
+
+def test_15_4b_wear_groups_user_fk_cascades(db):
+    """3. Exactly one FK (user_id → users CASCADE): account erasure removes
+    the ledger with the event history."""
+    import uuid
+    from datetime import datetime, timezone
+
+    from app.infrastructure.db.models import WardrobeWearGroups
+
+    Session = make_session()
+    with Session() as session:
+        fk_defs = session.execute(
+            text(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid = 'public.wardrobe_wear_groups'::regclass "
+                "AND contype = 'f'"
+            )
+        ).scalars().all()
+        assert len(fk_defs) == 1
+        assert "users" in fk_defs[0]
+        assert "CASCADE" in fk_defs[0]
+
+        uid = _signal_user(session)
+        session.add(
+            WardrobeWearGroups(
+                user_id=uid,
+                idempotency_key="wear-group-cascade-1",
+                item_ids=[str(uuid.uuid4())],
+                worn_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
+        session.execute(
+            text("DELETE FROM users WHERE id = :uid"), {"uid": str(uid)}
+        )
+        session.commit()
+        count = session.execute(
+            text("SELECT count(*) FROM wardrobe_wear_groups")
+        ).scalar_one()
+    assert count == 0
+
+
+def test_15_4b_wear_groups_no_backfill(db):
+    """4. Fresh migration carries zero rows — history is never manufactured."""
+    Session = make_session()
+    with Session() as session:
+        count = session.execute(
+            text("SELECT count(*) FROM wardrobe_wear_groups")
+        ).scalar_one()
+    assert count == 0
+
+
+def test_15_4b_migration_0014_downgrade_upgrade_round_trip(db):
+    """5. 0014 downgrade removes only the ledger (0012/0013 events table
+    intact); upgrade restores it empty."""
+    config = _alembic_config()
+    command.downgrade(config, "0013")
+    Session = make_session()
+    with Session() as session:
+        assert _wear_group_table_exists(session) is False
+        assert _wear_table_exists(session) is True
+    command.upgrade(config, "head")
+    with Session() as session:
+        assert _wear_group_table_exists(session) is True
+        count = session.execute(
+            text("SELECT count(*) FROM wardrobe_wear_groups")
+        ).scalar_one()
+    assert count == 0

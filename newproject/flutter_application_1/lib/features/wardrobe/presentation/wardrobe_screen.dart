@@ -4,6 +4,7 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -31,7 +32,15 @@ WardrobeItemData _toItem(WardrobeEntry entry) => WardrobeItemData(
 );
 
 class WardrobeScreen extends StatefulWidget {
-  const WardrobeScreen({super.key});
+  /// Creates the wardrobe screen.
+  ///
+  /// [insightRepository] is the source for the live backend insight card.
+  /// It defaults to the API-primary repository; tests inject a fake to
+  /// control the insight without networking. The wardrobe item list itself
+  /// always renders from [LearningService] (unchanged by this step).
+  const WardrobeScreen({super.key, this.insightRepository});
+
+  final WardrobeRepository? insightRepository;
 
   @override
   State<WardrobeScreen> createState() => _WardrobeScreenState();
@@ -40,6 +49,7 @@ class WardrobeScreen extends StatefulWidget {
 class _WardrobeScreenState extends State<WardrobeScreen> {
   String _selectedCategory = 'all';
   late List<WardrobeEntry> _items;
+  late final Future<WardrobeInsightData?> _insightFuture;
 
   @override
   void initState() {
@@ -47,6 +57,10 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     _items = LearningService.instance.wardrobe;
     LearningService.instance.addListener(_onLearningChanged);
     LearningService.instance.load();
+    // Independent from the item list: the list renders immediately while
+    // the insight resolves on its own. Single fetch — no refetch storms.
+    _insightFuture =
+        (widget.insightRepository ?? WardrobeRepositoryImpl()).getInsight();
   }
 
   @override
@@ -141,10 +155,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                           categoryCount: WardrobeMockData.categories.length - 1,
                         ),
                         const SizedBox(height: FansivibeSpacing.sm + 4),
-                        WardrobeInsightCard(
-                          data: WardrobeInsightData.mock,
-                          onActionPressed: () => _handleViewAnalysis(context),
-                        ),
+                        _InsightSlot(future: _insightFuture),
                         const SizedBox(height: FansivibeSpacing.sm + 4),
                         SizedBox(
                           height: 40,
@@ -282,17 +293,6 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     );
   }
 
-  void _handleViewAnalysis(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Opening Wardrobe Analysis...'),
-        backgroundColor: FansivibeColors.accentGold,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
-      ),
-    );
-  }
-
   void _handleAddItem(BuildContext context) async {
     final result = await context.pushNamed<WardrobeItemData>(
       RouteNames.wardrobeAddCategory,
@@ -315,5 +315,31 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
 
   void _handleItemTap(BuildContext context, WardrobeItemData item) {
     context.pushNamed<String>(RouteNames.wardrobeItemDetails, extra: item.id);
+  }
+}
+
+/// Live backend insight slot for the wardrobe screen.
+///
+/// - Loading: renders nothing so the wardrobe item list is never blocked.
+/// - 200: renders the backend title/insight verbatim via
+///   [WardrobeInsightCard]. The backend currently omits `action`/`route`,
+///   so no CTA is wired — no dead navigation is ever rendered.
+/// - 204 / unreachable / error: renders nothing (no fabricated advice,
+///   no error banner breaking the list).
+class _InsightSlot extends StatelessWidget {
+  const _InsightSlot({required this.future});
+
+  final Future<WardrobeInsightData?> future;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<WardrobeInsightData?>(
+      future: future,
+      builder: (context, snapshot) {
+        final insight = snapshot.data;
+        if (insight == null) return const SizedBox.shrink();
+        return WardrobeInsightCard(data: insight);
+      },
+    );
   }
 }

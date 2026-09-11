@@ -1,5 +1,6 @@
-"""Wardrobe API router — endpoints W-1 (`GET /v1/wardrobe/items`) and W-3
-(`POST /v1/wardrobe/items`).
+"""Wardrobe API router — endpoints W-1 (`GET /v1/wardrobe/items`), W-3
+(`POST /v1/wardrobe/items`), and the wear-event surface
+(`POST`/`GET /v1/wardrobe/wears`, STEP 15.4).
 
 Owner-scoped by authenticated user (OW-1). Follows the existing router patterns
 from `users.py` and `looks.py`.
@@ -7,27 +8,69 @@ from `users.py` and `looks.py`.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Path, Query
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Header, Path, Query, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id
-from app.api.errors import not_found, validation
+from app.api.errors import validation
 from app.api.schemas.wardrobe import (
     WardrobeItem,
+    WardrobeInsight,
     WardrobeItemCreate,
     WardrobeItemPatch,
+    WearEvent,
+    WearEventList,
+    WearEventLogRequest,
+    WearEventLogResponse,
     ListEnvelope,
 )
 from app.application.wardrobe import (
     ListWardrobeItems,
     AddWardrobeItem,
     GetWardrobeItem,
+    GetWardrobeInsight,
+    ListWearEvents,
+    LogWearEvents,
     UpdateWardrobeItem,
+    DeleteWardrobeItem,
 )
-from app.infrastructure.db.repositories import WardrobeItemRepositorySQL
+from app.infrastructure.db.repositories import (
+    SavedLookRepositorySQL,
+    WardrobeItemRepositorySQL,
+    WearEventRepositorySQL,
+    WearGroupRepositorySQL,
+)
 from app.infrastructure.db.session import get_db
 
 router = APIRouter(prefix="/v1/wardrobe", tags=["wardrobe"])
+
+
+def _to_wire(record) -> WardrobeItem:
+    """Map a `WardrobeItemRecord` (domain `snake_case`) to the wire schema."""
+    return WardrobeItem(
+        id=record.id,
+        name=record.name,
+        category=record.category,
+        color=record.color,
+        material=record.material,
+        isFavorite=record.is_favorite,
+        imageRef=record.image_ref,
+        createdAt=record.created_at,
+        updatedAt=record.updated_at,
+    )
+
+
+def _wear_to_wire(record) -> WearEvent:
+    """Map a `WearEventRecord` (domain `snake_case`) to the wire schema."""
+    return WearEvent(
+        id=record.id,
+        wardrobeItemId=record.wardrobe_item_id,
+        wornAt=record.worn_at,
+        wearGroupId=record.wear_group_id,
+        createdAt=record.created_at,
+    )
 
 
 @router.get(
@@ -72,7 +115,12 @@ def list_wardrobe_items(
         page=page,
         page_size=page_size,
     )
-    return ListEnvelope(items=items, page=page, page_size=page_size, total=total)
+    return ListEnvelope(
+        items=[_to_wire(item) for item in items],
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
 
 
 @router.post(
@@ -107,17 +155,7 @@ def add_wardrobe_item(
         material=request.material,
         isFavorite=request.isFavorite,
     )
-    return WardrobeItem(
-        id=record.id,
-        name=record.name,
-        category=record.category,
-        color=record.color,
-        material=record.material,
-        isFavorite=record.isFavorite,
-        imageRef=record.image_ref,
-        createdAt=record.created_at,
-        updatedAt=record.updated_at,
-    )
+    return _to_wire(record)
 
 
 @router.get(
@@ -140,17 +178,7 @@ def get_wardrobe_item(
     """
     use_case = GetWardrobeItem(wardrobe=WardrobeItemRepositorySQL(db))
     record = use_case(user_id=user_id, item_id=item_id)
-    return WardrobeItem(
-        id=record.id,
-        name=record.name,
-        category=record.category,
-        color=record.color,
-        material=record.material,
-        isFavorite=record.isFavorite,
-        imageRef=record.image_ref,
-        createdAt=record.created_at,
-        updatedAt=record.updated_at,
-    )
+    return _to_wire(record)
 
 
 @router.patch(
@@ -186,19 +214,10 @@ def update_wardrobe_item(
         category=request.category,
         color=request.color,
         material=request.material,
+        material_set="material" in request.model_fields_set,
         isFavorite=request.isFavorite,
     )
-    return WardrobeItem(
-        id=record.id,
-        name=record.name,
-        category=record.category,
-        color=record.color,
-        material=record.material,
-        isFavorite=record.isFavorite,
-        imageRef=record.image_ref,
-        createdAt=record.created_at,
-        updatedAt=record.updated_at,
-    )
+    return _to_wire(record)
 
 
 @router.delete(
@@ -223,3 +242,121 @@ def delete_wardrobe_item(
     use_case = DeleteWardrobeItem(wardrobe=WardrobeItemRepositorySQL(db))
     use_case(user_id=user_id, item_id=item_id)
     return None
+
+
+@router.get(
+    "/insight",
+    response_model=WardrobeInsight,
+    responses={
+        401: {"model": dict},
+        204: {"description": "Empty wardrobe — no insight fabricated"},
+        429: {"model": dict},
+    },
+)
+def get_wardrobe_insight(
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> WardrobeInsight | Response:
+    """Derived wardrobe insight (W-7/UC-14).
+
+    Read-only aggregate over the owner's `wardrobe_items` (counts by
+    canonical category, favorites) plus saved-outfit representation
+    (owner-scoped `saved_looks` with `source_context == "outfit"`,
+    resolved against the owner's current items). Wardrobe coverage stays
+    authoritative; saved looks only add which covered categories appear
+    in saved looks. Empty wardrobe → 204, never a fabricated insight.
+    No side effects.
+    """
+    use_case = GetWardrobeInsight(
+        wardrobe=WardrobeItemRepositorySQL(db),
+        saved_looks=SavedLookRepositorySQL(db),
+    )
+    result = use_case(user_id=user_id)
+    if result is None:
+        return Response(status_code=204)
+    return result
+
+
+@router.post(
+    "/wears",
+    response_model=WearEventLogResponse,
+    status_code=201,
+    responses={
+        401: {"model": dict},
+        404: {"model": dict},
+        409: {"model": dict},
+        422: {"model": dict},
+    },
+)
+def log_wear_events(
+    request: WearEventLogRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> WearEventLogResponse:
+    """Log a wear event (STEP 15.4B: one durable group + rows per item).
+
+    Requires the contract's `Idempotency-Key` header (C-12/API-33, save
+    precedent). Same key + same canonical payload replays the original
+    group (`created=false`, still 201); same key + changed payload → 409.
+    Unknown/foreign item IDs → 404 (OW-1). Append-only: no update/delete.
+    """
+    if not idempotency_key:
+        raise validation(
+            [{"field": "Idempotency-Key", "error": "required header"}]
+        )
+    use_case = LogWearEvents(
+        wardrobe=WardrobeItemRepositorySQL(db),
+        wears=WearEventRepositorySQL(db),
+        groups=WearGroupRepositorySQL(db),
+    )
+    records, created = use_case(
+        user_id=user_id,
+        item_ids=request.itemIds,
+        worn_at=request.wornAt,
+        idempotency_key=idempotency_key,
+    )
+    return WearEventLogResponse(
+        wears=[_wear_to_wire(record) for record in records],
+        wearGroupId=records[0].wear_group_id,
+        wornAt=records[0].worn_at,
+        created=created,
+    )
+
+
+@router.get(
+    "/wears",
+    response_model=WearEventList,
+    responses={
+        401: {"model": dict},
+        422: {"model": dict},
+    },
+)
+def list_wear_events(
+    item_id: UUID | None = Query(
+        default=None,
+        description="Filter to one wardrobe item UUID.",
+    ),
+    page: int = Query(default=1, ge=1, description="1-based page number"),
+    page_size: int = Query(default=20, ge=1, le=100, description="Items per page, max 100"),
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> WearEventList:
+    """Paged wear-event history for the owner (worn_at desc, id asc).
+
+    Individual rows, never grouped objects. Empty history is an empty
+    envelope — never 204, never fabricated.
+    """
+    use_case = ListWearEvents(wears=WearEventRepositorySQL(db))
+    items, total = use_case(
+        user_id=user_id,
+        item_id=item_id,
+        page=page,
+        page_size=page_size,
+    )
+    return WearEventList(
+        items=[_wear_to_wire(item) for item in items],
+        page=page,
+        page_size=page_size,
+        total=total,
+    )

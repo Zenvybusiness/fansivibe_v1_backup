@@ -1,7 +1,1383 @@
 # Fansivibe Current State
 
-Last Updated: 2026-08-17
+Last Updated: 2026-09-11
 Updated By: opencode agent
+
+## STEP 16.1 — FINAL CROSS-FEATURE INTEGRATION AUDIT (OUTFIT + WARDROBE + WEAR) — PASS_WITH_WARNINGS (uncommitted)
+
+Read-only audit; zero production/test/migration/Flutter lines changed by
+this step. Skills: none loaded (audit-only; all `.agents/skills/` are
+Dart/Flutter code-creation skills with no read-only-audit trigger —
+15.1/15.3/15.7 precedent). Inspected: CURRENT_STATE (full), DECISIONS
+(DEC-010/DEC-011), models/ports/application/router/schemas for
+wardrobe + saved-look + wear, `analysis_rules.py` outfit path
+(compute/resolve/preference/candidates), `saved_looks.py` validation,
+migrations 0012–0014, Flutter assistant/outfit render path +
+wardrobe client/repo/models + wear log path, test files for 13.x/14.x/
+15.x, live `alembic heads`/`current`, git status/diff/log.
+
+- A (data/migrations): chain linear 0001→0014 from file headers (0007
+  never existed; 0008 follows 0006 by design); live heads = single
+  `0014`, current = `0014 (head)`. 0012/0013/0014 additive only, no
+  backfill, no destructive change, no cross-feature FK;
+  `wardrobe_item_id` NO FK (No-FK-to-trigger), `user_id` CASCADE on both
+  wear tables, ledger `UNIQUE(user_id, key)` + 0013 per-row UNIQUE
+  intact. Outfit/Wardrobe behavior untouched by wear migrations.
+- B (IDs): backend UUIDs end-to-end (Pydantic UUID 422, `str(UUID)`
+  canonical, `_canonical_uuid_string` for legacy). Saved-look
+  `selectedItemIds` = persisted wardrobe UUIDs, owner-validated at save
+  (404, never silent drop). Wear APIs take backend UUIDs verbatim;
+  Flutter `logWear` docstrings forbid local-ID translation; assistant
+  resolution matches local-against-local (display only) while saves are
+  server-validated. UUID `__eq__` is instant-based, so the ledger
+  replay compare is tz-safe. Pre-existing local "1"–"24"/backend-UUID
+  sync debt remains (unchanged, not an integration defect).
+- C (ownership): every path owner-scoped — wardrobe CRUD, saved looks,
+  wear events/groups, insight summary, outfit coverage, wear summary
+  (both JOIN sides scoped; ledger never read by summary). Stale refs
+  ignored, foreign IDs 404-not-403, no JOIN drops `user_id`.
+- D+G (evidence): Outfit reads wardrobe/catalog/rules + outfit-save
+  preference + favorites, zero wear imports. `GetWardrobeInsight`
+  takes only wardrobe + saved-looks repos; templates contain no wear
+  vocabulary (sole "never wear" hit is the guard docstring).
+  `get_wear_summary` selects only item id/category + COUNT/MAX from
+  flat events — no favorites/saves/recs/timestamps/local/mock/
+  learning. Insight and Summary share no code path or endpoint.
+- E+F (integrations): assistant `wardrobe → _wardrobeItems →
+  MessageBubble → resolveOutfitWardrobeItems →
+  OutfitRecommendationCard` resolves from the loaded snapshot (order
+  preserved, missing skipped, no extra fetch); save path unchanged.
+  Only `source_context == "outfit"` contributes wardrobe refs.
+  Item delete cannot erase wear history (no FK); deleted items never
+  appear as current summary members; stale rows ignored everywhere;
+  user delete cascades groups + rows; same-day multiples separate;
+  multi-item action = one event per item sharing `wear_group_id`
+  (correlation only, counting is per-item).
+- H+I (contracts): only public wear routes are POST/GET
+  `/v1/wardrobe/wears`; no wear-summary/insight/usage endpoint, no
+  `WearSummary` schema exposure (`GetWearSummary` internal only).
+  Flutter `logWear` matches the POST contract (verbatim UUIDs,
+  UTC-ISO `wornAt` omitted-when-null, fresh key per action +
+  explicit-key retry, 201 `created` flag, null-safe failures, no mock
+  fallback). Insight 200/204/error handling intact, nullable
+  action/route, no invented navigation. Assistant has zero wear
+  imports; "Wear This Look" is snackbar-only. Outfit/assistant/
+  analysis/saved-looks/looks-router files show zero diff vs HEAD.
+- J+K (transaction/determinism): ledger-first single-commit write,
+  rollback + durable re-read, replay vs 409, no partial state, reads
+  commit nothing. Recent `>= now-30d` inclusive; most = max group
+  (`[]` if unworn) desc+id; least = min over ALL items (unworn
+  included, `[]` only if wardrobe empty) None-first/asc+id; unworn =
+  zero subset id-asc; categories current-only, code-sorted,
+  zero-filled; `total == sum(counts) == sum(categories)` structural.
+- L (coverage): all checklist items map to real tests — outfit 23 +
+  93 + 45 Flutter, wardrobe 49, wear 32 + 15, saves use-case 28,
+  Flutter wear-log 17 + insight 20. Genuine gaps (both
+  pre-documented, non-blocking): empty-wardrobe (zero-item)
+  `WearSummary` untested (code structurally safe); `test_saved_looks.py`
+  5 dirty-DB failures identical to the 14.4 pristine-tree baseline.
+- M (serial runs): wear-summary 15 passed; wears API 32 passed;
+  wardrobe API 49 passed; decision subset 23 passed / 74 deselected;
+  clothing+analysis-rules 93 passed; saved-looks use-case 28 passed;
+  saved-looks API 5 failed / 12 passed (pre-existing baseline, seeds
+  via looks-router catalog path; outfit-save path green in wardrobe
+  suite); assistant wiring+intelligence 45 passed; Flutter
+  wear-log+insight 37 passed; `py_compile` clean (15 files); live DB
+  at head `0014`.
+- N (git): staged 0, no stash, HEAD `3ae4d08`, nothing
+  committed/pushed/reset; tracked diff = exactly the 14.2–15.6 batch
+  files; untracked = 0012/0013/0014 + wear tests + Flutter
+  wear/insight tests + `.pyc` byproducts (none staged); generated
+  platform files show zero content diff (CRLF-only).
+
+No `DECISIONS.md` entry (no new architectural decision discovered).
+
+---
+
+## STEP 15.7 — FINAL WEAR CROSS-LAYER REGRESSION & AUDIT — PASS (uncommitted)
+
+Audit-only final for the 15.1–15.6 Wear/Frequency phase. No production
+code changed, no migration, no endpoint, no Flutter change, no
+intelligence change. Skills: none (audit-only; all `.agents/skills/`
+are Dart/Flutter code-creation).
+
+- Migrations/data: chain linear 0001→0014 (0007 never existed), live
+  `alembic heads`/`current` = single head `0014`. Events append-only
+  (no `updated_at`, no UPDATE/DELETE in migrations); `wardrobe_item_id`
+  has NO FK by design; `user_id` CASCADE on both wear tables; ledger
+  owns whole-request idempotency (`UNIQUE(user_id, key)`); 0013
+  per-row UNIQUE intact as defense-in-depth; no backfill anywhere;
+  downgrades structurally valid (drop-table / restore-prior-constraint
+  / drop-indexes-then-table).
+- Write path: auth-scoped, `itemIds` 1–10 (Pydantic UUID 422 +
+  canonical sorted-unique + use-case cap), owner 404-not-403,
+  `wornAt` UTC normalize + 60s future guard, required
+  `Idempotency-Key`, ledger-first replay/409, one flat row per item
+  sharing `wear_group_id`, single commit; reads commit nothing.
+- Read path: list owner-scoped, `worn_at` desc + id asc, offset
+  envelope, stale-safe (no item join). Summary reads ONLY flat
+  events; items authoritative for membership/category; stale ignored
+  everywhere; no favorites/saves/recs/timestamps/outfit/local-state;
+  SELECT-only.
+- Semantics verified in code: recent `>= now-30d` inclusive; most =
+  max group (`[]` if unworn), desc+id; least = min group over ALL
+  items (unworn included; `[]` only if wardrobe empty),
+  None-first/asc+id; unworn = zero subset id-asc; categories =
+  current-item categories, code-sorted, zero-filled;
+  `total == sum(counts) == sum(categories)` structural.
+- Ownership/IDs: `str(UUID)` canonical everywhere; cross-user
+  impossible (both join sides owner-scoped; ledger never read by
+  summary); no FK assumptions (no item join in list; LEFT JOIN in
+  summary); no Flutter local IDs on backend. The 40 `wear` hits in
+  outfit/domain code are `outerwear`/`footwear` identifiers + "what
+  should I wear" copy — zero wear-data coupling (no wear imports).
+- Coverage: all 23 checklist items map to tests except one minor
+  gap — summary for a literally EMPTY wardrobe (zero items) is
+  untested (code is structurally safe: `if counts` guard + empty
+  comprehensions → all-empty summary). Empty HISTORY is tested.
+- Regression (serial): wear-summary **15 passed**; wears API
+  **32 passed**; wardrobe API **49 passed**; decision subset
+  **23 passed, 74 deselected**; `py_compile` clean (all wear
+  backend files + migrations); live DB at head `0014`.
+- Cross-layer: 15.5 client ↔ 15.4 contract unchanged; 15.6 has no
+  Flutter surface; no UI claims wear intelligence (only category
+  strings); insight endpoint wear-free; no new route/schema.
+- Git: staged 0, HEAD `3ae4d08`, no stash, nothing committed/pushed;
+  flutter modified = prior-batch 15, backend modified = prior-batch
+  9; the only delta vs the 15.5 baseline is the 15.6 entry + test
+  file (+untracked `.pyc` byproducts, none staged).
+
+No `DECISIONS.md` entry (no new architectural decision discovered).
+
+- Re-validated 2026-09-11 (independent 15.7 check): chain linear
+  0001→0014 verified from file headers, live `alembic heads`/`current`
+  = single head `0014`; serial reruns green — wear-summary 15 passed,
+  wears API 32 passed (twice), wardrobe API 49 passed, decision subset
+  23 passed / 74 deselected, `py_compile` clean, db_session wear block
+  11 passed, Flutter `wardrobe_wear_log` + `wardrobe_insight` 37 passed,
+  `flutter analyze` 30 issues / 0 errors with the 5 wear-touched files
+  clean. One ad-hoc `-k "concurrent or ledger or rollback or cascade"`
+  subset failed (2 failed + 1 error) but the same tests pass alone and
+  the full file passes serially twice — test-isolation artifact of
+  filtered runs (15.4B serial-rule), not a product defect. Warnings
+  triaged non-blocking (30 pre-existing Flutter lints, empty-wardrobe
+  summary gap structurally safe, `.pyc` byproducts unstaged).
+
+---
+
+## STEP 15.6 — READ-ONLY WEAR INTELLIGENCE FOUNDATION — COMPLETE (uncommitted)
+
+Task: backend read-only intelligence ONLY from persisted flat
+`wardrobe_wear_events` — frozen result type, repo protocol method, SQL
+aggregation, use-case method. NO endpoint, migration, Flutter/UI, capture
+UX, Wardrobe Intelligence v1 change, or Outfit Intelligence change. NOT
+committed per the batch git rule (14.2–15.5 stay intact, nothing
+staged/committed/pushed).
+
+Skills: none loaded (backend Python aggregation; all `.agents/skills/`
+are Dart/Flutter code-creation skills — 15.3/15.4B precedent).
+
+### Implemented (backend only, 3 modified + 1 new test file)
+
+- `app/domain/ports/repositories.py`: +frozen `WearSummary`
+  (`total_wears`, `wear_counts`, `last_worn`, `most_worn_item_ids`,
+  `least_worn_item_ids`, `unworn_item_ids`, `recently_worn_item_ids`,
+  `wears_by_category`; determinism rules in the docstring) and
+  +`WearEventRepository.get_wear_summary(*, user_id, recent_since)`.
+- `app/infrastructure/db/repositories.py`:
+  +`WearEventRepositorySQL.get_wear_summary` — ONE aggregate query:
+  owner's `wardrobe_items` LEFT JOIN flat `wardrobe_wear_events`
+  (both sides owner-scoped), `COUNT` + `MAX(worn_at)` in SQL, zero
+  event rows loaded. Join direction is the grounding: unworn items
+  appear (0/None), stale deleted-item rows match nothing and are
+  ignored, the `wardrobe_wear_groups.item_ids` ledger is never read.
+  Rankings/grouping run over ≤1 row per wardrobe item. UTC
+  normalization mirrors `_to_record`; `+_worn_rank` helper for
+  None-aware ordering.
+- `app/application/wardrobe.py`: +`GetWearSummary` (SELECT-only, no
+  commit/rollback) owning `RECENT_WEAR_WINDOW = 30 days` and the `now`
+  parameter (naive → UTC via `_normalize_worn_at`; defaults to server
+  now). `GetWardrobeInsight` untouched; no router/schema/migration
+  touched.
+- `tests/test_wardrobe_wear_summary.py` (new, 15 tests): owner
+  isolation, total/per-item counts, last-worn max, most-worn ties
+  (recency-then-id; count beats recency), least-worn with unworn,
+  least-tie earliest-then-id, inclusive 30d recent boundary + ordering,
+  category frequency (code-sorted, zero-filled), same-day multiples,
+  multi-item group per-item counting, deleted-item history ignored,
+  empty history, favorites + outfit-saves create no evidence,
+  repeat-call determinism. One self-found test bug fixed: the
+  determinism test pinned `now` (2024 fixtures age out of the 30d
+  window under server-now).
+
+### Definitions (also in code docstrings)
+
+- Recent = last wear at/after `now - 30 days` (boundary inclusive).
+- Most-worn = max-count group, `[]` when nothing worn; order
+  last-worn desc, item id asc.
+- Least-worn = min-count group over ALL current items (unworn
+  included when present; `[]` only when wardrobe empty); None sorts
+  before any instant, then last-worn asc, item id asc.
+- `unworn_item_ids` = zero-count subset, id asc.
+- Invariant: `total == sum(counts) == sum(categories)` (stale rows
+  ignored everywhere, so sums always reconcile).
+
+### Tests / regression (all serial, one pytest process at a time)
+
+- `tests/test_wardrobe_wear_summary.py`: **15 passed**.
+- `tests/test_wardrobe_wears_api.py`: **32 passed**.
+- `tests/test_wardrobe_api.py`: **49 passed** (v1 insight untouched).
+- `tests/test_decision_engine.py -k "13_12 or 13_13 or outfit"`:
+  **23 passed, 74 deselected** (Outfit untouched).
+- `py_compile` clean on all 4 touched files. No Flutter changes, so no
+  Flutter validation needed (15.5 baseline stands).
+- No `DECISIONS.md` entry: the 30d window/tie-breaks are unexposed
+  foundation conventions, not accepted product behavior (no endpoint).
+
+### Git safety
+
+- 15.6 touched exactly: the 3 backend files above + new
+  `tests/test_wardrobe_wear_summary.py` + this entry. Router/schemas/
+  migrations/Flutter show only prior-batch modifications, unchanged by
+  this step. Staged = 0 files. NOTHING committed, NOTHING pushed.
+
+---
+
+## FLUTTER DEPENDENCY RESOLUTION FIX — COMPLETE (uncommitted)
+
+Cause of the ~19,292 analyzer problems: `.dart_tool/package_config.json`
+was missing because every in-place `flutter pub get` failed on
+`test ^1.31.0` vs Flutter-pinned `test_api 0.7.10`, leaving all
+`package:` imports (including Flutter itself) unresolvable — 100%
+cascade, zero real source errors (proven by byte-identical sources
+analyzing clean where deps resolved).
+
+Fix (one line, `newproject/flutter_application_1/pubspec.yaml`):
+removed the redundant direct `test: ^1.31.0` dev-dependency. Verified
+zero files import `package:test/` or `package:test_api/` (all tests use
+`flutter_test`); no Flutter upgrade, no other dependency touched, no
+application source touched.
+
+Validation: `flutter pub get` succeeds in place;
+`.dart_tool/package_config.json` exists; `flutter analyze` drops from
+19,292 issues to **30 issues, 0 errors** (all pre-existing lint-level
+warnings/infos in untouched files, none in 15.5 files);
+`test/wardrobe_wear_log_test.dart` **17/17 pass** in place;
+`test/wardrobe_insight_test.dart` **20/20 pass** in place. Nothing
+staged, committed, or pushed.
+
+---
+
+## STEP 15.5 — FLUTTER WEAR CAPTURE CLIENT ONLY — COMPLETE (uncommitted)
+
+Task: Flutter networking/data-layer support ONLY for the existing backend
+`POST /v1/wardrobe/wears` — DTO/model, `WardrobeClient.logWear`, repository
+pass-through, focused tests. NO UI, button, auto-logging, route, screen,
+intelligence, backend, migration, or list-source-of-truth change. NOT
+committed per the batch git rule (14.2–15.4B stay intact, nothing
+staged/committed/pushed).
+
+Skills used: `flutter-use-http-package` (POST/jsonEncode/status handling —
+project null-on-failure convention kept over the skill's throw guidance),
+`dart-add-unit-test` (test file/group/test/expect structure, `flutter test`
+runner). Both read first per workflow.
+
+### Implemented (`newproject/flutter_application_1/`, data layer only)
+- `lib/features/wardrobe/data/wardrobe_api_models.dart`
+  (+`WearEventLogRequest` with `wornAt` omitted when null and UTC
+  normalization when present, +`WearEvent`, +`WearEventLogResponse` with
+  `created` distinguishing fresh log vs replay — mirrors the backend
+  15.4/15.4B shapes exactly; UUIDs are strings passed verbatim).
+- `lib/features/wardrobe/data/wardrobe_client.dart` (+`logWear`:
+  existing baseUrl/dev-token/timeout/`Uri.parse`/jsonEncode conventions;
+  fresh `Idempotency-Key` per action with explicit-key override for retry
+  stability (saveOutfit precedent); 201 → parsed response, 404/409/422/
+  401/5xx/malformed/network → null, never fake success, no mock
+  fallback; +`newWearIdempotencyKey()` v4-style via `Random.secure`,
+  deliberately duplicated from the assistant feature rather than imported
+  across the feature-first boundary, no new dependency).
+- `lib/features/wardrobe/data/wardrobe_repository.dart` (+`logWear`
+  abstract + pass-through impl, consistent with the single-abstraction
+  pattern; null means unlogged, safe to retry with the same key).
+- `test/wardrobe_insight_test.dart` (+2 `logWear` stubs on the existing
+  insight fakes — the abstract addition otherwise broke compilation of
+  that file; `UnimplementedError` per its own out-of-scope convention).
+- `test/wardrobe_wear_log_test.dart` (new, 17 tests: path/method/headers/
+  verbatim-UUID body, wornAt omitted-vs-sent, fresh-vs-explicit keys,
+  201 create vs replay parsing, 404/409/422/401/500/network/malformed →
+  null, repository delegation + null-passthrough).
+
+### Tests / analyze
+- In-place `flutter test` still blocked by the known pre-existing
+  `test ^1.31.0` vs Flutter-pinned `test_api 0.7.10` conflict (pubspec
+  untouched). Verified in a Temp scratch copy with ONLY that constraint
+  relaxed (all lib/test files SHA256-verified byte-identical to the repo):
+  `wardrobe_wear_log_test.dart` **17/17 pass**;
+  `wardrobe_insight_test.dart` **20/20 pass** (after the fake stubs);
+  `wardrobe_screen_test.dart` 12 pass / 1 fail = the known pre-existing
+  item-tap navigation failure (proven on pristine HEAD in 14.6, untouched
+  file).
+- `flutter analyze` on all 5 touched/related files: **No issues found**
+  (2 `unnecessary_cast` warnings in the new test found and fixed first).
+- Scratch residue subject to the known Windows reparse-point delete quirk
+  (outside the repo, harmless); repo contains no scratch artifacts.
+
+### Git safety
+- Modified: the 3 wardrobe data-layer files + `wardrobe_insight_test.dart`
+  (stubs) + this entry; new untracked `test/wardrobe_wear_log_test.dart`.
+  No UI/backend/intelligence/list-behavior file touched; no backend file
+  touched in this step. Staged = 0 files. NOTHING committed, NOTHING
+  pushed.
+
+---
+
+## STEP 15.4B — FIX WEAR IDEMPOTENCY WITH A DURABLE ACTION LEDGER — COMPLETE (uncommitted)
+
+Task: implement ONLY the 15.4A audit verdict (NEEDS_CHANGE) — one POST is
+one logical action, so give it a durable home: migration 0014 ledger,
+ledger-first `LogWearEvents`, race-safe replay/409, concurrency proofs.
+No Flutter, no intelligence, no Wardrobe/Outfit Intelligence change, no
+response-shape change, no source/context, no new endpoints. NOT committed
+per the batch git rule (14.2–15.4 stay intact, nothing staged/committed/
+pushed).
+
+### VERDICT: PASS
+
+### Migration 0014
+- New `backend/alembic/versions/0014_wardrobe_wear_groups.py` (`0014` over
+  `0013`; chain verified linear, single head `0014`; offline `--sql`
+  reviewed). Additive: `wardrobe_wear_groups(id UUID PK, user_id → users
+  CASCADE, idempotency_key TEXT, item_ids JSONB canonical payload,
+  worn_at TIMESTAMPTZ, created_at now())` + `UNIQUE(user_id,
+  idempotency_key)` (its btree is the only index — user_id-leading, no
+  extras per convention). Downgrade drops the table only. No backfill
+  (endpoints unreleased → no production rows; history never manufactured).
+  0013 per-row UNIQUE kept intact as defense-in-depth; `wardrobe_item_id`
+  still has NO FK; events schema untouched.
+
+### Idempotency
+- Ledger-first flow in `LogWearEvents` (now takes `groups` repo, wired in
+  the router): validate → canonicalize → normalize → ownership-check (404)
+  → INSERT ledger → on success write N event rows with `group.id` as
+  `wear_group_id`, ONE commit. On ledger `IntegrityError`: rollback (clears
+  the failed transaction; PG has already held the loser behind the
+  winner's outcome) → re-read durable group → same canonical payload
+  (items + supplied instant only) replays the group's rows
+  (`created=false`), else 409. Serial contract unchanged (all 28 prior
+  wear tests pass unmodified in behavior).
+- `_same_wear_payload` retired (compare now lives on the ledger record);
+  `_replay_or_conflict` loads only the group's own rows. Stale
+  "UNIQUE arbitrates" docstring corrected. Public API shapes unchanged;
+  GET still reads flat rows.
+
+### Concurrency
+- Same-key writers serialize on the ledger UNIQUE: identical concurrent
+  pair → exactly one group + N rows, one `created=true`, one replay.
+  Disjoint concurrent pair (`{A,B}` vs `{C,D}`) → exactly one group wins,
+  loser 409s, key never spans two groups (the 15.4A fusion hole, closed).
+  Mid-batch failure rolls back ledger AND rows (extended rollback test
+  asserts both counts zero). No savepoints needed: all pre-ledger work is
+  reads, so full rollback + re-read is safe; unrelated IntegrityErrors
+  still surface as `DATABASE_FAILURE`, never swallowed as replay.
+
+### Wear events
+- Flat `wardrobe_wear_events` rows unchanged (0012/0013 intact); UTC
+  normalization + canonical ordering kept → byte-identical replay holds.
+
+### Tests
+- `tests/test_wardrobe_wears_api.py`: **32 passed** (28 existing + 4 new:
+  ledger-group creation/shape, concurrent-identical one-group proof,
+  concurrent-disjoint no-fusion proof, user-cascade groups+rows; rollback
+  test extended to assert zero ledger rows). Concurrency tests use two
+  threads + barrier with separate sessions and outcome-based (not timing)
+  assertions — deterministic under every interleave.
+- `tests/test_db_session.py` 15.4B block (+5: ledger columns/types,
+  UNIQUE scope, FK CASCADE, zero backfill, 0014 round-trip preserving the
+  events table) + all 15.3 foundation tests: **18 passed** in the focused
+  run (6 deselected = pre-existing dirty-DB seed tests, untouched).
+- `tests/test_wardrobe_api.py`: **49 passed**. Decision-engine subset:
+  **23 passed**. `py_compile` clean on all touched files.
+
+### Regression
+- Wardrobe Intelligence v1 + Outfit Intelligence untouched and green
+  (above). Saved-look surface untouched (no shared code changed).
+
+### Decision record
+- `DECISIONS.md` DEC-011 (accepted): one POST = one logical action; flat
+  rows + group id; ledger owns idempotency; per-row UNIQUE stays as
+  defense-in-depth; canonical payload defines replay equivalence.
+
+### Files changed
+- `backend/alembic/versions/0014_wardrobe_wear_groups.py` (new)
+- `backend/app/infrastructure/db/models.py` (+`WardrobeWearGroups`)
+- `backend/app/domain/ports/repositories.py` (+`WearGroupRecord`,
+  +`WearGroupRepository`)
+- `backend/app/infrastructure/db/repositories.py`
+  (+`WearGroupRepositorySQL`)
+- `backend/app/application/wardrobe.py` (ledger-first `LogWearEvents`)
+- `backend/app/api/routers/wardrobe.py` (wire groups repo)
+- `backend/tests/conftest.py` (TRUNCATE += groups)
+- `backend/tests/test_wardrobe_wears_api.py` (+helpers, +4 tests, +2
+  `groups=` wirings, +ledger rollback assertion)
+- `backend/tests/test_db_session.py` (+15.4B block)
+- `DECISIONS.md` (DEC-011)
+- `CURRENT_STATE.md` (this entry)
+
+### Git
+- Nothing staged (`diff --cached` empty at last check), nothing committed,
+  nothing pushed. 14.2–15.4 work preserved; only the files above added/
+  modified; scratch `test_scratch_debug.py` from the 15.4 investigation
+  already removed (only its `.pyc` byproduct may linger, unstaged).
+- No skills loaded (Python backend; all `.agents/skills/` are
+  Dart/Flutter code-creation skills — established precedent).
+
+### Known unrelated failures
+- `test_db_session.py` knowledge-seed ×2 + `test_saved_looks.py` ×5
+  (phantom `sourceRunId` FK) remain the documented pre-existing dirty-DB
+  baseline failures; untouched, not chased. Suite runs in this step were
+  strictly serial (one pytest process at a time) after the 15.4 finding
+  that parallel runs race TRUNCATE against the shared test DB.
+
+### READY FOR STEP 15.5: YES (Flutter capture client only; capture-UX entry
+point remains the open product decision — do not invent it).
+
+---
+
+## STEP 15.3 — WARDROBE WEAR EVENT FOUNDATION IMPLEMENTATION — COMPLETE (uncommitted)
+
+Task: implement ONLY the persisted wear-event foundation approved in 15.2
+(flat item-level rows + `wear_group_id`): migration 0012, SQLAlchemy model,
+domain port contracts, test-fixture cleanup. NO endpoints, use cases,
+schemas/routes, Flutter, intelligence, insight change, Outfit change,
+backfill, or speculative fields. NOT committed per the batch git rule
+(14.2–15.2 stay intact, nothing staged/committed/pushed).
+
+### VERDICT: PASS
+
+### Migration created
+- New `backend/alembic/versions/0012_wardrobe_wear_events.py`
+  (`revision = "0012"`, `down_revision = "0011"`; chain stays linear —
+  verified all `revision`/`down_revision` links 0001→0012). Follows the
+  0006/0001 DDL style (`sa.Uuid()`, inline FKs, `DateTime(timezone=True)` +
+  `now()` defaults, `op.create_index` after `create_table`).
+- Offline DDL verified (`alembic upgrade 0011:head --sql`): single
+  `FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE`, UNIQUE,
+  both indexes; `wardrobe_item_id` carries no FK (plus a column COMMENT
+  recording the No-FK-to-trigger rationale, same `comment=` precedent as
+  the saved-look `idempotency_key` in 0001).
+
+### Final schema (`wardrobe_wear_events`)
+`id` UUID PK `gen_random_uuid()`; `user_id` UUID NOT NULL → users CASCADE;
+`wardrobe_item_id` UUID NOT NULL, NO FK; `worn_at` TIMESTAMPTZ NOT NULL
+DEFAULT now(); `wear_group_id` UUID NOT NULL; `idempotency_key` TEXT NOT
+NULL; `created_at` TIMESTAMPTZ NOT NULL DEFAULT now(). No `source`/
+`context`, no `updated_at` (append-only immutable, R31-style), no backfill.
+
+### FK/deletion behavior (verified live, not just declared)
+- `pg_constraint` shows exactly ONE FK on the table
+  (`user_id → users`, `CASCADE`); `wardrobe_item_id` appears in no FK def.
+- Behavioral proof in-test: a row referencing a random nonexistent item
+  UUID inserts fine (no FK to violate); `DELETE FROM users` erases that
+  user's rows (composition CASCADE). Item deletion therefore cannot break
+  wear history; reads must ignore stale UUIDs (15.4).
+
+### Indexes/constraints
+- `uq_wardrobe_wear_events_idempotency` on `(user_id, idempotency_key)`
+  (mirrors `uq_saved_looks_idempotency`); proven: same key + same owner →
+  IntegrityError, same key + different owner → OK.
+- `ix_wardrobe_wear_events_user_id_wardrobe_item_id_worn_at` (56 chars,
+  under the 63-byte PG identifier limit) and
+  `ix_wardrobe_wear_events_user_id_worn_at`; both confirmed in `pg_indexes`.
+- Downgrade drops both indexes then the table; round-trip tested
+  (0011 → table gone → head → table back, empty).
+
+### SQLAlchemy model
+- `WardrobeWearEvents` appended in `infrastructure/db/models.py`
+  (after `WardrobeItems`; module table-list docstring updated):
+  `UniqueConstraint` + both `Index` in `__table_args__`, plain-`Uuid`
+  `wardrobe_item_id` with a No-FK-to-trigger code comment, no ORM
+  relationships (none required; no FK exists to map).
+
+### Domain port changes
+- `WearEventRecord` frozen dataclass (id, user_id, wardrobe_item_id,
+  worn_at, wear_group_id, idempotency_key, created_at) beside the other
+  records in `domain/ports/repositories.py`.
+- `WearEventRepository` Protocol: `log()` (one row per call; the 15.4 use
+  case fans out multi-item POSTs sharing one group), `get_by_idempotency`,
+  `list_for_user` (page/page_size + optional `item_id`, per approved GET
+  design), `commit()`/`rollback()`. No SQL implementation yet (15.4).
+
+### Test fixture changes
+- `tests/conftest.py` TRUNCATE gains `wardrobe_wear_events` (production
+  seeds untouched).
+
+### Tests run/results
+- New `test_db_session.py` STEP 15.3 block (6 tests, in the established
+  migration/schema home): table+columns/types, idempotency UNIQUE scope,
+  both indexes, CASCADE + NO-FK (constraint-introspection + behavioral),
+  zero backfill, 0012 downgrade/upgrade round-trip — **6/6 pass**.
+  One self-found defect fixed during the step: the new idempotency test
+  called `_signal_user` twice with its fixed subject (own bug, not prod
+  code) → helper gained an optional `subject` parameter (default keeps all
+  existing callers green).
+- `pytest tests/test_wardrobe_api.py`: **49 passed** (v1 insight untouched).
+- `pytest tests/test_decision_engine.py -k "13_12 or 13_13 or outfit"`:
+  **23 passed** (Outfit untouched).
+- `py_compile` clean on all touched files (pyflakes not installed; no new
+  dependency added for the check).
+
+### Wardrobe Intelligence v1 regression result
+Unchanged and green (49/49 above); `GET /v1/wardrobe/insight` code,
+contract, and tests untouched by this step.
+
+### Any unexpected findings
+- `test_db_session.py` knowledge-seed tests
+  (`test_knowledge_seed_looks_present`,
+  `test_knowledge_seed_run_and_signal_types`) fail in this environment
+  (env PG holds 8 looks + `grooming` run_type from older migration content
+  vs the tests' 4-look/`hairstyle`-only expectations). PRE-EXISTING: the
+  documented "db_session seeds ×2" dirty-DB failures from the 14.2/14.7
+  baseline (same 12-failure set); unrelated to 0012, not touched.
+- No migration-history repair needed; chain verified linear, head = 0012.
+
+### Files changed in 15.3 (uncommitted, nothing staged)
+- `backend/alembic/versions/0012_wardrobe_wear_events.py` (new)
+- `backend/app/infrastructure/db/models.py` (+`WardrobeWearEvents`)
+- `backend/app/domain/ports/repositories.py` (+`WearEventRecord`,
+  +`WearEventRepository`)
+- `backend/tests/conftest.py` (TRUNCATE += table)
+- `backend/tests/test_db_session.py` (+6 foundation tests, +`subject` param)
+- `CURRENT_STATE.md` (this entry)
+
+### Git safety
+- 14.2–15.2 work preserved (`diff --name-only` = prior 12 batch files +
+  the 3 newly-touched 15.3 files + new 0012; no other files changed);
+  untracked = new 0012 + `wardrobe_insight_test.dart` (14.5/14.6) + pytest
+  `__pycache__`/`.pyc` byproducts. Staged = 0 files (`diff --cached`
+  empty). NOTHING committed, NOTHING pushed.
+- No skills loaded (Python backend schema work; all `.agents/skills/` are
+  Dart/Flutter code-creation skills with no trigger — 14.7/15.1/15.2
+  precedent).
+
+---
+
+## STEP 15.2 — WARDROBE WEAR EVENT FOUNDATION DESIGN — COMPLETE (uncommitted)
+
+Task: design the smallest reliable persisted foundation for future Wardrobe
+Wear/Frequency Intelligence, grounded in the actual current architecture.
+Design + architecture-decision only: no code, no migration, no endpoint, no
+Flutter UI, no wear insights, no speculative tests, no Outfit Intelligence
+change, no Wardrobe Intelligence v1 behavior change. NOT committed per the
+batch git rule (14.2–14.7 + 15.1 stay intact, nothing staged/committed/pushed).
+
+This is a RECOMMENDATION, not an accepted decision: no `DECISIONS.md` entry
+(owner acceptance required first, per AGENTS.md).
+
+### VERDICT: PASS (design complete, concrete, and grounded; nothing to implement yet)
+
+### Existing architecture findings (verified in current tree)
+- Models (`infrastructure/db/models.py:162-327`): UUID PKs via
+  `gen_random_uuid()`; `user_id → users.id CASCADE` on every user-owned
+  table; vocab FKs `RESTRICT`; optional cross-links (`look_id`,
+  `source_run_id`) `SET NULL`; all timestamps `timestamptz` with `now()`
+  defaults; `saved_looks` has `UNIQUE(user_id, idempotency_key)` +
+  `ix_saved_looks_user_id_created_at`; `learning_signals` has
+  `ix_learning_signals_user_id_occurred_at` (+ signal_type composite, 0004).
+- Decisive rule — `docs/database/RELATIONSHIP_CONSTRAINTS.md:265`
+  No-FK-to-trigger (§3.4): history rows must NOT hard-FK their triggering
+  current-state entity ("deleting current state never deletes history";
+  CASCADE would destroy history, RESTRICT would block item deletion — both
+  wrong). Wear events are history; `wardrobe_item_id` must be a bare UUID
+  resolved owner-scoped at read time (precedent: `get_outfit_coverage`
+  ignores stale/deleted refs, `repositories.py:310-360`).
+- Complementary rules: CASCADE is ONLY user composition incl. full-erasure
+  on account delete (no anonymized kept signals, TRANSACTION_BOUNDARIES
+  §account-deletion); JSONB is never a query axis, no GIN, indexes are
+  user_id-leading btree only (JSONB_STRATEGY §6; 14 btree indexes).
+- Idempotency convention (UC-15/TRX-3, `application/saved_looks.py:112-191`,
+  `routers/looks.py:46-72`): required `Idempotency-Key` header (422 when
+  missing) + `UNIQUE(user_id, idempotency_key)` + canonical-payload compare
+  → replay returns original (`created=False`, still 201), changed payload →
+  409 CONFLICT. Outfit `selectedItemIds` are canonicalized (sorted unique)
+  BEFORE the idempotency check. Unknown/foreign item IDs → 404 NOT_FOUND
+  (OW-1 404-not-403); malformed IDs → 422 `VALIDATION_ERROR` field_errors.
+- Layering: frozen dataclass records + Protocol ports with
+  `commit()`/`rollback()` (`domain/ports/repositories.py`); business rules
+  in use cases (BA-7); thin routers via `Depends(get_current_user_id)`
+  + `_to_wire`; frozen `{error:{code,message,details}}` taxonomy
+  (`api/errors.py`); `saved_looks` rows immutable once written (R31).
+- Migrations: linear chain 0001→0011 (0007 never existed; 0008 follows
+  0006); head = 0011, so the wear table would be `0012`. DDL exemplars:
+  0006 (table + `ix_wardrobe_items_user_id`), 0004 (composite index).
+- Tests: `tests/conftest.py:23-26` TRUNCATE list must gain the new table
+  when tests land; DB tests skip cleanly without PostgreSQL.
+
+### Q1 — Recommended event granularity: C (hybrid as flat rows + group ID)
+One row per item per wear, plus a server-generated `wear_group_id` UUID
+shared by all rows of one logging action. A single-item wear is a group of
+one — uniform code path, no second table.
+- Why not A-only: pure item rows cannot answer repeated-outfit usage.
+- Why not B-only (one row + item array): item UUIDs inside JSONB would be a
+  query axis, violating JSONB_STRATEGY §6 (no GIN; JSONB is payload-only).
+  Per-item COUNT/MAX and category JOINs need relational rows. The
+  saved-look `selectedItemIds` snapshot precedent is payload-only and
+  unqueryable — must NOT be copied for the queryable axis.
+- Why not header+lines (two tables): doubles migration/repo/use-case
+  surface for zero additional query power at v1 scale (violates smallest-
+  safe-change / no-empty-layers rules).
+- Storage: rows = wears × items; trivial. API: POST fans out N item IDs
+  into N rows sharing one group; queries GROUP BY item or group.
+
+### Q2 — Recommended data model (minimum; migration 0012, NOT written yet)
+`wardrobe_wear_events`: `id` UUID PK (`gen_random_uuid()`); `user_id` UUID
+`FK users.id CASCADE` NOT NULL; `wardrobe_item_id` UUID NOT NULL **with no
+FK** (No-FK-to-trigger rule); `worn_at` timestamptz NOT NULL (the domain
+fact); `wear_group_id` UUID NOT NULL, no FK (outfit correlation);
+`idempotency_key` TEXT NOT NULL + `UNIQUE(user_id, idempotency_key)`;
+`created_at` timestamptz NOT NULL `server_default now()`.
+- UUID required: yes for `id` (PR-3 convention, stable row identity for
+  pagination/tests) and `wear_group_id` (correlation without a parent
+  table); `wardrobe_item_id` is UUID-typed to match `wardrobe_items.id`.
+- `source`/`context`: OMITTED from the foundation — no second capture path
+  exists, and intelligence queries never need it. Additive later if a new
+  capture path appears (no speculative columns).
+- No parent event table (see Q1). No `updated_at`: rows are append-only
+  immutable like `saved_looks` (R31) — no UPDATE endpoint.
+- `created_at` vs `worn_at`: meaningfully different — `worn_at` drives
+  intelligence (client-supplied, backdatable, e.g. "yesterday");
+  `created_at` drives audit/pagination determinism (server-set).
+  Timezone: timestamptz throughout, ISO-8601 UTC wire (API-19).
+- Indexes (user_id-leading btree only): `ix_wwear_user_item_worn
+  (user_id, wardrobe_item_id, worn_at)` for per-item count/last-worn;
+  `ix_wwear_user_worn (user_id, worn_at)` for history pagination.
+
+### Q3 — Duplicate/idempotency: mirror UC-15 exactly
+Required `Idempotency-Key` header (missing → 422, same field as saves);
+`UNIQUE(user_id, idempotency_key)`; canonicalize payload (sorted unique
+item IDs + `worn_at`) BEFORE the check; replay same key + same payload →
+return original group (`created=false`, still 201); same key + different
+payload → 409. Each user logging action uses a fresh client-generated key,
+so legitimate repeated wears (same item, same day, even same minute) are
+always allowed — deliberately NO `UNIQUE(item, worn_at)` constraint, which
+would block real rewears and backdated corrections.
+
+### Q4 — FK/deletion: NO FK on item ref; CASCADE on user
+- `wardrobe_item_id`: none of A/B/C — per the No-FK-to-trigger rule it is a
+  bare UUID with no FK. Item delete (W-5) stays a single-table transaction;
+  wear rows survive and stale refs are ignored at read time via
+  owner-scoped resolution (exact `get_outfit_coverage` precedent). CASCADE
+  would destroy history; RESTRICT would block wardrobe CRUD; SET NULL needs
+  an FK and gains nothing over ignore-at-read.
+- `user_id`: CASCADE — account erasure must remove wear history completely
+  (composition rule; no anonymized kept signals).
+
+### Q5 — Ownership/security
+Every repo op takes `user_id` from `Depends(get_current_user_id)`; all
+WHEREs include `user_id`; each `itemIds` entry is validated by owner-scoped
+`get_by_id` (unknown/foreign/malformed → 404/422, never 403, never leaking
+existence — OW-1); idempotency lookup scoped to `(user_id, key)` so
+cross-user replay cannot collide or leak; list/get scoped to owner.
+
+### Q6 — Proposed API (minimal; NOT implemented)
+- `POST /v1/wardrobe/wears` (plural mirrors `/items`): body
+  `{itemIds: UUID[1..10], wornAt?: ISO-8601}` + required `Idempotency-Key`
+  header. Dupes inside `itemIds` canonicalized (save precedent), not
+  rejected. `wornAt` defaults to now; future timestamps → 422. Cap 10
+  bounds mass-inserts (outfit spans ≤5 category slots + margin; exact cap
+  is a 15.4 detail). → 201 `{wears: [{id, wardrobeItemId, wornAt,
+  wearGroupId}], wearGroupId, created: bool}`; replay → same body,
+  `created=false`; key conflict → 409.
+- `GET /v1/wardrobe/wears?item_id?&page&page_size` (defaults/caps mirror
+  existing list endpoints): owner-scoped, `worn_at DESC, id ASC`
+  determinism, offset envelope `{items, page, page_size, total}` mirroring
+  `ListEnvelope`/`SavedLookList`. Empty history → empty envelope, never
+  204 (204 is insight-only). No aggregation endpoint yet — 15.6 owns that.
+
+### Q7 — Future intelligence enabled (all need item-level rows; none built now)
+Item rows enable: total wear count (COUNT), last worn (MAX), recently worn
+(ORDER BY worn_at DESC), most/least worn (ORDER BY COUNT), unworn
+(`wardrobe_items` LEFT JOIN wears … IS NULL), category frequency (JOIN
+items → GROUP BY category). `wear_group_id` additionally enables repeated
+outfit usage (GROUP BY group, exact item-set match) and rotation/balance
+(distribution of per-item counts). An outfit-array-only design would enable
+NONE of the per-item signals under the JSONB rule.
+
+### Q8 — Privacy/retention (minimum)
+Owner-scoped everything; account delete cascade-erases (no retained
+history); no token/image/snapshot logging (IDs only in logs); append-only
+(no UPDATE; no per-row DELETE at foundation — reconsider only on a real
+retention demand); no auto-expiry (history IS the product; user-driven
+deletion via item/account removal suffices at v1).
+
+### Q9 — Migration impact
+New additive migration `0012` (head is 0011): CREATE TABLE per Q2 + 2
+indexes + idempotency UNIQUE. Zero backfill — NO valid source exists;
+manufacturing events from saves/favorites/signals is explicitly forbidden
+(15.1 verdict). `tests/conftest.py` TRUNCATE gains the table when tests
+land. Offline-verifiable via `alembic upgrade --sql head`.
+
+### Q10 — Implementation plan (adjusted sequence)
+- 15.3 database/model foundation: migration 0012 + `WardrobeWearEvents`
+  model + `WearEventRecord` dataclass + port ops (+ conftest TRUNCATE);
+  offline DDL verify; no endpoint.
+- 15.4 repository/application/API: `LogWearEvent` + `ListWearEvents` use
+  cases, SQL repo, POST/GET routes + schemas, backend tests per plan below.
+- 15.5 Flutter event capture: client/models/repo only — capture UX entry
+  point is an open PRODUCT decision (where "I wore this" lives); do NOT
+  invent it here. No insight UI change.
+- 15.6 wear intelligence computation: read-only aggregates; v1 insight
+  stays untouched until this step designs its extension (or a new route).
+- 15.7 final cross-layer regression: wardrobe + outfit subsets + new wear
+  tests, Flutter suite, git safety.
+
+### Required future tests (none added now — no code changed)
+Ownership (foreign items → 404, rows invisible cross-user); idempotent
+replay (same key+payload → one group; same key+changed payload → 409);
+deletion (item delete → rows ignored in reads; user delete → cascade);
+malformed UUID → 422; cross-user access 404-not-403; multi-wear same item
+same day distinct keys (count = N); `worn_at` ordering + id-tiebreak
+determinism; empty history → empty envelope; pagination bounds + total;
+aggregation correctness (counts, last-worn, unworn LEFT JOIN, category
+frequency, group item-set equality for repeated outfits).
+
+### Files changed in 15.2 (uncommitted, nothing staged)
+- `CURRENT_STATE.md` (this entry only). Zero production/test/migration code.
+
+### Git safety
+- 14.2–14.7 + 15.1 work preserved; no unrelated files changed; no
+  `__pycache__`/`.pyc` staged; nothing staged; nothing committed; nothing
+  pushed. No skills loaded (design-only; all `.agents/skills/` are
+  Dart/Flutter code-creation skills with no trigger — same precedent as 14.7).
+
+---
+
+## STEP 15.1 — WARDROBE WEAR/FREQUENCY INTELLIGENCE FOUNDATION AUDIT — COMPLETE (uncommitted)
+
+Task: audit the current codebase for any real persisted wear-event source
+before any wear/frequency/recency intelligence is built. Audit/foundation
+only; no Outfit Intelligence change, no Wardrobe Intelligence v1 endpoint
+change, no migrations, no speculative tests. NOT committed per the batch
+git rule (14.2–14.7 stay intact, nothing staged/committed/pushed).
+
+### VERDICT: FAIL (no reliable wear-event source exists; wear intelligence is NOT currently possible)
+
+There is not enough real persisted data to safely support
+wear/frequency/recency intelligence. No `WardrobeWearEvent` concept, table,
+column, endpoint, signal type, Flutter model, local-storage field, or test
+exists anywhere in the current tree. The contract docs already record this:
+`docs/api/FEEDBACK_LEARNING_API.md:60-61,223` — WEAR (mark as worn) is
+NOT supported / NOT defined (no action, concept, signal type, or endpoint).
+
+### AUDIT 1 — Real wear-data search: NONE FOUND
+- Backend models (`app/infrastructure/db/models.py`): 11 tables only —
+  users, user_state, looks, run_types, signal_types, analysis_runs,
+  saved_looks, learning_signals, wardrobe_categories, colors, materials,
+  wardrobe_items. No wear table, no `worn_at`/`last_worn`/`wear_count`/
+  `wear_event` column (regex search across `backend/`: zero hits).
+- Migrations `0001`–`0011`: vocabulary + `wardrobe_items` only; no wear
+  migration. `today_look_records` / `user_events` / `activity_days` /
+  `feedback_events` / `recommendation_history` appear ONLY in `docs/`
+  as conditional P1/P3 decisions — zero hits in `backend/` code.
+- `wardrobe_items` columns: id, user_id, name, category/color/material FKs,
+  is_favorite, image_ref, created_at, updated_at. No wear fields.
+- Flutter (`newproject/flutter_application_1/lib`): word-boundary search for
+  worn/wear/last_worn/most-worn/least-worn/rotation/unworn returns only
+  "what should I wear?" prompts, "Daily wear" copy, and the use-case
+  docstring "never wear" — no wear model, field, or event. `WardrobeItem`
+  DTO mirrors the backend (id/name/category/color/material/isFavorite/
+  imageRef/createdAt/updatedAt). `LocalStore` persists one `UserModel` blob
+  (wardrobe entries with local "1"–"24" IDs + saved-look title strings +
+  derived styleScore); no per-item timestamps, wear counts, calendar, or
+  history. `recordSignal`/`suggestion_opened`/`assistant_navigation` are
+  client-local only, never persisted as wardrobe usage.
+- Explicitly excluded per instructions (not wear evidence): saved looks,
+  favorites, created_at/updated_at, generated outfit recommendations.
+
+### AUDIT 2 — Data-ownership trace for every candidate signal
+- `saved_looks` outfit `snapshot.selectedItemIds` (persisted, user-scoped,
+  references wardrobe UUIDs, stale/deleted IDs ignored via owner-scoped
+  resolution + set dedup): REJECTED as wear — it records save/curation
+  intent ("presence in a saved look only — never wear",
+  `application/wardrobe.py:272-287`). A saved look is NOT proof of wearing;
+  duplicates do not inflate; other-user saves excluded.
+- `learning_signals.outfit_selected` (persisted, user-scoped, `occurred_at`
+  reliable): REJECTED as wear — context is
+  `{source_context:"outfit", run_id, run_type:"outfit"}`
+  (`application/analysis.py:297-315`); it marks completed outfit-run
+  generation lifecycle, carries ZERO wardrobe item UUIDs, and is generated
+  incidentally (not an intentional "I wore this"). Cannot support
+  count/frequency/recency per item.
+- `learning_signals.look_saved` / `analysis_updated` (persisted,
+  user-scoped): REJECTED — contexts carry `{source_context, look_id}` /
+  `{run_id, run_type}` only; no wardrobe item refs; incidental.
+- `analysis_runs` results (persisted, user-scoped): REJECTED — stored
+  snapshots are generated recommendations (hairstyle/outfit), not worn
+  outfits; outfit run context carries no item IDs.
+- `OutfitIntelligence.selectedItemIds` (backend rec + Flutter
+  `assistant/data/models.dart:75-88`): REJECTED — in-memory recommendation
+  output; persisted ONLY if the user saves (then it becomes the
+  save-intent snapshot above, still not wear).
+- `wardrobe_items.is_favorite` / `created_at` / `updated_at`: REJECTED —
+  favorites are preference, timestamps are lifecycle; instructions forbid
+  inferring recency from them.
+- `today_look_records` (docs-only P1 conditional): NOT BUILT — and the docs
+  state it would be a daily-look trace, not a wear event
+  (`FEEDBACK_LEARNING_API.md:223`).
+
+### AUDIT 3 — Minimum future foundation (NOT implemented)
+If wear intelligence is ever wanted, the minimum is an explicit persisted
+event, e.g. `WardrobeWearEvent {id, user_id, wardrobe_item_id, worn_at,
+source/context, created_at}`. Open decisions recorded for the future step
+(no code, no migration, no DECISIONS.md entry — not an accepted decision):
+- Item-level events are the sufficient base; outfit-level events (one event
+  → many items) are a modeling choice for Step 15.2 to decide (single-row-
+  per-item vs header+lines affects dedup/rotation queries).
+- Duplicate submissions: needs an idempotency rule (same item + same day =
+  one event vs explicit multi-wear) — undecided.
+- Ownership/FK: `user_id` CASCADE (OW-1, like wardrobe_items);
+  `wardrobe_item_id` → RESTRICT-or-SET-NULL trade-off: CASCADE destroys
+  history on delete, SET NULL preserves the event but orphans the item —
+  Step 15.2 must choose explicitly (learning_signals precedent intentionally
+  has NO FK to the triggering entity so history survives deletes).
+- Deletion semantics: cascade vs preserve-history — undecided (see above).
+- Future API surface (when approved): explicit POST wear-event + GET
+  wear-aware insight; never infer from saves/favorites/timestamps.
+- Privacy/retention: appearance/wear data is privacy-sensitive (per
+  AGENTS.md); needs owner-scoping, no token/image logging, and a retention
+  rule (wear history grows unboundedly — unlike the read-only insight).
+- Once events exist, derivable safely: per-item count, most/least worn,
+  last worn, recently worn, unworn (covered-but-never-worn), category
+  frequency, rotation/balance — all grounded in event rows.
+
+### AUDIT 4 — Safe future intelligence classification (grounded ONLY in actual data)
+- SUPPORTED NOW: none for wear. Current v1 stays at inventory/coverage/
+  favorites/saved-look-presence only.
+- SAFE AFTER FOUNDATION (require persisted wear events): total wear count,
+  most worn items, least worn items, last worn, recently worn, unworn
+  items, category wear frequency, repeated outfit usage (only if outfit-
+  level events exist), rotation/balance.
+- NOT SUPPORTED (explicitly rejected): every signal above UNTIL the
+  foundation lands. Additionally rejected as ungroundable from current
+  data: inferring wear from saved looks, favorites, created_at/updated_at,
+  generated (unsaved) recommendations, `outfit_selected` run signals, or
+  Flutter-local styleScore/signal traces.
+
+### AUDIT 5 — Current GET /v1/wardrobe/insight safety: PASS (no change)
+- Verified in current code (`routers/wardrobe.py:226-256`,
+  `application/wardrobe.py:272-357`): titles are only "Wardrobe Health" /
+  "Wardrobe Gaps"; sentences contain ONLY total, covered/missing
+  categories, favorite count, and the saved-look presence suffix
+  ("Saved looks include items from M of your N covered categories..." /
+  "Not represented in saved looks: ..."). Zero occurrences of
+  wear/worn/frequen*/recen*/rotation/popular/usage/often/most/least in the
+  insight path (the single "never wear" hit is the guard docstring).
+- Flutter (`wardrobe_api_models.dart:332-379`, `wardrobe_repository.dart`,
+  `wardrobe_client.dart`) renders title/insight verbatim; no wear words
+  added. The static `WardrobeInsightData.mock` text ("balanced across
+  seasons... 8+ combinations") is never rendered in production (deliberate
+  no-mock-fallback; isolated card test only) — not a live unsupported
+  claim, left untouched per minimal-change rule.
+- No fix needed; endpoint left unchanged.
+
+### AUDIT 6 — Tests
+- `pytest tests/test_wardrobe_api.py`: **49 passed** (14.7 baseline intact).
+- `pytest tests/test_decision_engine.py -k "13_12 or 13_13 or outfit"`:
+  **23 passed, 74 deselected** — Outfit Intelligence untouched and green.
+- No code changed → no speculative tests created (per instructions). No
+  genuine defect found → no regression test added.
+
+### Files changed in 15.1 (uncommitted, nothing staged)
+- `CURRENT_STATE.md` (this entry only). Zero production/test code changes.
+
+### Git safety
+- `git diff --name-only`: the same 12 batch files as 14.7 (no new files);
+  untracked = `wardrobe_insight_test.dart` (14.5/14.6) + pytest
+  `__pycache__`/`.pyc` byproducts. Staged = 0 files (`git diff --cached`
+  empty). NOTHING committed, NOTHING pushed. 14.2–14.7 work preserved.
+- No skills applied (audit/documentation only; all `.agents/skills/` are
+  Dart/Flutter code-creation skills with no trigger — none loaded).
+
+---
+
+## STEP 14.7 — WARDROBE INTELLIGENCE V1 FINAL CROSS-LAYER REGRESSION — COMPLETE (uncommitted)
+
+Task: validate the complete Wardrobe Intelligence v1 path end-to-end
+(wardrobe_items → summary → saved-look coverage → GetWardrobeInsight →
+GET /v1/wardrobe/insight → WardrobeClient → WardrobeRepository →
+WardrobeScreen → WardrobeInsightCard). Regression/audit only; no feature
+expansion, no Outfit Intelligence change, no migrations, no invented
+routes, no dependency changes, no unrelated fixes. NOT committed per the
+batch git rule (14.2–14.7 stay intact, nothing staged/committed/pushed).
+
+### AUDIT 1 — Backend contract: PASS
+- Verified in current code (`routers/wardrobe.py:226-256`,
+  `application/wardrobe.py:272-357`, `repositories.py:310-360,535-566`):
+  auth required (`Depends(get_current_user_id)`); owner-scoped queries on
+  both summary and coverage paths; empty wardrobe → None → HTTP 204, never
+  fabricated; `WardrobeInsight` wire shape (title/insight/action?/route?,
+  action/route never set); deterministic (`sorted()` + id-ordered
+  snapshots); grounded only in counts/coverage/missing/favorites plus the
+  saved-look presence suffix — no wear/frequency/recency/popularity/
+  compatibility/season/duplicate language in either template; SELECT-only
+  (no commit/flush in the insight path; read-only tests assert table
+  counts + `updatedAt` unchanged); stale/malformed/deleted refs ignored via
+  `_canonical_uuid_string` + isinstance guards + owner-scoped resolution.
+- `pytest tests/test_wardrobe_api.py`: **49 passed** (48 + the one new
+  duplicate test below).
+- Outfit regression subset
+  `pytest tests/test_decision_engine.py -k "13_12 or 13_13 or outfit"`:
+  **23 passed** — Outfit Intelligence untouched and green.
+
+### AUDIT 2 — Saved looks: PASS (+1 focused test for the one unverified item)
+- Verified covered by existing tests: only `source_context == "outfit"`
+  rows contribute; legacy NULL-context, hairstyle/grooming rows, `{}` and
+  item-less snapshots, dead UUIDs, non-UUID strings ignored without 500;
+  post-save item delete ignored; other-user saves (even naming our item
+  ID) excluded; determinism + read-only with saves.
+- Gap found: "duplicate references do not inflate counts" had no test
+  (code uses `set` + per-item resolution so inflation is structurally
+  impossible, but unverified). Added exactly one test:
+  `test_insight_duplicate_saved_look_references_do_not_inflate` (same ID
+  twice in one snapshot + across two snapshots → "1 of your 1 covered
+  categories"). Passes; no production change needed.
+
+### AUDIT 3+4 — Flutter contract + screen: PASS (no change)
+- Re-verified in the current tree (unchanged since the 14.6 audit):
+  200 parses; 204 → null; malformed 200 → null; 401/500/network → null;
+  no mock fallback (only comment references to `.mock` in wardrobe lib);
+  backend text verbatim; nullable action/route cannot crash and cannot
+  produce navigation (no handler wired; UI model has no route field);
+  `WardrobeInsightCard` is logic-free passthrough. Screen: insight loads
+  independently via a single `initState` future; list usable during
+  loading/failure; 204/errors hide only the card; production uses the live
+  repository; filters/layout/navigation/Add-Item untouched;
+  `LearningService` list behavior unchanged.
+
+### AUDIT 5 — Cross-layer ID safety: PASS (no Intelligence defect; debt documented)
+- Wardrobe Intelligence does NOT conflate local Flutter IDs ("1"–"24")
+  with backend UUIDs: the insight DTO carries zero IDs (text-only both
+  directions); the only ID join (snapshots → items) runs server-side with
+  strict UUID parsing (`_canonical_uuid_string("1")` → None → ignored)
+  plus save-time 404 validation; the screen never joins local list IDs
+  with insight data. The assistant's `selectedItemIds` resolution is
+  outfit-owned with graceful fallback — out of scope, untouched.
+- Existing debt (outside Intelligence, NOT redesigned per instructions):
+  `LearningService` wardrobe is a local store with "1"–"24" IDs never
+  synced with backend-UUID `wardrobe_items`; `WardrobeClient` item CRUD
+  interpolates raw string IDs into UUID routes (mismatches contained as
+  null, never crash). Future backend-UUID sync work must handle this seam.
+
+### AUDIT 6 — Full test baseline
+- Backend full suite (excl. known polluter `test_hairstyle_image_router.py`):
+  **506 passed, 12 failed** — the 12 are the identical pre-existing
+  dirty-DB failures from the 14.2 baseline (db_session seeds ×2, grooming
+  seed ranking ×2, saved_looks shapes ×5, users_api shapes ×3); zero
+  wardrobe failures; +1 vs 14.4's 505 = the new duplicate test, green.
+- Flutter (Temp scratch copy, repo files byte-identical, only the `test`
+  constraint relaxed; real pubspec untouched): focused
+  `wardrobe_insight` + `wardrobe_screen` + `home_screen` → **52 pass /
+  1 fail**; the single failure (`item tap navigates to item details
+  screen`) is the known pre-existing dependency-drift failure proven on
+  pristine HEAD in 14.6 (file untouched by 14.6/14.7). No Flutter files
+  changed in 14.7, so the 14.6 full-suite baseline (510/28, identical
+  failure set to pristine) still stands.
+- `flutter analyze` on all touched wardrobe lib/test files: 0 issues
+  (only pre-existing warnings in untouched
+  `wardrobe_item_details_screen.dart`). In-place resolution still blocked
+  by the known `test ^1.31.0` / `test_api 0.7.10` conflict — untouched.
+- Separation: (A) 14.2–14.6 tests all green incl. the new duplicate test;
+  (B) pre-existing: item-tap navigation (Flutter), 12 dirty-DB (backend);
+  (C) environmental: test/test_api pin conflict, PG-backed skips, WebGL
+  note — none caused by this batch.
+- No skills applied (audit/regression; the Dart/Flutter skills from 14.6
+  have no new-code trigger — one backend test follows the existing file
+  pattern; none loaded).
+
+### Files changed in 14.7 (uncommitted, nothing staged)
+- `backend/tests/test_wardrobe_api.py` (+1 duplicate-reference test)
+- `CURRENT_STATE.md` (this entry)
+
+### Git safety
+- `git diff --name-only`: only the 12 batch files; untracked =
+  `wardrobe_insight_test.dart` (14.5/14.6) + pytest `__pycache__`/`.pyc`
+  byproducts. Staged = 0 files. NOTHING committed, NOTHING pushed.
+- Scratch verification copies lived in Temp only (residue subject to the
+  known Windows reparse-point delete quirk; outside the repo, harmless);
+  repo contains no scratch artifacts; no worktree left registered.
+
+---
+
+## STEP 14.6 — WARDROBE INTELLIGENCE FINAL V1 INTEGRATION + GAP CTA AUDIT — COMPLETE (uncommitted)
+
+Task: final v1 Wardrobe Intelligence integration audit; implement only the
+remaining UI/integration work explicitly supported by the existing backend
+contract. Flutter audit + focused tests only; no Outfit Intelligence, no
+screen redesign, no migrations, no invented intelligence, no fake
+`/wardrobe/gaps` route, no dependency changes. NOT committed per the batch
+git rule (14.2–14.6 stay intact, nothing staged/committed/pushed).
+
+### 1. WardrobeScreen audit (after 14.5) — all verified, no change needed
+- Live backend insight is the production source: `_insightFuture =
+  (insightRepository ?? WardrobeRepositoryImpl()).getInsight()` rendered
+  via `_InsightSlot` (`wardrobe_screen.dart:62-63,329-345`).
+- `WardrobeInsightData.mock` is never referenced in lib production code
+  (only in comments + tests) — no mock production fallback.
+- 204 → client null → repo null → `SizedBox.shrink` (card hidden).
+- Errors/offline → null → only the insight hides; the item list renders
+  from `LearningService` independently (listener-driven, untouched).
+- Loading → `FutureBuilder` initial `snapshot.data == null` → shrink, so
+  the list is never blocked (single fetch in `initState`, no refetch).
+- Filters/layout/navigation/Add-Item/item-tap untouched; existing tests
+  (`wardrobe_screen_test.dart`) cover them.
+
+### 2. Navigation / Gap CTA — NO real destination, left unchanged
+- Home "Wardrobe Gap Detected" CTA (`home_mock_data.dart:319-327`) carries
+  `actionRoute: '/wardrobe/gaps'`, but the handler
+  (`home_screen.dart:367-376` `_handleViewRecommendations`) only shows a
+  snackbar — it never navigates, so no unsupported navigation exists.
+- Router (`app_router.dart:367-398`) registers only `/wardrobe`,
+  `add-category`, `add-item`, `item-details`. No `/wardrobe/gaps` exists,
+  and none of the registered destinations semantically represents "gap
+  recommendations" (the wardrobe screen shows no recommendations), so
+  wiring the CTA to plain `/wardrobe` would be semantically wrong.
+- Per instructions: CTA left unchanged/dead, no route invented. Covered
+  by existing `home_screen_test.dart` snackbar test (still passing).
+
+### 3. action?/route? handling — safe end-to-end, no change needed
+- Backend contract (`schemas/wardrobe.py:60-66`): title/insight required,
+  action?/route? optional; use case never sets them (14.3/14.4 intact).
+- Flutter: `WardrobeInsight.fromJson` decodes nullable action/route;
+  `mapInsightDtoToUi` passes action→actionLabel verbatim and drops route
+  (the UI model has no route field — nothing to navigate to, no route
+  semantics invented); `_InsightSlot` wires no `onActionPressed`, and
+  `FansiInsightCard` renders a CTA only when label AND handler are both
+  present. So action absent / route absent / action+route present all
+  render text with no CTA and cannot crash; malformed 200 bodies throw
+  inside the client's try/catch → null → card hidden.
+
+### 4. Card reusability — verified, no change
+- `WardrobeInsightCard` (`wardrobe_widgets.dart:265-287`) is a pure
+  passthrough (data + optional handler → `FansiInsightCard`); zero
+  wardrobe intelligence/business logic in the widget layer.
+
+### 5. Tests added (only actual gaps found; +3 in `wardrobe_insight_test.dart`)
+- Client: 200-with-malformed-body (non-JSON + wrong-typed fields) → null
+  instead of throwing (locks the no-crash guarantee).
+- Repository: 200 with action+route present → label verbatim, no route
+  leaks into the UI model (locks the no-invented-navigation rule).
+- Screen: action-bearing insight renders text with no `TextButton`/CTA
+  while the list stays usable (locks no-dead-navigation end-to-end).
+
+### Verification
+- New/updated file `test/wardrobe_insight_test.dart`: **20/20 pass**
+  (17 from 14.5 + 3 new) in Temp scratch copy (repo files
+  byte-identical; only the `test` constraint relaxed there).
+- Adjacent `wardrobe_screen_test.dart` + `home_screen_test.dart`: 32 pass
+  / 1 fail — the failure (`item tap navigates to item details screen`)
+  reproduces identically on a pristine-HEAD worktree (pre-existing
+  dependency-drift, zero regressions; that file untouched by 14.6).
+- Backend `pytest tests/test_wardrobe_api.py`: **48 passed** (contract
+  untouched, no backend files changed in 14.6).
+- `flutter analyze` on the 14.6 file + all 14.5-touched wardrobe lib
+  files: 0 issues (only pre-existing warnings in untouched
+  `wardrobe_item_details_screen.dart`). In-place test/analyze remain
+  blocked by the known `test ^1.31.0` / Flutter-pinned `test_api 0.7.10`
+  conflict; pubspec untouched per instructions.
+- Skills used: `flutter-add-widget-test`, `dart-add-unit-test`,
+  `dart-run-static-analysis` (all read first per workflow).
+
+### Files changed in 14.6 (uncommitted, nothing staged)
+- `newproject/flutter_application_1/test/wardrobe_insight_test.dart` (+3 tests)
+- `CURRENT_STATE.md` (this entry)
+
+### Git safety
+- NOTHING staged, NOTHING committed, NOTHING pushed (14.2–14.6 one batch).
+- `__pycache__`/`.pyc` entries are untracked pytest byproducts, none staged.
+- Scratch verification copies lived in Temp only (pristine worktree
+  removed via `git worktree remove`); repo contains no scratch artifacts.
+
+---
+
+## STEP 14.5 — FLUTTER WARDROBE INSIGHT WIRING — COMPLETE (uncommitted)
+
+Task: replace the static `WardrobeInsightData.mock` on WardrobeScreen
+with the live `GET /v1/wardrobe/insight` backend (14.3/14.4 contract).
+Flutter only; no Outfit Intelligence, no backend logic change, no
+migrations, no wear/frequency/visual intelligence, no screen redesign,
+no item-list data change (list still renders from LearningService).
+NOT committed per the batch git rule (14.2–14.5 stay intact).
+
+### Wiring (all in `newproject/flutter_application_1/`)
+- Client (`wardrobe/data/wardrobe_client.dart`): new `getInsight()` —
+  same base URL/dev-token/timeout/debugPrint conventions; 200 →
+  `WardrobeInsight`, 204 → null (explicit, not an error), other/error
+  → null. No second HTTP client.
+- Model (`wardrobe/data/wardrobe_api_models.dart`): new
+  `WardrobeInsight` (title/insight/action?/route?, fromJson/toJson/
+  copyWith per file conventions). Backend text renders verbatim.
+- Repository (`wardrobe/data/wardrobe_repository.dart`): new
+  `getInsight()` on the abstract + impl via `mapInsightDtoToUi`
+  (established card icon/accent, backend title/insight/action
+  verbatim). Deliberately NO mock fallback — the mock text ("8+
+  combinations") is fabricated advice; 204/offline/error → null.
+- Mock (`wardrobe/data/wardrobe_mock_data.dart`): `actionLabel` now
+  nullable so live insights render CTA-less; `mock` itself unchanged
+  (still used by isolated card test).
+- Screen (`wardrobe/presentation/wardrobe_screen.dart`): optional
+  `insightRepository` ctor param (defaults to live impl; router's
+  `const WardrobeScreen()` unaffected); single `_insightFuture` in
+  initState; `_InsightSlot` FutureBuilder replaces the mock card —
+  loading renders nothing (list never blocked), 200 renders the card
+  with no CTA (backend omits action/route; no `/wardrobe/gaps`
+  invented), 204/error renders nothing. Removed the now-dead
+  `_handleViewAnalysis` snackbar. Layout/cards/filters/navigation/
+  65-35 rules untouched.
+
+### Tests
+- New `test/wardrobe_insight_test.dart` (17 tests): model decode +
+  future action/route compat + roundtrip; client 200/204/500/401/
+  network-failure + path/auth asserts; repository verbatim mapping,
+  saved-look text passthrough, 204→null, 500→null; card renders live
+  text with no CTA (incl. label-without-handler); screen with fake
+  repo shows live text, hides on null, loading never blocks list.
+- Updated `test/wardrobe_screen_test.dart`: mock-encoding tests
+  re-cut to the new contract (unreachable backend → card hidden, no
+  mock text, list intact; View Analysis snackbar test removed with the
+  mock CTA; scrollable test drops the 'Wardrobe Health' assert).
+  Direct card test with `mock` retained.
+- Repo blocker: `flutter test` cannot resolve in place (`test
+  ^1.31.0` vs Flutter-pinned `test_api 0.7.10`) — pubspec left
+  untouched per instructions. Verified instead in a Temp scratch copy
+  with only the `test` constraint relaxed (repo files byte-identical):
+  focused files 72/72 pass; screen file 12/13; full suite 510 pass /
+  28 fail with the failure set byte-identical to the pristine-HEAD
+  scratch run (all 28 environmental/dependency-drift, incl.
+  wardrobe_item_details ×15 and item-tap navigation ×1 — same on
+  pristine, zero regressions). `flutter analyze`: 0 errors, no issues
+  in any touched file. All 7 touched Dart files parse clean.
+
+### Backend status
+No backend files changed in 14.5; Step 14.4 contract intact
+(title/insight/action?/route?, 204 on empty, read-only,
+owner-scoped).
+
+### Files changed (uncommitted, nothing staged)
+- `newproject/flutter_application_1/lib/features/wardrobe/data/wardrobe_api_models.dart`
+- `newproject/flutter_application_1/lib/features/wardrobe/data/wardrobe_client.dart`
+- `newproject/flutter_application_1/lib/features/wardrobe/data/wardrobe_mock_data.dart`
+- `newproject/flutter_application_1/lib/features/wardrobe/data/wardrobe_repository.dart`
+- `newproject/flutter_application_1/lib/features/wardrobe/presentation/wardrobe_screen.dart`
+- `newproject/flutter_application_1/test/wardrobe_insight_test.dart` (new)
+- `newproject/flutter_application_1/test/wardrobe_screen_test.dart`
+- `CURRENT_STATE.md` (this entry)
+
+---
+
+## STEP 14.4 — WARDROBE INTELLIGENCE: SAVED-LOOK-AWARE GAPS — COMPLETE (uncommitted)
+
+Task: extend the read-only `GET /v1/wardrobe/insight` gap insight with
+saved-look evidence, using only safely/mappably derived data from the
+existing `saved_looks` rows. Backend only; no Flutter, no Outfit
+Intelligence change, no wear/frequency, no image/similarity, no
+migrations, no schema change, no new endpoint. NOT committed per the
+batch git rule (14.2/14.3/14.4 stay one intact uncommitted batch).
+
+### Saved-look contract review (actual code, not assumed)
+- `saved_looks` rows (`app/infrastructure/db/models.py:SavedLooks`):
+  id, user_id, look_id (nullable catalog code), title,
+  source_context (nullable; NULL = legacy row, domain unknown, never
+  inferred), snapshot JSONB, idempotency_key, source_run_id, created_at.
+- Only `source_context == "outfit"` rows can reference wardrobe items,
+  via `snapshot.selectedItemIds` — sorted unique canonical UUID strings
+  of persisted `wardrobe_items.id`, owner-validated at save time
+  (`SaveRecommendation._validated_outfit_snapshot`: unknown/foreign IDs
+  → 404, save rejected; `backend/app/application/saved_looks.py`).
+  Hairstyle/grooming snapshots carry no wardrobe refs.
+- IDs ARE reliably mappable (same persisted UUID space, canonicalized
+  at save). Stale refs arise only when an item is deleted after the
+  save — resolved owner-scoped, dropped when unresolvable.
+- Existing consumer precedent:
+  `resolve_preferred_item_ids` (`analysis_rules.py:1160`) reads
+  `SavedLookRepository.list_for_user()`, filters `source_context ==
+  "outfit"`, canonicalizes defensively, ignores malformed rows. The new
+  coverage op follows this exact pattern ( Outfit Intelligence
+  untouched).
+
+### Implemented
+- `SavedLookCoverage` frozen dataclass (ports) +
+  `SavedLookRepository.get_outfit_coverage(user_id)` port op: read-only,
+  owner-scoped; selects only the `snapshot` column of the owner's
+  outfit rows (id order); defensively canonicalizes
+  `selectedItemIds`; resolves survivors against the owner's current
+  `wardrobe_items` in one query. Returns `saved_outfit_count`,
+  `represented_item_ids`, `represented_categories`. Malformed/stale
+  entries ignored, never fatal (no 500 on old data).
+- `GetWardrobeInsight(wardrobe=, saved_looks=)` now composes the
+  unchanged 14.3 base sentence (wardrobe coverage authoritative; title
+  selection untouched — missing category still yields "Wardrobe Gaps")
+  plus ONE grounded follow-up, only when ≥1 saved reference resolves:
+  `Saved looks include items from M of your N covered categories
+  (...).` + `Not represented in saved looks: (...).` when some covered
+  category is absent. No outfit saves / hairstyle-only / legacy /
+  all-stale → no saved-look claim at all. No wear/buy/popularity/
+  compatibility/color/season/duplicate claims. `action`/`route` still
+  omitted (no dead `/wardrobe/gaps` link). Router wires
+  `SavedLookRepositorySQL`; endpoint still SELECT-only, 204 on empty
+  wardrobe preserved.
+
+### Tests (backend/tests/test_wardrobe_api.py: +9, all 14.3 tests untouched)
+- No-saves → exact 14.3 text, no "Saved looks" claim.
+- API-saved outfit → exact representation sentence.
+- Full wardrobe + single-category save → "Wardrobe Health" + unrep gap.
+- Saves covering every covered category → still "Wardrobe Gaps"
+  (precedence), no unrep sentence.
+- Other user's save naming our item ID → ignored (owner isolation).
+- Dead UUID / `{}` snapshot / non-UUID / legacy NULL-context /
+  hairstyle rows → ignored, 200, wardrobe facts only.
+- Post-save item delete → stale ref ignored, no 500.
+- Determinism with saves; read-only (both table counts + updatedAt
+  unchanged).
+- Result: **48 passed** (`pytest tests/test_wardrobe_api.py`).
+- Regression: decision-engine subset 23 passed; `test_saved_looks.py`
+  5 failed / 12 passed — byte-identical failures on the stashed
+  pristine tree (pre-existing dirty-DB `looks`-FK issue, zero new).
+  Full suite excl. known polluter: **505 passed, 12 failed** — the
+  identical 12 pre-existing dirty-DB failures from the 14.2/14.3
+  baseline (+9 = the new tests, all green).
+
+### Files changed (uncommitted, nothing staged)
+- `backend/app/domain/ports/repositories.py` (`SavedLookCoverage` + port op)
+- `backend/app/infrastructure/db/repositories.py` (`get_outfit_coverage` + `_canonical_uuid_string`)
+- `backend/app/application/wardrobe.py` (`GetWardrobeInsight` saved-look suffix)
+- `backend/app/api/routers/wardrobe.py` (wire saved-look repo)
+- `backend/tests/test_wardrobe_api.py` (helper + 9 tests)
+
+---
+
+## STEP 14.3 — WARDROBE INSIGHT (W-7/UC-14, READ-ONLY) — COMPLETE (uncommitted)
+
+Task: first real Wardrobe Intelligence increment from persisted
+`wardrobe_items` only, per the approved W-7 contract. Backend only; no
+saved-look signals, no Flutter, no migrations, no imageRef change, no new
+intelligence framework. NOT committed per the batch git rule.
+
+### Implemented
+- `GET /v1/wardrobe/insight` (router, `response_model=WardrobeInsight`,
+  reusing the existing schema — no duplicate model). Empty wardrobe →
+  204 with empty body (no fabricated insight); auth + owner scoping via
+  the same `get_current_user_id`/`user_id` pattern as other wardrobe
+  endpoints; read-only (SELECTs only, no commit).
+- `GetWardrobeInsight` use case (UC-14): returns None when total == 0;
+  else deterministic grounded text from computed facts only — total,
+  per-category coverage, missing canonical categories, favorite count.
+  Two variants: "Wardrobe Health" (all categories covered) /
+  "Wardrobe Gaps" (missing list). No color/compatibility/season/wear/
+  duplicate claims. `action`/`route` omitted (no dead `/wardrobe/gaps`
+  link).
+- `WardrobeInsightSummary` frozen dataclass (ports) + single aggregate
+  repository op `get_insight_summary` (one GROUP BY + FILTER query over
+  active `wardrobe_categories` LEFT JOIN owner items; no record loading).
+  Category universe comes from the DB vocabulary — no second list.
+- Layering note: the use case returns the existing wire `WardrobeInsight`
+  directly (schemas module is pydantic-only, no import cycle) to avoid a
+  duplicate model; text rules stay in the use case per BA-7, router stays
+  thin. `get_by_id`/CRUD/outfit flows untouched.
+
+### Tests (backend/tests/test_wardrobe_api.py)
+- Vocab helper now seeds all 5 canonical categories (insight needs the
+  full universe for missing-category computation).
+- 7 new tests: auth 401, empty → 204 + empty body, populated exact
+  title/insight (total 3, covered bottoms/tops, 3 missing, 1 favorite),
+  complete-wardrobe health text (0 favorites plural), determinism
+  (repeat-call equality + singular forms), owner isolation (other user's
+  items invisible → 204, then own-only counts), read-only (list total,
+  ids, updatedAt unchanged after insight).
+- Result: **39 passed** (`pytest tests/test_wardrobe_api.py`).
+- Regression: decision-engine subset 23 passed; full suite (excl. known
+  polluter `test_hairstyle_image_router.py`): **496 passed, 12 failed** —
+  the identical 12 pre-existing dirty-DB failures from the 14.2 baseline,
+  zero new failures.
+
+### Files changed (uncommitted, nothing staged)
+- `backend/app/api/routers/wardrobe.py` (endpoint)
+- `backend/app/application/wardrobe.py` (`GetWardrobeInsight`)
+- `backend/app/domain/ports/repositories.py` (summary type + port op)
+- `backend/app/infrastructure/db/repositories.py` (aggregate query)
+- `backend/tests/test_wardrobe_api.py` (seeds + 7 tests)
+
+---
+
+## STEP 14.2 — WARDROBE FOUNDATION REPAIR — COMPLETE (uncommitted)
+
+Task: repair the backend Wardrobe CRUD/query foundation found broken in
+STEP 14.1. Backend only; no Wardrobe Intelligence, no insight endpoint,
+no Flutter, no Outfit Intelligence, no migrations. NOT committed per the
+Step 14.2 git rule (commit after the Wardrobe batch + final regression).
+
+### Fixed (backend/app)
+- `api/routers/wardrobe.py` — added missing `DeleteWardrobeItem` import
+  (DELETE was a runtime `NameError`); added missing `UUID` import (GET/
+  PATCH/DELETE `{item_id}` routes raised `PydanticUserError` on every
+  call); new `_to_wire()` record→schema helper fixing `record.isFavorite`
+  → `record.is_favorite` (create/get/patch/list success paths all 500d)
+  and the list endpoint returning raw domain records; PATCH passes
+  `material_set` from `model_fields_set`; removed unused error imports.
+- `application/wardrobe.py` — `DeleteWardrobeItem` now owner-checks via
+  `get_by_id` (404) then deletes + commits (204); list passes
+  category/color/sort/order through; add/update commit on success and map
+  PG 23503 FK violations to 422 `VALIDATION_ERROR` per field (other DB
+  errors re-raised); update takes `material_set` (omitted = preserve,
+  explicit null = clear).
+- `infrastructure/db/repositories.py` — `get_for_user` filters
+  category/color, dynamic sort (created_at/updated_at/name, validated
+  upstream) + `id` tiebreak for deterministic pagination, filtered total;
+  `update` honors `material_set` and refreshes `updatedAt` via
+  `func.now()` (W-4 contract); added `commit()`/`rollback()`.
+- `domain/ports/repositories.py` — port extended with defaulted
+  filter/sort params, `material_set`, `commit()`/`rollback()` (mirrors
+  `SavedLookRepository`); `get_by_id` untouched so outfit/save flows
+  are unaffected.
+
+### Tests (backend/tests/test_wardrobe_api.py)
+- Fixture repaired to the repo convention (`db` is a session factory):
+  `Session = db; with Session() as session:`; vocab seeds extended to
+  every code the tests use (bottoms/white/navy/cotton); `type(db)()`
+  blocks replaced.
+- 6 new tests: name-desc sort, filter+sort+pagination combined,
+  omitted-material-preserves, patch invalid color/material → 422,
+  delete-missing → 404. Created-at-desc test now asserts newest-first.
+- Result: **32 passed** (`pytest tests/test_wardrobe_api.py`).
+- Regression: `test_decision_engine.py -k "13_12 or 13_13 or outfit"` →
+  23 passed. Full suite (excl. pre-existing polluter
+  `test_hairstyle_image_router.py`, see below): **489 passed, 12 failed**
+  — all 12 pre-existing dirty-DB seed/shape failures (db_session seed
+  assertions, grooming seed ranking, saved_looks/users_api profile
+  shapes), identical to the STEP 14.1 baseline; wardrobe-adjacent
+  outfit-save tests that errored before now pass.
+
+### Pre-existing issues found, NOT fixed (out of scope)
+- `tests/test_hairstyle_image_router.py:176` sets
+  `app.dependency_overrides[get_db] = lambda: object()` with no cleanup,
+  poisoning every DB-backed API module collected after it in full-suite
+  runs (saved_looks/users/wardrobe AttributeErrors). Files pass in
+  isolation; needs its own step.
+- Environment PG `fansivibe` DB is stamped `0011/head` but was migrated
+  with older content: legacy `wardrobe` table, 8 `looks` rows, extra
+  `haircut_outcome` signal type — cause of the 12 remaining failures.
+  The 4 missing wardrobe tables were created to match the stamp
+  (additive DDL + migration seeds only; no existing data touched) so
+  wardrobe tests can run. No repo migration changes.
+- No `.agents` skill applies (all skills are Dart/Flutter; this step is
+  Python backend) — none loaded.
+
+### Files changed (uncommitted, nothing staged)
+- `backend/app/api/routers/wardrobe.py`
+- `backend/app/application/wardrobe.py`
+- `backend/app/domain/ports/repositories.py`
+- `backend/app/infrastructure/db/repositories.py`
+- `backend/tests/test_wardrobe_api.py`
+
+---
 
 ## STEP — HAIRSTYLE DOMAIN EXTRACTION (docs only) — COMPLETE
 

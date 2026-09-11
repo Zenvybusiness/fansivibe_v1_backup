@@ -328,3 +328,166 @@ class ListEnvelope {
         'total': total,
       };
 }
+
+/// The derived wardrobe insight DTO returned by `GET /v1/wardrobe/insight`
+/// (W-7/UC-14).
+///
+/// The backend composes [title] and [insight] from persisted wardrobe facts
+/// (plus saved-look coverage since Step 14.4) — Flutter renders them
+/// verbatim and never reconstructs the text locally. [action]/[route] are
+/// currently omitted by the backend; when present they decode compatibly
+/// but Flutter must not invent navigation for them.
+class WardrobeInsight {
+  const WardrobeInsight({
+    required this.title,
+    required this.insight,
+    this.action,
+    this.route,
+  });
+
+  final String title;
+  final String insight;
+  final String? action;
+  final String? route;
+
+  WardrobeInsight copyWith({
+    String? title,
+    String? insight,
+    String? action,
+    String? route,
+  }) =>
+      WardrobeInsight(
+        title: title ?? this.title,
+        insight: insight ?? this.insight,
+        action: action ?? this.action,
+        route: route ?? this.route,
+      );
+
+  factory WardrobeInsight.fromJson(Map<String, dynamic> json) => WardrobeInsight(
+        title: json['title'] as String,
+        insight: json['insight'] as String,
+        action: json['action'] as String?,
+        route: json['route'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        'insight': insight,
+        'action': action,
+        'route': route,
+      };
+}
+
+/// The payload for logging a wear event (`POST /v1/wardrobe/wears`),
+/// as defined by the Step 15.4 backend contract.
+///
+/// [itemIds] are backend wardrobe UUIDs passed through verbatim — the
+/// client never translates local mock IDs into backend UUIDs. [wornAt]
+/// is omitted from the wire body when null (server defaults to now).
+class WearEventLogRequest {
+  const WearEventLogRequest({
+    required this.itemIds,
+    this.wornAt,
+  });
+
+  final List<String> itemIds;
+  final DateTime? wornAt;
+
+  WearEventLogRequest copyWith({
+    List<String>? itemIds,
+    DateTime? wornAt,
+  }) =>
+      WearEventLogRequest(
+        itemIds: itemIds ?? this.itemIds,
+        wornAt: wornAt ?? this.wornAt,
+      );
+
+  factory WearEventLogRequest.fromJson(Map<String, dynamic> json) =>
+      WearEventLogRequest(
+        itemIds: (json['itemIds'] as List<dynamic>? ?? const [])
+            .map((e) => e as String)
+            .toList(),
+        wornAt: json['wornAt'] != null
+            ? DateTime.tryParse(json['wornAt'] as String)
+            : null,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'itemIds': itemIds,
+        if (wornAt != null) 'wornAt': wornAt!.toUtc().toIso8601String(),
+      };
+}
+
+/// One persisted wear-event row returned by the wear surface.
+class WearEvent {
+  const WearEvent({
+    required this.id,
+    required this.wardrobeItemId,
+    required this.wornAt,
+    required this.wearGroupId,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String wardrobeItemId;
+  final DateTime? wornAt;
+  final String wearGroupId;
+  final DateTime? createdAt;
+
+  factory WearEvent.fromJson(Map<String, dynamic> json) => WearEvent(
+        id: json['id'] as String,
+        wardrobeItemId: json['wardrobeItemId'] as String,
+        wornAt: json['wornAt'] != null
+            ? DateTime.tryParse(json['wornAt'] as String)
+            : null,
+        wearGroupId: json['wearGroupId'] as String,
+        createdAt: json['createdAt'] != null
+            ? DateTime.tryParse(json['createdAt'] as String)
+            : null,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'wardrobeItemId': wardrobeItemId,
+        if (wornAt != null) 'wornAt': wornAt!.toUtc().toIso8601String(),
+        'wearGroupId': wearGroupId,
+        if (createdAt != null) 'createdAt': createdAt!.toUtc().toIso8601String(),
+      };
+}
+
+/// The response for `POST /v1/wardrobe/wears` (STEP 15.4/15.4B).
+///
+/// [created] distinguishes a fresh log (`true`) from an idempotent replay
+/// (`false`, still HTTP 201) — both carry the same group and rows.
+class WearEventLogResponse {
+  const WearEventLogResponse({
+    required this.wears,
+    required this.wearGroupId,
+    required this.wornAt,
+    required this.created,
+  });
+
+  final List<WearEvent> wears;
+  final String wearGroupId;
+  final DateTime? wornAt;
+  final bool created;
+
+  factory WearEventLogResponse.fromJson(Map<String, dynamic> json) =>
+      WearEventLogResponse(
+        wears: (json['wears'] as List<dynamic>? ?? const [])
+            .map((e) => WearEvent.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        wearGroupId: json['wearGroupId'] as String,
+        wornAt: json['wornAt'] != null
+            ? DateTime.tryParse(json['wornAt'] as String)
+            : null,
+        created: json['created'] as bool? ?? false,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'wears': wears.map((e) => e.toJson()).toList(),
+        'wearGroupId': wearGroupId,
+        if (wornAt != null) 'wornAt': wornAt!.toUtc().toIso8601String(),
+        'created': created,
+      };
+}

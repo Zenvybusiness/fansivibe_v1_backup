@@ -35,9 +35,12 @@ void main() {
       expect(find.text('Modern Minimalist'), findsOneWidget);
     });
 
-    testWidgets('renders AI Wardrobe Insight card', (
+    testWidgets('hides insight card when backend is unreachable', (
       WidgetTester tester,
     ) async {
+      // Full-app wiring uses the live repository; with no backend the
+      // insight future resolves to null and the card must stay hidden —
+      // the static mock must never pose as live intelligence.
       await tester.pumpWidget(_freshApp());
 
       await tester.tap(
@@ -48,13 +51,15 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Wardrobe Health'), findsOneWidget);
-      expect(find.text('AI Insight'), findsOneWidget);
+      expect(find.text('AI Insight'), findsNothing);
       expect(
         find.textContaining('Your wardrobe is balanced across seasons'),
-        findsOneWidget,
+        findsNothing,
       );
-      expect(find.text('View Analysis'), findsOneWidget);
+      expect(find.text('View Analysis'), findsNothing);
+      // The wardrobe item list is unaffected by the missing insight.
+      expect(find.text('My Wardrobe'), findsOneWidget);
+      expect(find.text('Merino Crew Neck'), findsOneWidget);
     });
 
     testWidgets('renders category filters', (WidgetTester tester) async {
@@ -119,31 +124,6 @@ void main() {
       // Should show "Tops" section title with correct count
       expect(find.text('Tops'), findsWidgets);
       expect(find.text('8 items'), findsOneWidget);
-    });
-
-    testWidgets('View Analysis button shows snackbar on tap', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(_freshApp());
-
-      await tester.tap(
-        find.descendant(
-          of: find.byType(NavigationBar),
-          matching: find.text('Wardrobe'),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Scroll to View Analysis button
-      await tester.ensureVisible(find.text('View Analysis'));
-      await tester.pumpAndSettle();
-
-      // Tap the View Analysis button
-      final viewAnalysisBtn = find.text('View Analysis');
-      await tester.tap(viewAnalysisBtn);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Opening Wardrobe Analysis...'), findsOneWidget);
     });
 
     testWidgets('Add Item button navigates to category selection', (
@@ -224,9 +204,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // All major sections should render
+      // All major sections should render (the insight card stays hidden
+      // with no backend; see 'hides insight card when backend is unreachable').
       expect(find.text('My Wardrobe'), findsOneWidget);
-      expect(find.text('Wardrobe Health'), findsOneWidget);
       expect(find.byType(CategoryTile), findsWidgets);
       expect(find.text('Add Item to Wardrobe'), findsOneWidget);
     });

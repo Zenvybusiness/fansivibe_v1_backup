@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -206,5 +207,103 @@ class WardrobeClient {
     return null;
   }
 
+  /// Fetches the derived wardrobe insight for the current user.
+  ///
+  /// Returns the [WardrobeInsight] on 200, or null when there is no insight
+  /// to show: 204 (empty wardrobe — not an error), any other non-200
+  /// status, or an unreachable backend. The backend-provided title/insight
+  /// are rendered verbatim by the caller.
+  Future<WardrobeInsight?> getInsight() async {
+    try {
+      final response = await _client
+          .get(
+            Uri.parse('$baseUrl/v1/wardrobe/insight'),
+            headers: {'Authorization': 'Bearer $_devToken'},
+          )
+          .timeout(_timeout);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return WardrobeInsight.fromJson(decoded);
+      }
+      if (response.statusCode == 204) {
+        debugPrint('Wardrobe insight: empty wardrobe (204), no insight.');
+      } else {
+        debugPrint(
+          'Wardrobe insight responded ${response.statusCode}: ${response.body}',
+        );
+      }
+    } catch (error) {
+      debugPrint('Wardrobe backend unreachable during insight: $error');
+    }
+    return null;
+  }
+
+  /// Logs a wear event for backend wardrobe items.
+  ///
+  /// POSTs `{itemIds, wornAt?}` to `/v1/wardrobe/wears` with a fresh
+  /// `Idempotency-Key` per logical action (pass [idempotencyKey] to keep
+  /// the key stable across retries of the SAME action).
+  ///
+  /// [itemIds] are backend wardrobe UUIDs sent verbatim — this method
+  /// never translates local mock IDs ("1"–"24") into backend UUIDs, so
+  /// callers must pass real backend IDs. [wornAt] is omitted when null
+  /// and the server defaults it to now.
+  ///
+  /// Returns the [WearEventLogResponse] on 201 (`created` distinguishes a
+  /// fresh log from an idempotent replay), or null on 404/409/422/401,
+  /// 5xx, malformed bodies, or network failure — an error is never turned
+  /// into a fake success, and there is deliberately NO mock fallback.
+  Future<WearEventLogResponse?> logWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) async {
+    try {
+      final request = WearEventLogRequest(itemIds: itemIds, wornAt: wornAt);
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/wardrobe/wears'),
+            headers: {
+              'Content-Type': 'application/json; charset=UTF-8',
+              'Authorization': 'Bearer $_devToken',
+              'Idempotency-Key': idempotencyKey ?? newWearIdempotencyKey(),
+            },
+            body: jsonEncode(request.toJson()),
+          )
+          .timeout(_timeout);
+      if (response.statusCode == 201) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return WearEventLogResponse.fromJson(decoded);
+      }
+      debugPrint(
+        'Wear log responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Wardrobe backend unreachable during wear log: $error');
+    }
+    return null;
+  }
+
   void dispose() => _client.close();
+}
+
+/// Generates a fresh v4-style client idempotency key for one wear-logging
+/// action.
+///
+/// Mirrors `newOutfitIdempotencyKey()` in the assistant feature without
+/// importing across features (feature-first boundary): 122 random bits
+/// formatted as UUID text, no new dependency. The backend remains
+/// authoritative for idempotency; Flutter only guarantees a fresh key per
+/// new action — pass [idempotencyKey] explicitly to keep the key stable
+/// across retries of the SAME action.
+@visibleForTesting
+String newWearIdempotencyKey() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0F) | 0x40;
+  bytes[8] = (bytes[8] & 0x3F) | 0x80;
+  String hex(int v) => v.toRadixString(16).padLeft(2, '0');
+  final h = bytes.map(hex).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-'
+      '${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
 }

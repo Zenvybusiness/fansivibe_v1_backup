@@ -15,6 +15,19 @@ WardrobeItemData mapItemDtoToUi(WardrobeItem item) => WardrobeItemData(
   isFavorite: item.isFavorite,
 );
 
+/// Maps a backend [WardrobeInsight] DTO to the UI-facing [WardrobeInsightData].
+/// The backend-provided title/insight/action pass through verbatim — Flutter
+/// never reconstructs insight text. Visual identity (icon/accent) reuses the
+/// established insight-card styling.
+WardrobeInsightData mapInsightDtoToUi(WardrobeInsight insight) =>
+    WardrobeInsightData(
+      title: insight.title,
+      insight: insight.insight,
+      iconName: 'lightbulb_outline_rounded',
+      accentColor: 0xFFC5A059,
+      actionLabel: insight.action,
+    );
+
 /// Abstract contract for wardrobe data operations.
 ///
 /// The [WardrobeRepository] becomes the single abstraction used by the feature,
@@ -63,6 +76,28 @@ abstract class WardrobeRepository {
   /// API is the primary source; [WardrobeMockData] is updated only on success
   /// to prevent accidental data loss on failure.
   Future<bool?> deleteItem({required String itemId});
+
+  /// Returns the live backend wardrobe insight, or null when there is none.
+  ///
+  /// The backend response is canonical: on success its title/insight render
+  /// verbatim. There is deliberately NO mock fallback here — the static
+  /// [WardrobeInsightData.mock] text ("8+ combinations", "lightweight
+  /// jacket") is fabricated advice the backend never provided, so a 204
+  /// (empty wardrobe), an unreachable backend, or any error all yield null
+  /// and the caller hides the insight card instead of inventing one.
+  Future<WardrobeInsightData?> getInsight();
+
+  /// Logs a wear event for backend wardrobe items via the live backend.
+  ///
+  /// There is deliberately NO mock fallback here — a fabricated wear
+  /// success would corrupt real wear history, so any failure yields null
+  /// and the caller must treat the wear as unlogged (safe to retry with
+  /// the same idempotency key).
+  Future<WearEventLogResponse?> logWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  });
 }
 
 /// Concrete implementation of [WardrobeRepository] that uses the [WardrobeClient]
@@ -205,5 +240,33 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
     // Failure: do not remove from mock data; return null so the caller
     // can handle the fallback independently without losing existing items.
     return null;
+  }
+
+  @override
+  Future<WardrobeInsightData?> getInsight() async {
+    final apiInsight = await _client.getInsight();
+    if (apiInsight != null) {
+      return mapInsightDtoToUi(apiInsight);
+    }
+    // No insight (204 empty wardrobe, unreachable backend, or error):
+    // return null so the UI hides the card. Never fall back to
+    // [WardrobeInsightData.mock] — that text was never provided by the
+    // backend and must not pose as live intelligence.
+    return null;
+  }
+
+  @override
+  Future<WearEventLogResponse?> logWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) async {
+    // No mock fallback: a fabricated success would corrupt real wear
+    // history. Null means unlogged — safe to retry with the same key.
+    return _client.logWear(
+      itemIds: itemIds,
+      wornAt: wornAt,
+      idempotencyKey: idempotencyKey,
+    );
   }
 }

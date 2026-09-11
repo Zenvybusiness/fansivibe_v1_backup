@@ -151,3 +151,18 @@ Outfit `snapshot.selectedItemIds` is validated (UUID list), ownership-checked
 against the owner's wardrobe via the existing owner-scoped lookup, and
 persisted canonically (sorted unique UUID strings). Unknown/foreign item IDs
 reject the save (404, nothing stored); malformed IDs are 422.
+
+## DEC-011 — Wear-Action Durable Ledger (STEP 15.4B)
+
+Status: Accepted
+
+One `POST /v1/wardrobe/wears` is one logical wear action: flat item-level
+`wardrobe_wear_events` rows persist the history, while a durable
+`wardrobe_wear_groups` ledger row owns idempotency —
+`UNIQUE(user_id, idempotency_key)` guarantees one user + one key = one
+group, so concurrent same-key writers serialize instead of fusing groups.
+The ledger row `id` is the `wear_group_id` shared by the action's event
+rows; its `item_ids` JSONB plus the worn instant define replay equivalence
+(canonical sorted-unique UUIDs; omitted `wornAt` excluded) and are never
+intelligence input. The per-row `UNIQUE(user_id, idempotency_key,
+wardrobe_item_id)` (migration 0013) remains as defense-in-depth.

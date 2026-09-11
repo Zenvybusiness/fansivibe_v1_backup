@@ -7,6 +7,8 @@ Tables (from `docs/database/TABLE_DEFINITIONS.md`):
 - ``analysis_runs``                (append-only history, P2)
 - ``saved_looks``                  (current state, immutable rows, P0)
 - ``learning_signals``             (append-only history, P0)
+- ``wardrobe_wear_events``         (append-only history, P0)
+- ``wardrobe_wear_groups``         (durable wear-action ledger, P0)
 - ``wardrobe_categories``          (P0 vocabulary reference, K9.1)
 - ``colors``                       (P0 vocabulary reference, K9.1)
 - ``materials``                    (P0 vocabulary reference, K9.1)
@@ -323,5 +325,75 @@ class WardrobeItems(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class WardrobeWearEvents(Base):
+    __tablename__ = "wardrobe_wear_events"
+    __table_args__ = (
+        # STEP 15.4 (migration 0013): scoped per row, not per group — one
+        # logging action shares a key across its item rows.
+        UniqueConstraint("user_id", "idempotency_key", "wardrobe_item_id", name="uq_wardrobe_wear_events_idempotency_item"),
+        Index("ix_wardrobe_wear_events_user_id_wardrobe_item_id_worn_at", "user_id", "wardrobe_item_id", "worn_at"),
+        Index("ix_wardrobe_wear_events_user_id_worn_at", "user_id", "worn_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # STEP 15.3 — intentionally NO FK to wardrobe_items (No-FK-to-trigger
+    # rule, RELATIONSHIP_CONSTRAINTS §3.4): wear rows are history and must
+    # survive item deletion; stale UUIDs are ignored at read time.
+    wardrobe_item_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        nullable=False,
+    )
+    worn_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    # Correlates the rows of one logging action (single-item wear = a group
+    # of one). Plain UUID, no parent table (STEP 15.2 granularity decision).
+    wear_group_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        nullable=False,
+    )
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class WardrobeWearGroups(Base):
+    __tablename__ = "wardrobe_wear_groups"
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_wardrobe_wear_groups_idempotency"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    # STEP 15.4B — canonical request payload (sorted unique UUID strings)
+    # for replay comparison ONLY; never a query axis (same rule as
+    # `saved_looks.snapshot`). The row `id` IS the `wear_group_id` shared
+    # by the action's `wardrobe_wear_events` rows.
+    item_ids: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False
+    )
+    worn_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

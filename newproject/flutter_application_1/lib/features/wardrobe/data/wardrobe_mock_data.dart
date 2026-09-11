@@ -33,20 +33,24 @@ class WardrobeItemData {
 }
 
 /// AI wardrobe insight data.
+///
+/// [actionLabel] is nullable so live backend insights (which currently omit
+/// `action`) can render without a call-to-action; the shared insight card
+/// hides the CTA unless both a label and a handler are supplied.
 class WardrobeInsightData {
   const WardrobeInsightData({
     required this.title,
     required this.insight,
     required this.iconName,
     required this.accentColor,
-    required this.actionLabel,
+    this.actionLabel,
   });
 
   final String title;
   final String insight;
   final String iconName;
   final int accentColor;
-  final String actionLabel;
+  final String? actionLabel;
 
   static const WardrobeInsightData mock = WardrobeInsightData(
     title: 'Wardrobe Health',

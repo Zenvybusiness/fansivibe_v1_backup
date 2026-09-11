@@ -64,3 +64,45 @@ class WardrobeInsight(BaseModel):
     insight: str
     action: Optional[str] = None
     route: Optional[str] = None
+
+
+class WearEventLogRequest(BaseModel):
+    """Request body for `POST /v1/wardrobe/wears` (STEP 15.4).
+
+    `wornAt` omitted → server now. At most 10 *canonical* item IDs is
+    enforced in the use case (raw duplicates canonicalize first).
+    """
+
+    itemIds: list[UUID] = Field(min_length=1)
+    wornAt: Optional[datetime] = None
+
+
+class WearEvent(BaseModel):
+    """One persisted wear-event row (`GET /v1/wardrobe/wears` item)."""
+
+    id: UUID
+    wardrobeItemId: UUID
+    wornAt: datetime
+    wearGroupId: UUID
+    createdAt: datetime
+
+
+class WearEventLogResponse(BaseModel):
+    """Response for `POST /v1/wardrobe/wears` (STEP 15.4).
+
+    `created=False` on idempotent replay (still HTTP 201, save precedent).
+    """
+
+    wears: list[WearEvent]
+    wearGroupId: UUID
+    wornAt: datetime
+    created: bool
+
+
+class WearEventList(BaseModel):
+    """Offset envelope for `GET /v1/wardrobe/wears` (STEP 15.4)."""
+
+    items: list[WearEvent]
+    page: int
+    page_size: int
+    total: int
