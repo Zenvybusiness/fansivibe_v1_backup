@@ -1,13 +1,35 @@
 import 'package:flutter/material.dart';
 
 import 'package:fansivibe/features/assistant/presentation/widgets/outfit_recommendation_card.dart';
-import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 
 import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
+
+/// Resolves outfit [selectedIds] against an already-loaded wardrobe snapshot.
+///
+/// Preserves the order of [selectedIds]; IDs that no longer exist (deleted
+/// or otherwise missing) are skipped without throwing. Returns an empty
+/// list when [selectedIds] is empty or [wardrobe] is null/empty, so callers
+/// keep the historical static-catalog fallback. Never fabricates items.
+List<WardrobeItemData> resolveOutfitWardrobeItems({
+  required List<String> selectedIds,
+  required List<WardrobeItemData>? wardrobe,
+}) {
+  if (selectedIds.isEmpty || wardrobe == null || wardrobe.isEmpty) {
+    return const [];
+  }
+  final byId = <String, WardrobeItemData>{
+    for (final item in wardrobe) item.id: item,
+  };
+  return [
+    for (final id in selectedIds)
+      if (byId.containsKey(id)) byId[id]!,
+  ];
+}
 
 class MessageBubble extends StatelessWidget {
   const MessageBubble({
@@ -16,6 +38,7 @@ class MessageBubble extends StatelessWidget {
     this.onClarification,
     this.onNavigation,
     this.onOutfitSave,
+    this.wardrobe,
     super.key,
   });
 
@@ -23,6 +46,13 @@ class MessageBubble extends StatelessWidget {
   final void Function(SuggestionCard card)? onCardAction;
   final void Function(ClarificationOption option)? onClarification;
   final void Function(NavigationRequest request)? onNavigation;
+
+  /// Already-loaded wardrobe snapshot used to resolve
+  /// `outfitIntelligence.selectedItemIds` into displayable items for
+  /// [OutfitRecommendationCard]. Null (or missing IDs) falls back to the
+  /// historical empty composition. Never fetched here — the parent supplies
+  /// it from `AssistantService.wardrobe`.
+  final List<WardrobeItemData>? wardrobe;
 
   /// Save callback for the outfit recommendation card. Receives the exact
   /// [OutfitIntelligence] shown by the current message; the parent wires it
@@ -164,14 +194,15 @@ class MessageBubble extends StatelessWidget {
               const SizedBox(height: FansivibeSpacing.md),
               OutfitRecommendationCard(
                 outfitIntelligence: message.outfitIntelligence!,
-                wardrobeItems: message.outfitIntelligence?.selectedItemIds.isNotEmpty == true
-                    ? [] // Will be resolved internally, or pass empty for now
-                    : [],
+                wardrobeItems: resolveOutfitWardrobeItems(
+                  selectedIds: message.outfitIntelligence!.selectedItemIds,
+                  wardrobe: wardrobe,
+                ),
                 onSave: onOutfitSave == null
                     ? null
                     : () => onOutfitSave!(message.outfitIntelligence!),
               ),
-            ]
+            ],
           ],
         ),
       ),

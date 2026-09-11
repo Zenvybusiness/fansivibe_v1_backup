@@ -6609,3 +6609,64 @@ Task: verify winner representation at the AssistantReply boundary (audit).
 ### Validation
 - 132/132 (`test_decision_engine` 79 + `test_analysis_rules` 53).
   py_compile clean. Full suite not run per scope.
+
+---
+
+## STEP 13.17 — WIRE OUTFIT WINNER ITEMS INTO FLUTTER CARD — COMPLETE (uncommitted)
+
+Task: smallest Flutter-only change resolving backend `selectedItemIds`
+against the already-loaded learning wardrobe and passing the resulting
+`WardrobeItemData` list to the existing `OutfitRecommendationCard`.
+No backend/schema/scoring/OUTFIT-semantics/save/offline/API/DB change.
+
+### Changes (3 lib files + 1 new test, Flutter only)
+- `.../assistant/domain/assistant_service.dart` — new read-only
+  `List<WardrobeEntry> get wardrobe` (unmodifiable copy of the attached
+  learning wardrobe; `[]` when unattached). No new dependencies beyond the
+  existing learning contract import.
+- `.../assistant/presentation/widgets/assistant_widgets.dart` — new pure
+  `resolveOutfitWardrobeItems({selectedIds, wardrobe})` (selected-ID order
+  preserved, missing IDs skipped, `[]` on empty/null, never fabricates);
+  `MessageBubble` gains optional `wardrobe` param and passes the resolved
+  list to the card (replaces the hardcoded `[]`). Unused
+  `wardrobe_repository.dart` import replaced with `wardrobe_mock_data.dart`
+  (the type the card already uses). Card composition logic untouched.
+- `.../assistant/presentation/assistant_screen.dart` — supplies
+  `_wardrobeItems()` (field-for-field `WardrobeEntry`→`WardrobeItemData`
+  copy, category strings verbatim) from `_service.wardrobe`; screen already
+  listens to the service so wardrobe edits re-render. No singleton access
+  from widgets; no new network requests.
+- `test/assistant_outfit_wardrobe_wiring_test.dart` (new) — 16 tests for
+  A–H: resolve match/order/missing/empty/category-verbatim/no-mutation,
+  service accessor (empty + copy semantics), MessageBubble chip rendering
+  (resolved only, missing skipped, empty/null fallback), save snapshot
+  keeps full IDs, wire parsing, offline WARDROBE unchanged.
+
+### Validation
+- Backend regression (untouched): `pytest tests/test_decision_engine.py
+  -k "13_12 or 13_13 or outfit"` → 23 passed.
+- Resolution runtime check: exact logic copy executed via `dart` →
+  8/8 checks passed (deleted after run).
+- `dart format` applied to the 4 touched files.
+- Flutter suite NOT runnable here (pre-existing, unrelated to this step):
+  `flutter pub get` / `flutter test` / `flutter analyze` all fail at
+  dependency resolution — `test ^1.31.0` (pubspec) vs `flutter_test`'s
+  pinned `test_api 0.7.10`. `dart analyze` without package resolution
+  reports only `uri_does_not_exist` + cascade warnings; zero parse/syntax
+  errors, zero lib errors outside the cascade. Pubspec intentionally not
+  modified.
+- `git diff --stat`: 3 modified lib files (67+/5-) + 1 new test file.
+  No backend/API/schema/offline/catalog/design changes. Not committed,
+  not pushed (per task).
+
+### Remaining debt (unchanged, out of scope)
+- Local-ID ('1'–'24') vs backend UUID save validation debt — save
+  behavior untouched by design.
+- Flutter `test` pin conflict blocks `flutter test`/`flutter analyze`
+  until separately approved.
+- Offline OUTFIT still emits cards only (no `outfitIntelligence`) —
+  pre-existing product state.
+
+Skills used: `flutter-apply-architecture-best-practices`
+(ViewModel-exposes-state/dumb-view layering), `flutter-add-widget-test`
+(testWidgets checklist).

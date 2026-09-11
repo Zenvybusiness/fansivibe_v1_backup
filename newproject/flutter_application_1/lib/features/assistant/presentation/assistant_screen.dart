@@ -6,6 +6,7 @@ import 'package:fansivibe/features/assistant/domain/assistant_service.dart';
 import 'package:fansivibe/features/assistant/presentation/assistant_routes.dart';
 import 'package:fansivibe/features/assistant/presentation/widgets/assistant_widgets.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
@@ -96,6 +97,25 @@ class _AssistantScreenState extends State<AssistantScreen> {
   Future<bool> _onOutfitSave(OutfitIntelligence intelligence) =>
       _service.saveOutfit(intelligence);
 
+  /// Snapshot of the already-loaded learning wardrobe as displayable items.
+  ///
+  /// Field-for-field copy (category strings preserved verbatim) so
+  /// [MessageBubble] can resolve `selectedItemIds` without new network
+  /// requests. Rebuilt on every service change; the screen already listens
+  /// to the service, so wardrobe edits re-render with no extra wiring.
+  List<WardrobeItemData> _wardrobeItems() => _service.wardrobe
+      .map(
+        (entry) => WardrobeItemData(
+          id: entry.id,
+          name: entry.name,
+          category: entry.category,
+          color: entry.color,
+          material: entry.material,
+          isFavorite: entry.isFavorite,
+        ),
+      )
+      .toList();
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -156,6 +176,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                         final message = _service.messages[index];
                         return MessageBubble(
                           message: message,
+                          wardrobe: _wardrobeItems(),
                           onCardAction: _onCardAction,
                           onClarification: _onClarification,
                           onNavigation: _onNavigationRequest,

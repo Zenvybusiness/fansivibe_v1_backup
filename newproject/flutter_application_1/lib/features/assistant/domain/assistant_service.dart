@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:fansivibe/features/assistant/data/assistant_client.dart';
 import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/assistant/data/offline_assistant.dart';
+import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/learning_repository.dart';
 
 /// Conversation state + orchestration for the assistant.
@@ -33,6 +34,15 @@ class AssistantService extends ChangeNotifier {
   bool get isSending => _isSending;
 
   bool _disposed = false;
+
+  /// Read-only snapshot of the already-loaded learning wardrobe.
+  ///
+  /// Presentation uses this to resolve outfit selections into displayable
+  /// items without new network requests. Empty when no learning repository
+  /// is attached. The returned list is a copy; mutating it never affects
+  /// the underlying user model.
+  List<WardrobeEntry> get wardrobe =>
+      List.unmodifiable(_learning?.wardrobe ?? const []);
 
   /// Wire the learning repository so assistant answers are grounded in the
   /// user's own data (wardrobe, face analysis, saved looks).
