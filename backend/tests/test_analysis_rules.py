@@ -868,3 +868,62 @@ def test_13_11_duplicate_inputs_deduped_multi_item():
     pairs = [(tops[0], "tops"), (tops[1], "tops"), (bottom, "bottoms")]
     assert (_13_11_generate(_13_3_wardrobe(*pairs))
             == _13_11_generate(_13_3_wardrobe(*(pairs + pairs))))
+
+
+# ============================================================================
+# STEP 13.12 — ranked alternatives split (ordering only, no rescore/rerank).
+# Pure split of an already-ranked list: ranked[1:3]. No generation, scoring,
+# ranking, confidence, styleScore, engine, or wire involvement.
+# ============================================================================
+
+from app.domain.services.analysis_rules import (
+    _MAX_ALTERNATIVES,
+    select_outfit_alternatives,
+)
+from app.domain.value_objects import OutfitCandidate as _13_12_Candidate
+
+
+def _13_12_ranked(top, score=0.0):
+    return _13_12_Candidate(top_ids=(top,), score=score)
+
+
+def test_13_12_alternatives_are_ranked_prefix_in_order():
+    """1. Alternatives equal ranked[1:3] exactly, order preserved."""
+    ids = [f"aaaaaaaa-0000-4000-8000-{i:012d}" for i in range(5)]
+    ranked = [_13_12_ranked(i, score) for i, score in
+              zip(ids, (90.0, 70.0, 50.0, 30.0, 10.0))]
+    out = select_outfit_alternatives(ranked)
+    assert out == ranked[1:3]
+    assert [c.score for c in out] == [70.0, 50.0]
+
+
+def test_13_12_max_two_and_short_inputs():
+    """2+3. At most 2; short inputs yield fewer, never fabricated."""
+    assert _MAX_ALTERNATIVES == 2
+    ids = [f"aaaaaaaa-0000-4000-8000-{i:012d}" for i in range(6)]
+    assert select_outfit_alternatives([]) == []
+    assert select_outfit_alternatives([_13_12_ranked(ids[0], 10.0)]) == []
+    two = [_13_12_ranked(ids[0], 20.0), _13_12_ranked(ids[1], 10.0)]
+    assert select_outfit_alternatives(two) == two[1:]
+    many = [_13_12_ranked(i, float(100 - n)) for n, i in enumerate(ids)]
+    assert select_outfit_alternatives(many) == many[1:3]
+
+
+def test_13_12_winner_excluded_no_duplicates_no_mutation():
+    """4+5. Winner never included; same objects; inputs untouched."""
+    ids = [f"aaaaaaaa-0000-4000-8000-{i:012d}" for i in range(4)]
+    ranked = [_13_12_ranked(i, float(40 - n * 10)) for n, i in enumerate(ids)]
+    snapshot = list(ranked)
+    out = select_outfit_alternatives(ranked)
+    assert ranked[0] not in out
+    assert all(out.count(c) == 1 for c in out)
+    assert all(next is ranked[ranked.index(next)] for next in out)
+    assert ranked == snapshot and out is not ranked
+
+
+def test_13_12_split_reads_no_scores_or_ranking():
+    """8. Structural: split never scores, ranks, or consults confidence."""
+    names = set(select_outfit_alternatives.__code__.co_names)
+    assert not ({"score_outfit_candidate", "rank_outfit_candidates",
+                 "compose_candidate_score", "sorted", "confidence",
+                 "styleScore", "style_score"} & names)

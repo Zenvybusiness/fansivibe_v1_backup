@@ -1592,3 +1592,170 @@ def test_13_7_winner_explanation_grounded_no_unsupported_claims(monkeypatch):
         _13_6_request([_13_6_item(top, "tops"), _13_6_item(bottom, "bottoms")])).text
     assert "Your tops in black" in winner_text  # owned item, real attributes
     assert "wardrobe" in winner_text.lower()
+
+
+# ============================================================================
+# STEP 13.12 — ranked alternatives surface contract (WARDROBE cards only).
+# engine.py WARDROBE branch appends "Alternative 1/2" cards (existing
+# clothing_intelligence kind/action, owned IDs only) for ranked[1:3].
+# No rescore/rerank, no schema/wire/Flutter/API/DB change, no OUTFIT change.
+# ============================================================================
+
+from app.domain.services.analysis_rules import select_outfit_alternatives as _13_12_split
+
+
+def _13_12_alt_cards(reply):
+    return [(c.title, c.subtitle) for c in reply.cards
+            if c.title.startswith("Alternative ")]
+
+
+def _13_12_ids_2x2x1():
+    tops = [f"aaaaaaaa-0000-4000-8000-{i:012d}" for i in range(2)]
+    bottoms = [f"bbbbbbbb-0000-4000-8000-{i:012d}" for i in range(2)]
+    shoe = f"cccccccc-0000-4000-8000-{0:012d}"
+    return tops, bottoms, shoe
+
+
+def _13_12_expected_ranked(items, occasions=None):
+    from app.domain.services.analysis_rules import (
+        generate_outfit_candidates, rank_outfit_candidates,
+        score_outfit_candidate)
+    occ = list(occasions) if occasions else ["date"]
+    by_id = {i.id: i for i in items}
+    return rank_outfit_candidates(
+        [score_outfit_candidate(c, by_id, frozenset(), occ)
+         for c in generate_outfit_candidates(items)])
+
+
+def _13_12_expected_subtitle(candidate):
+    ids = (list(candidate.top_ids) + list(candidate.bottom_ids)
+           + list(candidate.outerwear_ids) + list(candidate.footwear_ids)
+           + list(candidate.accessory_ids))
+    return ", ".join(ids[:4]) + ("..." if len(ids) > 4 else "")
+
+
+def test_13_12_alternatives_surface_in_rank_order(monkeypatch):
+    """Winner + ranked[1:3] render; subtitles are owned IDs (no scores)."""
+    engine = _13_6_no_llm(monkeypatch)
+    tops, bottoms, shoe = _13_12_ids_2x2x1()
+    items = ([_13_6_item(t, "tops") for t in tops]
+             + [_13_6_item(b, "bottoms") for b in bottoms]
+             + [_13_6_item(shoe, "footwear")])
+    reply = engine.handle(_13_6_request(items))
+    ranked = _13_12_expected_ranked(items)
+    assert len(ranked) >= 3
+    assert _13_12_split(ranked) == ranked[1:3]
+    expected = [(f"Alternative {n}", _13_12_expected_subtitle(c))
+                for n, c in enumerate(ranked[1:3], start=1)]
+    assert _13_12_alt_cards(reply) == expected
+    # Winner behavior unchanged (existing Selected card still first).
+    cards = _13_6_cards(reply)
+    winner_ids = (list(ranked[0].top_ids) + list(ranked[0].bottom_ids)
+                  + list(ranked[0].outerwear_ids) + list(ranked[0].footwear_ids)
+                  + list(ranked[0].accessory_ids))
+    assert cards.get(f"Selected Items: {len(winner_ids)}") == _13_12_expected_subtitle(ranked[0])
+
+
+def test_13_12_reversed_input_same_alternatives(monkeypatch):
+    """Reversed wardrobe → identical alternative cards in identical order."""
+    engine = _13_6_no_llm(monkeypatch)
+    tops, bottoms, shoe = _13_12_ids_2x2x1()
+    items = ([_13_6_item(t, "tops") for t in tops]
+             + [_13_6_item(b, "bottoms") for b in bottoms]
+             + [_13_6_item(shoe, "footwear")])
+    first = engine.handle(_13_6_request(items))
+    second = engine.handle(_13_6_request(list(reversed(items))))
+    assert _13_12_alt_cards(first) == _13_12_alt_cards(second)
+    assert [(c.title, c.subtitle) for c in first.cards] == [
+        (c.title, c.subtitle) for c in second.cards]
+
+
+def test_13_12_max_two_alternatives_large_wardrobe(monkeypatch):
+    """Oversupply (3×3×3+outer+accessory) → exactly 2 Alternative cards."""
+    engine = _13_6_no_llm(monkeypatch)
+    tops = [f"aaaaaaaa-0000-4000-8000-{i:012d}" for i in range(3)]
+    bottoms = [f"bbbbbbbb-0000-4000-8000-{i:012d}" for i in range(3)]
+    shoes = [f"cccccccc-0000-4000-8000-{i:012d}" for i in range(3)]
+    outer = f"dddddddd-0000-4000-8000-{0:012d}"
+    acc = f"eeeeeeee-0000-4000-8000-{0:012d}"
+    items = ([_13_6_item(t, "tops") for t in tops]
+             + [_13_6_item(b, "bottoms") for b in bottoms]
+             + [_13_6_item(s, "footwear") for s in shoes]
+             + [_13_6_item(outer, "outerwear"), _13_6_item(acc, "accessories")])
+    reply = engine.handle(_13_6_request(items))
+    assert [t for t, _ in _13_12_alt_cards(reply)] == ["Alternative 1", "Alternative 2"]
+
+
+def test_13_12_sparse_no_alternatives_fallback_preserved(monkeypatch):
+    """Empty/single/no-bottoms → no Alternative cards; history intact."""
+    engine = _13_6_no_llm(monkeypatch)
+    empty = engine.handle(_13_6_request([]))
+    assert _13_12_alt_cards(empty) == []
+    assert empty.intent == "wardrobe"
+    assert not [c for c in empty.cards if c.title.startswith("Selected Items:")]
+    single = engine.handle(_13_6_request([_13_6_item(str(_13_6_uuid4()), "tops")]))
+    assert _13_12_alt_cards(single) == []
+    assert "Your tops in" in single.text
+    nobottom = engine.handle(_13_6_request([_13_6_item(str(_13_6_uuid4()), "tops"),
+                                           _13_6_item(str(_13_6_uuid4()), "tops")]))
+    assert _13_12_alt_cards(nobottom) == []
+    assert not [c for c in nobottom.cards if c.title.startswith("Selected Items:")]
+
+
+def test_13_12_alternative_ids_owned_winner_excluded(monkeypatch):
+    """Every alternative ID is owned; winner set never repeats; no dupes."""
+    engine = _13_6_no_llm(monkeypatch)
+    tops, bottoms, shoe = _13_12_ids_2x2x1()
+    items = ([_13_6_item(t, "tops") for t in tops]
+             + [_13_6_item(b, "bottoms") for b in bottoms]
+             + [_13_6_item(shoe, "footwear")])
+    owned = {i.id for i in items}
+    ranked = _13_12_expected_ranked(items)
+    winner_set = set(ranked[0].top_ids + ranked[0].bottom_ids
+                     + ranked[0].outerwear_ids + ranked[0].footwear_ids
+                     + ranked[0].accessory_ids)
+    seen = set()
+    for alt in _13_12_split(ranked):
+        alt_set = set(alt.top_ids + alt.bottom_ids + alt.outerwear_ids
+                      + alt.footwear_ids + alt.accessory_ids)
+        assert alt_set <= owned and alt_set
+        assert alt_set != winner_set
+        assert tuple(sorted(alt_set)) not in seen
+        seen.add(tuple(sorted(alt_set)))
+    reply = engine.handle(_13_6_request(items))
+    for _, subtitle in _13_12_alt_cards(reply):
+        for token in subtitle.replace("...", "").split(","):
+            token = token.strip()
+            if token:
+                assert token in owned
+
+
+def test_13_12_no_score_confidence_stylescore_leakage(monkeypatch):
+    """Alternative cards/text carry IDs only — no scores, confidence, style."""
+    engine = _13_6_no_llm(monkeypatch)
+    tops, bottoms, shoe = _13_12_ids_2x2x1()
+    items = ([_13_6_item(t, "tops") for t in tops]
+             + [_13_6_item(b, "bottoms") for b in bottoms]
+             + [_13_6_item(shoe, "footwear")])
+    ranked = _13_12_expected_ranked(items)
+    reply = engine.handle(_13_6_request(items))
+    assert "Alternative" not in reply.text
+    for title, subtitle in _13_12_alt_cards(reply):
+        blob = f"{title} {subtitle}".lower()
+        assert "score" not in blob and "confidence" not in blob
+        assert "style" not in blob
+    for alt in _13_12_split(ranked):
+        for _, subtitle in _13_12_alt_cards(reply):
+            assert str(alt.score) not in subtitle
+
+
+def test_13_12_outfit_intent_untouched(monkeypatch):
+    """OUTFIT still serves catalog cards + empty wire shell (no pipeline)."""
+    from app.models.schemas import OutfitIntelligence as WireOI
+    engine = _13_6_no_llm(monkeypatch)
+    reply = engine.handle(_13_6_request([], message="what should i wear for date night"))
+    assert reply.intent == "outfit"
+    assert reply.cards and reply.cards[0].kind == "outfit"
+    assert isinstance(reply.outfitIntelligence, WireOI)
+    assert reply.outfitIntelligence.selectedItemIds == []
+    assert _13_12_alt_cards(reply) == []

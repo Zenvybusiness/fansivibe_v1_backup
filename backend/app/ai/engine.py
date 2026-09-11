@@ -34,6 +34,7 @@ from app.domain.services.analysis_rules import (
     rank_outfit_candidates,
     score_outfit_candidate,
     select_best_outfit_candidate,
+    select_outfit_alternatives,
 )
 
 _OUTFIT_CLARIFICATION = [
@@ -210,14 +211,18 @@ def handle(
                 item.id: item for item in wardrobe
                 if getattr(item, "id", None)
             }
-            winner = select_best_outfit_candidate(
-                rank_outfit_candidates([
-                    score_outfit_candidate(
-                        candidate, items_by_id, preferred_set, request_occasions,
-                    )
-                    for candidate in generate_outfit_candidates(wardrobe)
-                ])
-            )
+            # STEP 13.12: keep the ranked list so the already-ranked
+            # runners-up (ranked[1:3]) can surface as alternatives below.
+            # No second ranking: select_best_outfit_candidate reuses the
+            # same single ranking contract (idempotent on ranked input).
+            ranked = rank_outfit_candidates([
+                score_outfit_candidate(
+                    candidate, items_by_id, preferred_set, request_occasions,
+                )
+                for candidate in generate_outfit_candidates(wardrobe)
+            ])
+            winner = select_best_outfit_candidate(ranked)
+            alternatives = select_outfit_alternatives(ranked)
             if winner is None:
                 first_item = wardrobe[0] if wardrobe else None
                 winner_ids: List[str] = []
@@ -394,6 +399,28 @@ def handle(
                     kind="clothing_intelligence",
                     title="Outfit Composition",
                     subtitle=" | ".join(comp_parts),
+                    action="open_wardrobe",
+                ))
+
+            # STEP 13.12: ranked alternatives (already-ranked runners-up,
+            # same objects, no rescore/rerank). Reuses the Selected-Items
+            # card vocabulary (owned IDs only — never scores, confidence,
+            # or styleScore, so no new card kind or schema field). Sparse
+            # wardrobes add no cards here (fallback identical to before).
+            for position, alternative in enumerate(alternatives, start=1):
+                alternative_ids = [
+                    item_id
+                    for bucket in (
+                        alternative.top_ids, alternative.bottom_ids,
+                        alternative.outerwear_ids, alternative.footwear_ids,
+                        alternative.accessory_ids,
+                    )
+                    for item_id in bucket
+                ]
+                cards.append(SuggestionCard(
+                    kind="clothing_intelligence",
+                    title=f"Alternative {position}",
+                    subtitle=", ".join(alternative_ids[:4]) + ("..." if len(alternative_ids) > 4 else ""),
                     action="open_wardrobe",
                 ))
 

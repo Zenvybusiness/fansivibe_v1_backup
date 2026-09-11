@@ -1101,6 +1101,7 @@ __all__ = [
     "generate_outfit_candidates",
     "score_outfit_candidate",
     "select_best_outfit_candidate",
+    "select_outfit_alternatives",
 ]
 
 
@@ -1336,6 +1337,24 @@ def select_best_outfit_candidate(candidates: list):
     """
     ranked = rank_outfit_candidates(candidates)
     return ranked[0] if ranked else None
+
+
+# Maximum surfaced alternatives (STEP 13.12 — hard bound, not configurable).
+_MAX_ALTERNATIVES = 2
+
+
+def select_outfit_alternatives(ranked_candidates: list) -> list:
+    """Split surfaced alternatives off an already-ranked list (STEP 13.12).
+
+    Pure split only: ``ranked[1:1+_MAX_ALTERNATIVES]`` (winner stays
+    ranked[0] via select_best_outfit_candidate). No rescoring, no reranking
+    (the single 13.5 contract already ordered the input), no mutation — the
+    returned list is new but holds the same existing candidate objects.
+    Short inputs yield fewer (never fabricated); empty input yields [].
+    Scores are never read here and must never be rendered from this output.
+    """
+    ranked = list(ranked_candidates or [])
+    return ranked[1:1 + _MAX_ALTERNATIVES]
 
 
 # ---------------------------------------------------------------------------
