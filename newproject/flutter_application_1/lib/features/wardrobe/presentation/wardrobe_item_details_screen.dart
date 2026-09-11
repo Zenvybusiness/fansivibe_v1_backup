@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -14,6 +16,21 @@ WardrobeEntry _toEntry(WardrobeItemData item) => WardrobeEntry(
   material: item.material,
   isFavorite: item.isFavorite,
 );
+
+/// Strict backend-UUID gate for wear capture (DEC-012, §10.2).
+///
+/// Backend wardrobe IDs are server-generated UUIDs; local/mock catalog
+/// IDs ("1"–"24") never match. Only a strict match enables capture — no
+/// heuristic mapping, no invented UUIDs, no local-ID translation. A UUID
+/// the backend no longer owns (deleted/unknown item) still passes this
+/// client-side gate and resolves server-side (404 → safe retry message);
+/// the server stays authoritative for everything else (422/409).
+final RegExp _backendUuidPattern = RegExp(
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+  r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+);
+
+bool _isBackendUuid(String id) => _backendUuidPattern.hasMatch(id);
 
 
 /// The Wardrobe Item Details screen (WARDROBE-004).
@@ -41,6 +58,12 @@ class _WardrobeItemDetailsScreenState
   bool _isLoading = true;
   bool _isEditing = false;
   bool _isDeleting = false;
+  bool _isLoggingWear = false;
+  // Idempotency key for the current logical wear action (STEP 17.5).
+  // Created on the first tap, retained across explicit user retries of
+  // the SAME action so a lost response replays instead of duplicating,
+  // cleared on success so the next tap starts a fresh logical action.
+  String? _wearIdempotencyKey;
   final _formKey = GlobalKey<FormState>();
   String? _newName;
   String? _newCategory;
@@ -67,6 +90,8 @@ class _WardrobeItemDetailsScreenState
     setState(() {
       _item = item;
       _isLoading = false;
+      _isLoggingWear = false;
+      _wearIdempotencyKey = null;
       if (item != null) {
         _newName = item.name;
         _newCategory = item.category;
@@ -255,6 +280,62 @@ ScaffoldMessenger.of(context).showSnackBar(
       ),
     );
     }
+  }
+
+  /// Logs a single wear for the displayed item ("I wore this", STEP 17.5).
+  ///
+  /// One tap is one logical wear action: exactly one backend UUID is
+  /// submitted via the existing `logWear` seam (`wornAt` omitted — server
+  /// now stays authoritative; no date picker in this step). The UUID gate
+  /// in the actions row guarantees only backend UUIDs reach this point;
+  /// local mock IDs never arrive here. Re-taps while pending are ignored
+  /// (button disabled + guard); explicit retries after failure reuse the
+  /// same idempotency key so a lost response replays instead of
+  /// duplicating. Success and failure surface as lightweight snackbars in
+  /// the file's existing style — failure never fabricates success and is
+  /// never interpreted as "not worn". No auto-logging: callers invoke
+  /// this only from the explicit capture action.
+  Future<void> _logWear() async {
+    final item = _item;
+    if (_isLoggingWear || item == null || !_isBackendUuid(item.id)) return;
+
+    setState(() {
+      _isLoggingWear = true;
+    });
+
+    final key = _wearIdempotencyKey ??= newWearIdempotencyKey();
+    WearEventLogResponse? result;
+    try {
+      result = await _repository.logWear(
+        itemIds: [item.id],
+        idempotencyKey: key,
+      );
+    } catch (_) {
+      result = null;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _isLoggingWear = false;
+      if (result != null) {
+        // Action complete — the next tap starts a fresh logical action.
+        _wearIdempotencyKey = null;
+      }
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result == null
+              ? "Couldn't log wear. Check your connection and try again."
+              : (result.created ? 'Wear logged' : 'Already logged'),
+        ),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8.0),
+        ),
+      ),
+    );
   }
 
   Widget _buildLoadingScreen(BuildContext context) {
@@ -509,16 +590,38 @@ ScaffoldMessenger.of(context).showSnackBar(
           ),
           const SizedBox(height: 12),
 
-          // Actions
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+          // Actions (Wrap, not Row: the capture button below makes three
+          // actions, which would overflow narrow screens in a fixed Row.
+          // Identical end-aligned layout whenever everything fits.)
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            runSpacing: 8,
             children: [
+              // Wear capture (STEP 17.5, DEC-012 §10.2): rendered only for
+              // authoritative backend UUIDs. Local/mock IDs ("1"–"24") hide
+              // the action instead of erroring — nothing non-backend is
+              // ever submitted, mapped, or invented. The label stays
+              // visible while pending (spinner replaces the icon) so the
+              // in-flight action remains identifiable; the button is
+              // disabled and re-taps are guarded.
+              if (_isBackendUuid(item.id))
+                OutlinedButton.icon(
+                  onPressed: _isLoggingWear ? null : _logWear,
+                  icon: _isLoggingWear
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.checkroom_rounded, size: 16),
+                  label: const Text('I wore this'),
+                ),
               OutlinedButton.icon(
                 onPressed: _toggleEdit,
                 icon: const Icon(Icons.edit_rounded, size: 16),
                 label: const Text('Edit'),
               ),
-              const SizedBox(width: 8),
               OutlinedButton.icon(
                 onPressed: _isDeleting ? null : _deleteItem,
                 icon: const Icon(Icons.delete_rounded, size: 16),

@@ -238,6 +238,36 @@ class WardrobeClient {
     return null;
   }
 
+  /// Fetches the read-only wear summary for the current user.
+  ///
+  /// Returns the [WearSummary] on 200 with a valid body, or null on any
+  /// other status, a malformed body, or an unreachable backend. W-9 never
+  /// returns 204 for an empty wardrobe (empty is a 200 zero object), so —
+  /// unlike [getInsight] — there is no 204 branch: anything but a valid
+  /// 200 hides the summary. UUID strings pass through verbatim. There is
+  /// deliberately NO mock fallback, NO LearningService substitution, and
+  /// NO automatic retry.
+  Future<WearSummary?> getWearSummary() async {
+    try {
+      final response = await _client
+          .get(
+            Uri.parse('$baseUrl/v1/wardrobe/wear-summary'),
+            headers: {'Authorization': 'Bearer $_devToken'},
+          )
+          .timeout(_timeout);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return WearSummary.fromJson(decoded);
+      }
+      debugPrint(
+        'Wear summary responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Wardrobe backend unreachable during wear summary: $error');
+    }
+    return null;
+  }
+
   /// Logs a wear event for backend wardrobe items.
   ///
   /// POSTs `{itemIds, wornAt?}` to `/v1/wardrobe/wears` with a fresh
@@ -295,8 +325,9 @@ class WardrobeClient {
 /// formatted as UUID text, no new dependency. The backend remains
 /// authoritative for idempotency; Flutter only guarantees a fresh key per
 /// new action — pass [idempotencyKey] explicitly to keep the key stable
-/// across retries of the SAME action.
-@visibleForTesting
+/// across retries of the SAME action. Production callers (wardrobe item
+/// details capture, STEP 17.5) mint one key per logical action through
+/// this function; no second implementation exists.
 String newWearIdempotencyKey() {
   final random = Random.secure();
   final bytes = List<int>.generate(16, (_) => random.nextInt(256));

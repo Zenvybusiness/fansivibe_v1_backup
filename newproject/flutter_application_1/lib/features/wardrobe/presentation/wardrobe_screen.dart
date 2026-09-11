@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
@@ -34,10 +35,11 @@ WardrobeItemData _toItem(WardrobeEntry entry) => WardrobeItemData(
 class WardrobeScreen extends StatefulWidget {
   /// Creates the wardrobe screen.
   ///
-  /// [insightRepository] is the source for the live backend insight card.
-  /// It defaults to the API-primary repository; tests inject a fake to
-  /// control the insight without networking. The wardrobe item list itself
-  /// always renders from [LearningService] (unchanged by this step).
+  /// [insightRepository] is the source for the live backend insight card
+  /// and the live backend wear-summary card. It defaults to the
+  /// API-primary repository; tests inject a fake to control the insight
+  /// without networking. The wardrobe item list itself always renders
+  /// from [LearningService] (unchanged by this step).
   const WardrobeScreen({super.key, this.insightRepository});
 
   final WardrobeRepository? insightRepository;
@@ -50,6 +52,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   String _selectedCategory = 'all';
   late List<WardrobeEntry> _items;
   late final Future<WardrobeInsightData?> _insightFuture;
+  late final Future<WearSummary?> _wearSummaryFuture;
 
   @override
   void initState() {
@@ -59,8 +62,15 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     LearningService.instance.load();
     // Independent from the item list: the list renders immediately while
     // the insight resolves on its own. Single fetch — no refetch storms.
-    _insightFuture =
-        (widget.insightRepository ?? WardrobeRepositoryImpl()).getInsight();
+    final repository = widget.insightRepository ?? WardrobeRepositoryImpl();
+    _insightFuture = repository.getInsight();
+    // Independent from the insight: same seam, separate future, separate
+    // slot — W-7 loading/error/204 behavior is unchanged by this fetch.
+    // `Future.sync` contains a synchronously-throwing repository as an
+    // error future (handled below like any backend failure: shrink, never
+    // crash the screen).
+    _wearSummaryFuture =
+        Future.sync(() => repository.getWearSummary());
   }
 
   @override
@@ -156,6 +166,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                         ),
                         const SizedBox(height: FansivibeSpacing.sm + 4),
                         _InsightSlot(future: _insightFuture),
+                        const SizedBox(height: FansivibeSpacing.sm + 4),
+                        _WearSummarySlot(future: _wearSummaryFuture),
                         const SizedBox(height: FansivibeSpacing.sm + 4),
                         SizedBox(
                           height: 40,
@@ -339,6 +351,36 @@ class _InsightSlot extends StatelessWidget {
         final insight = snapshot.data;
         if (insight == null) return const SizedBox.shrink();
         return WardrobeInsightCard(data: insight);
+      },
+    );
+  }
+}
+
+/// Live backend wear-summary slot for the wardrobe screen.
+///
+/// Mirrors [_InsightSlot]: loading renders nothing so the wardrobe item
+/// list is never blocked; a usable summary renders grounded counts-only
+/// copy via [mapWearSummaryToUi] through the existing
+/// [WardrobeInsightCard] (its `actionLabel` is always null here, so no
+/// CTA — and no dead navigation — is ever rendered); null,
+/// empty-history, unreachable, or error renders nothing. W-7 behavior is
+/// untouched — separate future, separate slot, no shared state, and the
+/// summary never mixes wear facts into the insight text.
+class _WearSummarySlot extends StatelessWidget {
+  const _WearSummarySlot({required this.future});
+
+  final Future<WearSummary?> future;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<WearSummary?>(
+      future: future,
+      builder: (context, snapshot) {
+        final card = snapshot.data == null
+            ? null
+            : mapWearSummaryToUi(snapshot.data!);
+        if (card == null) return const SizedBox.shrink();
+        return WardrobeInsightCard(data: card);
       },
     );
   }

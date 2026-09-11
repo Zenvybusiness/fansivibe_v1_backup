@@ -477,6 +477,9 @@ class _FakeInsightRepository implements WardrobeRepository {
     String? idempotencyKey,
   }) =>
       throw UnimplementedError();
+
+  @override
+  Future<WearSummary?> getWearSummary() => throw UnimplementedError();
 }
 
 /// Repository stub exposing a controllable insight future (loading-state tests).
@@ -535,4 +538,7 @@ class _FutureInsightRepository implements WardrobeRepository {
     String? idempotencyKey,
   }) =>
       throw UnimplementedError();
+
+  @override
+  Future<WearSummary?> getWearSummary() => throw UnimplementedError();
 }

@@ -544,7 +544,8 @@ class ListWearEvents:
 
 
 class GetWearSummary:
-    """Read-only wear intelligence — STEP 15.6 foundation (no endpoint yet).
+    """Read-only wear intelligence — W-9 (`GET /v1/wardrobe/wear-summary`,
+    STEP 17.3, DEC-012).
 
     Computes grounded wear statistics from flat `wardrobe_wear_events`
     only (see `WearSummary`): total/per-item counts, last-worn instants,

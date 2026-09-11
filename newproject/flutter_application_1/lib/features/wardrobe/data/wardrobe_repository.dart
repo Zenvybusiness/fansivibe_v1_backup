@@ -28,6 +28,86 @@ WardrobeInsightData mapInsightDtoToUi(WardrobeInsight insight) =>
       actionLabel: insight.action,
     );
 
+/// Maps a backend [WearSummary] DTO to UI-facing [WardrobeInsightData]
+/// copy following the accepted §10.5 rules (DEC-012, STEP 17.4).
+///
+/// Returns null when there is no usable wear history (`totalWears == 0`)
+/// so the caller renders nothing — no claim beats an ungrounded one.
+/// Otherwise counts-only sentences: logged totals, 30-day recency,
+/// most/least-worn with ties named, unworn counts, and the top category.
+/// Never item names (the summary carries backend UUIDs only, and UUIDs
+/// are never user-facing prose), never favorites/saves/recommendations
+/// inference, never banned language ("never wear", "neglected",
+/// "should", "need", "balanced", rotation judgments). `actionLabel` is
+/// always null so no CTA — and no dead navigation — is ever rendered.
+WardrobeInsightData? mapWearSummaryToUi(WearSummary summary) {
+  if (summary.totalWears == 0) return null;
+  final parts = <String>[];
+  final itemCount = summary.wearCounts.length;
+  parts.add(
+    'Logged ${summary.totalWears} '
+    '${_plural(summary.totalWears, 'wear', 'wears')} '
+    'across $itemCount ${_plural(itemCount, 'item', 'items')}.',
+  );
+  if (summary.recentlyWornItemIds.isNotEmpty) {
+    final n = summary.recentlyWornItemIds.length;
+    parts.add('$n ${_plural(n, 'item', 'items')} worn in the last 30 days.');
+  }
+  if (summary.mostWornItemIds.isNotEmpty) {
+    final top = summary.wearCounts[summary.mostWornItemIds.first] ?? 0;
+    final n = summary.mostWornItemIds.length;
+    parts.add(
+      'Most-worn: $n ${_plural(n, 'item', 'items')} at $top '
+      '${_plural(top, 'wear', 'wears')}'
+      '${n > 1 ? ' (tied)' : ''}.',
+    );
+  }
+  if (summary.leastWornItemIds.isNotEmpty) {
+    final floor = summary.wearCounts[summary.leastWornItemIds.first] ?? 0;
+    final n = summary.leastWornItemIds.length;
+    parts.add(
+      'Least-worn: $n ${_plural(n, 'item', 'items')} at $floor '
+      '${_plural(floor, 'wear', 'wears')}'
+      '${n > 1 ? ' (tied)' : ''}.',
+    );
+  }
+  if (summary.unwornItemIds.isNotEmpty) {
+    final n = summary.unwornItemIds.length;
+    parts.add('$n ${_plural(n, 'item', 'items')} not logged yet.');
+  }
+  final topCategory =
+      _topCategoryLine(summary.wearsByCategory, summary.totalWears);
+  if (topCategory.isNotEmpty) parts.add(topCategory);
+  return WardrobeInsightData(
+    title: 'Wear Summary',
+    insight: parts.join(' '),
+    iconName: 'insights_rounded',
+    accentColor: 0xFFC5A059,
+  );
+}
+
+String _plural(int n, String one, String many) => n == 1 ? one : many;
+
+/// Counts-only top-category line, or empty when nothing is logged.
+/// Ties are named; single winners are stated as facts, never judgments.
+String _topCategoryLine(Map<String, int> byCategory, int total) {
+  if (byCategory.isEmpty || total == 0) return '';
+  var peak = 0;
+  for (final count in byCategory.values) {
+    if (count > peak) peak = count;
+  }
+  if (peak == 0) return '';
+  final tops = [
+    for (final entry in byCategory.entries)
+      if (entry.value == peak) entry.key,
+  ]..sort();
+  if (tops.length == 1) {
+    return 'Most logged category: ${tops.single} ($peak of $total wears).';
+  }
+  return 'Most logged categories (tied): ${tops.join(', ')} '
+      '($peak of $total wears each).';
+}
+
 /// Abstract contract for wardrobe data operations.
 ///
 /// The [WardrobeRepository] becomes the single abstraction used by the feature,
@@ -86,6 +166,16 @@ abstract class WardrobeRepository {
   /// (empty wardrobe), an unreachable backend, or any error all yield null
   /// and the caller hides the insight card instead of inventing one.
   Future<WardrobeInsightData?> getInsight();
+
+  /// Returns the live backend wear summary, or null when unavailable.
+  ///
+  /// Simple pass-through of `WardrobeClient.getWearSummary` (W-9): the
+  /// backend `WearSummary` DTO is returned verbatim — UUID strings
+  /// untouched, no local-ID reconciliation, no mock fallback. A 200 zero
+  /// object (empty wardrobe / no history) passes through as-is; the
+  /// caller (via `mapWearSummaryToUi`) renders no claim for it. Null
+  /// means unavailable — hide the summary surface, never fabricate one.
+  Future<WearSummary?> getWearSummary();
 
   /// Logs a wear event for backend wardrobe items via the live backend.
   ///
@@ -253,6 +343,14 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
     // [WardrobeInsightData.mock] — that text was never provided by the
     // backend and must not pose as live intelligence.
     return null;
+  }
+
+  @override
+  Future<WearSummary?> getWearSummary() {
+    // No mock fallback, no LearningService substitution, no ID
+    // translation: a fabricated or remapped summary would corrupt the
+    // read surface. Null means unavailable — the caller hides it.
+    return _client.getWearSummary();
   }
 
   @override

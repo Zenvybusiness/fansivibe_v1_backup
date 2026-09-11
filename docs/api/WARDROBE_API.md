@@ -697,3 +697,189 @@ honestly), item/DTO shapes kept identical to the accepted contract and sibling
 docs, the no-internals rule enforced, image/media separated from JSON data, the
 UI Change Safety Rule (no UI touched), and the Scope rule (this document +
 `CURRENT_STATE.md` only).
+
+---
+
+## 10. Wear intelligence surfacing — W-8/W-9 (STEP 17.2, accepted per DEC-012)
+
+This section is the accepted wire contract for wear surfacing. It binds
+`POST`/`GET /v1/wardrobe/wears` (implemented, STEPS 15.3–15.4B) to one
+capture surface, and specifies one new read-only summary route
+(**not yet implemented** — STEP 17.3). `GET /v1/wardrobe/insight` (W-7,
+§5.7) is unchanged and stays wear-free.
+
+### 10.1 Operation selection
+
+| # | Operation | Decision |
+| --- | --- | --- |
+| W-8 | **Log wear** — `POST /v1/wardrobe/wears` | **Required — exists.** Single capture surface: WARDROBE-004, one item per action (§10.2). No route/shape change here. |
+| W-9 | **Wear summary** — `GET /v1/wardrobe/wear-summary` | **Required — accepted, NOT implemented.** Dedicated read-only route (§10.3). STEP 17.3 implements it exactly. |
+| — | Extend W-7 with wear | **NOT defined** — rejected (DEC-012 rationale). W-7 shape, verbatim mapping, and 204 semantics stay frozen. |
+| — | Outfit-level capture (`selectedItemIds` → one group) | **NOT defined** — deferred (no surface holds authoritative backend UUID sets, §10.2). |
+| — | Per-row wear delete/edit | **NOT defined** — deferred (retention rule, §10.7). |
+
+### 10.2 W-8 — Capture surface rule (existing route, new binding)
+
+- **Method / path:** `POST /v1/wardrobe/wears` (unchanged: required
+  `Idempotency-Key` header → 422 when missing; body
+  `{itemIds: UUID[1..10], wornAt?: ISO-8601}`; `wornAt` omitted → server
+  now; future instant → 422; unknown/foreign IDs → 404-not-403; replay →
+  201 `created=false`; changed payload → 409; append-only).
+- **The one capture surface:** `WardrobeItemDetailsScreen`
+  (WARDROBE-004), single item only — one tap sends exactly one backend
+  UUID, hence one ledger group of one row (DEC-011 unchanged).
+- **UUID gate (product rule):** the control renders if and only if the
+  item was loaded from the live backend in the current session. Local
+  `LearningService` IDs ("1"–"24") must never be sent
+  (`WardrobeClient.logWear` contract); mock-fallback items hide the
+  control instead of erroring. The server stays authoritative
+  (422/404/409).
+- **Explicitly not capture surfaces (v1):** HOME-002 "Wear This Look"
+  (components carry mock-catalog IDs with no backend-UUID mapping —
+  stays snackbar-only, unchanged); the assistant
+  `OutfitRecommendationCard` (`selectedItemIds` are local-snapshot IDs
+  echoed through `app/ai/engine.py` and fail save validation with 422 —
+  save flow unchanged). No new screen. No automatic logging on save,
+  favorite, or any other action.
+- **Flutter capture UX states:** 201 `created=true` → logged
+  confirmation; 201 `created=false` → neutral already-logged note (never
+  presented as a new log); 404 → item gone, hide/disable + refresh data;
+  409 → neutral error (same-key reuse with changed payload is a client
+  bug); 422/401/5xx/malformed/network → null → "couldn't log, safe to
+  retry", retrying with the SAME idempotency key. Failures never
+  fabricate success (existing no-mock-fallback rule).
+
+### 10.3 W-9 — Wear summary (`GetWearSummary`, new route)
+
+- **Method / path:** `GET /v1/wardrobe/wear-summary`
+- **Status:** **accepted, NOT implemented** (no router/schema/Flutter
+  exists; STEP 17.3 builds backend, STEP 17.4 builds Flutter).
+- **Request schema:** none.
+- **Response schema:** `200 OK` — `WearSummary` (camelCase keys,
+  UUID strings, ISO-8601 UTC instants):
+
+```
+WearSummary {
+  totalWears*: int,                        // == sum(wearCounts) == sum(wearsByCategory)
+  wearCounts*: { uuid: int },              // EVERY current item incl. zeros, sorted-id order
+  lastWorn*: { uuid: ISO-8601 | null },    // EVERY current item, null = never worn
+  mostWornItemIds*: [uuid],                // max-count ties; [] when totalWears == 0
+  leastWornItemIds*: [uuid],               // min-count ties over ALL current items; [] only when wardrobe empty
+  unwornItemIds*: [uuid],                  // zero-count subset, id asc
+  recentlyWornItemIds*: [uuid],            // last wear >= now − 30d inclusive, last-worn desc + id asc
+  wearsByCategory*: { code: int },         // current-item vocab codes only, code-sorted, zero-filled
+}
+```
+
+- **Validation:** none (read). All IDs are backend wardrobe UUIDs;
+  category keys are wardrobe-category vocab codes (K9.1).
+- **Authorization:** **auth** (Bearer); **owner** (OW-1).
+- **Errors:** `200`; `401`; `429 RATE_LIMITED`. Never 204 (a summary of
+  an empty wardrobe is a valid zero object, not "no insight" — this is
+  the deliberate difference from W-7). Never 404 for empty (same
+  reason). Frozen `{error:{code,message,details}}` taxonomy (§4.5).
+- **Security considerations:** owner's own history + current items only;
+  per-item UUIDs are the owner's own row identities (same exposure as
+  the item list); no internals, no ledger payload, no other-user data.
+- **Side effects:** none — derived read-only computation over flat
+  `wardrobe_wear_events` (SELECT-only, no commit).
+- **Domain entities involved:** `wardrobe_wear_events` (read), E2
+  `WardrobeItem` (membership/category, read). Never the ledger
+  `item_ids` payload, favorites, saved looks, recommendations, or
+  created/updated timestamps.
+
+### 10.4 Promoted semantics (product/API contract, from 15.6 convention)
+
+- **Recent:** an item is recent when its last wear is at/after
+  `now − 30 days`, boundary inclusive. `now` is server time.
+- **Most-worn:** items tied at the maximum wear count; empty list when
+  nothing was ever worn (`totalWears == 0`); ordered last-worn desc,
+  item id asc.
+- **Least-worn:** items tied at the minimum wear count over ALL current
+  wardrobe items — never-worn items included when present; empty list
+  only when the wardrobe itself is empty. Never-worn (null) sorts before
+  any instant, then last-worn asc, then item id asc.
+- **Unworn:** the zero-count subset of current items, item id asc.
+- **Categories:** categories of the owner's current items only
+  (code-sorted, zero-filled); categories with no current items never
+  appear.
+- **Invariant:** `totalWears == sum(wearCounts) == sum(wearsByCategory)`
+  always holds (stale deleted-item rows are ignored everywhere, so sums
+  reconcile).
+- **Stale/deleted references:** rows whose item no longer exists match
+  nothing and are ignored in every field. A deleted item can never be
+  newly logged (owner-scoped 404) while its past rows remain history.
+
+### 10.5 Wear copy rules (grounded templates for 17.4 rendering)
+
+v1 copy uses **counts only, never item names** (the summary carries IDs;
+name resolution is deferred). Behavioral claims are gated by data
+strength; ties are always named as ties.
+
+- **No usable history (`totalWears == 0`):** no wear sentence at all
+  (same rule as the saved-look suffix — no claim beats an ungrounded
+  one). A summary card may show the static helper "No wears logged
+  yet" and counts of 0; no most/least/unworn language even though
+  `leastWornItemIds`/`unwornItemIds` are populated.
+- **Low-data (`totalWears > 0`):** counts only —
+  "Logged N wear(s) across M item(s)." No superlatives from a single
+  event beyond what the lists state.
+- **Recent (`recentlyWornItemIds` non-empty):** "N item(s) worn in the
+  last 30 days." Absent otherwise (never "nothing worn lately").
+- **Most-worn (`totalWears > 0`):** "Most-worn: N item(s) at C wears"
+  + " (tied)" when the list has >1 member. Never "favorite".
+- **Least-worn (`totalWears > 0`):** "Least-worn: N item(s) at C wear(s)"
+  + " (tied)" when the list has >1 member. Never "neglected".
+- **Unworn (`totalWears > 0`, list non-empty):** "M item(s) not logged
+  yet." Never "you never wear …".
+- **Category (`wearsByCategory`):** counts only — "M of N logged wears
+  are {code}." No balance/rotation judgments.
+- **Banned language:** "you never wear", "always", "favorite" (from
+  wear), "neglected", "should wear", "need to", "balanced/unbalanced",
+  "rotation" as a judgment, "popular". No fabricated behavioral claims.
+
+### 10.6 204 / error / offline (insight safety rule preserved)
+
+| State | W-9 backend | Flutter |
+| --- | --- | --- |
+| Empty wardrobe | 200 zero object (all maps/lists empty, `totalWears: 0`) | counts-only or hidden; never behavioral text (§10.5) |
+| No history, items exist | 200 (`mostWorn: []`, `least/unworn` populated) | no wear sentence (§10.5) |
+| 401/429/5xx | frozen error taxonomy, allow-listed `details` only | null → hide card; list stays usable |
+| Malformed 200 / network failure | n/a | null → hide card (never render partial maps) |
+| Offline | n/a | card hidden; capture control disabled governance per §10.2 (no backend → no provenance → no capture) |
+
+Errors must not fabricate data — the existing Wardrobe Insight safety
+rule applies unchanged to the summary surface.
+
+### 10.7 Retention / privacy (accepted rule, no new endpoint)
+
+- Wear history is **append-only and retained indefinitely** — history is
+  the product (15.2 Q8 accepted).
+- **Account deletion** cascade-erases groups + rows (`user_id → users`
+  CASCADE, migrations 0012/0014 — already implemented).
+- **Item deletion** preserves rows; stale refs ignored at read
+  (No-FK-to-trigger — already implemented).
+- **No per-row wear delete/edit endpoint exists in v1** (deferred;
+  reconsider only on a real retention demand). No token/image/snapshot
+  logging (IDs only in logs).
+
+### 10.8 Reconciliation note (no conflicting duplicate)
+
+`FEEDBACK_LEARNING_API.md` §3/§4.3/§8 ("WEAR NOT supported — no action,
+concept, signal type, or endpoint exists") is a STEP-6 design-time
+statement that predates the 15.x wear-event foundation. It is superseded
+ONLY for capture/summary existence. Its signal-model rules stand
+unchanged and are reaffirmed here: no `worn` signal type, M10 remains
+the sole writer of `learning_signals`, no client signal-submit endpoint,
+wear never becomes a preference write, and regenerating/saving without
+wearing carries no wear meaning. That document is intentionally not
+edited (frozen STEP-6 design record); this section is the single home
+for the wear wire contract.
+
+### 10.9 Explicitly deferred (not in this contract)
+
+Multi-item/outfit-level capture; HOME-002 and assistant-card capture
+(blocked on the local-ID → backend-UUID sync repair); wear sentences
+inside W-7; per-row wear delete/edit; retention expiry; item-name
+rendering in wear copy; any outfit-generation, wardrobe-CRUD, media,
+auth, feedback, or learning-surface change.

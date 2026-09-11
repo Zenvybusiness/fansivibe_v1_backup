@@ -22,6 +22,312 @@ Updated By: opencode agent
 
 ---
 
+## STEP 17.5 — WARDROBE WEAR CAPTURE UX WIRING — COMPLETE (uncommitted)
+
+Task: wire the accepted single-item capture into WARDROBE-004
+(DEC-012, `WARDROBE_API.md` §10.2). Flutter only. Skills (read in
+17.4, same conversation): `flutter-add-widget-test`,
+`dart-add-unit-test`, `dart-run-static-analysis`,
+`flutter-use-http-package` (null-on-failure kept).
+
+### Implemented (1 screen + 1 annotation, minimal)
+
+- `wardrobe/presentation/wardrobe_item_details_screen.dart`
+  (+`_isBackendUuid` strict gate: server-UUID regex only — local
+  "1"–"24"/garbage hide the action, never submitted/mapped/invented;
+  unknown-UUID edge resolves server-side 404; +`_logWear`: one tap =
+  one `logWear(itemIds:[uuid])`, `wornAt` omitted, pending guard +
+  disabled button, key retained per logical action for explicit retry
+  (replay not duplicate) and cleared on success, `created=false` →
+  "Already logged", null → safe retry snackbar, file's existing
+  snackbar conventions; +`I wore this` button in the Actions row, view
+  mode only, no auto-log on open/save/favorite; Row→Wrap with identical
+  end-alignment so the third button cannot overflow narrow screens).
+- `wardrobe/data/wardrobe_client.dart` (removed `@visibleForTesting`
+  from `newWearIdempotencyKey` — production capture mints keys through
+  it per DEC-012, so the marker was a true positive; behavior/contract
+  unchanged, no second implementation).
+- No summary refresh: `WardrobeScreen` fetches once in `initState` with
+  no existing refresh seam — introducing one would be a broad
+  state-management refactor, so refresh stays deferred per §10 (fresh
+  data appears on next screen visit).
+
+### Explicitly untouched
+
+- Backend (zero files), migrations, DEC-011/DEC-012, contract docs,
+  W-7/`GET /insight`, `GET /wear-summary`, `POST /wears` contract,
+  HOME-002, assistant card (no capture), save/favorite/delete
+  behavior, router/navigation, pubspec, shared cards.
+
+### Tests (new `test/wardrobe_wear_capture_test.dart`, 11 tests)
+
+Gate ×3 (UUID shows; local "1" hides + never submits; garbage hides);
+submission (exact single UUID + `created=true` → "Wear logged");
+pending (spinner + disabled, re-tap ignored, 1 call); replay
+(`created=false` → "Already logged", never "Wear logged"); failure
+(retry message, no fabricated success, screen intact); retry (same key
+reused, next action fresh key); no auto-log on open/save/favorite (edit
++ double-toggle + app-bar save); no navigation on success. Self-found
+test issues fixed (no prod changes): snackbar queueing (expire before
+retry assert), `scrollUntilVisible` multi-Scrollable (used app-bar save
+instead), pending label kept visible (spinner swaps icon, not label).
+
+### Validation (strictly serial, in place)
+
+- New capture: **11 passed**. Wear-log: **17 passed**. WearSummary:
+  **21 passed**. Insight (W-7): **20 passed**. Item-details file:
+  1 passed / 15 failed — byte-identical to the pristine-HEAD baseline
+  proven in 17.4 (documented drift since 14.5; file's failures are
+  pre-existing, mock-ID tests unaffected since the button hides).
+- `flutter analyze` on touched files: only the 4 pre-existing warnings
+  in untouched code (`_errorMessage`, deprecated `value`, unused
+  `theme`, unreferenced `_categoryIcon`); zero from this step (one
+  self-found `invalid_use_of_visible_for_testing_member` fixed via the
+  annotation removal above).
+- `git diff --check` clean. Flutter-tool CRLF-only churn on generated
+  registrants restored via checkout (zero content diff). No worktrees
+  left registered.
+
+### Files changed in 17.5 (uncommitted, nothing staged)
+
+- `.../wardrobe/presentation/wardrobe_item_details_screen.dart`
+  (+gate, +`_logWear`, +button, Row→Wrap)
+- `.../wardrobe/data/wardrobe_client.dart` (annotation removal only)
+- `.../test/wardrobe_wear_capture_test.dart` (new, 11 tests)
+- `CURRENT_STATE.md` (this entry)
+
+### Git safety
+
+- Staged = 0 files. NOTHING committed, NOTHING pushed. No backend,
+  migration, DECISION, contract-doc, pubspec, platform-file, HOME-002,
+  or assistant change in this step (17.2–17.4 entries preserved).
+
+---
+
+## STEP 17.4 — FLUTTER WEAR SUMMARY READ SURFACE — COMPLETE (uncommitted)
+
+Task: Flutter read-only consumption of W-9 (DEC-012, `WARDROBE_API.md`
+§10). Flutter only. Skills read first per workflow:
+`flutter-use-http-package` (project null-on-failure convention kept over
+the skill's throw guidance — 15.5 precedent), `dart-add-unit-test`,
+`flutter-add-widget-test`, `dart-run-static-analysis`.
+
+### Implemented (4 lib files, minimal)
+
+- `wardrobe/data/wardrobe_api_models.dart` (+`WearSummary` DTO: 8
+  camelCase fields, UUID keys verbatim, strict `fromJson` — wrong types
+  or unparseable non-null instants throw into the client's null path
+  rather than posing garbage as "never worn"; `toJson`/`copyWith` per
+  file style).
+- `wardrobe/data/wardrobe_client.dart` (+`getWearSummary()` mirroring
+  `getInsight`: same baseUrl/dev-token/timeout, `GET
+  /v1/wardrobe/wear-summary`, 200-valid → parsed, anything else
+  (incl. malformed 200, 401/429/5xx, network) → null. No 204 branch
+  (W-9 never 204s), no mock/LearningService fallback, no retry, no ID
+  transform).
+- `wardrobe/data/wardrobe_repository.dart` (+`mapWearSummaryToUi`
+  pure mapper → `WardrobeInsightData?` (null when `totalWears == 0`;
+  else counts-only §10.5 sentences with ties named, top-category line,
+  no names/UUIDs/judgments/banned words, `actionLabel` always null);
+  +abstract `getWearSummary()` + verbatim passthrough impl).
+- `wardrobe/presentation/wardrobe_screen.dart` (+`_WearSummarySlot`
+  mirroring `_InsightSlot` below it: independent future from the same
+  repo seam, null/error → shrink, list never blocked; reuses existing
+  `WardrobeInsightCard`, no new widget/route/screen. InitState hardened
+  with `Future.sync` so a synchronously-throwing repository surfaces as
+  a hidden slot instead of crashing the build. W-7 path untouched.)
+- `test/wardrobe_insight_test.dart` (+`getWearSummary`
+  `UnimplementedError` stubs on the 2 existing fakes — compile fix per
+  15.5 precedent; they now also prove the slot survives repo errors).
+
+### Explicitly untouched
+
+- Backend (zero files this step), migrations, DEC-012, contract docs,
+  W-7 semantics/shape, `POST /wears`, capture UX (no wiring, no
+  buttons), pubspec (no new deps), router/navigation, shared cards.
+
+### Tests (new `test/wardrobe_wear_summary_test.dart`, 21 tests)
+
+Model ×7 (exact parse, camelCase, null-lastWorn, verbatim keys,
+strict-throw ×3, roundtrip); client ×4 (path/auth/GET-no-IDs + valid
+200, malformed-200 variants, 401/429/5xx loop, network failure);
+repo ×2 (verbatim passthrough, error → null not zero-object); mapper
+×5 (zero → null, exact grounded copy, ties named, unworn counts,
+banned-words + no-UUIDs scan); screen slot ×3 (summary + unchanged W-7
+co-render with no CTA and intact list; null summary hides; pending
+summary never blocks list).
+
+### Validation (strictly serial, in place)
+
+- New summary suite: **21 passed**. Insight (W-7): **20 passed**.
+  Wear-log: **17 passed**. Repository: **13 passed**. Api-models +
+  client: **42 passed**. Screen file: 12 passed / 1 failed =
+  `item tap navigates to item details screen`, proven pre-existing via
+  pristine-HEAD worktree rerun (fails identically without this step's
+  changes; documented drift since 14.6). Item-details file: 1 passed /
+  15 failed, proven identically pre-existing the same way (documented
+  ×15 drift since 14.5; file untouched by this step).
+- `flutter analyze` on all touched lib/test files: **No issues found**
+  (3 self-found `inference_failure_on_collection_literal` warnings in
+  the new test fixed with `<String>[]`; remaining repo-wide issues are
+  pre-existing in untouched files).
+- `git diff --check` clean. Flutter-tool CRLF-only churn on 7
+  generated registrant files restored via checkout (zero content diff,
+  established precedent). No worktrees left registered.
+
+### Files changed in 17.4 (uncommitted, nothing staged)
+
+- `.../wardrobe/data/wardrobe_api_models.dart` (+`WearSummary`)
+- `.../wardrobe/data/wardrobe_client.dart` (+`getWearSummary`)
+- `.../wardrobe/data/wardrobe_repository.dart` (+mapper, +contract, +impl)
+- `.../wardrobe/presentation/wardrobe_screen.dart` (+slot, +future, +guard)
+- `.../test/wardrobe_insight_test.dart` (+2 fake stubs)
+- `.../test/wardrobe_wear_summary_test.dart` (new, 21 tests)
+- `CURRENT_STATE.md` (this entry)
+
+### Git safety
+
+- Staged = 0 files. NOTHING committed, NOTHING pushed. No backend,
+  migration, DECISION, contract-doc, pubspec, or platform-file change
+  in this step (17.2/17.3 entries above preserved uncommitted).
+
+---
+
+## STEP 17.3 — W-9 WEAR SUMMARY ROUTE (BACKEND ONLY) — COMPLETE (uncommitted)
+
+Task: implement accepted STEP 17.2 contract `GET /v1/wardrobe/wear-summary`
+(DEC-012, `WARDROBE_API.md` §10). Backend only. Skills: none loaded
+(Python backend; all `.agents/skills/` are Dart/Flutter code-creation
+skills with no trigger — 14.7/15.3/15.4B precedent).
+
+### Implemented (2 prod files, minimal)
+
+- `backend/app/api/schemas/wardrobe.py` (+`WearSummary` wire model:
+  `totalWears`, `wearCounts{uuid:int}`, `lastWorn{uuid:ISO|null}`,
+  `mostWornItemIds[]`, `leastWornItemIds[]`, `unwornItemIds[]`,
+  `recentlyWornItemIds[]`, `wearsByCategory{code:int}` — camelCase,
+  counts only, no names/judgments).
+- `backend/app/api/routers/wardrobe.py` (+`GET /wear-summary` at end of
+  file: auth + owner via existing seams, `GetWearSummary` call, pure
+  `_wear_summary_to_wire` boundary rename — no recomputation; 200 always
+  (zero object when empty, never 204/404); 401/429 declared, frozen error
+  taxonomy, no new codes).
+- `backend/app/application/wardrobe.py` (one docstring line: stale
+  "(no endpoint yet)" → W-9 reference. No logic touched.)
+
+### Explicitly untouched
+
+- `POST /v1/wardrobe/wears` behavior, W-7/`GET /insight`, migrations
+  (0012–0014 sufficient), DEC-011/DEC-012, Flutter (zero files),
+  capture UX, `WearSummary` semantics (no test-convenience changes).
+
+### Tests (new `backend/tests/test_wardrobe_wear_summary_api.py`, 15 tests)
+
+Exact shape/type/naming check; empty wardrobe → 200 zero object;
+no-history (most `[]`, least/unworn = all, zero-filled categories);
+owner isolation (foreign UUIDs never appear); counts + last-worn
+instants; 30d recency window (server-now recent vs 2024 old);
+most-worn tie ordering (last-desc); least-worn unworn-inclusion +
+worn-tie ordering (last-asc); unworn id-asc; category zero-fill
+(current-item codes only); invariant
+`total == sum(counts) == sum(categories)`; deleted-item ignore-at-read
+(DB row survives, contributes nothing); read-only + determinism
+(repeat-call equality, wear/group counts and `updatedAt` unchanged);
+401 `AUTHENTICATION_ERROR` without token. One self-found test bug fixed:
+invariant test logged 5 wears but asserted 4 (test arithmetic, not prod).
+
+### Validation (strictly serial, live PG)
+
+- New W-9 API: **15 passed**. Existing wear-summary (15.6): **15 passed**.
+  Wears API: **32 passed**. Wardrobe API (W-7 intact): **49 passed**.
+  Decision-engine outfit subset: **23 passed / 74 deselected**.
+  Saved-looks use-case: **28 passed**. `py_compile` clean (4 files).
+- No pre-existing failures encountered in any suite run this step
+  (the known `test_saved_looks.py` dirty-DB baseline file was not run;
+  no file it covers was touched).
+- `git diff --check` clean. Diff = exactly the 2 prod files + 1
+  docstring line + new test file (+ 17.2 docs, preserved uncommitted).
+
+### Files changed in 17.3 (uncommitted, nothing staged)
+
+- `backend/app/api/schemas/wardrobe.py` (+`WearSummary`)
+- `backend/app/api/routers/wardrobe.py` (+mapper, +`GET /wear-summary`)
+- `backend/app/application/wardrobe.py` (docstring line only)
+- `backend/tests/test_wardrobe_wear_summary_api.py` (new, 15 tests)
+- `CURRENT_STATE.md` (this entry)
+
+### Git safety
+
+- Staged = 0 files. NOTHING committed, NOTHING pushed. No Flutter,
+  migration, DECISION, or contract-doc change in this step.
+
+---
+
+## STEP 17.2 — WEAR INTELLIGENCE SURFACING SPECIFICATION — COMPLETE (documentation only, uncommitted)
+
+Task: draft the smallest complete surfacing spec for the STEP 17.1
+finding (Wear Intelligence Surfacing, NEEDS FOUNDATION). Docs only:
+one `DECISIONS.md` entry (DEC-012), one `docs/api/WARDROBE_API.md`
+section (§10), this status entry. No production code, no tests, no
+migrations, no Flutter source, no commits, no pushes. Skills: none
+loaded (design-only; all `.agents/skills/` are Dart/Flutter
+code-creation skills with no trigger — 15.1/15.2/15.7/16.1 precedent).
+
+### Decisions accepted (DEC-012, see `DECISIONS.md`)
+
+- **Capture surface: WARDROBE-004 only, single item.** Verified in code:
+  HOME-002 components carry mock-catalog IDs with no backend-UUID
+  mapping (`daily_outfit_mock_data.dart:195-211`); the assistant card's
+  `selectedItemIds` are local-snapshot IDs echoed through
+  `app/ai/engine.py:198-236` that fail save validation with 422
+  (`application/saved_looks.py:96-102`); only WARDROBE-004 loads
+  backend-first (`wardrobe_repository.dart:144-162`) and can hold an
+  authoritative backend UUID. One tap = one `POST /v1/wardrobe/wears`
+  with one ID = one ledger group of one row (DEC-011 unchanged).
+  HOME-002 "Wear This Look" stays snackbar-only
+  (`daily_outfit_screen.dart:1149-1158`); assistant save flow unchanged.
+- **API shape: Option 2 (dedicated `GET /v1/wardrobe/wear-summary`).**
+  W-7 keeps its frozen text shape and 204 semantics; a summary of an
+  empty wardrobe is a 200 zero object, never 204/404. Full wire contract
+  in `WARDROBE_API.md` §10 (route NOT implemented — STEP 17.3).
+- **Semantics promoted to contract:** 30d inclusive recent window,
+  most/least tie rules + orderings, unworn subset, code-sorted
+  zero-filled categories, `total == sum(counts) == sum(categories)`,
+  stale refs ignored — verified verbatim against
+  `application/wardrobe.py:546-573`,
+  `domain/ports/repositories.py:155-191`,
+  `infrastructure/db/repositories.py:682-764`.
+- **Save ≠ wear** (reaffirmed as product rule): saves, favorites, and
+  saved-look presence never log wear; no auto-logging; outfit-level
+  capture deferred.
+- **UUID boundary:** local "1"–"24" IDs never sent to `POST /wears`;
+  control renders for backend-loaded items only, hidden on mock
+  fallback; server stays authoritative (422/404/409).
+- **Retention:** append-only indefinite; account-delete CASCADE
+  (implemented); item-delete preserves rows, ignored at read
+  (implemented); no per-row delete/edit endpoint in v1 (deferred).
+- **FEEDBACK reconciliation:** `FEEDBACK_LEARNING_API.md` WEAR exclusion
+  superseded ONLY for capture/summary existence; its signal-model rules
+  (no `worn` type, M10 sole writer, no client signal-submit) stand —
+  that doc intentionally unedited (frozen STEP-6 record).
+- **Deferred:** multi-item/outfit capture, HOME-002 + assistant capture
+  (blocked on UUID-sync repair), W-7 wear sentences, per-row
+  delete/edit, retention expiry, item names in wear copy (counts only).
+
+### Files changed in 17.2 (docs only, uncommitted, nothing staged)
+
+- `DECISIONS.md` (+DEC-012; DEC-011 untouched).
+- `docs/api/WARDROBE_API.md` (+§10 W-8/W-9; §§1–9 untouched).
+- `CURRENT_STATE.md` (this entry).
+
+### Git safety
+
+- Staged = 0 files. NOTHING committed, NOTHING pushed. No production,
+  test, migration, or Flutter file touched (verified via
+  `git status --short` + `git diff --name-only` in validation).
+
+---
+
 ## STEP 16.1 — FINAL CROSS-FEATURE INTEGRATION AUDIT (OUTFIT + WARDROBE + WEAR) — PASS_WITH_WARNINGS (committed cd0943b)
 
 Read-only audit; zero production/test/migration/Flutter lines changed by

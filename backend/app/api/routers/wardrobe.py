@@ -1,6 +1,7 @@
 """Wardrobe API router — endpoints W-1 (`GET /v1/wardrobe/items`), W-3
-(`POST /v1/wardrobe/items`), and the wear-event surface
-(`POST`/`GET /v1/wardrobe/wears`, STEP 15.4).
+(`POST /v1/wardrobe/items`), the wear-event surface
+(`POST`/`GET /v1/wardrobe/wears`, STEP 15.4), and the read-only wear
+summary (`GET /v1/wardrobe/wear-summary`, W-9, STEP 17.3).
 
 Owner-scoped by authenticated user (OW-1). Follows the existing router patterns
 from `users.py` and `looks.py`.
@@ -24,6 +25,7 @@ from app.api.schemas.wardrobe import (
     WearEventList,
     WearEventLogRequest,
     WearEventLogResponse,
+    WearSummary,
     ListEnvelope,
 )
 from app.application.wardrobe import (
@@ -31,6 +33,7 @@ from app.application.wardrobe import (
     AddWardrobeItem,
     GetWardrobeItem,
     GetWardrobeInsight,
+    GetWearSummary,
     ListWearEvents,
     LogWearEvents,
     UpdateWardrobeItem,
@@ -70,6 +73,25 @@ def _wear_to_wire(record) -> WearEvent:
         wornAt=record.worn_at,
         wearGroupId=record.wear_group_id,
         createdAt=record.created_at,
+    )
+
+
+def _wear_summary_to_wire(summary) -> WearSummary:
+    """Map a domain `WearSummary` to the wire schema (W-9, STEP 17.3).
+
+    Pure field rename at the API boundary — no recomputation, no
+    filtering, no judgment. Domain keys are already canonical backend
+    UUID strings; category keys are already canonical vocab codes.
+    """
+    return WearSummary(
+        totalWears=summary.total_wears,
+        wearCounts=dict(summary.wear_counts),
+        lastWorn=dict(summary.last_worn),
+        mostWornItemIds=list(summary.most_worn_item_ids),
+        leastWornItemIds=list(summary.least_worn_item_ids),
+        unwornItemIds=list(summary.unworn_item_ids),
+        recentlyWornItemIds=list(summary.recently_worn_item_ids),
+        wearsByCategory=dict(summary.wears_by_category),
     )
 
 
@@ -360,3 +382,29 @@ def list_wear_events(
         page_size=page_size,
         total=total,
     )
+
+
+@router.get(
+    "/wear-summary",
+    response_model=WearSummary,
+    responses={
+        401: {"model": dict},
+        429: {"model": dict},
+    },
+)
+def get_wear_summary(
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> WearSummary:
+    """Read-only wear summary for the owner (W-9, STEP 17.3, DEC-012).
+
+    SELECT-only aggregate over the owner's flat `wardrobe_wear_events`
+    via `GetWearSummary` — total/per-item counts, last-worn instants,
+    most/least-worn ties, unworn items, last-30-days recency, and
+    per-category frequency. Favorites, saved looks, recommendations,
+    and timestamps are never read; stale deleted-item rows are ignored.
+    Empty wardrobe → 200 zero object, never 204, never 404.
+    No side effects: no commit, no mutation.
+    """
+    use_case = GetWearSummary(wears=WearEventRepositorySQL(db))
+    return _wear_summary_to_wire(use_case(user_id=user_id))

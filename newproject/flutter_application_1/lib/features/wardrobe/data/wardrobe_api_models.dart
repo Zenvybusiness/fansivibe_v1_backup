@@ -491,3 +491,108 @@ class WearEventLogResponse {
         'created': created,
       };
 }
+
+/// The read-only wear summary DTO returned by
+/// `GET /v1/wardrobe/wear-summary` (W-9, STEP 17.3, DEC-012).
+///
+/// Counts-only facts grounded in the owner's persisted wear events:
+/// per-item counts, last-worn instants (`null` = never worn), ranked ID
+/// lists, and per-category frequencies. Map keys are backend wardrobe
+/// UUID strings passed through verbatim — never local mock IDs, never
+/// transformed. Flutter never reconstructs judgments from these facts;
+/// see `mapWearSummaryToUi` for the only accepted copy rules.
+///
+/// Decoding is strict: a wrong-typed field or an unparseable non-null
+/// instant throws (contained by the client's try/catch into null) rather
+/// than fabricating data — a garbage instant must hide the card, never
+/// pose as "never worn".
+class WearSummary {
+  const WearSummary({
+    required this.totalWears,
+    required this.wearCounts,
+    required this.lastWorn,
+    required this.mostWornItemIds,
+    required this.leastWornItemIds,
+    required this.unwornItemIds,
+    required this.recentlyWornItemIds,
+    required this.wearsByCategory,
+  });
+
+  final int totalWears;
+  final Map<String, int> wearCounts;
+  final Map<String, DateTime?> lastWorn;
+  final List<String> mostWornItemIds;
+  final List<String> leastWornItemIds;
+  final List<String> unwornItemIds;
+  final List<String> recentlyWornItemIds;
+  final Map<String, int> wearsByCategory;
+
+  WearSummary copyWith({
+    int? totalWears,
+    Map<String, int>? wearCounts,
+    Map<String, DateTime?>? lastWorn,
+    List<String>? mostWornItemIds,
+    List<String>? leastWornItemIds,
+    List<String>? unwornItemIds,
+    List<String>? recentlyWornItemIds,
+    Map<String, int>? wearsByCategory,
+  }) =>
+      WearSummary(
+        totalWears: totalWears ?? this.totalWears,
+        wearCounts: wearCounts ?? this.wearCounts,
+        lastWorn: lastWorn ?? this.lastWorn,
+        mostWornItemIds: mostWornItemIds ?? this.mostWornItemIds,
+        leastWornItemIds: leastWornItemIds ?? this.leastWornItemIds,
+        unwornItemIds: unwornItemIds ?? this.unwornItemIds,
+        recentlyWornItemIds:
+            recentlyWornItemIds ?? this.recentlyWornItemIds,
+        wearsByCategory: wearsByCategory ?? this.wearsByCategory,
+      );
+
+  factory WearSummary.fromJson(Map<String, dynamic> json) => WearSummary(
+        totalWears: json['totalWears'] as int,
+        wearCounts:
+            ((json['wearCounts'] as Map<String, dynamic>?) ?? const {})
+                .map((key, value) => MapEntry(key, value as int)),
+        lastWorn: ((json['lastWorn'] as Map<String, dynamic>?) ?? const {})
+            .map(
+              (key, value) => MapEntry(
+                key,
+                value == null ? null : DateTime.parse(value as String),
+              ),
+            ),
+        mostWornItemIds:
+            (json['mostWornItemIds'] as List<dynamic>? ?? const [])
+                .map((e) => e as String)
+                .toList(),
+        leastWornItemIds:
+            (json['leastWornItemIds'] as List<dynamic>? ?? const [])
+                .map((e) => e as String)
+                .toList(),
+        unwornItemIds:
+            (json['unwornItemIds'] as List<dynamic>? ?? const [])
+                .map((e) => e as String)
+                .toList(),
+        recentlyWornItemIds:
+            (json['recentlyWornItemIds'] as List<dynamic>? ?? const [])
+                .map((e) => e as String)
+                .toList(),
+        wearsByCategory:
+            ((json['wearsByCategory'] as Map<String, dynamic>?) ?? const {})
+                .map((key, value) => MapEntry(key, value as int)),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'totalWears': totalWears,
+        'wearCounts': wearCounts,
+        'lastWorn': lastWorn.map(
+          (key, value) =>
+              MapEntry(key, value?.toUtc().toIso8601String()),
+        ),
+        'mostWornItemIds': mostWornItemIds,
+        'leastWornItemIds': leastWornItemIds,
+        'unwornItemIds': unwornItemIds,
+        'recentlyWornItemIds': recentlyWornItemIds,
+        'wearsByCategory': wearsByCategory,
+      };
+}

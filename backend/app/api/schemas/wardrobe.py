@@ -106,3 +106,23 @@ class WearEventList(BaseModel):
     page: int
     page_size: int
     total: int
+
+
+class WearSummary(BaseModel):
+    """Response for `GET /v1/wardrobe/wear-summary` (W-9, STEP 17.3).
+
+    Accepted wire contract: DEC-012 + `WARDROBE_API.md` §10.3. Maps the
+    domain `WearSummary` 1:1 at the API boundary (no recomputation):
+    keys are canonical backend wardrobe UUID strings, category keys are
+    canonical vocabulary codes, instants are ISO-8601 UTC (`null` =
+    never worn). Counts only — no names, judgments, or recommendations.
+    """
+
+    totalWears: int
+    wearCounts: dict[str, int]
+    lastWorn: dict[str, Optional[datetime]]
+    mostWornItemIds: list[str]
+    leastWornItemIds: list[str]
+    unwornItemIds: list[str]
+    recentlyWornItemIds: list[str]
+    wearsByCategory: dict[str, int]

@@ -166,3 +166,88 @@ rows; its `item_ids` JSONB plus the worn instant define replay equivalence
 (canonical sorted-unique UUIDs; omitted `wornAt` excluded) and are never
 intelligence input. The per-row `UNIQUE(user_id, idempotency_key,
 wardrobe_item_id)` (migration 0013) remains as defense-in-depth.
+
+## DEC-012 — Wear Intelligence Surfacing (STEP 17.2)
+
+Status: Accepted
+
+Wear intelligence reaches users through exactly two surfaces: single-item
+capture on `WARDROBE-004` and one dedicated read-only summary route.
+Nothing else changes: no new screen, no outfit-save behavior change, no
+`GET /v1/wardrobe/insight` (W-7) shape change, no migration, no
+`learning_signals` change.
+
+- **Decision.** (1) Capture: one "I wore this" action on
+  `WardrobeItemDetailsScreen` (WARDROBE-004) for a single item only —
+  one tap is one `POST /v1/wardrobe/wears` with one `itemIds` entry,
+  hence one ledger group of one row (DEC-011 unchanged). (2) Read: a
+  dedicated `GET /v1/wardrobe/wear-summary` returning the `WearSummary`
+  facts as data (counts, instants, ID lists) — W-7 keeps its frozen
+  `{title, insight, action?, route?}` text shape and stays wear-free.
+- **Rationale.** WARDROBE-004 is the only existing surface that can hold
+  an authoritative backend wardrobe UUID (it loads backend-first via
+  `WardrobeRepository.getItem`; the mock path is the fallback). HOME-002
+  components carry mock-catalog IDs with no backend-UUID mapping
+  (`daily_outfit_mock_data.dart`), and the assistant card's
+  `selectedItemIds` are local-snapshot IDs echoed through the backend
+  engine (`app/ai/engine.py`) that fail save validation with 422
+  (`application/saved_looks.py`), so neither can supply `POST /wears`
+  input. A dedicated route (not a W-7 extension) preserves the frozen
+  insight contract, its verbatim text-only Flutter mapping, and its
+  204-on-empty semantics — a summary of an empty wardrobe is a valid
+  zero object, not "no insight".
+- **Accepted API shape.** `GET /v1/wardrobe/wear-summary` → 200
+  `WearSummary {totalWears, wearCounts{uuid:int}, lastWorn{uuid:ISO|null},
+  mostWornItemIds[], leastWornItemIds[], unwornItemIds[],
+  recentlyWornItemIds[], wearsByCategory{code:int}}`; auth + owner
+  (OW-1); 401/429 only; never 204, never 404 for empty (empty wardrobe
+  → zero object). Capture reuses the existing `POST /v1/wardrobe/wears`
+  unchanged (required `Idempotency-Key`, 1–10 canonical IDs, `wornAt`
+  omitted → server now, future → 422, unknown/foreign → 404, replay →
+  201 `created=false`, changed payload → 409). Full wire contract:
+  `docs/api/WARDROBE_API.md` §10.
+- **Accepted semantics (promoted from 15.6 implementation convention to
+  product/API contract).** Recent = last wear at/after `now − 30 days`
+  (inclusive). Most-worn = max-count ties, `[]` when `total == 0`,
+  last-worn desc + id asc. Least-worn = min-count ties over ALL current
+  items (unworn included), `[]` only when the wardrobe is empty,
+  None-first + last-worn asc + id asc. Unworn = zero-count items, id
+  asc. Categories = current-item vocab codes only, code-sorted,
+  zero-filled. Invariant `total == sum(counts) == sum(categories)`.
+  Stale/deleted-item rows ignored everywhere. Grounded only in flat
+  `wardrobe_wear_events` — never ledger payload, favorites, saves,
+  recommendations, or timestamps.
+- **Save ≠ wear rule.** Saving an outfit, favoriting an item, or saved-look
+  presence never means worn and never logs wear. No automatic wear
+  logging exists. "Wear This Look" (HOME-002) is not a wear action and
+  stays as-is until that screen is bound to backend UUIDs.
+- **UUID boundary.** Local `LearningService` IDs ("1"–"24") must never be
+  sent to `POST /wears` (`WardrobeClient.logWear` contract). The capture
+  control renders only for backend-loaded items; mock-fallback items
+  hide it. The server stays authoritative (422 malformed, 404
+  unknown/foreign).
+- **Retention rule.** Wear history is append-only and retained
+  indefinitely (history is the product). Account delete cascade-erases
+  groups + rows (migrations 0012/0014, already implemented). Item delete
+  preserves rows; stale refs are ignored at read (already implemented).
+  No per-row delete/edit endpoint exists in v1. No token/image/snapshot
+  logging (IDs only).
+- **Consequences.** STEP 17.3 implements `GET /v1/wardrobe/wear-summary`
+  exactly per §10 (no Flutter). STEP 17.4 builds the Flutter summary
+  surface (DTO/client/repo/card, null-safe, no new screens). STEP 17.5
+  wires the WARDROBE-004 capture control (no auto-logging). W-7,
+  outfit generation, wardrobe CRUD, and the feedback/learning surfaces
+  stay untouched.
+- **Explicitly deferred.** Multi-item/outfit-level capture
+  (`selectedItemIds` → one group); HOME-002 and assistant-card capture
+  (blocked on the local-ID → backend-UUID sync repair); wear sentences
+  inside W-7; per-row wear delete/edit; retention expiry; item-name
+  rendering in wear copy (v1 copy uses counts only).
+- **Supersession note.** `docs/api/FEEDBACK_LEARNING_API.md` §3/§4.3/§8
+  ("WEAR NOT supported — no endpoint exists") predates the 15.x
+  foundation and is superseded ONLY for capture/summary existence
+  (`POST`/`GET /v1/wardrobe/wears` exist; W-9 is accepted). Its
+  signal-model rules stand unchanged: no `worn` signal type, M10 is the
+  sole writer of `learning_signals`, no client signal-submit, wear never
+  becomes a preference write. That document is intentionally not edited
+  here (frozen STEP-6 design record).
