@@ -3,7 +3,26 @@
 Last Updated: 2026-09-11
 Updated By: opencode agent
 
-## STEP 16.1 — FINAL CROSS-FEATURE INTEGRATION AUDIT (OUTFIT + WARDROBE + WEAR) — PASS_WITH_WARNINGS (uncommitted)
+## MAINTENANCE — STALE-TAG FIX (committed-state correction, no product change)
+
+- `cd0943b` (`feat: complete wardrobe and wear intelligence foundation`,
+  HEAD = `origin/main`) committed the 14.2–16.1 wardrobe/wear batch plus the
+  Flutter dependency-resolution fix. `3ae4d08` committed STEP 13.17.
+- Section headers below that still read `(uncommitted)` are therefore
+  corrected to `(committed cd0943b)` (13.17 → `(committed 3ae4d08)`).
+- Body notes such as "uncommitted, nothing staged" / "NOTHING
+  committed, NOTHING pushed" are left intact as the accurate pre-commit
+  record at write time; only the headers were stale.
+- Working tree at fix time: clean except CRLF-only generated
+  `flutter/.../generated_plugin_*` diffs (zero content diff with
+  `--ignore-cr-at-eol`); restored via `checkout`. Untracked `__pycache__`
+  byproducts left alone (unstaged, regenerable).
+- Skills: none loaded (doc-only header correction; all `.agents/skills/`
+  are Dart/Flutter code-creation skills with no trigger).
+
+---
+
+## STEP 16.1 — FINAL CROSS-FEATURE INTEGRATION AUDIT (OUTFIT + WARDROBE + WEAR) — PASS_WITH_WARNINGS (committed cd0943b)
 
 Read-only audit; zero production/test/migration/Flutter lines changed by
 this step. Skills: none loaded (audit-only; all `.agents/skills/` are
@@ -94,7 +113,7 @@ No `DECISIONS.md` entry (no new architectural decision discovered).
 
 ---
 
-## STEP 15.7 — FINAL WEAR CROSS-LAYER REGRESSION & AUDIT — PASS (uncommitted)
+## STEP 15.7 — FINAL WEAR CROSS-LAYER REGRESSION & AUDIT — PASS (committed cd0943b)
 
 Audit-only final for the 15.1–15.6 Wear/Frequency phase. No production
 code changed, no migration, no endpoint, no Flutter change, no
@@ -165,7 +184,7 @@ No `DECISIONS.md` entry (no new architectural decision discovered).
 
 ---
 
-## STEP 15.6 — READ-ONLY WEAR INTELLIGENCE FOUNDATION — COMPLETE (uncommitted)
+## STEP 15.6 — READ-ONLY WEAR INTELLIGENCE FOUNDATION — COMPLETE (committed cd0943b)
 
 Task: backend read-only intelligence ONLY from persisted flat
 `wardrobe_wear_events` — frozen result type, repo protocol method, SQL
@@ -243,7 +262,7 @@ are Dart/Flutter code-creation skills — 15.3/15.4B precedent).
 
 ---
 
-## FLUTTER DEPENDENCY RESOLUTION FIX — COMPLETE (uncommitted)
+## FLUTTER DEPENDENCY RESOLUTION FIX — COMPLETE (committed cd0943b)
 
 Cause of the ~19,292 analyzer problems: `.dart_tool/package_config.json`
 was missing because every in-place `flutter pub get` failed on
@@ -268,7 +287,7 @@ staged, committed, or pushed.
 
 ---
 
-## STEP 15.5 — FLUTTER WEAR CAPTURE CLIENT ONLY — COMPLETE (uncommitted)
+## STEP 15.5 — FLUTTER WEAR CAPTURE CLIENT ONLY — COMPLETE (committed cd0943b)
 
 Task: Flutter networking/data-layer support ONLY for the existing backend
 `POST /v1/wardrobe/wears` — DTO/model, `WardrobeClient.logWear`, repository
@@ -331,7 +350,7 @@ runner). Both read first per workflow.
 
 ---
 
-## STEP 15.4B — FIX WEAR IDEMPOTENCY WITH A DURABLE ACTION LEDGER — COMPLETE (uncommitted)
+## STEP 15.4B — FIX WEAR IDEMPOTENCY WITH A DURABLE ACTION LEDGER — COMPLETE (committed cd0943b)
 
 Task: implement ONLY the 15.4A audit verdict (NEEDS_CHANGE) — one POST is
 one logical action, so give it a durable home: migration 0014 ledger,
@@ -443,7 +462,7 @@ point remains the open product decision — do not invent it).
 
 ---
 
-## STEP 15.3 — WARDROBE WEAR EVENT FOUNDATION IMPLEMENTATION — COMPLETE (uncommitted)
+## STEP 15.3 — WARDROBE WEAR EVENT FOUNDATION IMPLEMENTATION — COMPLETE (committed cd0943b)
 
 Task: implement ONLY the persisted wear-event foundation approved in 15.2
 (flat item-level rows + `wear_group_id`): migration 0012, SQLAlchemy model,
@@ -561,7 +580,7 @@ contract, and tests untouched by this step.
 
 ---
 
-## STEP 15.2 — WARDROBE WEAR EVENT FOUNDATION DESIGN — COMPLETE (uncommitted)
+## STEP 15.2 — WARDROBE WEAR EVENT FOUNDATION DESIGN — COMPLETE (committed cd0943b)
 
 Task: design the smallest reliable persisted foundation for future Wardrobe
 Wear/Frequency Intelligence, grounded in the actual current architecture.
@@ -751,7 +770,7 @@ frequency, group item-set equality for repeated outfits).
 
 ---
 
-## STEP 15.1 — WARDROBE WEAR/FREQUENCY INTELLIGENCE FOUNDATION AUDIT — COMPLETE (uncommitted)
+## STEP 15.1 — WARDROBE WEAR/FREQUENCY INTELLIGENCE FOUNDATION AUDIT — COMPLETE (committed cd0943b)
 
 Task: audit the current codebase for any real persisted wear-event source
 before any wear/frequency/recency intelligence is built. Audit/foundation
@@ -899,7 +918,7 @@ source/context, created_at}`. Open decisions recorded for the future step
 
 ---
 
-## STEP 14.7 — WARDROBE INTELLIGENCE V1 FINAL CROSS-LAYER REGRESSION — COMPLETE (uncommitted)
+## STEP 14.7 — WARDROBE INTELLIGENCE V1 FINAL CROSS-LAYER REGRESSION — COMPLETE (committed cd0943b)
 
 Task: validate the complete Wardrobe Intelligence v1 path end-to-end
 (wardrobe_items → summary → saved-look coverage → GetWardrobeInsight →
@@ -1007,7 +1026,7 @@ batch git rule (14.2–14.7 stay intact, nothing staged/committed/pushed).
 
 ---
 
-## STEP 14.6 — WARDROBE INTELLIGENCE FINAL V1 INTEGRATION + GAP CTA AUDIT — COMPLETE (uncommitted)
+## STEP 14.6 — WARDROBE INTELLIGENCE FINAL V1 INTEGRATION + GAP CTA AUDIT — COMPLETE (committed cd0943b)
 
 Task: final v1 Wardrobe Intelligence integration audit; implement only the
 remaining UI/integration work explicitly supported by the existing backend
@@ -1098,7 +1117,7 @@ git rule (14.2–14.6 stay intact, nothing staged/committed/pushed).
 
 ---
 
-## STEP 14.5 — FLUTTER WARDROBE INSIGHT WIRING — COMPLETE (uncommitted)
+## STEP 14.5 — FLUTTER WARDROBE INSIGHT WIRING — COMPLETE (committed cd0943b)
 
 Task: replace the static `WardrobeInsightData.mock` on WardrobeScreen
 with the live `GET /v1/wardrobe/insight` backend (14.3/14.4 contract).
@@ -1173,7 +1192,7 @@ owner-scoped).
 
 ---
 
-## STEP 14.4 — WARDROBE INTELLIGENCE: SAVED-LOOK-AWARE GAPS — COMPLETE (uncommitted)
+## STEP 14.4 — WARDROBE INTELLIGENCE: SAVED-LOOK-AWARE GAPS — COMPLETE (committed cd0943b)
 
 Task: extend the read-only `GET /v1/wardrobe/insight` gap insight with
 saved-look evidence, using only safely/mappably derived data from the
@@ -1254,7 +1273,7 @@ batch git rule (14.2/14.3/14.4 stay one intact uncommitted batch).
 
 ---
 
-## STEP 14.3 — WARDROBE INSIGHT (W-7/UC-14, READ-ONLY) — COMPLETE (uncommitted)
+## STEP 14.3 — WARDROBE INSIGHT (W-7/UC-14, READ-ONLY) — COMPLETE (committed cd0943b)
 
 Task: first real Wardrobe Intelligence increment from persisted
 `wardrobe_items` only, per the approved W-7 contract. Backend only; no
@@ -1307,7 +1326,7 @@ intelligence framework. NOT committed per the batch git rule.
 
 ---
 
-## STEP 14.2 — WARDROBE FOUNDATION REPAIR — COMPLETE (uncommitted)
+## STEP 14.2 — WARDROBE FOUNDATION REPAIR — COMPLETE (committed cd0943b)
 
 Task: repair the backend Wardrobe CRUD/query foundation found broken in
 STEP 14.1. Backend only; no Wardrobe Intelligence, no insight endpoint,
@@ -7988,7 +8007,7 @@ Task: verify winner representation at the AssistantReply boundary (audit).
 
 ---
 
-## STEP 13.17 — WIRE OUTFIT WINNER ITEMS INTO FLUTTER CARD — COMPLETE (uncommitted)
+## STEP 13.17 — WIRE OUTFIT WINNER ITEMS INTO FLUTTER CARD — COMPLETE (committed 3ae4d08)
 
 Task: smallest Flutter-only change resolving backend `selectedItemIds`
 against the already-loaded learning wardrobe and passing the resulting
