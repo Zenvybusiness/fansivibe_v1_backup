@@ -4,20 +4,54 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
 import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/first_time_light_path_home_screen.dart';
+import 'package:fansivibe/features/home/presentation/widgets/backend_summary_cards.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
+import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   final Map<String, dynamic>? onboardingData;
 
-  const HomeScreen({super.key, this.onboardingData});
+  /// Backend summary source (M10-C). Defaults to the live repository;
+  /// tests inject a fake. Null future while loading is impossible here:
+  /// the future is created once in [initState] for the main branch.
+  final LearningSummaryRepository? summaryRepository;
+
+  const HomeScreen({super.key, this.onboardingData, this.summaryRepository});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late final LearningSummaryRepository _summaryRepository;
+  Future<LearningSummary?>? _summaryFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // Backend-first M10 summary (STEP 19.16): fetched once for the main
+    // branch only — first-visit onboarding shows no summary slots.
+    // Null means unavailable: slots render their honest error state.
+    if (!_isFirstVisit) {
+      _summaryRepository =
+          widget.summaryRepository ?? LearningSummaryRepositoryImpl();
+      _summaryFuture = _summaryRepository.getSummary();
+    }
+  }
+
+  void _retrySummary() {
+    setState(() {
+      _summaryFuture = _summaryRepository.getSummary();
+    });
+  }
 
   Map<String, dynamic>? _onboardingDataFromLocalStorage() {
-    if (onboardingData != null) return null;
+    if (widget.onboardingData != null) return null;
     final hasCompleted = LocalStorage.onboardingComplete;
     final storedDisplayName = LocalStorage.displayName;
     final storedVibe = LocalStorage.vibe;
@@ -33,16 +67,18 @@ class HomeScreen extends StatelessWidget {
     return null;
   }
 
-  bool get _isFirstVisit => onboardingData != null ||
+  bool get _isFirstVisit =>
+      widget.onboardingData != null ||
       _onboardingDataFromLocalStorage() != null;
   bool get _hasAnalysis =>
-      onboardingData?.containsKey('onboarding_complete') == true ||
-      (_onboardingDataFromLocalStorage()?.containsKey('onboarding_complete') == true);
+      widget.onboardingData?.containsKey('onboarding_complete') == true ||
+      (_onboardingDataFromLocalStorage()?.containsKey('onboarding_complete') ==
+          true);
   String? get _displayName =>
-      onboardingData?['display_name'] as String? ??
+      widget.onboardingData?['display_name'] as String? ??
       _onboardingDataFromLocalStorage()?['display_name'] as String?;
   String? get _vibeName =>
-      onboardingData?['vibe'] as String? ??
+      widget.onboardingData?['vibe'] as String? ??
       _onboardingDataFromLocalStorage()?['vibe'] as String?;
 
   @override
@@ -88,7 +124,7 @@ class HomeScreen extends StatelessWidget {
                         const SizedBox(height: 28),
                         _buildTodaysLookCard(context, learningService),
                         const SizedBox(height: 24),
-                        StyleScoreCard(data: StyleScoreData.mock),
+                        _buildScoreSlot(),
                         const SizedBox(height: 24),
                         HomeSectionTitle(
                           title: 'Quick Actions',
@@ -97,7 +133,7 @@ class HomeScreen extends StatelessWidget {
                         const SizedBox(height: 16),
                         _buildQuickActions(context, learningService),
                         const SizedBox(height: 24),
-                        StyleStreakCard(data: StyleStreakData.mock),
+                        _buildStreakSlot(),
                         const SizedBox(height: 24),
                         _buildAIInsight(context, learningService),
                         const SizedBox(height: 32),
@@ -125,6 +161,53 @@ class HomeScreen extends StatelessWidget {
       styleType: learningService.styleType,
       savedLooksCount: savedLooks.length,
       preferredOccasions: preferredOccasions,
+    );
+  }
+
+  Widget _buildScoreSlot() {
+    // Backend-first M10 score (STEP 19.16): the server value renders
+    // verbatim. Loading and error states keep the slot title with no
+    // value — there is deliberately no mock fallback here.
+    return FutureBuilder<LearningSummary?>(
+      future: _summaryFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SummaryLoadingCard(title: 'Style Score');
+        }
+        final summary = snapshot.data;
+        if (snapshot.hasError || summary == null) {
+          return SummaryErrorCard(
+            title: 'Style Score',
+            message:
+                'Couldn\'t load style summary. Please check your connection.',
+            onRetry: _retrySummary,
+          );
+        }
+        return BackendStyleScoreCard(summary: summary);
+      },
+    );
+  }
+
+  Widget _buildStreakSlot() {
+    // Backend-first M10 streak (STEP 19.16): same future as the score
+    // slot, so one GET feeds both — no second request, no local math.
+    return FutureBuilder<LearningSummary?>(
+      future: _summaryFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SummaryLoadingCard(title: 'Style Streak');
+        }
+        final summary = snapshot.data;
+        if (snapshot.hasError || summary == null) {
+          return SummaryErrorCard(
+            title: 'Style Streak',
+            message:
+                'Couldn\'t load style summary. Please check your connection.',
+            onRetry: _retrySummary,
+          );
+        }
+        return BackendStyleStreakCard(streak: summary.streak);
+      },
     );
   }
 
@@ -167,7 +250,10 @@ class HomeScreen extends StatelessWidget {
     return '${weekdays[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
   }
 
-  Widget _buildTodaysLookCard(BuildContext context, LearningService learningService) {
+  Widget _buildTodaysLookCard(
+    BuildContext context,
+    LearningService learningService,
+  ) {
     final hasWardrobe = learningService.wardrobe.isNotEmpty;
 
     if (!hasWardrobe) {
@@ -225,24 +311,31 @@ class HomeScreen extends StatelessWidget {
     return 'Start building your wardrobe by adding key pieces.';
   }
 
-  List<OutfitItemData> _buildOutfitItems(List<String> outerwear, List<String> tops) {
+  List<OutfitItemData> _buildOutfitItems(
+    List<String> outerwear,
+    List<String> tops,
+  ) {
     final items = <OutfitItemData>[];
 
     if (outerwear.isNotEmpty) {
-      items.add(OutfitItemData(
-        id: '1',
-        name: outerwear.first,
-        category: 'outerwear',
-        color: 'Charcoal',
-      ));
+      items.add(
+        OutfitItemData(
+          id: '1',
+          name: outerwear.first,
+          category: 'outerwear',
+          color: 'Charcoal',
+        ),
+      );
     }
     if (tops.isNotEmpty) {
-      items.add(OutfitItemData(
-        id: '2',
-        name: tops.first,
-        category: 'tops',
-        color: 'Off-White',
-      ));
+      items.add(
+        OutfitItemData(
+          id: '2',
+          name: tops.first,
+          category: 'tops',
+          color: 'Off-White',
+        ),
+      );
     }
 
     // Add default items if wardrobe is sparse
@@ -288,8 +381,12 @@ class HomeScreen extends StatelessWidget {
     ];
   }
 
-  Widget _buildQuickActions(BuildContext context, LearningService learningService) {
-    final hasData = learningService.wardrobe.isNotEmpty ||
+  Widget _buildQuickActions(
+    BuildContext context,
+    LearningService learningService,
+  ) {
+    final hasData =
+        learningService.wardrobe.isNotEmpty ||
         learningService.savedLooks.isNotEmpty;
 
     if (!hasData) {
@@ -310,18 +407,22 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAIInsight(BuildContext context, LearningService learningService) {
+  Widget _buildAIInsight(
+    BuildContext context,
+    LearningService learningService,
+  ) {
     final hasWardrobe = learningService.wardrobe.isNotEmpty;
 
     if (!hasWardrobe) {
       return const SizedBox.shrink();
     }
 
-    final outerwearCount =
-        learningService.wardrobe.where((item) => item.category == 'outerwear')
-            .length;
-    final topsCount =
-        learningService.wardrobe.where((item) => item.category == 'tops').length;
+    final outerwearCount = learningService.wardrobe
+        .where((item) => item.category == 'outerwear')
+        .length;
+    final topsCount = learningService.wardrobe
+        .where((item) => item.category == 'tops')
+        .length;
 
     final insightTitle = 'Wardrobe Insight';
     final insightBody =

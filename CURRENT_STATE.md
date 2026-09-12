@@ -3,6 +3,1263 @@
 Last Updated: 2026-09-12
 Updated By: opencode agent
 
+---
+
+## STEP 19.17 — M10 LEARNING SUMMARY FINAL CROSS-LAYER AUDIT — PASS_WITH_WARNINGS (audit only, uncommitted)
+
+Task: verify M10 end-to-end against DEC-019/020/021. No product code
+written, no functionality implemented. Skills: none loaded (audit-only;
+all `.agents/skills/` are Dart/Flutter code-creation).
+
+### End-to-end lifecycle (live probe, fresh isolated user, cleaned up)
+
+Writer(save 201) → `look_saved` + writer(feedback 204) →
+`suggestion_opened` + writer(outfit run 202) → `analysis_updated` +
+`outfit_selected` → exactly 1 `activity_days` row (no same-day dupes)
+→ `GET /v1/learning/summary` → 200 exact 4-key body, exact 4-key
+breakdown, score 62 = 60+0+1×2, total == styleScore, streak 1,
+recents newest-first labels-only, zero forbidden-key leaks
+(`signal_type`/`occurred_at`/`context`/`reason`/`interaction_type`/
+`run_id`/`user_id`), table counts identical across GET, repeat GET
+byte-identical, no-auth 401. 24/24 probe checks passed; probe user and
+all probe rows deleted afterwards (0 leftovers verified); scratch
+scripts removed from Temp. (Probe notes, not defects: outfit run needs
+a `user_state` row like the dev seam creates, and the unseeded `outfit`
+run_type like 11_13 tests seed; same-ms twin signals order by the
+frozen id-desc tiebreak.)
+
+### Sub-audits (code inspection + suite evidence)
+
+Score: formula/caps/floor/ceiling/exclusions/zero-breakdown exact in
+`application/learning.py:150-160` (M10-B C–I green). Streak: UTC datum,
+anchor walk, future-ignore, GET-side purity exact in
+`derive_current_streak` + `GetLearningSummary` (M10-A F–M + M10-B J–N
+green; one-row-per-day via `uq_activity_days_user_day`, multi-signal
+day proven single-row by probe + test P). Recents: owner-only,
+occurred_at-desc/id-desc, cap 20, labels-only (M10-B O–R green;
+writer payloads/labels byte-identical). Empty: exact zero body, 200,
+no 204/404, no Flutter fallback (B + O green). Ownership: OW-1
+throughout, 401 enforced (S/T/A green). Read-only: no commit/mutation
+in GET path (U/V/W green + probe count-equality). Flutter: exact path
++ auth (C), backend sole truth with local-80-vs-backend-73 divergence
+proof (E/F), verbatim recents (G), Profile score/streak/breakdown/
+recents (H–K), Home score/streak (L), truthful loading (M), error
+without fake values (N), zero state (O), no-mock proof (P).
+
+### Regression matrix (serial, live PG / widget binding)
+
+- Backend: M10-A 20 + M10-B 23 + assistant-feedback 10 +
+  saved-looks-use-case 28 (81-run) green; saved-API + delete-API +
+  analysis-API + analysis-use-case 94 passed / 5 failed; wardrobe +
+  db_session + knowledge-reads 89 passed / 2 failed.
+- Flutter: M10-C 19 + LearningService 21 green; home 20 +
+  profile-screens 49 green; assistant-feedback + saved-looks +
+  daily-outfit + knowledge 65 green; wardrobe client/repo/models +
+  wardrobe-screen 67 passed / 1 failed.
+- `py_compile` clean. `flutter analyze` (M10 files): only the 2 known
+  pre-existing warnings in untouched code. `git diff --check` clean.
+
+### Pre-existing failures (proven unrelated, untouched)
+
+- Saved-looks API 5: 18.5 FK baseline
+  (`saved_looks_source_run_id_fkey` on the fixture run-id; 19.14
+  probe-proved at insert, before any signal/activity code).
+- db_session 2: 19.5-recorded stale seed expectations (looks 8-vs-4,
+  run_types/signal_types drift).
+- Wardrobe details 1 (`wardrobe_screen_test.dart:179`, missing
+  'Details'): proven pre-existing this step — reproduced byte-identical
+  on a pristine HEAD worktree (no uncommitted work at all), then
+  removed the worktree. Wardrobe code is untouched by M10.
+
+### Scope + decision audit
+
+- M10 files (only): 0016 migration, `models.ActivityDays`,
+  `ActivityDayRepository` port + SQL, `application/learning.py`
+  (record/derive/summary), 4 writer wirings + 4 router sites,
+  `s/truth schemas/learning.py` + `routers/learning.py` + main mount,
+  `list_recent_labels`, conftest truncate, 3 Flutter data files +
+  public contract + 2 home cards + profile section + hero param,
+  `test_m10a/m10b/learning_summary` suites, home test updates,
+  CURRENT_STATE entries. No new tables beyond `activity_days`; no
+  `style_score_records`; no caches.
+- Preserved intact: M5 Knowledge, Assistant Card Feedback, M8/M9/M10
+  docs + code (file set matches 19.16 end state); registrant churn
+  restored; Temp probes + worktree removed.
+- DEC-019/020/021: zero deletion lines in `DECISIONS.md` diff —
+  byte-unchanged; implementation matches every frozen clause (no
+  divergence found).
+
+### Verdict: PASS_WITH_WARNINGS (warnings = the 8 proven pre-existing
+failures above; M10's own 62 tests fully green)
+
+Staged 0. NOTHING committed/pushed. No product code written this step.
+
+---
+
+## STEP 19.16 — M10-C FLUTTER LEARNING SUMMARY INTEGRATION — COMPLETE (uncommitted)
+
+Task: Flutter-only integration of `GET /v1/learning/summary` (M10-B
+already done). No backend changes. No DECISIONS.md changes. No commit,
+no push. Skills: `flutter-use-http-package` loaded (GET/`Uri.parse`/
+auth conventions — project null-on-failure kept over the skill's throw
+guidance, 15.5/17.4/19.5 precedent). No other skill triggered.
+
+### Implemented (Flutter only)
+
+- Data layer (`features/learning/data/`, knowledge-precedent pattern):
+  `learning_summary_models.dart` (strict DTOs, toJson/copyWith),
+  `learning_summary_client.dart` (baseUrl/dev-token/12s, 200-parse else
+  null, never throws), `learning_summary_repository.dart` (abstract +
+  verbatim passthrough, null = unavailable). No local score/streak
+  math, no mock merge — backend sole truth.
+- Public contract `features/learning/learning_summary.dart` (models +
+  repository re-export): screens import only this, never
+  `learning/data/` internals (DEC-002; tests may import data directly
+  per knowledge_test precedent).
+- `LearningService` untouched (wardrobe/face/preferences behavior +
+  `learning_service_test` intact): new surfaces never read its local
+  `styleScore` — use-as-truth replaced without deleting behavior.
+- Profile: `ProfileHeroCard` gains optional `styleScore` (null → honest
+  '–', never mock 84); new `StyleSummarySection` (streak, frozen
+  Base/Wardrobe/Saved-looks/Total rows, verbatim recents,
+  'No recent activity yet.' empty; zero banned interpretations).
+  `ProfileScreen` → Stateful, one shared future, FutureBuilder hero +
+  section (`FansiLoadingView`/`FansiErrorView` + retry). No redesign,
+  no new route.
+- Home: new `backend_summary_cards.dart` (`BackendStyleScoreCard`,
+  `BackendStyleStreakCard` + titled loading/error slot cards reusing
+  FansivibeCard/tokens/`scoreColorFromDouble`; no weekly chip, no
+  category grid, no week path — all sourceless). `HomeScreen` →
+  Stateful, one shared future feeding both slots (single GET),
+  first-visit branches fetch nothing. Mock `StyleScoreCard`/
+  `StyleStreakCard` widgets and mock data stay intact for isolation
+  tests — only the screen wiring changed.
+
+### Tests (`test/learning_summary_test.dart`, new, 19 passed)
+
+A–P full matrix incl. no-local-recalc proof (local 80 vs backend 73),
+verbatim recents, hero/section/slot rendering, loading, error-without-
+fake-score, zero-state truth, no-mock-values proof.
+
+### Regression (flutter)
+
+- New M10-C: 19 passed. Home: 20 passed (2 card tests rewritten to
+  the backend-first contract — required-by-feature; mock widgets
+  still covered in isolation). Profile screens + learning service:
+  70 passed. Knowledge/assistant-feedback/saved-looks/daily-outfit:
+  65 passed. Wardrobe client/repo/models: 55 passed.
+- `flutter analyze` on all touched files: clean except 2 pre-existing
+  warnings in untouched code (`userState` unused var, service
+  override annotation). `dart format` applied (3 files).
+  `git diff --check` clean. Zero failures introduced.
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. Backend/M5/Assistant/M8/M9/M10
+  work intact. Flutter prod diff minimal (2 screens + 1 widget
+  additive param + 3 new files). No mock/local fallback introduced.
+
+---
+
+## STEP 19.15 — M10-B LEARNING SUMMARY BACKEND IMPLEMENTATION — COMPLETE (uncommitted)
+
+Task: implement ONLY `GET /v1/learning/summary` per DEC-019/020/021 (no
+contract changes). Skills: `.agents/skills/` inspected (21 entries, all
+Dart/Flutter code-creation) — none loaded (no Python backend skill;
+19.5/B-A precedent). No Flutter changes. DECISIONS.md untouched. No
+commit, no push.
+
+### Implemented (backend only, live PG verified)
+
+- `GET /v1/learning/summary` → 200 bare `LearningSummary`
+  (`styleScore`, `breakdown{base,wardrobePoints,savedPoints,total}`,
+  `streak`, `recentSignals[]` — exactly the four frozen keys, no
+  extras). Auth via existing Bearer dep (401); 429 declared per
+  read-route precedent; never 204/404 for empty; strictly read-only
+  (four owner-scoped SELECTs, no commit, no mutation).
+- Layering router → use case → ports → SQL (thin router + wire map):
+  `api/schemas/learning.py` (Pydantic, range-validated per DEC-021),
+  `api/routers/learning.py` (new, `/v1/learning` prefix), `main.py`
+  (+import/+include_router), `GetLearningSummary` in
+  `application/learning.py` (frozen dataclasses + formula; counts reuse
+  existing paged-list totals at page_size=1 — zero new count surface),
+  `DeriveCurrentStreak` + `list_styled_days` reused for streak.
+- One sanctioned minimal port addition: `list_recent_labels(user_id,
+  limit)` on `LearningSignalRepository` + SQL (`occurred_at` desc,
+  `id` desc, limit 20; labels only — type/context/timestamps never
+  leave the method). No new tables, no `style_score_records`, no
+  caches. Zero-data user returns the exact frozen zero state.
+- No ambiguity encountered — no contract invention needed.
+
+### Tests (`tests/test_m10b_learning_summary.py`, new, 23 passed)
+
+A–W full matrix: 401, exact zero body, wardrobe +1/cap-20, saves
++2/cap-20, combined 73, clamp 100, floor 60, total==score, exact keys,
+streak 1/2/gap/future/none, recents order/cap-20/privacy (reason,
+context, type, timestamps absent), cross-user score+signal isolation,
+no-write proof (counts + row snapshots identical across GET).
+
+### Regression (serial, live PG)
+
+- M10-A + Assistant feedback + saved-looks use-case: 58 passed.
+- Wardrobe API: 49 passed. Analysis use-case + db_session: 82 passed /
+  2 failed — pre-existing stale seed baselines (19.5-recorded).
+- Analysis API + saved-looks API + delete API: 34 passed / 5 failed —
+  the same byte-identical 18.5 FK baseline
+  (`saved_looks_source_run_id_fkey`; 19.14 probe-proved, pre-signal
+  code). No new failures introduced.
+- `py_compile` clean. `git diff --check` clean.
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. M5/Assistant/M8/M9/M10 work
+  intact; prod diff additive-only. Flutter untouched (client is a later
+  step, not this one).
+
+---
+
+## STEP 19.14 — M10-A LEARNING SUMMARY FOUNDATION IMPLEMENTATION — COMPLETE (uncommitted)
+
+Task: implement ONLY the M10-A foundation per DEC-019/020/021 (no
+contract changes). Skills: `.agents/skills/` inspected (21 entries, all
+Dart/Flutter code-creation) — none loaded (no Python backend skill;
+19.5/B-A precedent). No Flutter changes. DECISIONS.md untouched. No
+commit, no push.
+
+### Implemented (backend only, live PG verified)
+
+- Migration `0016_activity_days` (new head, single chain 0015→0016,
+  reversible — downgrade/upgrade round-trip proven): `id` UUID PK,
+  `user_id` UUID NOT NULL FK users CASCADE (TRX-8), `day` DATE NOT
+  NULL, `styled` BOOL NOT NULL default true (STEP 19.14 required shape;
+  variance vs TABLE_DEFINITIONS `DEFAULT false` noted — upsert always
+  sets true explicitly), `summary` JSONB NULL (NULL in v1), occurred_at
+  timestamptz default now(), `UNIQUE(user_id,day)` BC-4 whose backing
+  btree IS the A8 streak index (no duplicate index). No seeds, no
+  backfill, existing data preserved.
+- Model `ActivityDays` (models.py, after LearningSignals) + port
+  `ActivityDayRepository` (`upsert_styled_day`, `list_styled_days`,
+  minimal, no speculative CRUD) + `ActivityDayRepositorySQL`
+  (`pg_insert … ON CONFLICT (user_id,day) DO UPDATE styled=true`,
+  summary never touched, no commit inside — caller commits).
+- `application/learning.py` (new): `utc_today()`, pure
+  `derive_current_streak` (DEC-020 D1–D10: future ignored, anchor
+  today-else-yesterday, unstyled anchor → 0, day-diff-1 walk, lone
+  anchor → 1), `mark_styled_today` record helper, `DeriveCurrentStreak`
+  use case (M10-B reuse).
+- Writer wiring (same-commit, behavior-preserving, Optional additive
+  seam per analysis `learning_signal` precedent — existing tests pass
+  unmodified): `SaveRecommendation` (created path only; replay returns
+  before any insert), `SubmitAssistantCardFeedback` (append-only kept),
+  `CreateOutfitRun` (one upsert for both signals),
+  `CreateHairstyleImageRun` (one upsert); routers looks/assistant/
+  analysis (4 sites) pass `ActivityDayRepositorySQL(db)` (shared
+  session → one commit covers signal + day). No new signal types, no
+  response changes, no second commit, no writer behavior change.
+- `tests/conftest.py`: `activity_days` added to `_TRUNCATE`.
+
+### Tests (`tests/test_m10a_activity_days.py`, new, 20 passed)
+
+A–E repo semantics, F–M C11 matrix (pure + repo-backed F/G/H/L/M),
+N save+signal+day atomic incl. rollback-void check, O feedback API
+204+signal+day, P outfit dual-signal→one day + hairstyle single
+upsert-once, Q replay→no dup activity, R double-POST→2 signals/1 day,
+S user-delete cascades. M reads "first-ever anchor-day singleton → 1"
+(D6/D10-consistent; a stale lone day anchors to 0 per D6).
+
+### Regression (serial, live PG)
+
+- New M10-A: 20 passed. Assistant feedback + saved-looks use-case:
+  38 passed. Analysis use-case: 60 passed. Analysis API + db_session:
+  36 passed / 2 failed — both pre-existing stale seed baselines
+  (19.5-recorded: looks 8-vs-4 pre-0003 expectation,
+  run_types+signal_types seed drift), content-unrelated to this step.
+- Saved-looks API + delete API: 20 passed / 5 failed — all 5 are the
+  documented 18.5 FK baseline (`saved_looks_source_run_id_fkey` on the
+  `00000000-…-0001` fixture run-id; probe-proved at insert time, before
+  any signal/activity code; scratch probes removed, probe users
+  deleted). No new failures introduced.
+- `py_compile` clean (13 files). `git diff --check` clean. Migration
+  live-verified (columns/constraints/indexes introspected).
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. M5/Assistant/M8/M9/M10 work
+  intact; diff is additive only (no deletions in docs/prod files).
+  Flutter untouched. M10-B (`GET /v1/learning/summary`) NOT started.
+
+---
+
+## STEP 19.13 — M10 LEARNING SUMMARY BREAKDOWN WIRE CONTRACT OWNER DECISION — COMPLETE (decision/docs only, uncommitted)
+
+Task: apply ONLY the owner breakdown wire decision closing the sole
+DEC-020 §B blocker. Decision/specification only: NO code, NO migrations,
+NO models/repos/use-cases/routers/schemas, NO Flutter changes, NO tests,
+NO commit, NO push. Preserve ALL uncommitted M5 Knowledge, Assistant Card
+Feedback, M8, M9, and M10 work. Skills: `.agents/skills/` inspected (21
+entries, all Dart/Flutter code-creation) — none loaded (spec-only,
+19.4/19.6/19.7/19.9/19.11/19.12 precedent). Sources re-checked: DEC-020
+§B/§K, FEEDBACK_LEARNING_API `:313-317`, INVENTORY `:822`, CONTRACT_RULES
+`:507`, V1 `:428`, APPEARANCE_API `:585` — confirmed still no wire
+names/framing (zero docs hits for `wardrobePoints`/`savedPoints`/
+breakdown object), so the contract below is owner-supplied, not deduced.
+Calculation/content UNCHANGED (base 60 + caps 20/20, base→wardrobe→saved
+order); mock categories (Fit/Color/Occasion/Creativity) stay banned; no
+additional dimensions.
+
+### Frozen (DEC-021, DEC-009–020 untouched)
+
+- `breakdown { base: int, wardrobePoints: int, savedPoints: int, total:
+  int }` — object framing, exact camelCase names, no additional M10 v1
+  fields. Ranges: base = 60, wardrobePoints = 0..20, savedPoints =
+  0..20, total = 60..100; invariant `total == styleScore`; zero-state
+  `{60, 0, 0, 60}`.
+
+### Readiness: READY FOR IMPLEMENTATION
+
+No UNRESOLVED item remains. Sequence: 1) M10-A `activity_days`
+foundation + upsert wiring → 2) M10-B `GET /v1/learning/summary` →
+3) Flutter data layer → 4) Home + Profile backend-first binding →
+5) cross-layer regression. Explicit: NO implementation, NO tests, NO
+commit, NO push this step.
+
+### Git safety
+
+- `git status --porcelain=v1`: only pre-existing M5/B-A changes +
+  19.4–19.12 entries + this entry (+DEC-021); `git diff --check` clean;
+  `git log --oneline -3`: 3ca73c3/aafeb31/faceec8. Staged 0. NOTHING
+  committed/pushed/staged. No flutter commands run.
+
+---
+
+## STEP 19.12 — M10 LEARNING SUMMARY REMAINING DECISIONS FINAL RESOLUTION — COMPLETE (decision/docs only, uncommitted)
+
+Task: resolve ONLY the DEC-019 blocking UNRESOLVED items (A–H) so M10
+becomes READY if the source set permits. Audit/spec/decision freeze ONLY.
+NO production code, NO migrations, NO models/repos/ports/use-cases/
+routers/schemas/clients, NO Flutter production changes, NO tests, NO
+commit, NO push. Preserve all uncommitted M5 Knowledge, Assistant Card
+Feedback, M9/M8 decisions, and documentation work; no revert/reset/stash/
+clean. Skills: `.agents/skills/` inspected (21 entries, all Dart/Flutter
+code-creation) — none loaded (spec-only, 19.4/19.6/19.7/19.9/19.11
+precedent). Sources reconciled via 4 parallel research subagents + own
+verification greps: DEC-009–019, API_INVENTORY #34, CONTRACT_RULES §12.9,
+FEEDBACK_LEARNING_API (full), APPEARANCE_API R-3/§5.6, UC-10/15/23/25/
+30–32, MODULE_MAP M10, MVP_SCOPE P7.2, TABLE_DEFINITIONS E7/E8/E9,
+DBR/DESIGN_RULES, BC-4/7/12/20/22/23/41/60, RELATIONSHIP_CONSTRAINTS,
+TRX boundaries, HISTORY_AND_VERSIONING, INDEX_STRATEGY A8, SCREEN_MAP,
+backend writers (`saved_looks.py:181-186`, `assistant.py:49-72`,
+`analysis.py:302-315`, `repositories.py:418-441`,
+`models.py:198-216`), Flutter LearningService/cards/mocks, wear future-
+422 precedent, server-UTC-today precedent (DEC-018).
+
+### Resolved (DEC-020, DEC-009–019 untouched)
+
+- A: INFERENCE `200` zero-valued summary (60 / zero-breakdown / 0 /
+  `[]`); FROZEN 60-floor math + no-`needs_data`-field ban (generic rule
+  never names #34 — verified); 204/404-for-empty rejected [I].
+- B: breakdown content FROZEN (base 60 + wardrobePoints + savedPoints,
+  total == styleScore, base→wardrobe→saved order [I], server labels
+  [I], zero-state [I]); wire names + object/array UNRESOLVED (sole
+  blocker — explicit no-invention rule for wire fields).
+- C: `styleScore` int* FROZEN; `streak` int* [I] (minimal, richer
+  DEFERRED-additive); `recentSignals` string[]* [I] (labels only —
+  object-shape rejected as invention); confusion bans FROZEN.
+- D: C11 fully frozen as INFERENCE D1–D10 — any persisted signal marks
+  its server-UTC day styled; today counts; consecutive = day-diff 1;
+  anchor = today-if-styled-else-yesterday (unstyled anchor → 0);
+  missing breaks; future rows ignored; read-time scan; 5 worked
+  examples (none→0, one→1, yesterday-only→1, today-only→1, gap→trailing).
+- E: all persisted caller rows [I]; `occurred_at` desc + `id` desc [I];
+  server default N=20 [I] (no authoritative N — FROZEN finding);
+  `context`/type/timestamps never exposed [I]; empty `[]` [I].
+- F: per-write daily upsert in the same commit as the signal
+  (`ON CONFLICT (user_id,day) DO UPDATE styled=true`, NULL summary)
+  [I]; NO backfill (FROZEN finding); `style_score_records` NOT required
+  for v1 (FROZEN, 5 current-cache sources).
+- G: BOTH Home glance + Profile detail [I]; no new screen/route
+  (FROZEN); breakdown rendering waits on the §B one-liner.
+- H: four score families separate + TodayLook independence (FROZEN);
+  unification DEFERRED.
+- I: REQUIRED = `activity_days` migration/model/repo + M10 use cases +
+  upsert wiring (boundaries preserved, no writer behavior change, no new
+  seeds); DEFERRED = score history, backfill, gap codes, M11/wear/M8/
+  M13/weather.
+
+### Readiness: NEEDS FOUNDATION
+
+Sole blocker: §B wire names/framing owner one-liner. Then: 1) M10-A
+foundation → 2) M10-B summary GET → 3) Flutter data layer → 4) Home +
+Profile binding → 5) cross-layer regression. Test obligations in DEC-020
+(none written). Explicit: NO implementation, NO tests, NO commit, NO push.
+
+### Git safety
+
+- `git status --porcelain=v1`: only pre-existing M5/B-A changes +
+  19.4–19.11 entries + this entry (+DEC-020); `git diff --check` clean;
+  `git log --oneline -3`: 3ca73c3/aafeb31/faceec8. Staged 0. NOTHING
+  committed/pushed/staged. No flutter commands run.
+
+---
+
+## STEP 19.11 — M10 LEARNING SUMMARY SPECIFICATION FREEZE — COMPLETE (decision/docs only, uncommitted)
+
+Task: define and freeze the complete M10 Learning Summary (#34/F-3/R-3)
+before implementation. Audit/design/decision work ONLY. NO production
+implementation, NO migrations, NO routes/schemas/repos/use-cases/models,
+NO Flutter production changes, NO tests, NO commit, NO push. Preserve all
+existing uncommitted M5 Knowledge, Assistant Card Feedback, and
+decision/documentation work; no revert/reset/stash/clean. Skills:
+`.agents/skills/` inspected (21 entries, all Dart/Flutter code-creation)
+— none loaded (spec-only, 19.4/19.6/19.7/19.9 precedent). Sources
+reconciled: API_INVENTORY #34 + §5.10, API_CONTRACT_RULES §12.9,
+FEEDBACK_LEARNING_API (full §§1.1/4.4/4.5/4.7/5.3), V1 §§4.2/6.7/7.1,
+APPEARANCE_API §§5.6/R-3, APPLICATION_USE_CASES (UC-10/15/23/25/30-32),
+BACKEND_MODULE_MAP M10, MVP_SCOPE P1/P7.2, TABLE_DEFINITIONS
+(E7/E8/E9 + P0/P1 split), DATABASE_DESIGN_RULES (formula/derived-cache),
+BUSINESS_CONSTRAINTS (BC-7/12/20/22/23/41/60), RELATIONSHIP_CONSTRAINTS
+(R3–R9/no-FK-to-trigger), TRANSACTION_BOUNDARIES (TRX-3/6 + single-row
+rule + non-transactional computation), HISTORY_AND_VERSIONING
+(current-cache vs snapshots), INDEX_STRATEGY, SCREEN_MAP
+(HOME-001/002, PROFILE-001..006), DEC-009–018, backend code (no learning
+router/use-case/score/streak/activity code — grep-verified; no
+`style_score_records`/`activity_days` model/migration/test), Flutter
+`LearningService` math + Home/Profile mocks + assistant feedback paths,
+all relevant tests (assistant-feedback/saved-looks/analysis/wear suites).
+
+### M10 state audit
+
+1. Exists: `learning_signals` + 5 seeded codes + 3 writers (save TRX-3,
+   analysis, card feedback) + `user_state` + wear-summary (different
+   family). 2. Persisted: signals/user_state/saves/wardrobe/wear rows;
+   no score/streak/activity/summary row. 3. Local-only:
+   `LearningService.styleScore` 60+clamps formula + blob signals (only
+   preferences sync out). 4. Mock-only: all `StyleScoreData`/`StyleStreak`
+   /`TodaysLook`/`DailyOutfit`/`ProfileData` values + hardcoded 87s +
+   offline 86/87/88. 5. Doc-only: `style_score_records`,
+   `activity_days`, M10 use cases, `GET /learning/summary`. 6. Valid
+   inputs today: `look_saved`/`analysis_updated`/`outfit_selected`/
+   `suggestion_opened`/`assistant_navigation`; doc-only 4 codes gap;
+   wear excluded. 7. Missing backend: history tables, C11 rule,
+   breakdown shape, inner DTO, N/ordering, empty-state, M10 UCs.
+   8. Missing Flutter: client/repo/DTO + backend-first states.
+   9. Must NOT reuse: local math/names/IDs, all mock scores, engine 87,
+   wrong-family scores (candidate/wear/memorySummary).
+
+### Frozen (DEC-019, DEC-009–018 untouched)
+
+- A: `GET /v1/learning/summary`, no input, auth+OW-1, 200 bare
+  `LearningSummary {styleScore*,breakdown*,streak*,recentSignals*}`,
+  no pagination, naturally idempotent, 401/429 only (INVENTORY `—.` /
+  RULES/V1 `200`-only are abbreviations). Inner types + N + empty-state
+  UNRESOLVED (nothing invented).
+- B: score formula FROZEN `60 + min(wardrobe,20) +
+  min(saved*2,20)`, int, 60–100 derived; column 0–100 is BC-7 drift
+  tolerance (tension resolved authoritative-first; "0–100" is wire/column
+  range, not a second formula). Wardrobe+saved counts only; profile/
+  wear/feedback contribute nothing; current-cache; 87/mock ban restated;
+  TodayLook linkage UNRESOLVED.
+- C: breakdown UNRESOLVED (blocking) — concept + nullable jsonb snapshot
+  only, no fields.
+- D: streak frame FROZEN (derived cache over `activity_days`,
+  UNIQUE(user_id,day), append-only, date axis); full C11 rule
+  UNRESOLVED (trigger/signal-set/UTC-vs-local/today/consecutive/
+  first/missing/tz/future — nothing inferred).
+- E: recents FROZEN (seeded rows only, typed labels never raw text,
+  owner-only, context never filter axis, history survives deletion);
+  allow-list/ordering/N/empty UNRESOLVED.
+- F: writer/retention/uniqueness/day-semantics/current-vs-history
+  FROZEN; cadence UNRESOLVED; `activity_days` REQUIRED for streak,
+  `style_score_records` DEFERRED (history/trend), `today_look_records`
+  NOT required.
+- G: signal map frozen (5 YES / 4 deferred-gap / wear+local+regenerate
+  excluded); score consumes counts, signals feed history/recents.
+- H: ownership/cascade/isolation/no-raw-text/no-UUIDs-in-v1 frozen.
+- I: hybrid read model (derive current + snapshot history), GET writes
+  nothing; M10 sole writer via signal port.
+- J: SCREEN_MAP binding UNRESOLVED (mocks are presentation only);
+  knowledge-pattern data layer + truthful states + offline-unavailable
+  + local-math-demotion + no-fake-87 frozen.
+- K: HARD (M7 saves, wardrobe counts) / SOFT (card feedback, M9 via M7,
+  M4/M14 reads) / DEFERRED (M11, wear, M8-signal, M13, history, weather).
+- L: every open point labeled FROZEN / INFERENCE / UNRESOLVED / DEFERRED
+  in DEC-019 (nothing silently resolved).
+
+### Readiness: NEEDS FOUNDATION
+
+Blocked on foundation + decisions, not sequencing alone: §L UNRESOLVED
+(streak rule, breakdown fields, inner DTO+N/ordering, empty-state,
+binding, TodayLook linkage) + M10-A tables/use-cases. Sequence: freeze
+decisions → M10-A foundation → M10-B summary GET → Flutter data layer +
+backend-first surfaces → deferred history/trend. Test obligations listed
+in DEC-019 (none written). Explicit: NO implementation, NO tests, NO
+commit, NO push this step.
+
+### Git safety
+
+- `git status --porcelain=v1`: only pre-existing M5/B-A changes +
+  19.4–19.10 entries + this entry (+DEC-019); `git diff --check` clean;
+  `git log --oneline -3`: 3ca73c3/aafeb31/faceec8. Staged 0. NOTHING
+  committed/pushed/staged. No flutter commands run.
+
+---
+
+## STEP 19.10 — M9 REMAINING DECISIONS FINAL RESOLUTION — COMPLETE (decision/docs only, uncommitted)
+
+Task: resolve ONLY the DEC-017 register (U-SOURCE-CONTEXT,
+U-EVENT-NEAREST, U-VARIANT-BOUND, U-SEED-BOUND, C12); confirm
+weather/persistence/save; recalculate readiness. No production code, no
+migrations, no routes/schemas/repos/use-cases/models, no Flutter prod
+change, no tests, no commits, no pushes (M5 Knowledge + Assistant Card
+Feedback work and DEC-014–017 untouched). Skills: `.agents/skills/`
+inspected (21 entries, all Dart/Flutter code-creation) — none loaded
+(spec-only, 19.4/19.6/19.7/19.9 precedent). Sources re-read: DEC-013/
+015/016/017, DAILY (full), CONTRACT_RULES §§7/9/11/12.8/16.3, INVENTORY
+#31–33, REC_API §§3.1/4.1/4.2/4.5/4.8, UC-16/17, MODULE_MAP M9, M7
+implementation (`saved_looks.py` allow-list + outfit-validation branch,
+`0009` CHECK, schema `Literal`, `resolve_preferred_item_ids`
+`!= "outfit"` skip, `get_outfit_coverage` outfit filter, W-7 follow-up,
+port comments), `saved_looks_screen.dart` switches (exhaustive with `_`
+default → generic rendering + description footer), engine code (13.2
+0–100 budget, `compose_candidate_score`, `_occasion_points`,
+Explanation grounded-reasons rule), TABLE_DEFINITIONS `saved_looks`
+(predates `source_context` — doc-touch, not contradiction).
+
+### Resolutions (DEC-018, DEC-009–017 untouched)
+
+- **U-SOURCE-CONTEXT: ACCEPT `"daily"` (FROZEN).** Contract deduction:
+  REC_API §3.1 type code + §4.8 "sourceContext is the type code" + §4.1
+  envelope union + DAILY §5.3 explicit naming; no source caps the
+  vocabulary (0009 is a timestamp, not an exclusion). Save batch carries
+  one additive migration (CHECK + Literal + allow-list + validation
+  predicate `in ("outfit","daily")` — required for BC-56) plus
+  doc-touches. Nothing existing breaks: superset CHECK, NULL legacy
+  intact, type-agnostic list/delete include daily, outfit-scoped
+  coverage/preference/W-7 predicates frozen (daily ignored like
+  hairstyle/grooming), `"wardrobe"` still 422 (negative tests safe).
+- **U-EVENT-NEAREST: frozen (FROZEN core + labeled INFERENCE).**
+  Optional; no-event derives normally (never 404 for it); only the type
+  code consumed. Nearest [I] (no source defines it, stated why):
+  `event_date` >= server-UTC-today (today qualifies — on/after +
+  upcoming-view + coherence), order date ASC / time ASC NULLS LAST
+  explicit / id ASC, first-or-none; scoring occasions [I] =
+  `[event]+prefs` deduped. Needs M8-A (sequencing only).
+- **Bounds: no authoritative maximum (FROZEN finding).** Only "bounded
+  → 422" with no number. Floor [I]: absent → default, `""` → 422
+  (uniform min_length=1, DEC-016). Max = implementation-time
+  (recommended ≤200, BC-13 family, 422-if-applied).
+- **C12: frozen as far as sources permit.** FROZEN: single-ranking
+  selection, no-winner → 404, native 0–100 matchScore source, owned-row
+  components (no colorHex — same verified fact as DEC-015),
+  grounded-only reasons, event-code occasion, additive top-level
+  `selectedItemIds` (API-2, reuses M7 validation), seed-selects-only.
+  INFERENCE: int rounding/clamp, code columns, StyleProfile→styleDna,
+  context counts, alternatives←ranked[1:3], occasion composition.
+  UNRESOLVED-bounded (non-blocking): title/reason prose, styleScore
+  (never the assistant-path 87 default), insight/aiInsights/tip content
+  (v1: omit unless grounded), styleDna gaps (never 404), seed→index fn.
+- **Weather / persistence: CONFIRMED UNCHANGED (FROZEN).**
+- **Save lifecycle (FROZEN):** save("daily") → TRX-3 + one `look_saved`
+  → GET shows generic row (badge-scale detail deferred, no contract
+  impact) → DELETE → gone; no wear; no coverage/preference feed.
+
+### Readiness: READY FOR IMPLEMENTATION
+
+All DEC-017 blockers resolved authoritatively; residuals are bounded
+details + sequencing (migration inside save batch; M8-A before
+event-seeded path; Flutter after backend). Sequence: backend GET +
+regenerate (no-event first) → C12 mapping + tests → save (+migration) →
+event seeding (post M8-A) → Flutter. Test obligations extend 19.9's:
+daily CHECK/allow-list/validation-predicate, daily 201 + signal
+context, full daily lifecycle, `"wardrobe"`-still-422, event rule
+(today-qualifies/NULLS-LAST/id-tiebreak/no-event), `""`-bounds 422,
+mapping determinism + omission honesty. Explicit: NO implementation, NO
+tests, NO commit, NO push this step.
+
+### Git safety
+
+- `git status --porcelain=v1`: only pre-existing M5/B-A changes +
+  19.4–19.9 entries + this entry; `git diff --check` clean;
+  `git log --oneline -3`: 3ca73c3/aafeb31/faceec8. Staged 0.
+  NOTHING committed/pushed/staged. No flutter commands run.
+
+---
+
+## STEP 19.9 — M9 TODAY'S LOOK SPECIFICATION FREEZE — COMPLETE (decision/docs only, uncommitted)
+
+Task: freeze the complete M9 Today's Look contract (#31–33, UC-16/17)
+before implementation. No production code, no migrations, no
+routes/schemas/repos/use-cases/models, no Flutter prod change, no
+tests, no commits, no pushes (M5 Knowledge + Assistant Card Feedback
+work untouched). Skills: `.agents/skills/` inspected (all Dart/Flutter
+code-creation) — none loaded (spec-only, 19.4/19.6/19.7 precedent).
+Sources reconciled: API_INVENTORY #31–33 + §5.9 guard, API_CONTRACT_RULES
+§§7/9/11/12.8/13/16.3, DAILY_OUTFIT_EVENTS_API (full §§1–9),
+APPLICATION_USE_CASES UC-16/17, BACKEND_MODULE_MAP M9,
+MVP_SCOPE P1/P3, TABLE_DEFINITIONS §4.6 (+BC-5/BC-11/BC-24/BC-56),
+DATABASE_DESIGN_RULES §6.2, RELATIONSHIP_CONSTRAINTS, TRANSACTION_BOUNDARIES
+TRX-2/3/4/7/8, RECOMMENDATION_API §§3.1/4.3–4.9/5, SCREEN_MAP
+HOME-001/002, saved-look contracts + M7 implementation
+(`SaveRecommendation`, 3-value CHECK `0009`, DEC-010/013), M8 DEC-015/016
+(event-outfit boundary, R36, honesty rule), backend code (zero today
+code: no router/use-case/repo/model/migration/test — grep-verified; no
+`WeatherProvider` port/adapter — `external.py` holds only
+`KnowledgeSource`), Flutter Home (mock-only `DailyOutfitData.mock`
+`comp_*` + `TodaysLookData.mock` ids `1`–`5` + `LearningService` title
+strings + snackbar-only handlers; no client/repo), outfit engine
+(generate→score→rank→select deterministic, tops+bottoms mandatory),
+wardrobe owner-scoped `get_by_id` (OW-1), auth seam + frozen error
+taxonomy, knowledge client/repo precedent.
+
+### M9 state audit
+
+1. Exists: full contract set, M7 lifecycle (complete), wardrobe + user_state
+   reads, deterministic candidate pipeline (pattern), auth/errors/pagination/
+   idempotency conventions, mock Home UI (presentation), knowledge data-layer
+   precedent. 2. Contract-only: #31–33 shapes, TodayLook family, variant/seed
+   params, weather-hint and nearest-event rules, route-order guard.
+3. Mock/local-only: `DailyOutfitData.mock`, `TodaysLookData.mock`,
+   `LearningService.savedLooks` strings, all DailyOutfitScreen handlers,
+   hardcoded weather literal, mock occasion labels. 4. Missing: today backend
+   (router/schemas/use-cases/repos/models/migration), WeatherProvider
+   port+adapter, C12 winner→DTO mapping, nearest-event filter/tie-break,
+   variant/seed bounds, sourceContext vocabulary for daily saves, Flutter
+   client/repo/models, all today tests. 5. Reusable: candidate pipeline
+   pattern, wardrobe owner lookup, M7 use cases verbatim, all conventions,
+   mock screens as presentation. 6. Must NOT reuse: every local/mock ID
+   (`1`–`24`, `comp_*`, `alt_*`), weather literal, mock labels, title
+   strings as save input, assistant-card local snapshot IDs (422 today).
+
+### Frozen (DEC-017, DEC-009–016 untouched)
+
+- C1: derived-only, NO table (table spec kept as gated reference only).
+- GET #31: route + guard order, auth/owner, `variant?` only (no pages),
+  bare TodayLook, owned-UUID components, 404 empty/no-eligible, 422/429,
+  no 503 (weather degrades), no side effects, deterministic repeat.
+- POST #32: `?seed=` optional, different-per-seed (same-seed-same [I],
+  must-differ best-effort [I]), persists nothing, never keyed, 404 (UC-16
+  over DAILY §5.2 omission)/422/503/429, independent of GET.
+- POST #33: delegates to M7 verbatim (TRX-3, key required, replay→original,
+  conflict→409, null provenance, M7 UUID/ownership rules, local IDs fail
+  closed) — EXCEPT sourceContext UNRESOLVED (`"daily"` per DAILY §5.3 vs
+  implemented 3-value CHECK; recommended: migration adding `'daily'`).
+- Boundary: TodayLook direct, no second DTO; C12 mechanical mapping
+  UNRESOLVED (implementation-time; sourceless optionals omitted per AI-0).
+  DEC-015 respected. Event seeding optional (occasion-only [I]); nearest
+  filter/tie-break UNRESOLVED (recommended: min date ≥ today, time NULLS
+  LAST, id asc; no-event path ships first). Weather C9: optional/absent
+  (no provider, no fabrication). Flutter: new data layer, backend-first
+  states, UUID-only, mock-as-presentation, Wear-stays-non-wear. Routing/
+  errors/auth/idempotency per §7/§9/§11 (+M7 500-on-DB-failure). Lifecycle:
+  save→list→delete→gone on M7, one `look_saved`, history preserved, no wear.
+
+### Classification / verdict / next
+
+- Every open point classified FROZEN / INFERENCE / UNRESOLVED / DEFERRED
+  in DEC-017 (nothing silently resolved; 3 disagreements reported
+  authoritative-first). **Verdict: CONDITIONALLY READY.**
+- Dependency map: M2 ✓ · M3 ✓ · M5 (#21 codes) ✓ · M6 (pattern) ✓ ·
+  M7 ✓ complete · M8 (MISSING — event seeding only; M8-A first) ·
+  M10 (via M7, no new work) · M13 NOT required (different family) ·
+  weather absent by design.
+- Sequence: backend GET + regenerate (no-event, weather-absent) →
+  C12 mapping + tests → save after sourceContext one-liner → event
+  seeding after M8-A/B + tie-break one-liner → Flutter last.
+- Missing foundation: M8-A tables (event path only); sourceContext
+  allow-list migration (save only). Nothing else.
+- Implementation test obligations (for later, none written): GET matrix
+  (auth/shape/order/variant-422/empty-404/no-eligible-404/isolation/
+  determinism/no-write), regenerate matrix (seed optionality/diff/same/
+  no-persist/no-key/422/503/404), save matrix (TRX-3/key/replay-409/
+  title-422/foreign-404/malformed-422/local-ID rejection/signal-once/
+  no-wear), event on/off + tie-break, weather-absent, route order,
+  Flutter models/client/repo/screens/offline/UUID-safety.
+- Explicit: NO implementation, NO tests, NO commit, NO push this step.
+
+### Git safety
+
+- `git status --porcelain=v1`: only pre-existing M5/B-A changes +
+  19.4/19.5/19.6/19.7/19.8 entries + this entry; `git diff --check`
+  clean; `git log --oneline -3`: 3ca73c3/aafeb31/faceec8. Staged 0.
+  NOTHING committed/pushed/staged. No flutter commands run.
+
+---
+
+## STEP 19.8 — M8 FINAL FREEZE COMPLETE (decision/docs only, uncommitted)
+
+Task: confirm the two 19.7 one-liners against authoritative sources.
+No code, no migrations, no backend/Flutter prod changes, no tests, no
+commits, no pushes (M5/Assistant work untouched). Sources re-checked:
+TABLE_DEFINITIONS (types-used has no TIME but forbids none),
+DATABASE_DESIGN_RULES (no TIME prohibition; timestamps policy is
+about instants, not wall-clock), DAILY §8.3 (time slot explicitly
+open), BUSINESS_CONSTRAINTS BC-9–12 (char_length bounds; longest
+existing 200), backend schemas (required min_length=1, optionals
+nullable-uncapped, no trim precedent), RELATIONSHIP_CONSTRAINTS
+(nothing on time), full `event_time` grep (zero hits — no conflict).
+
+- **Confirmation 1 — ACCEPTED.** `event_time TIME NULL`: smallest
+  coherent representation (list `time` needs a source; timestamp
+  contradicts BC-57 DATE semantics; VALUE_OBJECTS embeds date+time
+  as owner columns). event_date unchanged; wall-clock, no tz;
+  strict HH:mm wire; null = absent.
+- **Confirmation 2 — ACCEPTED.** location nullable ≤200 (BC-13
+  family exact); notes nullable ≤2000 (no lower cap anywhere).
+  Empty-supplied → 422 (uniform 1-lower-bound); lengths in
+  characters (native len + char_length); no trim/normalization;
+  over-limit → 422, never truncated.
+- **DEC-016 created** (DEC-015 untouched). No contradictions found;
+  nothing to report instead.
+
+### State
+
+- M8-A/B/C blockers resolved. event_time schema frozen. Text
+  bounds frozen. **M8 is READY FOR IMPLEMENTATION.** E-3 remains
+  deferred. No code implemented. No migration created. No tests
+  added. No commit/push.
+
+---
+
+---
+
+## STEP 19.7 — M8 OPEN-DECISION RESOLUTION — COMPLETE (decision freeze only, uncommitted)
+
+Task: resolve the 19.6 M8 blockers from authoritative sources. No prod
+code, no migrations, no routes/schemas/repos/use-cases/models, no
+Flutter prod code, no implementation tests, no commits, no pushes, no
+unrelated changes (M5/Assistant work untouched). Skills:
+`.agents/skills/` inspected (21 entries, all Dart/Flutter
+code-creation) — none loaded (spec-only, 19.4 precedent). Extra
+sources over 19.6: PROFILE_ONBOARDING_API §§3.1/5.3/5.6 (preferred
+Occasions = vocab codes, trimmed, server-deduped), DOMAIN_MODEL
+ PreferredOccasions lifecycle "additive", RELATIONSHIP_CONSTRAINTS
+R2/R36 (preferences reference vocab ids), REC_API §4.2 honesty rule
+(uncomputed fields absent, never fabricated), outfit_builder_mock
+(required selectedMood/Palette/colorHex, display labels), backend
+grep (no hex source; no event code anywhere), LearningService
+(addPreferredOccasion = local append-if-absent + write-through PATCH).
+
+### Decision table
+
+| ID | Question | Authoritative answer | Status | Impact |
+| --- | --- | --- | --- | --- |
+| U-PREF | R36 exact semantics (12 sub-questions) | preferredOccasions codes, append-if-absent, add-only lifecycle, no signals, sequential 2nd unit per TRX-7 (overrules §5.4 "same transaction"), 201-stands on feed failure (elimination) | FROZEN (DEC-015) | M8-B unblocked |
+| U-TIME-STORAGE | time persistence (A/B/C/D) | A breaks list, C contradicts BC-57, D nothing → B (nullable `event_time time`) | OWNER 1-LINER | M8-A ships without; column additive |
+| U-TIME-FORMAT | wire format | strict HH:mm both ways; null ok; empty/seconds/12h → 422; no tz | FROZEN (DEC-015) | M8-B unblocked |
+| U-BOUNDS | location/notes caps | no source numbers | OWNER 1-LINER | recommended ≤200/≤2000 |
+| U-OUTFIT-MOOD | mood/palette/colorHex + mapping | same canonical DTO; uncomputed keys OMITTED (AI-0); selectedOccasion = code; field sources frozen | FROZEN (DEC-015) | M8-C unblocked |
+| U-409 | 409 trigger | none; reserved-never-emitted | FROZEN (DEC-015) | M8-B unblocked |
+| U-PAST-GEN | past-event generation | allowed, no restriction | FROZEN (DEC-015) | M8-C unblocked |
+| E-3 | GET by id | specified but additive | DEFERRED [D] | no decision needed later (API-2) |
+| SEED | event_types 8 codes/labels/sort/active | codes+labels frozen; sort_order 0 (0005 verbatim); active true; PR-3 immutable; M5 separate | FROZEN (DEC-015) | M8-A unblocked |
+| CREATE-KEY | idempotency | NOT keyed (F-8/V1 §3.6); append-on-retry | FROZEN (DEC-015) | M8-B unblocked |
+
+### Recorded
+
+- `DECISIONS.md` +DEC-015 (DEC-009–014 untouched). Key resolutions:
+  TRX-7 (STEP 4) outranks DAILY §5.4 prose on atomicity (V1-¶7-style
+  authority ranking); AI-0 honesty outranks DTO-completeness for E-6
+  (M5 P-3 precedent); K9.1 codes over mock labels for
+  selectedOccasion; 0005 seed pattern over invented sortOrder.
+- Only 2 owner one-liners remain (time column, text caps); M8-A
+  starts now regardless.
+
+### Git safety
+
+- `git status --porcelain=v1`: only pre-existing M5/B-A changes +
+  19.6/19.7 entries; `git diff --check` clean;
+  `git log --oneline -3`: 3ca73c3/aafeb31/faceec8. Staged 0.
+  NOTHING committed/pushed/staged. No flutter commands run.
+
+### Final M8 readiness: CONDITIONALLY READY
+
+M8-A (foundation) proceeds immediately. M8-B/C proceed after the 2
+one-line confirms. Zero other open items. E-3 deferred.
+
+---
+
+---
+
+## STEP 19.6 — M8 EVENTS SPECIFICATION / DECISION FREEZE — COMPLETE (specification/audit only, uncommitted)
+
+Task: freeze M8 Events (#26–30, UC-18–21) before implementation, as
+DEC-014 did for M5. Docs/state only: this entry. No production code,
+no migrations, no routes/schemas/repos/use-cases/models, no Flutter
+prod code, no implementation tests, no commits, no pushes, no DECISIONS
+change (recommendations only — nothing accepted). Skills:
+`.agents/skills/` inspected (21 entries, all Dart/Flutter
+code-creation) — none loaded (spec-only, 19.4 precedent).
+Sources reconciled: API_INVENTORY #26–30, FANSIVIBE_API_CONTRACT_V1
+(§§3.5/3.6/4.2/4.4/¶7), API_CONTRACT_RULES §12.7, DAILY_OUTFIT_EVENTS_API
+(full), APPLICATION_USE_CASES UC-18–21, BACKEND_MODULE_MAP M8,
+TABLE_DEFINITIONS (§4.1 user_events, §6 event_types), DATABASE_DESIGN_
+RULES (R34/TRX-7/vocab/P1), BUSINESS_CONSTRAINTS (BC-13/32/41/46/56/57),
+TRANSACTION_BOUNDARIES TRX-7, INDEX_STRATEGY (user_id,event_date),
+RELATIONSHIP R35/R36, VALUE_OBJECTS Date Range, MVP_SCOPE P1,
+RECOMMENDATION_API ensemble family, API_SECURITY_REVIEW F-8 + §6.5,
+PAGINATION_FILTERING §9.5, DEC-009–014, backend code (zero event code;
+no event tables in migrations 0001–0015), Flutter events/ (mock+3
+screens, no client/repo), event_screens_test, todo.md (stale Discover
+list — not authoritative for M8).
+
+### 1. M8 current-state audit
+
+- Backend: NO event router/schemas/use-cases/ports/models/migrations
+  [F, grep-verified]. DB: NO user_events/event_types tables [F].
+- Flutter: local-only [F] — EventListScreen (local `_events` from
+  mockEvents, add via `eventAdd` route), AddEventScreen (local
+  validation, time REQUIRED locally, picker blocks past dates, local
+  numeric ids, writes `LearningService.addPreferredOccasion(NAME —
+  display name, not code)`), EventDetailsScreen (local
+  hasOutfitRecommendation badge; Generate Outfit → builder route, no
+  fetch; Edit → "coming soon" snackbar; NO delete UI). No events
+  client/repository [F]. Route names eventAdd/eventDetails/buildOutfit
+  exist [F].
+- Callable today: domain outfit pipeline generate→score→rank→select
+  (STEP 13, deterministic; scoring takes preferred_occasions overlap,
+  graceful for unknown codes) [F]. NO M13 HTTP, NO backend
+  OutfitRecommendation DTO/mapping [F]. Preference precedent:
+  full-replace PATCH /me only; NO append helper; NO backend
+  `occasion_preferred` signal type (not seeded — exists Flutter-local
+  only) [F]. Tests: no backend event tests; `event_screens_test.dart`
+  (mock-driven) [F].
+
+### 2.–8. Frozen specification ([F] = frozen, [I] = supported inference)
+
+- **Data model [F]:** `id uuid PK gen_random_uuid()` (server-only);
+  `user_id FK users CASCADE NOT NULL`; `title CHECK 1–200`;
+  `event_type_id text NOT NULL FK event_types RESTRICT` (BC-32/R34);
+  `event_date date NOT NULL` (DATE, no timezone); `location`/`notes`
+  NULL text; `created_at`/`updated_at timestamptz now()` (updated_at
+  server-bumped on edit); index `(user_id,event_date)` btree
+  non-unique; no uniqueness beyond PK (duplicates allowed, F-8); no
+  archive/status/time columns; no client-generated fields.
+- **event_types [F]:** standard vocab shape (code PK/label/sort_order/
+  active, BC-16); exactly 8 codes — casual/formal/business/date/party/
+  travel/workout/other — labels = mockTypes names (date→Date Night);
+  sortOrder [I] = mockTypes order 1..8; office EXCLUDED (M8 sources
+  list 8; do NOT copy M5's 9); intentionally separate from knowledge
+  occasions (FK'd user refs vs JSONB refs); seeded by migration
+  (DBR:562, 0005 precedent).
+- **CREATE `POST /v1/events` [F]:** `EventCreate{title*,eventType*,
+  eventDate*,time?,location?,notes?}` → 201 `UserEvent`; title 1–200;
+  type valid code + allowed values; date ISO YYYY-MM-DD not-in-past
+  (vs server UTC today [I]); auth+owner; unknown type/past → 422;
+  NOT keyed (F-8 accepted) → retry appends, duplicates are duplicate
+  rows; TRX-7 = single INSERT tier 1, NO multi-table unit (authoritative
+  over DAILY §5.4's "same transaction" claim — reported disagreement);
+  NO signal write (UC-18 repos exclude signals; no backend signal type).
+  `UserEvent{id*,title*,eventType*(code),eventDate*,time?,location?,
+  notes?,createdAt*,updatedAt*}`; list items are `EventSummary{id,
+  title,eventType,eventDate,time?}` (V1 canonical).
+- **LIST `GET /v1/events` [F]:** `?from=&sort=eventDate&order=&page=&
+  page_size=`; from = on/after YYYY-MM-DD (default [I] = today,
+  upcoming view); NO `to` param; past events selectable via from/order;
+  sort eventDate-only default asc; order asc|desc; unknown → 422; page
+  1/20, page_size ≤100 → 422; empty → 200 `items:[]`; owner-scoped
+  envelope; NO outfit snapshot (hasOutfitRecommendation stays local).
+- **UPDATE `PUT /v1/events/{event_id}` [F]:** full replace, same
+  required/optional markers as create; type/date changeable; title
+  never clearable; notes/location cleared by null-or-absent [I];
+  same validation incl. not-in-past; 404-not-403; malformed UUID →
+  422; updated_at bumped; single UPDATE tier 1; R36 refresh on
+  type/date change; naturally idempotent (repeat PUT same body =
+  same state; repeat DELETE → 404 nuance recorded).
+- **DELETE [F]:** 204 empty; 404-not-403; UUID 422; single DELETE;
+  preferences/signals/saved-look snapshots untouched (BC-41, no FK);
+  no signal written; no persisted outfit to cascade; archive NOT
+  supported (no column).
+- **OUTFIT `POST /v1/events/{event_id}/outfit` [F+I]:** 200 bare
+  `OutfitRecommendation` (ensemble family, OutfitComponent{id,name,
+  category,color,colorHex,material?,reason}); occasion-only seeding
+  (date/location/title/notes do NOT influence generation [F]);
+  occasion passed as scoring input (pipeline supports it [I]);
+  selectedOccasion = event CODE [I]; never persisted; never
+  idempotent-as-cached but deterministic per wardrobe+occasion [I];
+  no signals; 404-not-403; malformed UUID 422; 503 generation
+  failure; NO second engine — M13 soft-dependent only (shared DTO
+  mapping defined once; recommend E-6 defines it, M13 reuses; M8 NOT
+  blocked on M13).
+- **E-3 decision: DEFER [D].** Fully specified (DAILY §5.6, V1 §4.4)
+  but additive, served-from-list-today; not required, no routing
+  conflict (method+path distinct). Mount later under API-2 with no
+  product decision.
+
+### 10. Transaction / preference matrix
+
+| Op | DB writes | Boundary | Rollback | Signals | Preferences |
+| --- | --- | --- | --- | --- | --- |
+| Create | 1× INSERT user_events | TRX-7 tier-1 single-row [F] | fail → nothing, typed error [F] | none [F] | R36 feed, exact semantics [U-PREF] |
+| Update | 1× UPDATE | single-row tier-1 [F] | fail → row unchanged [F] | none [F] | R36 refresh on type/date change [F]; add-vs-remove [U-PREF] |
+| Delete | 1× DELETE | single-row tier-1 [F] | fail → row intact [F] | none written; history survives (BC-41) [F] | untouched [F] |
+| Outfit | none (reads events/wardrobe/user_state) | non-transactional [F] | n/a, regenerable [F] | none [F] | none [F] |
+
+No-implementation-precedent: R36 append helper, OutfitRecommendation
+backend mapping, events CRUD/seeds (0005-vocab + wardrobe-CRUD patterns
+apply as established patterns, not precedent).
+
+### 11. Flutter target (no code changed)
+
+New `features/events/data/`: EventDto/EventCreate/EventUpdate/
+EventSummary models (verbatim wire, `page_size` key), EventsClient
+(5 methods + optional E-3; baseUrl/dev-token/12s/null-on-failure
+conventions), EventsRepository (nullable passthrough, NO mock merge).
+EventListScreen → backend-first (truthful loading/error/empty; mock
+fallback removed for list); AddEventScreen → POST with #21 code grid,
+date→YYYY-MM-DD, time→HH:mm, no local ids, drop local
+addPreferredOccasion(NAME) for server R36; EventDetailsScreen →
+list-passed object, PUT replaces snackbar, DELETE with confirm,
+Generate Outfit → E-6 + ensemble render (local session-only ready
+flag, never persisted truth). UUIDs backend-only; navigation/routes
+unchanged.
+
+### 12. Test matrix
+
+Backend CREATE (auth/201/required-fields/invalid-type/invalid-date/
+past-rule/owner-scope/no-signal/R36-behavior/duplicates-append/no-key/
+malformed-body), LIST (auth/isolation/empty/order-asc/from-filter/
+from-invalid/sort-invalid/pagination/envelope-shape), UPDATE (auth/
+owner/missing-404/foreign-404/malformed-422/full-replace/nullable-
+clear/validation/past-date/R36-refresh/updatedAt-bump), DELETE (auth/
+owner/missing/foreign/malformed/204-empty/isolation/history-
+preserved/repeat-404), OUTFIT (auth/owner/missing/foreign/malformed/
+occasion-seeding/selectedOccasion-code/regeneration-determinism/
+no-persist/no-signal/503-path/empty-wardrobe), E-3-if-ever (auth/
+owner/missing/foreign/shape). Flutter: serialization/parsing/paths/
+query/body/repo-passthrough/null-behavior/UUID-safety (never send
+local ids)/mock-to-backend migration (no silent merge)/screen
+integration with fake repo per saved-looks precedent.
+
+### 13. Dependency graph
+
+M5 (#21 code→label client mapping only; event_types is M8's own
+table) → M8; M6 ai_engine (rules only, BA-8) → E-6; M2 user_state →
+R36 writes; M8 → M9 (nearest-event read, M9 consumes M8, not vice
+versa); M7/M10/Wear/Assistant NOT required (type-agnostic saves,
+no signal writes, unrelated surfaces) [all F except M13-soft I].
+
+### 14. Unresolved register (smallest; blocks noted)
+
+- **U-PREF (blocks M8-B):** R36 exact semantics — append-if-absent?
+  order? cap? atomicity vs TRX-7 no-multi-table-unit; update:
+  append-new-only or remove-old? No backend precedent (only
+  full-replace PATCH). RECOMMENDED (only): INSERT commits tier-1,
+  then second-unit append-if-absent CODE (never name); event 201
+  stands if preference lags (TRX-7 "derived computation"); update
+  appends new code if absent, never removes.
+- **U-TIME-STORAGE (blocks M8-A schema):** wire `time?` [F] but no
+  column [F]; §8.3 explicitly open. Options: request-only echo
+  (breaks list `time`) vs nullable `event_time` column.
+  RECOMMENDED (only): nullable `event_time time` column.
+- **U-TIME-FORMAT (blocks M8-B):** HH:mm vs client 12h labels.
+  RECOMMENDED (only): accept HH:mm canonically, tolerate 12h,
+  echo HH:mm.
+- **U-BOUNDS (blocks M8-B):** location/notes/time caps ("bounded",
+  no numbers). RECOMMENDED (only): location/notes ≤200 chars
+  (BC-13 family precedent), time format-fixed.
+- **U-409 (non-blocking):** 409 in #26's canonical errors but no
+  trigger (no key, no unique). RECOMMENDED (only): no 409 path;
+  201/401/422/429 only until a limit decision lands.
+- **U-OUTFIT-MOOD (blocks M8-C mapping):** `selectedMood`/
+  `selectedColorPalette` required on wire but sourceless for
+  event-seeded generation (+code-vs-label for selectedOccasion —
+  recommended: CODE per K9.1). Options: neutral constants
+  (invention) / omit-if-optional (contract delta) / defer E-6.
+  RECOMMENDED (only): return mood/palette null with a contract
+  note (event-seeded responses leave them null; Flutter treats
+  as absent) — owner to confirm.
+- **U-PAST-GEN (non-blocking):** generation for past events.
+  RECOMMENDED (only): allow (no rule forbids; date validated
+  on write only).
+- Disagreements reported (authoritative first): TRX-7 no-multi-
+  table-unit over DAILY §5.4 "same transaction"; V1 canonical
+  errors (401/409/429) over §12.7's abbreviated rows; sort key
+  `eventDate` (V1+PAGINATION, 2:1) over DAILY §4.6 `event_date`;
+  list items EventSummary (V1+DAILY+PAGINATION) over INVENTORY's
+  envelope-name-only "UserEventList".
+
+### 15. Proposed batches
+
+- **M8-A foundation (STARTABLE NOW — fully frozen):** event_types +
+  user_events models/migration (incl. `(user_id,event_date)` index,
+  8-code seed with [I] sortOrder, CHECKs, FKs) + ports/repos +
+  shared schemas. Tests: migration up/down, seed exactness, FK
+  RESTRICT/CASCADE behaviors. Migration required (2 tables + index).
+- **M8-B CRUD (gated on U-PREF/U-TIME-*/U-BOUNDS answers):** create/
+  list/update/delete + preference feed + tests (§12). Files:
+  new `routers/events.py`, `schemas/events.py`,
+  `application/events.py`, ports/repos/models rows. No new tables.
+- **M8-C outfit (gated on U-OUTFIT-MOOD + B):** E-6 endpoint +
+  winner→OutfitRecommendation mapping (M13 reuses) + tests. No
+  tables; M13 NOT a prerequisite.
+- **M8-D Flutter (gated on B+C):** client/repo/screens/tests (§11).
+  No routes/design changes; no Discover/home coupling.
+
+### 16. Definition of Done
+
+Contract §2–8 compliance; auth on all six (E-3 if mounted);
+owner-only + 404-not-403 (incl. bogus-UUID 422); validation matrix
+§12 incl. past-date/type-codes/pagination; TRX-7 single-row +
+U-PREF answers implemented; migration up/down + seed exactness +
+FK RESTRICT (type) / CASCADE (user) proven; pagination 20/100 +
+empty-200; Flutter backend-first, UUID-safe, no mock merge/success;
+subset regressions green vs documented baselines (full-suite
+hairstyle-override polluter still open, 19.5); cross-layer
+request→persist→read→render proven; CURRENT_STATE updated;
+commit only after verification; no push unless requested.
+
+### 17–18. Git safety + readiness verdict
+
+- `git status --porcelain=v1`: only the pre-existing M5/B-A/decision
+  changes (19.5 entry above); `git diff --check` clean;
+  `git log --oneline -3`: 3ca73c3/aafeb31/faceec8. Staged 0.
+  NOTHING committed/pushed/staged/stashed/reverted. No flutter
+  commands run → no registrant churn to restore.
+- **Verdict: M8 CONDITIONALLY READY.** M8-A proceeds now (zero open
+  items). M8-B/C wait on 4 product answers (U-PREF, U-TIME-STORAGE,
+  U-OUTFIT-MOOD; U-TIME-FORMAT/U-BOUNDS alongside). E-3 deferred
+  [D]. No new DECISIONS entry (recommendations only).
+
+---
+
+---
+
+## STEP 19.5 — M5 KNOWLEDGE HTTP READS (B-B, #18–#22) — PASS_WITH_WARNINGS (uncommitted)
+
+Task: implement DEC-014 exactly (backend 5 public reads + Flutter
+knowledge data layer + tests). No commits, no pushes. Skills (read
+first): `flutter-use-http-package` (GET/`Uri.parse`/path+auth asserts —
+project null-on-failure kept over the skill's throw guidance, 15.5/17.4
+precedent), `dart-add-unit-test` (`flutter test` runner, MockClient
+convention), `dart-run-static-analysis` (`flutter analyze` on touched
+files; 5 self-found issues fixed, no auto-fix). No skill for Python
+backend (14.7/15.3/15.4B precedent).
+
+### Implemented (backend: 4 edits + 3 new files + 1 mount line)
+
+- `data/catalog.py` (+`KNOWLEDGE_OCCASIONS` frozen 9 rows, DEC-014 P-1;
+  +`ITEM_REFERENCES = []` content gate, DEC-014 P-2 — the K9.1
+  versioned-backend-config mechanism; existing `OCCASIONS`/catalog rows
+  untouched).
+- `infrastructure/external/knowledge.py` (+`retrieve_occasions`,
+  +`retrieve_item_references` with shape-only validation; hairstyle/
+  grooming paths untouched).
+- `domain/ports/repositories.py` (+`VocabularyRecord`,
+  +`VocabularyRepository` read-only protocol), `infrastructure/db/
+  repositories.py` (+`VocabularyRepositorySQL(db, model)`: active-only,
+  `(sort_order, code)` order, read-only).
+- `application/knowledge.py` (new: `ListKnowledgeLooks` with honest
+  occasion/style → truthful 422 and NO `allowed` claim,
+  `ListKnowledgeVocabulary`, `ListKnowledgeOccasions`,
+  `ListKnowledgeItems`; shared page/page_size guard).
+- `api/schemas/knowledge.py` (new: `VocabularyItem`, `ItemReference`
+  `{code,label,category,sortOrder}`, `KnowledgeLook` verbatim catalog
+  fields — engine `scoreSeed` excluded as scoring-internal, no
+  occasion/style attributes; 3 offset envelopes with the `page_size`
+  wire key).
+- `api/routers/knowledge.py` (new, prefix `/v1/knowledge`: 5 thin
+  public GETs, no auth dep; every success sets `X-Knowledge-Version`
+  from `catalog.KNOWLEDGE_VERSION`, never hardcoded). `main.py`
+  (+import, +`include_router`).
+
+### Endpoint verification (live PG)
+
+- #18 looks: 200, total 8, deterministic catalog order (4 hairstyle +
+  4 grooming codes), envelope, `page=2&page_size=3` slices `[3:6]`,
+  `page=100` → 200 `items:[]`, `page=0`/`page_size=0|101` → 422,
+  `?occasion=`/`?style=` → 422 `VALIDATION_ERROR` with no `allowed`
+  claim, header `1.1`.
+- #19 categories: 200, exact 5 codes/labels (tops/bottoms/outerwear/
+  footwear/accessories, DB-backed), deterministic order, envelope,
+  header; no `shoes`/`layers`/`all`.
+- #20 colors: 200, exact 17-row catalog, deterministic order,
+  envelope, header.
+- #21 occasions: 200, exact frozen 9
+  (code/label/sortOrder 1..9, `date` → `Date Night`), no extras, no
+  `work/evening/weekend/event/all`, envelope, header, public (+bogus
+  token still 200).
+- #22 items: 200, valid empty envelope
+  (`items:[]/page:1/page_size:20/total:0`, content gate holds),
+  header, public; probe wardrobe row for dev user leaks nothing
+  (`user_id` and item name absent from body).
+
+### Implemented (Flutter: new `features/knowledge/data/` + 1 test)
+
+- `knowledge_api_models.dart` (DTOs + 3 envelopes, strict `fromJson`
+  into the client's null path, `toJson`/`copyWith` per file style;
+  file header uses `//` — the `///` form trips
+  `dangling_library_doc_comments` with no attached declaration).
+- `knowledge_client.dart` (`KnowledgeClient`: baseUrl/dev-token/
+  12s-timeout conventions, 5 GETs, null-on-failure, never mock
+  success). No existing client reads response headers
+  (grep-verified), so `X-Knowledge-Version` is server-sent and
+  backend-tested; nothing to preserve client-side.
+- `knowledge_repository.dart` (abstract + verbatim passthrough impl,
+  null = unavailable; non-null empty #22 passes through as the honest
+  gated state — never remapped, never substituted).
+- Zero UI consumer migration (deliberate): wardrobe add-item uses
+  conflicting `shoes`/`layers` codes, events/discover use local mocks
+  and Discover-only `work/evening/weekend/event` — migrating any of
+  them would change UI behavior or force mock data into the canonical
+  API, both forbidden. No existing Flutter file touched.
+
+### Tests
+
+- Backend `tests/test_knowledge_reads_api.py` (new, **18 passed**):
+  looks list/order/pagination/empty-page/invalid-pagination/
+  occasion-422/style-422 (both assert no `allowed` in body)/header;
+  categories exact+order+envelope+header+no-conflicting-codes; colors
+  exact+order+envelope+header; occasions frozen-9/no-extras/public;
+  ItemReference frozen shape (schema-level, no invented rows);
+  items empty-gated+public+no-leakage; all-five public
+  (no-auth AND bogus-token) + all-five reject `page_size=101`.
+- Flutter `test/knowledge_test.dart` (new, **15 passed**): models
+  parse/roundtrip/strict-throw, client paths/query/auth asserts,
+  200-parse incl. empty #22, 422/500/exception/malformed-200 → null,
+  repo passthrough + null-no-fallback. Self-found analyzer issues
+  fixed (5: 1 dangling-doc + 4 collection-inference with explicit
+  type args, 17.4 precedent); `dart format` applied.
+- Regression (serial, live PG): knowledge+intent+engine **45 passed**;
+  wardrobe API **49 passed**; assistant-feedback + saved-looks-uc +
+  decision-engine **135 passed**; full suite minus the polluter below
+  **615 passed / 12 failed** — all 12 are documented pre-existing
+  stale baselines (db_session 2 pre-0003 seed expectations,
+  grooming_api 2 ranking/202 drift, saved_looks 5 FK baseline 18.5,
+  users_api 3 shape drift B-A entry), byte-identical in kind to their
+  records. Adjacent Flutter: wardrobe client/models/insight **62
+  passed**. `flutter analyze` on touched files: **No issues found**.
+  `py_compile` clean (9 files). `git diff --check` clean.
+
+### Pre-existing full-suite polluter found (not caused by this batch)
+
+- `tests/test_hairstyle_image_router.py:174-177` writes
+  `app.dependency_overrides[get_db/get_current_user_id]` on the shared
+  app with "no cleanup needed" — monkeypatch reverts only the
+  `setattr`s, never the dict entries. Every later TestClient in the
+  session then uses `lambda: object()` as its DB session → whole-file
+  AttributeError cascades (full run: 136 failed incl. 4 of mine).
+  Bisected file-by-file (grooming_engine clean, hairstyle_image
+  pollutes; pair-runs confirm). File untouched by this batch; left as
+  found per scope (documented here, not fixed). Project subset-run
+  convention (all prior steps) is unaffected.
+
+### Files changed in 19.5 (uncommitted, nothing staged)
+
+- Backend edits: `app/data/catalog.py`, `app/domain/ports/
+  repositories.py`, `app/infrastructure/db/repositories.py`,
+  `app/infrastructure/external/knowledge.py`, `app/main.py`.
+- Backend new: `app/api/routers/knowledge.py`, `app/api/schemas/
+  knowledge.py`, `app/application/knowledge.py`,
+  `tests/test_knowledge_reads_api.py` (18 tests).
+- Flutter new: `.../features/knowledge/data/knowledge_api_models.dart`,
+  `knowledge_client.dart`, `knowledge_repository.dart`,
+  `test/knowledge_test.dart` (15 tests).
+- `CURRENT_STATE.md` (this entry). DEC-014 unchanged. No migrations,
+  no `event_types`/`items` tables, no catalog modification, no
+  wardrobe-semantics change, no UI change.
+
+### Git safety
+
+- Staged = 0 files. NOTHING committed, NOTHING pushed. Generated
+  registrant CRLF-only churn from flutter runs restored via checkout
+  (zero content diff, established precedent). No worktrees left
+  registered.
+
+---
+
+---
+
+## STEP 19.4 — M5 PRODUCT DECISION FREEZE — COMPLETE (specification/decision only, uncommitted)
+
+Task: resolve P-1/P-2/P-3 so M5 Knowledge HTTP Reads (B-B, endpoints
+#18–22) has no remaining [U] items requiring invention during
+implementation. Docs only: one `DECISIONS.md` entry (DEC-014), this
+status entry. No code, no migrations, no Flutter, no API routes, no
+implementation tests, no commits, no pushes. Skills: `.agents/skills/`
+inspected (20 entries, all Dart/Flutter code-creation) — none loaded
+(spec-only; 15.1/17.2/18.2 precedent).
+
+### Starting point
+
+No STEP 19.3 decision-pack document exists in the repository
+(grep-verified); the freeze was built directly from the task spec plus
+the normative sources: `API_CONTRACT_RULES.md` §12.5,
+`FANSIVIBE_API_CONTRACT_V1.md` knowledge sections, `API_INVENTORY.md`
+#18–22, `TABLE_DEFINITIONS.md` knowledge sections (§4 `looks`,
+`user_events`; §6 reference tables), `BACKEND_MODULE_MAP.md` M5,
+`KNOWLEDGE_ARCHITECTURE.md`, plus code evidence below.
+
+### Decisions recorded (DEC-014, see `DECISIONS.md`)
+
+- **P-1 occasions (#21): FROZEN.** Exactly 9 codes with deterministic
+  sortOrder 1..9: casual(1)/Casual, formal(2)/Formal, business(3)/
+  Business, date(4)/Date Night, party(5)/Party, travel(6)/Travel,
+  workout(7)/Workout, other(8)/Other, office(9)/Office. Covers all 8
+  DAILY_OUTFIT_EVENTS_API event-type codes (`event_mock_data.dart:10-31`
+  verified); `office` attested by production backend logic
+  (`catalog.py:360`, `ai/intent.py:28,110-111`, `ai/engine.py:42,142`,
+  `ai/tools.py:27`, `analysis_rules.py:858-862,915`,
+  `value_objects.py:263`). Discover-only `work/evening/weekend/event`
+  excluded (verified `OccasionFilters.options` in
+  `discover_mock_data.dart:820-844`); `all` is a UI meta-filter; no
+  `event_types` table in M5 (M8 owns it).
+- **P-2 ItemReference (#22): SHAPE/PURPOSE/STORAGE FROZEN, CONTENT
+  GATED.** Wire shape `{code, label, category, sortOrder}`;
+  system-owned reference catalog (none of wardrobe-items/products/
+  outfit-components/selectedItemIds/media). Storage = K9.1 versioned
+  backend config (`TABLE_DEFINITIONS.md` §6, `DATABASE_DESIGN_RULES.md`
+  §16.5); no `items` table manufactured — verified none exists
+  (migrations 0001–0015); `AddItemConfig` is Flutter mock with
+  conflicting category codes (`shoes/layers` vs backend
+  `footwear/outerwear`); `catalog.py` WARDROBE is named items, not a
+  type catalog. Initial seed list NOT invented → remaining
+  product-content gate.
+- **P-3 look filters (#18): FROZEN HONEST v1.** page/page_size,
+  deterministic catalog ordering, ListEnvelope, empty → 200, invalid
+  pagination → 422, X-Knowledge-Version kept. Supplied
+  occasion/style → truthful 422 (no invented allowed-values claim);
+  unfiltered request valid. Verified the 8-row catalog (4 hairstyle +
+  4 grooming, `catalog.py:117-300`, migration `0003`) carries NO
+  occasion/style attributes, so no inference from free text. No catalog
+  modification, no new columns/tables in M5.
+
+### Final audit
+
+- Re-read: `API_CONTRACT_RULES.md` §12.5, `FANSIVIBE_API_CONTRACT_V1.md`
+  knowledge sections, `API_INVENTORY.md` #18–22, `TABLE_DEFINITIONS.md`
+  knowledge sections, `BACKEND_MODULE_MAP.md` M5,
+  `KNOWLEDGE_ARCHITECTURE.md`, `DECISIONS.md` after DEC-014. No
+  contradiction introduced (P-3 honest-422 matches the already-listed
+  `422 (filters)` in inventory #18 and `PAGINATION_FILTERING.md` §9.8;
+  P-1/P-2 add rows/shape within unchanged endpoint shapes; KN-2/KN-5/
+  KN-9 separation preserved).
+- Unresolved-item matrix: P-1 codes/labels/order [U]→[F]; P-2
+  shape/purpose/storage [U]→[F]; P-3 behavior [U]→[F]. [I]
+  (implementation inferences, not decisions): exact 422 details
+  wording, envelope naming per existing conventions, version-header
+  value source (`KNOWLEDGE_VERSION`), deterministic ordering key.
+  [D] (deferred): `event_types` table (M8), look occasion/style
+  attribution (future content), enriched rendering. Only remaining [U]:
+  **#22 initial seed content** (product-content supply gate — no
+  authoritative list exists; nothing invented).
+- **B-B readiness: READY.** B-B can proceed without further product
+  decisions. The single remaining [U] is a content-supply gate for #22
+  serve-content, not a shape/storage blocker. Nothing else remains
+  [U] — nothing silently resolved.
+
+### Files changed in 19.4 (docs only, uncommitted, nothing staged)
+
+- `DECISIONS.md` (+DEC-014; DEC-010–013 untouched).
+- `CURRENT_STATE.md` (this entry).
+
+### Git safety
+
+- Staged = 0 files. NO CODE / NO MIGRATION / NO COMMIT / NO PUSH. No
+  production, test, migration, Flutter, or API-doc file touched. B-B
+  NOT started.
+
+---
+
 ## MAINTENANCE — STALE-TAG FIX (committed-state correction, no product change)
 
 - `cd0943b` (`feat: complete wardrobe and wear intelligence foundation`,
@@ -19,6 +1276,112 @@ Updated By: opencode agent
   byproducts left alone (unstaged, regenerable).
 - Skills: none loaded (doc-only header correction; all `.agents/skills/`
   are Dart/Flutter code-creation skills with no trigger).
+
+---
+
+## STEP B-A — ASSISTANT CARD FEEDBACK (#17 / UC-23) — COMPLETE (uncommitted)
+
+Task: implement frozen S1 (19.2 spec): `POST /v1/assistant/feedback`
+(opened/navigated → `suggestion_opened`/`assistant_navigation`, 204,
+append-only, no key) + Flutter backend-first wiring with no double
+count. Skills (read first): `flutter-use-http-package` (POST/jsonEncode/
+`Uri.parse`/status handling — project null-on-failure convention kept
+over the skill's throw guidance, 15.5/17.4 precedent),
+`dart-add-unit-test` (`flutter test` runner, MockClient convention),
+`dart-run-static-analysis` (`flutter analyze`; self-found inference
+warnings fixed, no auto-fix). No skill for Python backend (precedent).
+
+### Blocker found + approved exception (before any code)
+
+- Repo inspection proved the frozen spec's assumption wrong: `signal_types`
+  seeds only `look_saved`, `analysis_updated` (0001) + `outfit_selected`
+  (0008). `suggestion_opened`/`assistant_navigation` exist nowhere in
+  backend/migrations/tests, and every backend signal write uses only the
+  three seeded codes — the FK (`RESTRICT`) would 500 every card-feedback
+  write. Implementation STOPPED per batch §13/§14; user approved a minimal
+  seed migration as explicit exception (no code existed yet; tree clean).
+- `0015_assistant_card_signal_types` (new head, single head verified via
+  `alembic heads`; live DB at head): seeds both codes
+  (`ON CONFLICT DO NOTHING`, 0008 precedent) + downgrade DELETE. Only
+  migration change; no table/column change.
+
+### Implemented (backend: 1 migration + 3 new files + 1 mount line)
+
+- `api/schemas/assistant.py` (new `AssistantCardFeedback`: optional
+  `cardId`/`cardTitle` ≤200, required `interactionType`; plain `str` so
+  the USE CASE owns mapping/422, saved-looks `sourceContext` precedent).
+- `application/assistant.py` (new `SubmitAssistantCardFeedback`: frozen
+  map opened→`suggestion_opened` / navigated→`assistant_navigation`;
+  anything else → 422 with `allowed` list; label = cardTitle ?? cardId
+  ?? interactionType (label column is NOT NULL 1–200, both fields
+  optional per contract); persists via existing
+  `signals.insert_look_saved` verbatim-type seam (analysis.py precedent:
+  `analysis_updated`/`outfit_selected` already reuse it — no port change,
+  no semantic change) + single commit; failure → rollback +
+  `DATABASE_FAILURE` (SaveRecommendation precedent). No card lookup, no
+  card table, no key handling (retries append by construction).
+- `api/routers/assistant.py` (new, prefix `/v1/assistant`: thin
+  `POST /feedback` → 204 empty; `responses` 401/422/429 declared;
+  existing auth dep). `main.py` (+import, +`include_router`; chat
+  endpoint untouched).
+- Live route proof: GET → 405, no-token POST → 401
+  `AUTHENTICATION_ERROR` (auth runs before validation, existing order).
+
+### Implemented (Flutter: client + service rewire, no UI change)
+
+- `assistant_client.dart` (+`submitCardFeedback`: exact path, auth
+  headers, optional-field omission, 204 → true else false, never
+  throws — existing conventions).
+- `assistant_service.dart` (handlers stay sync `void`; fire-and-forget
+  backend-first: confirmed → authoritative, zero local signal;
+  failure/offline → existing local `recordSignal` fallback, no fake
+  success, never blocks navigation — saveOutfit no-double-count
+  precedent). Opened sends title; navigate sends route as `cardTitle`
+  (matches local label convention, online/offline labels equivalent);
+  `cardId` never sent — `SuggestionCard` has no id, nothing fabricated.
+
+### Tests
+
+- Backend `test_assistant_feedback_api.py` (new, **10 passed**): A–J incl.
+  exact mapping rows (type/label/owner), 422 arbitrary + missing, 204
+  empty body, unknown-card persistence (no lookup), retry → 2 rows,
+  401 + zero rows, fake-repo UC mapping (fallback chain, commit count,
+  422 adds nothing).
+- Flutter `test/assistant_card_feedback_test.dart` (new, **10 passed**):
+  A–G incl. exact bodies/headers, omission serialization, 204-only
+  success, exception → false, success → 0 local calls, failure →
+  exactly 1 local call, `send()` message-signal intact.
+- Regression (serial): saved-looks use-case + delete API **36 passed**;
+  engine + intent **26 passed**; analysis API + users API 17 passed /
+  3 failed = documented stale-`test_users_api` baseline
+  (memorySummary/shape drift, CURRENT_STATE:8418; untouched files);
+  `test_saved_looks.py` **12 passed / 5 failed** = byte-identical 18.5
+  FK baseline; `py_compile` clean (6 files).
+- Flutter regression: assistant screen + offline + learning service
+  **34 passed** (live dev-server 400s handled as designed failures;
+  LocalStore binding noise pre-existing); `flutter analyze` on touched
+  files: **No issues found** (2 untouched-file warnings left alone);
+  `dart format` applied; `git diff --check` clean (generated-registrant
+  CRLF noise zero-content, restored precedent).
+
+### Files changed (uncommitted, nothing staged)
+
+- `backend/alembic/versions/0015_assistant_card_signal_types.py` (new)
+- `backend/app/api/schemas/assistant.py` (new)
+- `backend/app/application/assistant.py` (new)
+- `backend/app/api/routers/assistant.py` (new)
+- `backend/app/main.py` (+mount)
+- `backend/tests/test_assistant_feedback_api.py` (new, 10 tests)
+- `.../assistant/data/assistant_client.dart` (+`submitCardFeedback`)
+- `.../assistant/domain/assistant_service.dart` (backend-first rewire)
+- `.../test/assistant_card_feedback_test.dart` (new, 10 tests)
+- `CURRENT_STATE.md` (this entry)
+
+### Git safety
+
+- Staged = 0 files. NOTHING committed, NOTHING pushed. No wardrobe,
+  wear, saved-looks, engine, events, today, discover, subscription, or
+  media file touched. No worktrees left registered.
 
 ---
 

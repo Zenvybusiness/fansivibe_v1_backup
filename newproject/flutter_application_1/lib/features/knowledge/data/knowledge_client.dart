@@ -1,0 +1,167 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+
+import 'package:fansivibe/features/knowledge/data/knowledge_api_models.dart';
+
+/// HTTP client for the M5 knowledge reads (#18–#22, STEP 19.5).
+///
+/// Override the endpoint with `--dart-define=ASSISTANT_BASE_URL=...`.
+/// On failure it returns null so the caller can hide the surface — the
+/// flow never breaks when the server is unreachable, and a failure is
+/// never posed as catalog data (no mock success, no local fallback).
+class KnowledgeClient {
+  KnowledgeClient({http.Client? client}) : _client = client ?? http.Client();
+
+  static const String baseUrl = String.fromEnvironment(
+    'ASSISTANT_BASE_URL',
+    defaultValue: 'http://localhost:8000',
+  );
+
+  static const String _devToken = String.fromEnvironment(
+    'FANSIVIBE_DEV_TOKEN',
+    defaultValue: 'dev',
+  );
+
+  final http.Client _client;
+  static const Duration _timeout = Duration(seconds: 12);
+
+  Map<String, String> get _headers => {'Authorization': 'Bearer $_devToken'};
+
+  Uri _uri(String path, {int page = 1, int pageSize = 20}) {
+    final queryParams = <String, String>{};
+    if (page > 1) queryParams['page'] = page.toString();
+    if (pageSize != 20) queryParams['page_size'] = pageSize.toString();
+    return Uri.parse(
+      '$baseUrl$path',
+    ).resolveUri(Uri(queryParameters: queryParams));
+  }
+
+  /// Fetches the curated look catalog (#18).
+  ///
+  /// Returns the [KnowledgeLookList] on 200, or null when the backend is
+  /// unreachable or rejects the request (including the honest 422 for
+  /// unsupported occasion/style filters — never inferred client-side).
+  Future<KnowledgeLookList?> listLooks({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    try {
+      final response = await _client
+          .get(
+            _uri('/v1/knowledge/looks', page: page, pageSize: pageSize),
+            headers: _headers,
+          )
+          .timeout(_timeout);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return KnowledgeLookList.fromJson(decoded);
+      }
+      debugPrint(
+        'Knowledge looks responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Knowledge backend unreachable during looks list: $error');
+    }
+    return null;
+  }
+
+  /// Fetches the canonical wardrobe-category vocabulary (#19).
+  ///
+  /// Returns the [KnowledgeVocabularyList] on 200, or null when unavailable.
+  Future<KnowledgeVocabularyList?> listCategories({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    return _listVocabulary(
+      '/v1/knowledge/categories',
+      page: page,
+      pageSize: pageSize,
+    );
+  }
+
+  /// Fetches the canonical color vocabulary (#20).
+  ///
+  /// Returns the [KnowledgeVocabularyList] on 200, or null when unavailable.
+  Future<KnowledgeVocabularyList?> listColors({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    return _listVocabulary(
+      '/v1/knowledge/colors',
+      page: page,
+      pageSize: pageSize,
+    );
+  }
+
+  /// Fetches the frozen 9-row occasion vocabulary (#21, DEC-014 P-1).
+  ///
+  /// Returns the [KnowledgeVocabularyList] on 200, or null when unavailable.
+  Future<KnowledgeVocabularyList?> listOccasions({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    return _listVocabulary(
+      '/v1/knowledge/occasions',
+      page: page,
+      pageSize: pageSize,
+    );
+  }
+
+  Future<KnowledgeVocabularyList?> _listVocabulary(
+    String path, {
+    required int page,
+    required int pageSize,
+  }) async {
+    try {
+      final response = await _client
+          .get(
+            _uri(path, page: page, pageSize: pageSize),
+            headers: _headers,
+          )
+          .timeout(_timeout);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return KnowledgeVocabularyList.fromJson(decoded);
+      }
+      debugPrint(
+        'Knowledge $path responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Knowledge backend unreachable during $path list: $error');
+    }
+    return null;
+  }
+
+  /// Fetches the system-owned item-type references (#22, DEC-014 P-2).
+  ///
+  /// Returns the [KnowledgeItemReferenceList] on 200 — including the valid
+  /// empty catalog while the content gate holds — or null when unavailable.
+  /// Null means unavailable; an empty non-null list means the server
+  /// truthfully reports no reference content yet.
+  Future<KnowledgeItemReferenceList?> listItems({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    try {
+      final response = await _client
+          .get(
+            _uri('/v1/knowledge/items', page: page, pageSize: pageSize),
+            headers: _headers,
+          )
+          .timeout(_timeout);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return KnowledgeItemReferenceList.fromJson(decoded);
+      }
+      debugPrint(
+        'Knowledge items responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Knowledge backend unreachable during items list: $error');
+    }
+    return null;
+  }
+}

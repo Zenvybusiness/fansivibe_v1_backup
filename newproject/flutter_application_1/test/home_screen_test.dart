@@ -59,25 +59,32 @@ void main() {
       ); // Appears in Today's Look and Quick Actions
     });
 
-    testWidgets('renders Style Score card with breakdown', (
+    testWidgets('renders backend Style Score slot without mock values', (
       WidgetTester tester,
     ) async {
+      // M10-C (STEP 19.16): the mock score card (84/+3 pts, Fit/Color/
+      // Occasion/Creativity) is replaced by the backend-fed slot. With no
+      // server under the test binding the slot keeps its title and shows
+      // the honest error state — never a fabricated score.
       await tester.pumpWidget(_freshApp());
 
       // Scroll to find Style Score section
       await tester.scrollUntilVisible(find.text('Style Score'), 500.0);
+      // Flush the backend future (no server under the test binding).
+      await tester.pumpAndSettle();
 
-      expect(find.text('Style Score'), findsOneWidget);
-      expect(find.text('Your weekly style performance'), findsOneWidget);
-      expect(find.text('84'), findsWidgets); // Current score
-      expect(find.text('+3 pts'), findsOneWidget);
-      expect(find.text('this week'), findsOneWidget);
-
-      // Verify breakdown categories
-      expect(find.text('Fit'), findsOneWidget);
-      expect(find.text('Color'), findsOneWidget);
-      expect(find.text('Occasion'), findsOneWidget);
-      expect(find.text('Creativity'), findsOneWidget);
+      expect(find.text('Style Score'), findsWidgets);
+      expect(find.text('84'), findsNothing);
+      expect(find.text('+3 pts'), findsNothing);
+      expect(find.text('Fit'), findsNothing);
+      expect(find.text('Occasion'), findsNothing);
+      expect(find.text('Creativity'), findsNothing);
+      expect(
+        find.text(
+          'Couldn\'t load style summary. Please check your connection.',
+        ),
+        findsWidgets,
+      );
     });
 
     testWidgets('renders Quick Actions section', (WidgetTester tester) async {
@@ -97,26 +104,28 @@ void main() {
       expect(find.text('Adjust today\'s recommendation'), findsOneWidget);
     });
 
-    testWidgets('renders Style Streak card with progress', (
+    testWidgets('renders backend Style Streak slot without mock values', (
       WidgetTester tester,
     ) async {
+      // M10-C (STEP 19.16): the mock streak card (12-day streak, Mon–Sun
+      // week path, stat bar) is replaced by the backend-fed slot. With no
+      // server under the test binding the slot keeps its title and shows
+      // the honest error state — never fabricated week data.
       await tester.pumpWidget(_freshApp());
 
       await tester.scrollUntilVisible(find.text('Style Streak'), 500.0);
+      // Flush the backend future (no server under the test binding).
+      await tester.pumpAndSettle();
 
       expect(find.text('Style Streak'), findsOneWidget);
-      expect(find.text('Keep your daily style momentum'), findsOneWidget);
-      expect(find.text('Current'), findsOneWidget);
-      expect(find.text('Total'), findsOneWidget);
-
-      // Verify streak days
-      expect(find.text('Mon'), findsOneWidget);
-      expect(find.text('Tue'), findsOneWidget);
-      expect(find.text('Wed'), findsOneWidget);
-      expect(find.text('Thu'), findsOneWidget);
-      expect(find.text('Fri'), findsOneWidget);
-      expect(find.text('Sat'), findsOneWidget);
-      expect(find.text('Sun'), findsOneWidget);
+      expect(find.text('12-day streak'), findsNothing);
+      expect(find.text('Mon'), findsNothing);
+      expect(find.text('Tue'), findsNothing);
+      expect(find.text('Wed'), findsNothing);
+      expect(find.text('Thu'), findsNothing);
+      expect(find.text('Fri'), findsNothing);
+      expect(find.text('Sat'), findsNothing);
+      expect(find.text('Sun'), findsNothing);
     });
 
     testWidgets('renders AI Wardrobe Insight card', (

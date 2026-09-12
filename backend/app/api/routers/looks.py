@@ -21,6 +21,7 @@ from app.application.saved_looks import (
     SaveRecommendation,
 )
 from app.infrastructure.db.repositories import (
+    ActivityDayRepositorySQL,
     LearningSignalRepositorySQL,
     SavedLookRepositorySQL,
     WardrobeItemRepositorySQL,
@@ -66,6 +67,7 @@ def save_look(
         signals=LearningSignalRepositorySQL(db),
         knowledge=CatalogKnowledgeSource(),
         wardrobe_items=WardrobeItemRepositorySQL(db),
+        activity_days=ActivityDayRepositorySQL(db),
     )
     record, created = use_case(
         user_id=user_id,

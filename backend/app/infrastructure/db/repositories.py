@@ -6,12 +6,13 @@ All reads are owner-scoped (`user_id`) — OW-1. `complete` uses the server-side
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import and_, cast, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.domain.ports.repositories import (
@@ -20,6 +21,7 @@ from app.domain.ports.repositories import (
     SavedLookCoverage,
     SavedLookRecord,
     UserProfileRecord,
+    VocabularyRecord,
     WardrobeInsightSummary,
     WardrobeItemRecord,
     WearEventRecord,
@@ -27,6 +29,7 @@ from app.domain.ports.repositories import (
     WearSummary,
 )
 from app.infrastructure.db.models import (
+    ActivityDays,
     AnalysisRuns,
     LearningSignals,
     SavedLooks,
@@ -438,6 +441,70 @@ class LearningSignalRepositorySQL:
             )
         )
         self._session.flush()
+
+    def list_recent_labels(self, *, user_id: UUID, limit: int) -> list[str]:
+        """Newest-first owned signal labels (M10-B recents, DEC-020 §E).
+
+        `occurred_at` desc with `id` desc as the deterministic tiebreak;
+        at most `limit` rows, fewer when history is short, `[]` when
+        empty. SELECT-only — label strings leave this method; type,
+        context, and timestamps never do.
+        """
+        return list(
+            self._session.execute(
+                select(LearningSignals.label)
+                .where(LearningSignals.user_id == user_id)
+                .order_by(
+                    LearningSignals.occurred_at.desc(),
+                    LearningSignals.id.desc(),
+                )
+                .limit(limit)
+            ).scalars()
+        )
+
+
+class ActivityDayRepositorySQL:
+    """SQL streak-history adapter (E9, P1, M10-A).
+
+    The upsert executes on the caller's session without committing: the
+    owning use case's existing commit covers the signal INSERT and this
+    upsert together (DEC-020 §F, same-commit rule). Owner scoping comes
+    from the caller-supplied `user_id` (OW-1), matching every other
+    repository here.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def upsert_styled_day(self, *, user_id: UUID, day: date) -> None:
+        """Mark the user's calendar day styled (idempotent per day).
+
+        `ON CONFLICT (user_id, day) DO UPDATE styled=true`: a repeated
+        same-day write keeps exactly one row and can never double-count
+        the streak (BC-4). `summary` is never touched — NULL in M10 v1.
+        """
+        stmt = (
+            pg_insert(ActivityDays)
+            .values(user_id=user_id, day=day, styled=True)
+            .on_conflict_do_update(
+                index_elements=["user_id", "day"],
+                set_={"styled": True},
+            )
+        )
+        self._session.execute(stmt)
+
+    def list_styled_days(self, *, user_id: UUID) -> list[date]:
+        """Return the user's styled days in ascending order (owner-scoped)."""
+        return list(
+            self._session.execute(
+                select(ActivityDays.day)
+                .where(
+                    ActivityDays.user_id == user_id,
+                    ActivityDays.styled.is_(True),
+                )
+                .order_by(ActivityDays.day.asc())
+            ).scalars()
+        )
 
 
 class WardrobeItemRepositorySQL:
@@ -871,3 +938,28 @@ class WearGroupRepositorySQL:
             worn_at=worn_at,
             created_at=created_at,
         )
+
+
+class VocabularyRepositorySQL:
+    """SQLAlchemy read of one system vocabulary table (M5 `#19`/`#20`).
+
+    System-owned, never user-scoped (KN-2/KN-9): only `active` rows, in
+    deterministic `(sort_order, code)` order. Read-only — no commit, no
+    write, no user data. `model` is `WardrobeCategories` or `Colors`
+    (identical vocab columns).
+    """
+
+    def __init__(self, session: Session, model) -> None:
+        self._session = session
+        self._model = model
+
+    def list_active(self) -> list["VocabularyRecord"]:
+        rows = self._session.execute(
+            select(self._model)
+            .where(self._model.active.is_(True))
+            .order_by(self._model.sort_order.asc(), self._model.code.asc())
+        ).scalars().all()
+        return [
+            VocabularyRecord(code=row.code, label=row.label, sort_order=row.sort_order)
+            for row in rows
+        ]

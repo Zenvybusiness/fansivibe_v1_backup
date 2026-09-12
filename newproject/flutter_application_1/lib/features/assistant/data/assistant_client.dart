@@ -115,10 +115,7 @@ class AssistantClient {
   Future<List<String>?> fetchPreferredOccasions() async {
     try {
       final response = await _client
-          .get(
-            Uri.parse('$baseUrl/v1/users/me'),
-            headers: _authJsonHeaders,
-          )
+          .get(Uri.parse('$baseUrl/v1/users/me'), headers: _authJsonHeaders)
           .timeout(_timeout);
 
       if (response.statusCode == 200) {
@@ -163,6 +160,41 @@ class AssistantClient {
       );
     } catch (error) {
       debugPrint('Update preferences backend unreachable: $error');
+    }
+    return false;
+  }
+
+  /// Reports a card interaction (`POST /v1/assistant/feedback`, #17/UC-23).
+  ///
+  /// Sends only the public interaction contract: `interactionType`
+  /// (`opened`/`navigated`) plus the optional card reference. Never sends
+  /// signal/action names — the backend owns that mapping. Returns true
+  /// only when the backend confirms (204). Same timeout/error degradation
+  /// conventions as [chat]: false on any failure, never throws, so
+  /// feedback never blocks the assistant interaction.
+  Future<bool> submitCardFeedback({
+    String? cardId,
+    String? cardTitle,
+    required String interactionType,
+  }) async {
+    try {
+      final body = <String, dynamic>{'interactionType': interactionType};
+      if (cardId != null) body['cardId'] = cardId;
+      if (cardTitle != null) body['cardTitle'] = cardTitle;
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/assistant/feedback'),
+            headers: _authJsonHeaders,
+            body: jsonEncode(body),
+          )
+          .timeout(_timeout);
+
+      if (response.statusCode == 204) return true;
+      debugPrint(
+        'Card feedback backend responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Card feedback backend unreachable: $error');
     }
     return false;
   }

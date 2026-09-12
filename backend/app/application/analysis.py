@@ -14,11 +14,13 @@ from uuid import UUID
 
 from app.api.errors import ApiError, validation, not_found
 from app.application.enrichment import enrich_hairstyle_result
+from app.application.learning import mark_styled_today
 from app.application.media import build_media_ref, read_image_bytes
 from app.ai.vision_appearance_adapter import AppearanceAnalysisError
 from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.domain.ports.external import KnowledgeSource
 from app.domain.ports.repositories import (
+    ActivityDayRepository,
     AnalysisRunRepository,
     LearningSignalRepository,
     SavedLookRepository,
@@ -189,12 +191,14 @@ class CreateOutfitRun:
         appearance_port: Optional[AppearanceAnalysisPort] = None,
         user_state: Optional[UserStateRepository] = None,
         learning_signal: Optional[LearningSignalRepository] = None,
+        activity_days: Optional[ActivityDayRepository] = None,
     ) -> None:
         self._runs = runs
         self._knowledge = knowledge
         self._appearance_port = appearance_port or DevelopmentAppearanceAnalysisAdapter()
         self._user_state = user_state
         self._learning_signal = learning_signal
+        self._activity_days = activity_days
 
     def __call__(self, *, user_id: UUID, image: any) -> UUID:
         # Validate image content-type
@@ -312,6 +316,10 @@ class CreateOutfitRun:
                 label="outfit_selected",
                 context={"source_context": "outfit", "run_id": str(run_id), "run_type": "outfit"},
             )
+            if self._activity_days is not None:
+                # M10-A: one styled-day upsert for the run's signals,
+                # riding this same commit (never one commit per insert).
+                mark_styled_today(activity_days=self._activity_days, user_id=user_id)
             self._learning_signal.commit()
 
         return run_id
@@ -338,6 +346,7 @@ class CreateHairstyleImageRun:
         appearance_port: AppearanceAnalysisPort,
         user_state: Optional[UserStateRepository] = None,
         learning_signal: Optional[LearningSignalRepository] = None,
+        activity_days: Optional[ActivityDayRepository] = None,
         enrich: Optional[Callable[[HairstyleResult], HairstyleResult]] = None,
     ) -> None:
         self._runs = runs
@@ -345,6 +354,7 @@ class CreateHairstyleImageRun:
         self._appearance_port = appearance_port
         self._user_state = user_state
         self._learning_signal = learning_signal
+        self._activity_days = activity_days
         self._enrich = enrich or enrich_hairstyle_result
 
     def __call__(self, *, user_id: UUID, image: any) -> UUID:
@@ -486,6 +496,10 @@ class CreateHairstyleImageRun:
                 label="analysis_updated",
                 context={"run_id": str(run_id), "run_type": "hairstyle"},
             )
+            if self._activity_days is not None:
+                # M10-A: today's styled-day upsert rides this same commit
+                # (TRX-6 above is untouched).
+                mark_styled_today(activity_days=self._activity_days, user_id=user_id)
             self._learning_signal.commit()
 
         return run_id

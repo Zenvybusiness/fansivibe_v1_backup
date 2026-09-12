@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -123,12 +124,55 @@ class AssistantService extends ChangeNotifier {
   }
 
   /// Record that the user opened a suggestion so the model can learn from it.
+  ///
+  /// Reports `interactionType: "opened"` to the backend first. A confirmed
+  /// backend write is authoritative, so no local signal is recorded then
+  /// (never double-count — same convention as [saveOutfit]). Only when the
+  /// backend write fails does the existing local recording run, preserving
+  /// offline behavior without ever faking a synced success. Never blocks
+  /// the interaction. No card ids exist on [SuggestionCard], so only the
+  /// title travels — ids are never fabricated.
   void onCardOpened(SuggestionCard card) {
-    _learning?.recordSignal('suggestion_opened', card.title);
+    _reportCardInteraction(
+      cardTitle: card.title,
+      interactionType: 'opened',
+      localType: 'suggestion_opened',
+      localLabel: card.title,
+    );
   }
 
+  /// Record that the user navigated from a suggestion card.
+  ///
+  /// Same backend-first convention as [onCardOpened]. Cards carry no id and
+  /// navigation carries no title, so the route string travels as the card
+  /// reference — identical to the local label convention, keeping online
+  /// and offline labels equivalent.
   void onNavigated(NavigationRequest request) {
-    _learning?.recordSignal('assistant_navigation', request.route);
+    _reportCardInteraction(
+      cardTitle: request.route,
+      interactionType: 'navigated',
+      localType: 'assistant_navigation',
+      localLabel: request.route,
+    );
+  }
+
+  void _reportCardInteraction({
+    required String cardTitle,
+    required String interactionType,
+    required String localType,
+    required String localLabel,
+  }) {
+    final learning = _learning;
+    unawaited(
+      _client
+          .submitCardFeedback(
+            cardTitle: cardTitle,
+            interactionType: interactionType,
+          )
+          .then((confirmed) {
+            if (!confirmed) learning?.recordSignal(localType, localLabel);
+          }),
+    );
   }
 
   void clear() {

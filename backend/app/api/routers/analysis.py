@@ -38,6 +38,7 @@ from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.ai.appearance_adapter import DevelopmentAppearanceAnalysisAdapter
 from app.domain.ports.repositories import AnalysisRunRecord, LearningSignalRepository
 from app.infrastructure.db.repositories import (
+    ActivityDayRepositorySQL,
     AnalysisRunRepositorySQL,
     UserStateRepositorySQL,
     SavedLookRepositorySQL,
@@ -114,6 +115,7 @@ def create_hairstyle_run(
             appearance_port=OllamaVisionAppearanceAdapter(),
             user_state=UserStateRepositorySQL(db),
             learning_signal=LearningSignalRepositorySQL(db),
+            activity_days=ActivityDayRepositorySQL(db),
         )
         run_id = use_case(user_id=user_id, image=image)
         return AsyncAccepted(run_id=run_id)
@@ -245,6 +247,7 @@ def create_outfit_run(
         appearance_port=DevelopmentAppearanceAnalysisAdapter(),
         user_state=UserStateRepositorySQL(db),
         learning_signal=LearningSignalRepositorySQL(db),
+        activity_days=ActivityDayRepositorySQL(db),
     )
     run_id = use_case(user_id=user_id, image=image)
     return AsyncAccepted(run_id=run_id)

@@ -6,7 +6,7 @@ Implementations live in `app/infrastructure/db/repositories.py`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, Protocol
 from uuid import UUID
 
@@ -413,6 +413,55 @@ class LearningSignalRepository(Protocol):
         context: Optional[dict],
     ) -> None: ...
 
+    def list_recent_labels(self, *, user_id: UUID, limit: int) -> list[str]:
+        """Return the user's newest signal labels first (owner-scoped).
+
+        Read surface for `GET /v1/learning/summary` recents (M10-B,
+        DEC-020 §E): server-owned `label` strings only — never type,
+        context, or timestamps.
+        """
+        ...
+
     def commit(self) -> None: ...
 
     def rollback(self) -> None: ...
+
+
+class ActivityDayRepository(Protocol):
+    """Streak-history seam (E9, P1, M10-A).
+
+    Minimal on purpose: the per-signal upsert plus the styled-day read
+    the streak derivation needs. No speculative CRUD — history rows are
+    never edited or deleted while the account lives (PR-5).
+    """
+
+    def upsert_styled_day(self, *, user_id: UUID, day: date) -> None:
+        """Mark the user's calendar day styled (idempotent per day)."""
+        ...
+
+    def list_styled_days(self, *, user_id: UUID) -> list[date]:
+        """Return the user's styled days (owner-scoped)."""
+        ...
+
+
+@dataclass(frozen=True)
+class VocabularyRecord:
+    """One active system-owned vocabulary row (M5 knowledge reads, STEP 19.5).
+
+    Knowledge-only facts (`code`/`label`/`sort_order` from
+    `wardrobe_categories` or `colors`); never user-scoped, never user data.
+    """
+
+    code: str
+    label: str
+    sort_order: int
+
+
+class VocabularyRepository(Protocol):
+    """Read-only system vocabulary protocol — M5 `#19`/`#20` (STEP 19.5).
+
+    Lists active rows in deterministic `(sort_order, code)` order.
+    Implementations never expose user rows through this port (KN-9).
+    """
+
+    def list_active(self) -> list["VocabularyRecord"]: ...

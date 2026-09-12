@@ -36,6 +36,45 @@ _REQUIRED_TEXT_FIELDS = ("title", "description", "stylingTips", "maintenance", "
 _GREQUIRED_TEXT_FIELDS = ("title", "description", "stylingTips", "maintenance", "bestFor")
 
 
+def _validate_occasion(entry: dict) -> dict:
+    """Validate one `#21` occasion entry; raise `KnowledgeError` when malformed.
+
+    Shape-only validation (DEC-014 freezes the 9 rows in `catalog.py`;
+    this never invents codes — it only refuses to serve malformed rows).
+    """
+    code = entry.get("code")
+    if not isinstance(code, str) or not code.strip():
+        raise KnowledgeError("knowledge occasion entry has no stable code")
+    label = entry.get("label")
+    if not isinstance(label, str) or not label.strip():
+        raise KnowledgeError(f"knowledge occasion '{code}' has invalid 'label'")
+    order = entry.get("sortOrder")
+    if isinstance(order, bool) or not isinstance(order, int) or order < 1:
+        raise KnowledgeError(f"knowledge occasion '{code}' has invalid 'sortOrder'")
+    return entry
+
+
+def _validate_item_reference(entry: dict) -> dict:
+    """Validate one `#22` item-reference entry; raise `KnowledgeError` if malformed.
+
+    Frozen DEC-014 shape `{code, label, category, sortOrder}` — system-owned
+    reference codes only (no user_id, price, vendor, stock, media, UUID).
+    """
+    code = entry.get("code")
+    if not isinstance(code, str) or not code.strip():
+        raise KnowledgeError("knowledge item entry has no stable code")
+    label = entry.get("label")
+    if not isinstance(label, str) or not label.strip():
+        raise KnowledgeError(f"knowledge item '{code}' has invalid 'label'")
+    category = entry.get("category")
+    if not isinstance(category, str) or not category.strip():
+        raise KnowledgeError(f"knowledge item '{code}' has invalid 'category'")
+    order = entry.get("sortOrder")
+    if isinstance(order, bool) or not isinstance(order, int) or order < 1:
+        raise KnowledgeError(f"knowledge item '{code}' has invalid 'sortOrder'")
+    return entry
+
+
 def _validate_entry(entry: dict) -> dict:
     """Validate one catalog entry; raise `KnowledgeError` when malformed.
 
@@ -169,6 +208,22 @@ class CatalogKnowledgeSource:
             for entry in catalog.GROOMING_LOOKS
             if not _is_deprecated(_validate_grooming_entry(entry))
         ]
+
+    def retrieve_occasions(self) -> list[dict]:
+        """Ordered `#21` occasion rows from the frozen K9.1 config (DEC-014 P-1).
+
+        Served verbatim in config order (deterministic `sortOrder` 1..9);
+        malformed rows raise instead of serving invented vocabulary.
+        """
+        return [_validate_occasion(dict(entry)) for entry in catalog.KNOWLEDGE_OCCASIONS]
+
+    def retrieve_item_references(self) -> list[dict]:
+        """Ordered `#22` item-reference rows from the K9.1 config (DEC-014 P-2).
+
+        Currently content-gated (empty): the architecture serves the catalog
+        once authoritative content is supplied; nothing is invented here.
+        """
+        return [_validate_item_reference(dict(entry)) for entry in catalog.ITEM_REFERENCES]
 
 
 def build_knowledge_source() -> KnowledgeSource:

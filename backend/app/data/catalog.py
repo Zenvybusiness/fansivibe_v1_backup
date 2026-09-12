@@ -354,6 +354,39 @@ WARDROBE_INSIGHT = SuggestionCard(
 )
 
 # ---------------------------------------------------------------------------
+# M5 knowledge vocabularies (K9.1 versioned backend config, DEC-014)
+# ---------------------------------------------------------------------------
+
+# Canonical knowledge occasions for `#21 GET /v1/knowledge/occasions`
+# (DEC-014 P-1). Exactly these 9 codes in this order; `sortOrder` is the
+# 1-based position. This is NOT the `event_types` table (M8 owns that) and
+# NOT the Discover-only filter ids (`work`/`evening`/`weekend`/`event`)
+# or the `all` UI meta-filter — none of those are knowledge rows.
+KNOWLEDGE_OCCASIONS: list[dict] = [
+    {"code": "casual", "label": "Casual", "sortOrder": 1},
+    {"code": "formal", "label": "Formal", "sortOrder": 2},
+    {"code": "business", "label": "Business", "sortOrder": 3},
+    {"code": "date", "label": "Date Night", "sortOrder": 4},
+    {"code": "party", "label": "Party", "sortOrder": 5},
+    {"code": "travel", "label": "Travel", "sortOrder": 6},
+    {"code": "workout", "label": "Workout", "sortOrder": 7},
+    {"code": "other", "label": "Other", "sortOrder": 8},
+    {"code": "office", "label": "Office", "sortOrder": 9},
+]
+
+# System-owned garment/item-type reference catalog for
+# `#22 GET /v1/knowledge/items` (DEC-014 P-2, K9.1 versioned backend
+# config — no `items` table is manufactured for this).
+#
+# CONTENT GATE: the initial seed list is explicitly NOT frozen (DEC-014:
+# no authoritative garment-type list exists in the repository, and none
+# is invented here). The endpoint architecture serves whatever this
+# holds; while empty, `#22` returns a valid empty `ListEnvelope`.
+# Do NOT populate this from Flutter mock data (`AddItemConfig`), from
+# `WARDROBE` named items, or from wardrobe item names.
+ITEM_REFERENCES: list[dict] = []
+
+# ---------------------------------------------------------------------------
 # Intents / tools
 # ---------------------------------------------------------------------------
 

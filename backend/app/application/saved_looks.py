@@ -1,7 +1,8 @@
 """Application use case — save a recommendation (UC-15) and list saved looks.
 
 Save (`SaveRecommendation`) is TRX-3 true transaction: the `saved_looks`
-insert and the `look_saved` learning signal commit together (all-or-nothing).
+insert, the `look_saved` learning signal, and the M10-A styled-day upsert
+commit together (all-or-nothing).
 Idempotent replay via the contract's `Idempotency-Key` (C-12/API-33): a
 repeated key with the same payload returns the original save; a repeated key
 with a different payload is a conflict. The save never mutates the producing
@@ -22,8 +23,10 @@ from typing import Optional
 from uuid import UUID
 
 from app.api.errors import ApiError, conflict, not_found
+from app.application.learning import mark_styled_today
 from app.domain.ports.external import KnowledgeSource
 from app.domain.ports.repositories import (
+    ActivityDayRepository,
     LearningSignalRepository,
     SavedLookRecord,
     SavedLookRepository,
@@ -72,11 +75,13 @@ class SaveRecommendation:
         signals: LearningSignalRepository,
         knowledge: KnowledgeSource,
         wardrobe_items: WardrobeItemRepository,
+        activity_days: Optional[ActivityDayRepository] = None,
     ) -> None:
         self._saved_looks = saved_looks
         self._signals = signals
         self._knowledge = knowledge
         self._wardrobe_items = wardrobe_items
+        self._activity_days = activity_days
 
     def _validated_outfit_snapshot(
         self, *, user_id: UUID, snapshot: dict
@@ -184,6 +189,12 @@ class SaveRecommendation:
                 label=title,
                 context={"source_context": source_context, "look_id": look_id},
             )
+            if self._activity_days is not None:
+                # M10-A: today's styled-day upsert rides this same commit
+                # (TRX-3 now covers save + signal + activity day). The
+                # idempotent-replay path above returns before any insert,
+                # so replays never touch activity history.
+                mark_styled_today(activity_days=self._activity_days, user_id=user_id)
             self._saved_looks.commit()
         except Exception:
             self._saved_looks.rollback()

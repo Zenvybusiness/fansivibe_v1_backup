@@ -1,14 +1,47 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/profile_widgets.dart';
+import 'package:fansivibe/features/profile/presentation/widgets/style_summary_section.dart';
+import 'package:fansivibe/shared/components/fansi_error_view.dart';
+import 'package:fansivibe/shared/components/fansi_loading_view.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
-class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
+class ProfileScreen extends StatefulWidget {
+  /// Backend summary source (M10-C). Defaults to the live repository;
+  /// tests inject a fake.
+  final LearningSummaryRepository? summaryRepository;
+
+  const ProfileScreen({super.key, this.summaryRepository});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  late final LearningSummaryRepository _summaryRepository;
+  late Future<LearningSummary?> _summaryFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // Backend-first M10 summary (STEP 19.16): fetched once. Null means
+    // unavailable — the hero shows an honest placeholder and the section
+    // renders its error state. No mock fallback, ever.
+    _summaryRepository =
+        widget.summaryRepository ?? LearningSummaryRepositoryImpl();
+    _summaryFuture = _summaryRepository.getSummary();
+  }
+
+  void _retrySummary() {
+    setState(() {
+      _summaryFuture = _summaryRepository.getSummary();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -36,12 +69,13 @@ class ProfileScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 8),
-                        ProfileHeroCard(data: profile),
+                        _buildHero(),
                         const SizedBox(height: 24),
                         AchievementBar(achievements: profile.achievements),
                         const SizedBox(height: 24),
                         StyleDnaCard(data: profile.styleDna),
                         const SizedBox(height: 24),
+                        _buildSummarySection(),
                         Row(
                           children: [
                             Expanded(
@@ -116,6 +150,44 @@ class ProfileScreen extends StatelessWidget {
           },
         ),
       ),
+    );
+  }
+
+  /// Backend-fed hero score (M10-C): the same summary future feeds the
+  /// section below, so one GET serves the whole screen.
+  Widget _buildHero() {
+    final profile = ProfileData.mock;
+    return FutureBuilder<LearningSummary?>(
+      future: _summaryFuture,
+      builder: (context, snapshot) {
+        // Null while loading or unavailable renders the honest
+        // placeholder inside the hero — never the mock score.
+        return ProfileHeroCard(
+          data: profile,
+          styleScore: snapshot.data?.styleScore,
+        );
+      },
+    );
+  }
+
+  /// Backend-fed summary section with truthful loading/error states.
+  Widget _buildSummarySection() {
+    return FutureBuilder<LearningSummary?>(
+      future: _summaryFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const FansiLoadingView(message: 'Loading style summary…');
+        }
+        final summary = snapshot.data;
+        if (snapshot.hasError || summary == null) {
+          return FansiErrorView(
+            message:
+                'Couldn\'t load style summary. Please check your connection.',
+            onRetry: _retrySummary,
+          );
+        }
+        return StyleSummarySection(summary: summary);
+      },
     );
   }
 

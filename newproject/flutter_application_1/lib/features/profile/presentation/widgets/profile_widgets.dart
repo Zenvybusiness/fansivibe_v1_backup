@@ -57,9 +57,13 @@ class ProfileHeader extends StatelessWidget {
 }
 
 class ProfileHeroCard extends StatelessWidget {
-  const ProfileHeroCard({required this.data, super.key});
+  const ProfileHeroCard({required this.data, this.styleScore, super.key});
 
   final ProfileData data;
+
+  /// Backend style score (M10-C, STEP 19.16). Null while loading or when
+  /// unavailable renders an honest placeholder — never the mock value.
+  final int? styleScore;
 
   @override
   Widget build(BuildContext context) {
@@ -228,7 +232,7 @@ class ProfileHeroCard extends StatelessWidget {
                           const SizedBox(width: 4),
                           Flexible(
                             child: Text(
-                              '${data.styleScore}',
+                              styleScore?.toString() ?? '–',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.titleMedium?.copyWith(

@@ -7,6 +7,7 @@ Tables (from `docs/database/TABLE_DEFINITIONS.md`):
 - ``analysis_runs``                (append-only history, P2)
 - ``saved_looks``                  (current state, immutable rows, P0)
 - ``learning_signals``             (append-only history, P0)
+- ``activity_days``                (streak history, P1, M10-A)
 - ``wardrobe_wear_events``         (append-only history, P0)
 - ``wardrobe_wear_groups``         (durable wear-action ledger, P0)
 - ``wardrobe_categories``          (P0 vocabulary reference, K9.1)
@@ -20,13 +21,14 @@ permitted mutation of ``analysis_runs`` is the guarded completion write
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Optional
 from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -213,6 +215,38 @@ class LearningSignals(Base):
     )
     label: Mapped[str] = mapped_column(Text, nullable=False)
     context: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ActivityDays(Base):
+    """One styled-day row per user per day (E9, P1, M10-A).
+
+    Streak history for `GET /v1/learning/summary` (endpoint #34, DEC-020
+    §D): the current streak is recomputed from these rows at read time
+    (PR-2); this table is the immutable per-day history. Rows are written
+    only by the per-signal upsert riding the signal's own commit
+    (`ActivityDayRepositorySQL.upsert_styled_day`); `summary` stays NULL
+    in M10 v1 (no aggregate content defined).
+    """
+
+    __tablename__ = "activity_days"
+    __table_args__ = (
+        # BC-4: at most one row per user per day — the unique backing
+        # btree doubles as the (user_id, day) streak-scan index (A8).
+        UniqueConstraint("user_id", "day", name="uq_activity_days_user_day"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    styled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    summary: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
