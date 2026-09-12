@@ -3,7 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
 import 'package:fansivibe/app/router/app_router.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/presentation/wardrobe_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 
 /// Creates a [FansivibeApp] booted directly into the main shell so tab
@@ -303,5 +306,141 @@ void main() {
 
       expect(find.byIcon(Icons.favorite_rounded), findsNothing);
     });
+
+    testWidgets('renders real backend items from repository', (
+      WidgetTester tester,
+    ) async {
+      final realBackendItems = [
+        const WardrobeItemData(
+          id: 'backend-uuid-1',
+          name: 'Real Custom Blazer',
+          category: 'outerwear',
+          color: 'Black',
+          material: 'Wool',
+          isFavorite: true,
+        ),
+        const WardrobeItemData(
+          id: 'backend-uuid-2',
+          name: 'Real Graphic Tee',
+          category: 'tops',
+          color: 'White',
+        ),
+      ];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: WardrobeScreen(
+            repository: _MockWardrobeRepository(items: realBackendItems),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('My Wardrobe'), findsOneWidget);
+      expect(find.text('Real Custom Blazer'), findsOneWidget);
+      expect(find.text('Real Graphic Tee'), findsOneWidget);
+      expect(find.text('2 items'), findsWidgets);
+    });
+
+    testWidgets('renders empty state when backend items list is empty', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: WardrobeScreen(
+            repository: _MockWardrobeRepository(items: const []),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('No items in this category yet'), findsOneWidget);
+      expect(find.text('Add your first piece to get started'), findsOneWidget);
+      expect(find.text('0 items'), findsWidgets);
+    });
+
+    testWidgets('renders error state and retry button on repository error', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: WardrobeScreen(
+            repository: _MockWardrobeRepository(throwError: true),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Failed to load wardrobe. Please check your connection.'),
+        findsOneWidget,
+      );
+      expect(find.text('Retry'), findsOneWidget);
+    });
   });
+}
+
+class _MockWardrobeRepository implements WardrobeRepository {
+  _MockWardrobeRepository({
+    this.items = const [],
+    this.throwError = false,
+  });
+
+  final List<WardrobeItemData> items;
+  final bool throwError;
+
+  @override
+  Future<List<WardrobeItemData>> listItems({
+    String? category,
+    String? color,
+    String? sortBy,
+    String? order,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    if (throwError) throw Exception('Network error');
+    if (category == null || category == 'all') return items;
+    return items.where((i) => i.category == category).toList();
+  }
+
+  @override
+  Future<WardrobeItemData?> getItem({required String itemId}) async => null;
+
+  @override
+  Future<WardrobeItemData?> createItem({
+    required String name,
+    required String category,
+    required String color,
+    String? material,
+    MediaRef? imageRef,
+  }) async => null;
+
+  @override
+  Future<WardrobeItemData?> updateItem({
+    required String itemId,
+    String? name,
+    String? category,
+    String? color,
+    String? material,
+    bool? isFavorite,
+  }) async => null;
+
+  @override
+  Future<bool?> deleteItem({required String itemId}) async => null;
+
+  @override
+  Future<WardrobeInsightData?> getInsight() async => null;
+
+  @override
+  Future<WearSummary?> getWearSummary() async => null;
+
+  @override
+  Future<WearEventLogResponse?> logWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) async => null;
 }

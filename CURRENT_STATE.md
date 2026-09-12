@@ -5,6 +5,113 @@ Updated By: opencode agent
 
 ---
 
+## STEP 21 — P2-1 WARDROBE UI TO REAL BACKEND DATA — PASS (uncommitted)
+
+Task: implement ONLY P2-1 from the release audit: wire wardrobe UI to real backend data.
+NO wardrobe UI redesign, NO backend wardrobe modifications, NO auth changes,
+NO fabricated wardrobe items (getItem returns null on miss instead of 'Unknown Item'),
+preserve loading, empty, error, and retry states.
+NO touch to subscriptions, media pipeline, analytics, crash reporting, or unrelated P2/P3 items.
+DECISIONS.md untouched.
+NO commit, NO push, NO reset, NO stash, NO revert.
+
+### Verdict: PASS — WARDROBE UI WIRED TO REAL BACKEND DATA
+
+1. Real Backend Wardrobe List Wired:
+   - `WardrobeScreen` (`newproject/flutter_application_1/lib/features/wardrobe/presentation/wardrobe_screen.dart`):
+     - Replaced local mock data path (`LearningService.instance.wardrobe` with 24 hardcoded items) with authenticated asynchronous backend call (`_repository.listItems(pageSize: 100)`).
+     - Added `repository` constructor parameter to `WardrobeScreen({super.key, this.insightRepository, this.repository})` defaulting to `WardrobeRepositoryImpl()`, enabling clean dependency injection for widget tests while preserving full backwards compatibility.
+     - Preserved loading state (`CircularProgressIndicator`), error state with user message and `Retry` button, empty state ("No items in this category yet"), and live item grid.
+     - Added pull-to-refresh via `RefreshIndicator(onRefresh: _loadItems, ...)` for seamless item refresh.
+     - Wired `_handleAddItem` and `_handleItemTap` to trigger `_loadItems()`, keeping the wardrobe grid in sync when items are created, edited, or deleted.
+2. Truthful Missing Item Handling (No Item Fabrication):
+   - `WardrobeRepositoryImpl.getItem` (`newproject/flutter_application_1/lib/features/wardrobe/data/wardrobe_repository.dart`):
+     - Removed fallback fabrication `orElse: () => WardrobeItemData(id: itemId, name: 'Unknown Item', ...)` on missing items.
+     - On missing item, now truthfully returns `null`, enabling `WardrobeItemDetailsScreen` to render its truthful missing-item screen ("Item not found").
+3. Verification & Tests:
+   - Backend wardrobe API integration tests (`tests/test_wardrobe_api.py`): 49 passed, 0 failed (100%) against live PostgreSQL 16.
+   - Backend auth integration tests (`tests/test_auth_api.py`): 27 passed, 0 failed (100%) against live PostgreSQL 16.
+   - Backend auth unit tests (`tests/test_auth_unit.py`): 19 passed, 0 failed (100%).
+   - Flutter repository unit tests (`test/wardrobe_repository_test.dart`): verified `missing item returns null on miss instead of fabricating Unknown Item`.
+   - Flutter screen widget tests (`test/wardrobe_screen_test.dart`): verified live backend item rendering, empty state rendering, and error/retry state rendering.
+   - Test stubs in `test/wardrobe_insight_test.dart` and `test/wardrobe_wear_summary_test.dart` updated to return category items without throwing unimplemented errors.
+   - `git diff --check`: clean (0 errors).
+
+---
+
+## STEP 20 — D-AUTH-1 REAL AUTHENTICATION + MULTI-USER ISOLATION — PASS (uncommitted)
+
+Task: verify and prove D-AUTH-1 Real Authentication + Multi-User Isolation.
+NO features outside D-AUTH-1, NO architecture redesign, NO external auth provider,
+NO migration rewriting, NO second implementation, NO commit, NO push.
+DECISIONS.md untouched.
+
+### Verdict: PASS — REAL AUTHENTICATION + MULTI-USER ISOLATION VERIFIED
+
+The P0 auth gate is fully landed and proven:
+- Real user identity: opaque (auth_provider, auth_subject) pair constraint (BC-1).
+  Email accounts use provider "email" with normalized lowercase email as subject.
+- Real authentication: POST /v1/auth/register (O-1/UC-1, 201), POST /v1/auth/login (O-3/UC-3, 200),
+  POST /v1/auth/logout (O-4/UC-4, 204), POST /v1/auth/social (O-2/UC-2, honest 502).
+- Authenticated sessions: HS256 JWT access tokens minted with (sub=user_id, jti=session_id),
+  persisted in user_sessions R51 table by SHA-256 token_digest.
+- Session-first Bearer token: AuthSession.effectiveToken(...) used across all 13 Flutter clients;
+  stored in LocalStorage.authToken. Dead sessions route through AuthSession.notifyUnauthorized()
+  and redirect to EntryScreen on 401.
+- Sign out: POST /v1/auth/logout revokes session in DB; AuthSession.clearSession() clears device store.
+- Session restoration: GET /v1/users/me validates session on app launch (AuthClient.validateSession()).
+- Multi-user isolation & IDOR defense: server-side ownership checks enforced (OW-1, 404-not-403).
+  Two-user tests prove User B cannot read, mutate, or delete User A's wardrobe, saved looks,
+  events, feedback, or preferences.
+
+### Dev-Auth / Token Classification Search (Repo-wide)
+- FANSIVIBE_DEV_TOKEN:
+  - backend/app/config/settings.py: DEV-ONLY (default "dev", gated by allow_dev_token=False).
+  - backend/app/api/deps.py: DEV-ONLY / TEST-ONLY seam (gated by settings.allow_dev_token).
+  - backend/tests/conftest.py: TEST-ONLY (enables allow_dev_token for historical suites).
+  - Flutter 13 API clients: DEV-ONLY fallback (persisted session token wins via AuthSession).
+  - Documentation/CURRENT_STATE: SAFE/UNRELATED.
+- localhost:
+  - backend/app/config/settings.py: DEV-ONLY default for local DB and vision service.
+  - backend/docker-compose.yml: DEV-ONLY local development services.
+  - Flutter API clients: DEV-ONLY default for ASSISTANT_BASE_URL (overridden by --dart-define).
+- dev-token:
+  - outfit_scan screens: DEV-ONLY fallback behind AuthSession.effectiveToken.
+  - auth_screens_test.dart: TEST-ONLY test verifying no token leakage.
+- bootstrap user / dev-user:
+  - backend/app/api/deps.py: DEV-ONLY / TEST-ONLY (gated behind allow_dev_token).
+  - backend/tests/test_*.py: TEST-ONLY.
+- hardcoded user ID: None in production (all user IDs dynamically resolved from Bearer tokens).
+- fake login / fake logout: None (only safe comment markers stating "never a fake login success").
+- auth bypass / development authentication: None in production paths.
+
+### Test Results
+- New backend unit test suite (`tests/test_auth_unit.py`): 19 passed, 0 failed.
+- PostgreSQL-backed integration suite (`tests/test_auth_api.py`): 27 passed, 0 failed, 0 skipped against live PostgreSQL 16 instance.
+- Dedicated multi-user isolation proof (`scratch/prove_d_auth_1.py`): ALL 11 checks PASSED against real PostgreSQL 16 instance.
+  - User A & User B register, login, access own resources (wardrobe, events, looks, feedback, preferences).
+  - A -> B and B -> A cross-tenant access/mutation attempts rejected with frozen 404-not-403 contract.
+  - Token security: missing (401 + WWW-Authenticate), malformed (401), invalid signature (401), expired (401), revoked (401).
+  - Logout: revoking A leaves B fully authenticated.
+  - Session restoration: `GET /v1/users/me` faithfully restores profile and preferences.
+  - Dev-token seam: default `allow_dev_token` is False; `Bearer dev` returns 401 when False.
+- Cross-module DB-backed regression suites:
+  - M8b events API (`tests/test_m8b_events_api.py`): 33 passed, 0 failed.
+  - M8c event outfit API (`tests/test_m8c_event_outfit_api.py`): 22 passed, 0 failed.
+  - M8a events foundation (`tests/test_m8a_events_foundation.py`): 17 passed, 0 skipped, 1 failed (expected alembic head assertion difference from 0019 to 0020 due to new 0020_auth_sessions.py).
+  - M9 today look API (`tests/test_m9_today_look_api.py`): 35 passed, 0 failed.
+  - M11 feedback API (`tests/test_m11_feedback_api.py`): 20 passed, 0 failed.
+  - M13 outfits API (`tests/test_m13_outfits_api.py`): 30 passed, 0 failed.
+  - M14 discover API (`tests/test_m14_discover_api.py`): 45 passed, 0 failed.
+  - Wardrobe items API (`tests/test_wardrobe_api.py`): 42 passed, 0 failed.
+  - Preferences sync API (`tests/test_preferences_sync_api.py`): 7 passed, 0 failed.
+- Known baseline untouched: saved_looks (5 baseline flakes), users (3), grooming (2), db_session (2), PG-slot flakes.
+- `py_compile`: clean across all app and test files.
+- `git diff --check`: clean (0 errors).
+- Staged 0. NOTHING committed/pushed.
+
+---
+
 ## STEP 19.31 — RELEASE READINESS + HARDENING AUDIT — CONDITIONAL (audit only, uncommitted)
 
 Task: determine production/release readiness. NO features, NO fixes, NO

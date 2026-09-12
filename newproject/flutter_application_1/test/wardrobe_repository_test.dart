@@ -154,6 +154,19 @@ test('API success → domain model', () async {
       expect(result!.id, '1');
       expect(result.name, 'Merino Crew Neck');
     });
+
+    test('missing item returns null on miss instead of fabricating Unknown Item', () async {
+      final client = WardrobeClient(
+        client: MockClient(
+          (request) async => http.Response('{"error":{}}', 404),
+        ),
+      );
+
+      final repo = WardrobeRepositoryImpl(client: client);
+      final result = await repo.getItem(itemId: 'unknown-non-existent-id');
+
+      expect(result, isNull);
+    });
   });
 
   group('WardrobeRepository.createItem', () {

@@ -238,17 +238,12 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
       return mapItemDtoToUi(apiItem);
     }
 
-    // Fallback to mock data - find item by ID
-    final mockItem = WardrobeMockData.items.firstWhere(
-      (item) => item.id == itemId,
-      orElse: () => WardrobeItemData(
-        id: itemId,
-        name: 'Unknown Item',
-        category: 'unknown',
-        color: '',
-      ),
-    );
-    return mockItem;
+    // Fallback to mock data for offline/test mock IDs, but return null on miss.
+    // Never fabricate "Unknown Item" objects — missing items must truthfully be null.
+    for (final item in WardrobeMockData.items) {
+      if (item.id == itemId) return item;
+    }
+    return null;
   }
 
   @override

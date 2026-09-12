@@ -481,8 +481,8 @@ class _FakeWardrobeRepository implements WardrobeRepository {
     String? order,
     int page = 1,
     int pageSize = 20,
-  }) =>
-      throw UnimplementedError();
+  }) async =>
+      WardrobeMockData.itemsForCategory(category ?? 'all');
 
   @override
   Future<WardrobeItemData?> getItem({required String itemId}) =>

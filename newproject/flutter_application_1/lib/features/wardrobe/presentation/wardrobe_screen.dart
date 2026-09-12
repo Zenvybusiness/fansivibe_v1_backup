@@ -35,14 +35,20 @@ WardrobeItemData _toItem(WardrobeEntry entry) => WardrobeItemData(
 class WardrobeScreen extends StatefulWidget {
   /// Creates the wardrobe screen.
   ///
-  /// [insightRepository] is the source for the live backend insight card
-  /// and the live backend wear-summary card. It defaults to the
-  /// API-primary repository; tests inject a fake to control the insight
-  /// without networking. The wardrobe item list itself always renders
-  /// from [LearningService] (unchanged by this step).
-  const WardrobeScreen({super.key, this.insightRepository});
+  /// [repository] is the source for the live backend wardrobe item list,
+  /// the live backend insight card, and the live backend wear-summary card.
+  /// It defaults to the API-primary repository; tests inject a fake to
+  /// control the list and insights without networking.
+  /// [insightRepository] is retained for backward compatibility with tests
+  /// that supply an insight repository.
+  const WardrobeScreen({
+    super.key,
+    this.insightRepository,
+    this.repository,
+  });
 
   final WardrobeRepository? insightRepository;
+  final WardrobeRepository? repository;
 
   @override
   State<WardrobeScreen> createState() => _WardrobeScreenState();
@@ -50,40 +56,49 @@ class WardrobeScreen extends StatefulWidget {
 
 class _WardrobeScreenState extends State<WardrobeScreen> {
   String _selectedCategory = 'all';
-  late List<WardrobeEntry> _items;
+  late final WardrobeRepository _repository;
+  List<WardrobeItemData> _items = [];
+  bool _isLoading = true;
+  String? _errorMessage;
   late final Future<WardrobeInsightData?> _insightFuture;
   late final Future<WearSummary?> _wearSummaryFuture;
 
   @override
   void initState() {
     super.initState();
-    _items = LearningService.instance.wardrobe;
-    LearningService.instance.addListener(_onLearningChanged);
-    LearningService.instance.load();
+    _repository =
+        widget.repository ?? widget.insightRepository ?? WardrobeRepositoryImpl();
     // Independent from the item list: the list renders immediately while
     // the insight resolves on its own. Single fetch — no refetch storms.
-    final repository = widget.insightRepository ?? WardrobeRepositoryImpl();
-    _insightFuture = repository.getInsight();
+    _insightFuture = _repository.getInsight();
     // Independent from the insight: same seam, separate future, separate
     // slot — W-7 loading/error/204 behavior is unchanged by this fetch.
-    // `Future.sync` contains a synchronously-throwing repository as an
-    // error future (handled below like any backend failure: shrink, never
-    // crash the screen).
     _wearSummaryFuture =
-        Future.sync(() => repository.getWearSummary());
+        Future.sync(() => _repository.getWearSummary());
+    _loadItems();
   }
 
-  @override
-  void dispose() {
-    LearningService.instance.removeListener(_onLearningChanged);
-    super.dispose();
-  }
-
-  void _onLearningChanged() {
+  Future<void> _loadItems() async {
     if (!mounted) return;
     setState(() {
-      _items = LearningService.instance.wardrobe;
+      _isLoading = true;
+      _errorMessage = null;
     });
+
+    try {
+      final items = await _repository.listItems(pageSize: 100);
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Failed to load wardrobe. Please check your connection.';
+        _isLoading = false;
+      });
+    }
   }
 
   void _selectCategory(String categoryId) {
@@ -93,10 +108,10 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   }
 
   List<WardrobeItemData> get _filteredItems {
-    final source = _selectedCategory == 'all'
-        ? _items
-        : _items.where((item) => item.category == _selectedCategory);
-    return source.map(_toItem).toList();
+    if (_selectedCategory == 'all') {
+      return _items;
+    }
+    return _items.where((item) => item.category == _selectedCategory).toList();
   }
 
   int get _favoritesCount => _items.where((item) => item.isFavorite).length;
@@ -145,91 +160,97 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
             final contentMaxWidth = maxWidth > 600 ? 520.0 : double.infinity;
             final crossAxisCount = maxWidth > 600 ? 3 : 2;
 
-            return SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: horizontalPadding,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: FansivibeSpacing.xs),
-                        WardrobeDashboardHeader(
-                          totalItems: totalItems,
-                          styleType: WardrobeMockData.styleType,
-                          favoritesCount: _favoritesCount,
-                          categoryCount: WardrobeMockData.categories.length - 1,
-                        ),
-                        const SizedBox(height: FansivibeSpacing.sm + 4),
-                        _InsightSlot(future: _insightFuture),
-                        const SizedBox(height: FansivibeSpacing.sm + 4),
-                        _WearSummarySlot(future: _wearSummaryFuture),
-                        const SizedBox(height: FansivibeSpacing.sm + 4),
-                        SizedBox(
-                          height: 40,
-                          child: ListView.separated(
-                            scrollDirection: Axis.horizontal,
-                            physics: const BouncingScrollPhysics(),
-                            itemCount: WardrobeMockData.categories.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(width: FansivibeSpacing.sm),
-                            itemBuilder: (context, index) {
-                              final cat = WardrobeMockData.categories[index];
-                              final count = cat.id == 'all'
-                                  ? totalItems
-                                  : _items
-                                        .where(
-                                          (item) => item.category == cat.id,
-                                        )
-                                        .length;
-                              return CategoryTile(
-                                name: cat.name,
-                                iconName: cat.iconName,
-                                count: count,
-                                selected: _selectedCategory == cat.id,
-                                onTap: () => _selectCategory(cat.id),
-                              );
-                            },
+            return RefreshIndicator(
+              onRefresh: _loadItems,
+              color: FansivibeColors.accentGold,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: horizontalPadding,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: FansivibeSpacing.xs),
+                          WardrobeDashboardHeader(
+                            totalItems: totalItems,
+                            styleType: WardrobeMockData.styleType,
+                            favoritesCount: _favoritesCount,
+                            categoryCount: WardrobeMockData.categories.length - 1,
                           ),
-                        ),
-                        const SizedBox(height: FansivibeSpacing.md),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                _selectedCategory == 'all'
-                                    ? 'All Items'
-                                    : WardrobeMockData.categories
-                                          .firstWhere(
-                                            (c) => c.id == _selectedCategory,
+                          const SizedBox(height: FansivibeSpacing.sm + 4),
+                          _InsightSlot(future: _insightFuture),
+                          const SizedBox(height: FansivibeSpacing.sm + 4),
+                          _WearSummarySlot(future: _wearSummaryFuture),
+                          const SizedBox(height: FansivibeSpacing.sm + 4),
+                          SizedBox(
+                            height: 40,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              physics: const BouncingScrollPhysics(),
+                              itemCount: WardrobeMockData.categories.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(width: FansivibeSpacing.sm),
+                              itemBuilder: (context, index) {
+                                final cat = WardrobeMockData.categories[index];
+                                final count = cat.id == 'all'
+                                    ? totalItems
+                                    : _items
+                                          .where(
+                                            (item) => item.category == cat.id,
                                           )
-                                          .name,
-                                style: FansivibeTypography.labelMediumWithFamily
-                                    .copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color: FansivibeColors.onSurface,
-                                    ),
+                                          .length;
+                                return CategoryTile(
+                                  name: cat.name,
+                                  iconName: cat.iconName,
+                                  count: count,
+                                  selected: _selectedCategory == cat.id,
+                                  onTap: () => _selectCategory(cat.id),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: FansivibeSpacing.md),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _selectedCategory == 'all'
+                                      ? 'All Items'
+                                      : WardrobeMockData.categories
+                                            .firstWhere(
+                                              (c) => c.id == _selectedCategory,
+                                            )
+                                            .name,
+                                  style: FansivibeTypography.labelMediumWithFamily
+                                      .copyWith(
+                                        fontWeight: FontWeight.w600,
+                                        color: FansivibeColors.onSurface,
+                                      ),
+                                ),
                               ),
-                            ),
-                            Text(
-                              '${filteredItems.length} ${filteredItems.length == 1 ? 'item' : 'items'}',
-                              style: FansivibeTypography.labelSmallWithFamily
-                                  .copyWith(color: FansivibeColors.secondary),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: FansivibeSpacing.md),
-                        _buildItemGrid(
-                          context,
-                          items: filteredItems,
-                          crossAxisCount: crossAxisCount,
-                        ),
-                        const SizedBox(height: FansivibeSpacing.lg),
-                      ],
+                              Text(
+                                '${filteredItems.length} ${filteredItems.length == 1 ? 'item' : 'items'}',
+                                style: FansivibeTypography.labelSmallWithFamily
+                                    .copyWith(color: FansivibeColors.secondary),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: FansivibeSpacing.md),
+                          _buildItemGrid(
+                            context,
+                            items: filteredItems,
+                            crossAxisCount: crossAxisCount,
+                          ),
+                          const SizedBox(height: FansivibeSpacing.lg),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -246,6 +267,44 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     required List<WardrobeItemData> items,
     required int crossAxisCount,
   }) {
+    if (_isLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: FansivibeSpacing.xxl),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: FansivibeSpacing.xxl),
+        child: Center(
+          child: Column(
+            children: [
+              const Icon(
+                Icons.error_outline_rounded,
+                size: 48,
+                color: FansivibeColors.secondary,
+              ),
+              const SizedBox(height: FansivibeSpacing.md),
+              Text(
+                _errorMessage!,
+                style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                  color: FansivibeColors.secondary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: FansivibeSpacing.md),
+              TextButton.icon(
+                onPressed: _loadItems,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final width = MediaQuery.of(context).size.width;
     final hp = width > 600 ? 48.0 : 20.0;
     final available = (width > 600 ? 520.0 : width) - hp * 2;
@@ -312,6 +371,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     if (result != null && context.mounted) {
       LearningService.instance.addItem(_toEntry(result));
       UserSession.hasSavedWardrobeItem = true;
+      _loadItems();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${result.name} added to wardrobe'),
@@ -325,8 +385,11 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     }
   }
 
-  void _handleItemTap(BuildContext context, WardrobeItemData item) {
-    context.pushNamed<String>(RouteNames.wardrobeItemDetails, extra: item.id);
+  void _handleItemTap(BuildContext context, WardrobeItemData item) async {
+    await context.pushNamed<String>(RouteNames.wardrobeItemDetails, extra: item.id);
+    if (mounted) {
+      _loadItems();
+    }
   }
 }
 
