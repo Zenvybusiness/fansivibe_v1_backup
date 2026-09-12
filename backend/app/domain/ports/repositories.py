@@ -6,7 +6,7 @@ Implementations live in `app/infrastructure/db/repositories.py`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Optional, Protocol
 from uuid import UUID
 
@@ -49,8 +49,9 @@ class SavedLookRecord:
     """A `saved_looks` row (owner-scoped read).
 
     ``source_context`` is the backend-owned domain discriminator (STEP 11.16:
-    hairstyle/grooming/outfit). It defaults to ``None``, which marks a legacy
-    row written before the contract — domain unknown, never inferred.
+    hairstyle/grooming/outfit, plus M9 "daily" via 0018). It defaults to
+    ``None``, which marks a legacy row written before the contract — domain
+    unknown, never inferred.
     """
 
     id: UUID
@@ -60,6 +61,138 @@ class SavedLookRecord:
     source_run_id: Optional[UUID]
     created_at: datetime
     source_context: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class UserEventRecord:
+    """A `user_events` row (owner-scoped read, M8-A).
+
+    `event_type` is the stable `event_types` code (K9.1, never a label).
+    `event_time` is wall-clock `HH:mm` with no timezone (DEC-016);
+    `None` means no time was supplied. `location`/`notes` are verbatim
+    stored text (`None` = absent); no trimming or normalization is ever
+    applied at this layer.
+    """
+
+    id: UUID
+    user_id: UUID
+    title: str
+    event_type: str
+    event_date: date
+    event_time: Optional[time]
+    location: Optional[str]
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class EventOutfitComponent:
+    """One owned wardrobe item inside an event outfit (M8-C).
+
+    Honest subset of the ensemble `OutfitComponent`: `id` is the real
+    backend wardrobe UUID string; `category`/`color`/`material` are the
+    stored vocab codes (K9.1, labels never on wire — M9 C12 precedent).
+    `colorHex` has no server source and is absent by construction
+    (DEC-015, AI-0). `reason` states only the grounded selection fact
+    (the item's slot pick for the derivation occasion) — never comfort,
+    fit, mood, or AI claims.
+    """
+
+    id: str
+    name: str
+    category: str
+    color: str
+    material: Optional[str]
+    reason: str
+
+
+@dataclass(frozen=True)
+class EventOutfitRecommendation:
+    """A derived event outfit (M8-C, UC-21) — read/derive only.
+
+    Honest subset of the ensemble `OutfitRecommendation`: `match_score`
+    is the winner's 0–100 budget score rescaled to the family 0..1
+    wire scale; `selected_occasion` is the event TYPE CODE. Fields with
+    no engine source (`colorHarmony`, `bodyFit`, `occasionMatch`,
+    `styleScoreImpact`, `improvementSuggestion`, `selectedMood`,
+    `selectedColorPalette`, per-component `colorHex`) are absent by
+    construction (AI-0 honesty outranks DTO-completeness — DEC-015,
+    M5 P-3 precedent). The canonical DTO carries no alternatives
+    (verified: DAILY §4.4, V1, builder mock), so runners-up are never
+    exposed here.
+    """
+
+    title: str
+    match_score: float
+    components: list["EventOutfitComponent"]
+    reasons: list[str]
+    selected_occasion: str
+
+
+@dataclass(frozen=True)
+class TodayLookComponent:
+    """One owned wardrobe item inside a derived TodayLook (M9, UC-16/UC-17).
+
+    Honest subset of the derived-look `DailyOutfitComponent`:
+    `id`/`name` come from the owned row; `category`/`color`/`material`
+    are the stored vocab codes (K9.1, labels never on wire — DEC-018
+    C12). `colorHex` has no server source and is absent by construction
+    (AI-0, same verified fact as DEC-015).
+    """
+
+    id: str
+    name: str
+    category: str
+    color: str
+    material: Optional[str]
+
+
+@dataclass(frozen=True)
+class TodayLookAlternative:
+    """One ranked runner-up surfaced with a TodayLook (M9, DEC-018 C12).
+
+    Minimal mapping only: a stable id derived from the alternative's own
+    member wardrobe UUIDs (never mock ids) plus the candidate's native
+    0–100 score. Names and style labels have no grounded source and are
+    absent by construction (AI-0).
+    """
+
+    id: str
+    match_score: int
+
+
+@dataclass(frozen=True)
+class TodayLookRecommendation:
+    """A derived TodayLook (M9, UC-16/UC-17) — read/derive only.
+
+    The derived-look family DTO (DAILY §4.4): `match_score`/`style_score`
+    are the winner's native 0–100 int scale (STEP-13 budget, no rescale —
+    DEC-018 C12); `occasion` is the seeding event TYPE CODE when
+    event-seeded, else the preferred-occasion derivation (`None` when
+    neither exists — omitted, never fabricated); `selected_item_ids` is
+    the canonical sorted-unique winner UUID list (the additive top-level
+    field that reuses M7 validation verbatim); `alternatives` are
+    `ranked[1:3]`; `style_dna` carries only present profile subfields;
+    `total_items`/`matching_items` are grounded wardrobe counts.
+    `weather` has no provider in v1 and stays `None` (absent hint,
+    never an error — DEC-017-G). Sourceless optionals (`aiInsights`,
+    `dailyStyleTip`, `aiSelectionReason`, `confidenceBoost`,
+    `wardrobeContext.insight`) are absent by construction (AI-0).
+    """
+
+    title: str
+    occasion: Optional[str]
+    description: str
+    match_score: int
+    style_score: int
+    components: list["TodayLookComponent"]
+    reasons: list[str]
+    style_dna: Optional[dict]
+    total_items: int
+    matching_items: int
+    alternatives: list["TodayLookAlternative"]
+    selected_item_ids: list[str]
 
 
 @dataclass(frozen=True)
@@ -273,6 +406,84 @@ class SavedLookRepository(Protocol):
     def commit(self) -> None: ...
 
     def rollback(self) -> None: ...
+
+
+class UserEventRepository(Protocol):
+    """Event-calendar repository protocol — OW-1 owner-scoping (M8-A).
+
+    Minimal foundation contract for the upcoming M8 CRUD use cases
+    (UC-18/UC-19/UC-20): every row op is scoped to the caller's
+    `user_id` (unknown/foreign ids resolve to `None`/no-op at this
+    layer; the use case maps that to 404, never 403). No signal writes,
+    no preference writes (R36 lives in the use case as a sequential
+    second unit, DEC-015). No commit inside row methods — the owning
+    use case commits (SavedLook precedent).
+    """
+
+    def create(
+        self,
+        *,
+        user_id: UUID,
+        title: str,
+        event_type: str,
+        event_date: date,
+        event_time: Optional[time] = None,
+        location: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> "UserEventRecord": ...
+
+    def get_for_user(self, *, user_id: UUID, event_id: UUID) -> Optional["UserEventRecord"]: ...
+
+    def list_for_user(
+        self,
+        *,
+        user_id: UUID,
+        from_date: Optional[date] = None,
+        order: str = "asc",
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list["UserEventRecord"], int]: ...
+
+    def update(
+        self,
+        *,
+        user_id: UUID,
+        event_id: UUID,
+        title: str,
+        event_type: str,
+        event_date: date,
+        event_time: Optional[time] = None,
+        location: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Optional["UserEventRecord"]: ...
+
+    def delete(
+        self, *, user_id: UUID, event_id: UUID
+    ) -> None: ...
+
+    def commit(self) -> None: ...
+
+    def rollback(self) -> None: ...
+
+
+class EventTypeRepository(Protocol):
+    """Read-only M8 event-type vocabulary protocol (M8-A).
+
+    System-owned, never user-scoped (K9.1): only `active` rows, in
+    deterministic `(sort_order, code)` order (DEC-015, 0005 precedent).
+    Read-only — no commit, no write, no user data. Upcoming create/update
+    validation resolves codes through here (unknown/inactive → 422).
+    """
+
+    def list_active(self) -> list["VocabularyRecord"]: ...
+
+    def get_by_code(self, *, code: str) -> Optional["VocabularyRecord"]:
+        """Return the active row for `code`, else `None`.
+
+        Unknown AND inactive codes resolve to `None` so callers reject
+        both with the same 422 (no existence oracle on deprecated codes).
+        """
+        ...
 
 
 class WardrobeItemRepository(Protocol):

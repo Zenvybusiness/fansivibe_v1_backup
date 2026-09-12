@@ -1,30 +1,65 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
-import 'package:fansivibe/features/events/data/event_mock_data.dart';
+import 'package:fansivibe/features/events/data/event_models.dart';
+import 'package:fansivibe/features/events/data/events_repository.dart';
 import 'package:fansivibe/features/events/presentation/widgets/events_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/components/fansi_error_view.dart';
+import 'package:fansivibe/shared/components/fansi_loading_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
+/// Backend-first event list (M8-D).
+///
+/// The backend `/v1/events` collection is the single source of truth:
+/// no mock fallback, no fake local creation, no local numeric IDs. A
+/// null page means the backend is unavailable — the screen shows a
+/// truthful error with a retry instead of fabricated rows.
 class EventListScreen extends StatefulWidget {
-  const EventListScreen({super.key});
+  /// Creates an [EventListScreen] with an optional repository for testing.
+  /// Without a repository, uses the live backend implementation.
+  const EventListScreen({this.repository, super.key});
+
+  /// Backend repository override (tests only).
+  final EventsRepository? repository;
 
   @override
   State<EventListScreen> createState() => _EventListScreenState();
 }
 
 class _EventListScreenState extends State<EventListScreen> {
-  final List<UserEvent> _events = List<UserEvent>.from(UserEvent.mockEvents);
+  late Future<EventListPage?> _future;
+
+  EventsRepository get _repository =>
+      widget.repository ?? EventsRepositoryImpl();
+
+  @override
+  void initState() {
+    super.initState();
+    _future = Future.sync(() => _repository.listEvents());
+  }
+
+  void _reload() {
+    setState(() {
+      _future = Future.sync(() => _repository.listEvents());
+    });
+  }
 
   Future<void> _addEvent() async {
-    final newEvent = await context.pushNamed<UserEvent>(RouteNames.eventAdd);
-    if (newEvent != null && mounted) {
-      setState(() => _events.add(newEvent));
+    final created = await context.pushNamed<bool>(RouteNames.eventAdd);
+    if (created == true && mounted) {
+      _reload();
     }
   }
 
-  void _openEvent(UserEvent event) {
-    context.pushNamed(RouteNames.eventDetails, extra: event);
+  Future<void> _openEvent(EventItem event) async {
+    final changed = await context.pushNamed<bool>(
+      RouteNames.eventDetails,
+      extra: event,
+    );
+    if (changed == true && mounted) {
+      _reload();
+    }
   }
 
   @override
@@ -94,18 +129,44 @@ class _EventListScreenState extends State<EventListScreen> {
                             onPressed: _addEvent,
                           ),
                         ),
-                        if (_events.isEmpty)
-                          _buildEmptyState(context)
-                        else
-                          ..._events.map(
-                            (event) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: EventCard(
-                                event: event,
-                                onTap: () => _openEvent(event),
-                              ),
-                            ),
-                          ),
+                        FutureBuilder<EventListPage?>(
+                          future: _future,
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 60),
+                                child: FansiLoadingView(
+                                  message: 'Loading your events…',
+                                ),
+                              );
+                            }
+                            final page = snapshot.data;
+                            if (!snapshot.hasData || page == null) {
+                              return FansiErrorView(
+                                message:
+                                    'Couldn\'t load your events. Check your connection and try again.',
+                                onRetry: _reload,
+                              );
+                            }
+                            if (page.isEmpty) {
+                              return _buildEmptyState(context);
+                            }
+                            return Column(
+                              children: [
+                                ...page.items.map(
+                                  (event) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: EventCard(
+                                      event: event,
+                                      onTap: () => _openEvent(event),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
                         const SizedBox(height: 32),
                       ],
                     ),

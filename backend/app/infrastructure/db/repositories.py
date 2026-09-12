@@ -6,7 +6,7 @@ All reads are owner-scoped (`user_id`) — OW-1. `complete` uses the server-side
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -20,6 +20,7 @@ from app.domain.ports.repositories import (
     AnalysisRunSummary,
     SavedLookCoverage,
     SavedLookRecord,
+    UserEventRecord,
     UserProfileRecord,
     VocabularyRecord,
     WardrobeInsightSummary,
@@ -31,8 +32,10 @@ from app.domain.ports.repositories import (
 from app.infrastructure.db.models import (
     ActivityDays,
     AnalysisRuns,
+    EventType,
     LearningSignals,
     SavedLooks,
+    UserEvent,
     UserState,
     Users,
     WardrobeItems,
@@ -963,3 +966,174 @@ class VocabularyRepositorySQL:
             VocabularyRecord(code=row.code, label=row.label, sort_order=row.sort_order)
             for row in rows
         ]
+
+
+class UserEventRepositorySQL:
+    """SQLAlchemy event-calendar adapter — OW-1 owner-scoping (M8-A).
+
+    All row methods are owner-scoped (`user_id`) and commit-free: the
+    owning use case commits (SavedLook precedent). `flush` exposes
+    server-generated ids/timestamps without committing. No signal
+    writes, no preference writes (R36 lives in the use case, DEC-015).
+
+    List ordering is deterministic: `event_date` in the requested
+    direction, `event_time` the same direction with NULLS LAST
+    explicit, then `id` asc as the final tiebreak.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def commit(self) -> None:
+        self._session.commit()
+
+    def rollback(self) -> None:
+        self._session.rollback()
+
+    def create(
+        self,
+        *,
+        user_id: UUID,
+        title: str,
+        event_type: str,
+        event_date: date,
+        event_time: Optional[time] = None,
+        location: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> UserEventRecord:
+        row = UserEvent(
+            user_id=user_id,
+            title=title,
+            event_type_id=event_type,
+            event_date=event_date,
+            event_time=event_time,
+            location=location,
+            notes=notes,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return self._to_record(row)
+
+    def get_for_user(self, *, user_id: UUID, event_id: UUID) -> Optional[UserEventRecord]:
+        row = self._session.execute(
+            select(UserEvent).where(
+                UserEvent.id == event_id, UserEvent.user_id == user_id
+            )
+        ).scalar_one_or_none()
+        return self._to_record(row) if row else None
+
+    def list_for_user(
+        self,
+        *,
+        user_id: UUID,
+        from_date: Optional[date] = None,
+        order: str = "asc",
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[UserEventRecord], int]:
+        base = select(UserEvent).where(UserEvent.user_id == user_id)
+        if from_date is not None:
+            base = base.where(UserEvent.event_date >= from_date)
+        total = self._session.execute(
+            select(func.count()).select_from(base.subquery())
+        ).scalar_one()
+        date_col = UserEvent.event_date.asc() if order == "asc" else UserEvent.event_date.desc()
+        time_col = UserEvent.event_time.asc().nullslast() if order == "asc" else UserEvent.event_time.desc().nullslast()
+        rows = self._session.execute(
+            base.order_by(date_col, time_col, UserEvent.id.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).scalars()
+        return [self._to_record(r) for r in rows], total
+
+    def update(
+        self,
+        *,
+        user_id: UUID,
+        event_id: UUID,
+        title: str,
+        event_type: str,
+        event_date: date,
+        event_time: Optional[time] = None,
+        location: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Optional[UserEventRecord]:
+        row = self._session.execute(
+            select(UserEvent).where(
+                UserEvent.id == event_id, UserEvent.user_id == user_id
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        row.title = title
+        row.event_type_id = event_type
+        row.event_date = event_date
+        row.event_time = event_time
+        row.location = location
+        row.notes = notes
+        # M8-B contract: the server refreshes updatedAt on every update
+        # (wardrobe W-4 precedent).
+        row.updated_at = func.now()
+        self._session.flush()
+        self._session.refresh(row)
+        return self._to_record(row)
+
+    def delete(
+        self, *, user_id: UUID, event_id: UUID
+    ) -> None:
+        row = self._session.execute(
+            select(UserEvent).where(
+                UserEvent.id == event_id, UserEvent.user_id == user_id
+            )
+        ).scalar_one_or_none()
+        if row is not None:
+            self._session.delete(row)
+            self._session.flush()
+
+    @staticmethod
+    def _to_record(row: UserEvent) -> UserEventRecord:
+        return UserEventRecord(
+            id=row.id,
+            user_id=row.user_id,
+            title=row.title,
+            event_type=row.event_type_id,
+            event_date=row.event_date,
+            event_time=row.event_time,
+            location=row.location,
+            notes=row.notes,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+
+class EventTypeRepositorySQL:
+    """SQLAlchemy read of the M8 `event_types` vocabulary (M8-A).
+
+    System-owned, never user-scoped (K9.1): only `active` rows, in
+    deterministic `(sort_order, code)` order (DEC-015, Vocabulary
+    precedent). Read-only — no commit, no write, no user data.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def list_active(self) -> list["VocabularyRecord"]:
+        rows = self._session.execute(
+            select(EventType)
+            .where(EventType.active.is_(True))
+            .order_by(EventType.sort_order.asc(), EventType.code.asc())
+        ).scalars().all()
+        return [
+            VocabularyRecord(code=row.code, label=row.label, sort_order=row.sort_order)
+            for row in rows
+        ]
+
+    def get_by_code(self, *, code: str) -> Optional["VocabularyRecord"]:
+        row = self._session.execute(
+            select(EventType).where(
+                EventType.code == code, EventType.active.is_(True)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        return VocabularyRecord(code=row.code, label=row.label, sort_order=row.sort_order)

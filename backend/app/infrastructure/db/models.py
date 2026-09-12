@@ -13,6 +13,8 @@ Tables (from `docs/database/TABLE_DEFINITIONS.md`):
 - ``wardrobe_categories``          (P0 vocabulary reference, K9.1)
 - ``colors``                       (P0 vocabulary reference, K9.1)
 - ``materials``                    (P0 vocabulary reference, K9.1)
+- ``event_types``                  (M8 vocabulary reference, K9.1)
+- ``user_events``                  (event calendar current state, P1, M8-A)
 
 History tables are append-only at the role-grant level (PR-5); the only
 permitted mutation of ``analysis_runs`` is the guarded completion write
@@ -21,7 +23,7 @@ permitted mutation of ``analysis_runs`` is the guarded completion write
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any, Optional
 from uuid import UUID
 
@@ -34,6 +36,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Text,
+    Time,
     UniqueConstraint,
     Uuid,
     func,
@@ -168,7 +171,7 @@ class SavedLooks(Base):
     __table_args__ = (
         CheckConstraint("char_length(title) BETWEEN 1 AND 200", name="ck_saved_looks_title_len"),
         CheckConstraint(
-            "source_context IN ('hairstyle', 'grooming', 'outfit')",
+            "source_context IN ('hairstyle', 'grooming', 'outfit', 'daily')",
             name="ck_saved_looks_source_context",
         ),
         UniqueConstraint("user_id", "idempotency_key", name="uq_saved_looks_idempotency"),
@@ -186,8 +189,9 @@ class SavedLooks(Base):
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     # STEP 11.16 — backend-owned domain discriminator (hairstyle/grooming/
-    # outfit). Nullable only for legacy rows written before this contract
-    # (NULL = unknown); all new writes supply a non-null value.
+    # outfit, plus M9 "daily" via 0018). Nullable only for legacy rows
+    # written before this contract (NULL = unknown); all new writes supply
+    # a non-null value.
     source_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
@@ -429,5 +433,88 @@ class WardrobeWearGroups(Base):
         DateTime(timezone=True), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class EventType(Base):
+    """M8 event-type vocabulary row (E3 `event_types`, P1, K9.1).
+
+    System-owned controlled vocabulary (PR-3 deprecate-not-delete):
+    exactly the 8 frozen M8 codes, seeded by migration 0017. Separate
+    from the M5 knowledge occasions; `office` lives there, never here.
+    """
+
+    __tablename__ = "event_types"
+    __table_args__ = (
+        CheckConstraint("char_length(label) BETWEEN 1 AND 100", name="ck_event_types_label_len"),
+    )
+
+    code: Mapped[str] = mapped_column(
+        Text, primary_key=True, nullable=False
+    )
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class UserEvent(Base):
+    """A user-created calendar event (E3 `user_events`, P1, M8-A).
+
+    Current state (dated, editable): full-replace PUT, physical DELETE
+    (no archive column). `event_date` is a `DATE` value object, never a
+    timestamp; `event_time` is optional wall-clock `TIME` only — never
+    converted, never timezone-aware (DEC-016). Duplicates allowed (no
+    unique constraint beyond the PK, F-8). Feeds `preferred_occasions`
+    (R36) and seeds outfit generation (R35) at the use-case layer —
+    never from this model.
+    """
+
+    __tablename__ = "user_events"
+    __table_args__ = (
+        CheckConstraint("char_length(title) BETWEEN 1 AND 200", name="ck_user_events_title_len"),
+        CheckConstraint(
+            "location IS NULL OR char_length(location) BETWEEN 1 AND 200",
+            name="ck_user_events_location_len",
+        ),
+        CheckConstraint(
+            "notes IS NULL OR char_length(notes) BETWEEN 1 AND 2000",
+            name="ck_user_events_notes_len",
+        ),
+        Index("ix_user_events_user_id_event_date", "user_id", "event_date"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    event_type_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("event_types.code", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    event_date: Mapped[date] = mapped_column(Date, nullable=False)
+    event_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    location: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -40,6 +40,7 @@ abstract final class RouteNames {
   static const events = 'events';
   static const eventAdd = 'event-add';
   static const eventDetails = 'event-details';
+  static const eventEdit = 'event-edit';
 
   static const wardrobeAddCategory = 'wardrobe-add-category';
   static const wardrobeAddItem = 'wardrobe-add-item';

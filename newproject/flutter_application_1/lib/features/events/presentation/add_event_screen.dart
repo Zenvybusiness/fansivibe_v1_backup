@@ -1,42 +1,126 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
-import 'package:fansivibe/features/learning/domain/learning_service.dart';
+import 'package:fansivibe/features/events/data/event_models.dart';
+import 'package:fansivibe/features/events/data/events_repository.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
+/// Backend-first add/edit event form (M8-D).
+///
+/// Create mode posts `POST /v1/events`; edit mode ([event] non-null)
+/// puts a full `PUT /v1/events/{id}` replacement and pops the updated
+/// backend item. Displayed type labels map to the frozen backend TYPE
+/// CODES on submit. Time is optional (`HH:mm` or null); blank location
+/// / notes map to null (explicit clearing on update). The backend owns
+/// preference updates (R36) — this screen never touches
+/// `LearningService` and never mints local IDs.
 class AddEventScreen extends StatefulWidget {
-  const AddEventScreen({super.key});
+  /// Creates an [AddEventScreen] with an optional repository for testing.
+  /// Without a repository, uses the live backend implementation.
+  /// Pass [event] to edit that backend event instead of creating one.
+  const AddEventScreen({this.event, this.repository, super.key});
+
+  /// Backend event under edit, or null to create a new event.
+  final EventItem? event;
+
+  /// Backend repository override (tests only).
+  final EventsRepository? repository;
 
   @override
   State<AddEventScreen> createState() => _AddEventScreenState();
 }
 
 class _AddEventScreenState extends State<AddEventScreen> {
-  final _nameController = TextEditingController();
-  String? _selectedDate;
-  String? _selectedTime;
+  late final TextEditingController _nameController;
+  late final TextEditingController _locationController;
+  late final TextEditingController _notesController;
+  DateTime? _selectedDay;
+  TimeOfDay? _selectedTime;
   EventType? _selectedType;
-  int _nextId = 5;
+  bool _saving = false;
+
+  bool get _isEdit => widget.event != null;
+
+  EventsRepository get _repository =>
+      widget.repository ?? EventsRepositoryImpl();
 
   bool get _isValid =>
       _nameController.text.trim().isNotEmpty &&
-      _selectedDate != null &&
-      _selectedTime != null &&
-      _selectedType != null;
+      _selectedDay != null &&
+      _selectedType != null &&
+      !_saving;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.event;
+    _nameController = TextEditingController(text: existing?.title ?? '');
+    _locationController = TextEditingController(text: existing?.location ?? '');
+    _notesController = TextEditingController(text: existing?.notes ?? '');
+    if (existing != null) {
+      _selectedDay = DateTime.tryParse(existing.eventDate);
+      _selectedType = EventType.byCodeOrNull(existing.eventType);
+      final parts = existing.eventTime?.split(':');
+      if (parts != null && parts.length == 2) {
+        final hour = int.tryParse(parts[0]);
+        final minute = int.tryParse(parts[1]);
+        if (hour != null && minute != null) {
+          _selectedTime = TimeOfDay(hour: hour, minute: minute);
+        }
+      }
+    }
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
+    _locationController.dispose();
+    _notesController.dispose();
     super.dispose();
+  }
+
+  String get _dateLabel {
+    final day = _selectedDay;
+    if (day == null) return 'Select date';
+    return '${_months[day.month - 1]} ${day.day}, ${day.year}';
+  }
+
+  String get _timeLabel {
+    final time = _selectedTime;
+    if (time == null) return 'Select time (optional)';
+    final hour12 = time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = time.period == DayPeriod.am ? 'AM' : 'PM';
+    return '$hour12:$minute $period';
+  }
+
+  String get _eventDateWire {
+    final day = _selectedDay!;
+    final month = day.month.toString().padLeft(2, '0');
+    final date = day.day.toString().padLeft(2, '0');
+    return '${day.year}-$month-$date';
+  }
+
+  String? get _eventTimeWire {
+    final time = _selectedTime;
+    if (time == null) return null;
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  }
+
+  /// Blank optional text maps to null (absent on create, cleared on PUT).
+  String? _optionalText(TextEditingController controller) {
+    final text = controller.text.trim();
+    return text.isEmpty ? null : controller.text;
   }
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     final picked = await showDatePicker(
       context: context,
-      initialDate: now.add(const Duration(days: 7)),
-      firstDate: now,
+      initialDate: _selectedDay ?? now.add(const Duration(days: 7)),
+      firstDate: today,
       lastDate: now.add(const Duration(days: 365)),
       builder: (context, child) {
         return Theme(
@@ -51,23 +135,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
       },
     );
     if (picked != null) {
-      final months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
       setState(() {
-        _selectedDate =
-            '${months[picked.month - 1]} ${picked.day}, ${picked.year}';
+        _selectedDay = picked;
       });
     }
   }
@@ -76,10 +145,9 @@ class _AddEventScreenState extends State<AddEventScreen> {
     final now = TimeOfDay.now();
     final picked = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay(
-        hour: now.hour + 1 > 23 ? 18 : now.hour + 1,
-        minute: 0,
-      ),
+      initialTime:
+          _selectedTime ??
+          TimeOfDay(hour: now.hour + 1 > 23 ? 18 : now.hour + 1, minute: 0),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -93,29 +161,74 @@ class _AddEventScreenState extends State<AddEventScreen> {
       },
     );
     if (picked != null) {
-      final hour = picked.hourOfPeriod;
-      final minute = picked.minute.toString().padLeft(2, '0');
-      final period = picked.period == DayPeriod.am ? 'AM' : 'PM';
       setState(() {
-        _selectedTime = '${hour == 0 ? 12 : hour}:$minute $period';
+        _selectedTime = picked;
       });
     }
   }
 
-  void _addEvent() {
+  Future<void> _submit() async {
     if (!_isValid) return;
+    setState(() => _saving = true);
+    try {
+      final title = _nameController.text.trim();
+      final code = _selectedType!.id;
+      final date = _eventDateWire;
+      final time = _eventTimeWire;
+      final location = _optionalText(_locationController);
+      final notes = _optionalText(_notesController);
+      if (_isEdit) {
+        final updated = await _repository.updateEvent(
+          id: widget.event!.id,
+          request: EventUpdateRequest(
+            title: title,
+            eventType: code,
+            eventDate: date,
+            eventTime: time,
+            location: location,
+            notes: notes,
+          ),
+        );
+        if (!mounted) return;
+        if (updated != null) {
+          Navigator.of(context).pop<EventItem>(updated);
+        } else {
+          _showFailure('Couldn\'t save your changes. Please try again.');
+        }
+      } else {
+        final created = await _repository.createEvent(
+          EventCreateRequest(
+            title: title,
+            eventType: code,
+            eventDate: date,
+            eventTime: time,
+            location: location,
+            notes: notes,
+          ),
+        );
+        if (!mounted) return;
+        if (created != null) {
+          Navigator.of(context).pop<bool>(true);
+        } else {
+          _showFailure('Couldn\'t create your event. Please try again.');
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
 
-    final event = UserEvent(
-      id: (_nextId++).toString(),
-      name: _nameController.text.trim(),
-      date: _selectedDate!,
-      time: _selectedTime!,
-      eventType: _selectedType!,
+  void _showFailure(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: FansivibeColors.accentGold,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
+      ),
     );
-
-    LearningService.instance.addPreferredOccasion(event.eventType.name);
-
-    Navigator.of(context).pop<UserEvent>(event);
   }
 
   @override
@@ -125,7 +238,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Add Event'),
+        title: Text(_isEdit ? 'Edit Event' : 'Add Event'),
         leading: IconButton(
           icon: Icon(Icons.close_rounded, color: FansivibeColors.textPrimary),
           onPressed: () => Navigator.of(context).pop(),
@@ -152,7 +265,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
                       children: [
                         const SizedBox(height: 8),
                         Text(
-                          'New Event',
+                          _isEdit ? 'Edit Event' : 'New Event',
                           style: theme.textTheme.displayLarge?.copyWith(
                             fontWeight: FontWeight.bold,
                             color: FansivibeColors.textPrimary,
@@ -161,7 +274,9 @@ class _AddEventScreenState extends State<AddEventScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Fill in the details below',
+                          _isEdit
+                              ? 'Update the details below'
+                              : 'Fill in the details below',
                           style: theme.textTheme.bodyLarge?.copyWith(
                             color: FansivibeColors.textSecondary,
                           ),
@@ -190,20 +305,20 @@ class _AddEventScreenState extends State<AddEventScreen> {
                         _buildPickerTile(
                           context,
                           icon: Icons.calendar_today_outlined,
-                          value: _selectedDate,
+                          value: _selectedDay != null ? _dateLabel : null,
                           hint: 'Select date',
                           onTap: _pickDate,
                         ),
                         const SizedBox(height: 24),
 
                         // Time
-                        _buildFieldLabel(context, 'Time'),
+                        _buildFieldLabel(context, 'Time (optional)'),
                         const SizedBox(height: 8),
                         _buildPickerTile(
                           context,
                           icon: Icons.access_time_rounded,
-                          value: _selectedTime,
-                          hint: 'Select time',
+                          value: _selectedTime != null ? _timeLabel : null,
+                          hint: 'Select time (optional)',
                           onTap: _pickTime,
                         ),
                         const SizedBox(height: 24),
@@ -212,15 +327,50 @@ class _AddEventScreenState extends State<AddEventScreen> {
                         _buildFieldLabel(context, 'Event Type'),
                         const SizedBox(height: 12),
                         _buildEventTypeGrid(context),
+                        const SizedBox(height: 24),
+
+                        // Location
+                        _buildFieldLabel(context, 'Location (optional)'),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _locationController,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: FansivibeColors.textPrimary,
+                          ),
+                          decoration: _inputDecoration(
+                            hint: 'e.g. Grand Ballroom',
+                            icon: Icons.place_outlined,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Notes
+                        _buildFieldLabel(context, 'Notes (optional)'),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _notesController,
+                          maxLines: 3,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: FansivibeColors.textPrimary,
+                          ),
+                          decoration: _inputDecoration(
+                            hint: 'e.g. Black tie',
+                            icon: Icons.notes_outlined,
+                          ),
+                        ),
                         const SizedBox(height: 32),
 
-                        // Add button
+                        // Submit button
                         SizedBox(
                           width: double.infinity,
                           child: FansiButton.primary(
-                            label: 'Add Event',
-                            icon: Icons.add_rounded,
-                            onPressed: _isValid ? _addEvent : null,
+                            label: _saving
+                                ? 'Saving…'
+                                : (_isEdit ? 'Save Changes' : 'Add Event'),
+                            icon: _isEdit
+                                ? Icons.check_rounded
+                                : Icons.add_rounded,
+                            onPressed: _isValid ? _submit : null,
                           ),
                         ),
                         const SizedBox(height: 32),
@@ -401,3 +551,18 @@ class _AddEventScreenState extends State<AddEventScreen> {
     );
   }
 }
+
+const List<String> _months = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];

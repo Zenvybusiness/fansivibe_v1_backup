@@ -189,6 +189,7 @@ snapshot — the only durable trace of AI output the user kept
 | `user_id` | `uuid` | NOT NULL | – | FK → `users.id` | Owner. |
 | `look_id` | `text` | NULL | – | FK → `looks.code` | Optional catalog reference (P0 stores reference + title); survives catalog edits (R30). |
 | `title` | `text` | NOT NULL | – | `CHECK (char_length(title) BETWEEN 1 AND 200)` | Saved-look title (today only titles persist in the blob). |
+| `source_context` | `text` | NULL | – | `CHECK (source_context IN ('hairstyle', 'grooming', 'outfit', 'daily'))` | Backend-owned domain discriminator (STEP 11.16 + M9 `0018`); NULL = legacy row, domain unknown. |
 | `snapshot` | `jsonb` | NOT NULL | – | | Immutable payload frozen at save time — ensemble, score, reasons (R31). Never updated once written. |
 | `source_run_id` | `uuid` | NULL | – | FK → `analysis_runs.id` | Optional provenance when saved from a scan (P2; SET NULL until runs exist). |
 | `created_at` | `timestamptz` | NOT NULL | `now()` | | Save time. |

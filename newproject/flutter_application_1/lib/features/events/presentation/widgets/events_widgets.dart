@@ -1,17 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
+import 'package:fansivibe/features/events/data/event_models.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
+/// Backend-first event card (M8-D).
+///
+/// Renders one [EventItem] from the backend collection. The type icon and
+/// label resolve from the frozen code table with an `other` fallback —
+/// unknown codes never crash the list. The previous local
+/// Ready/Pending badge is gone: the server stores no outfit status, so
+/// the badge was fabricated local state.
 class EventCard extends StatelessWidget {
   const EventCard({required this.event, required this.onTap, super.key});
 
-  final UserEvent event;
+  final EventItem event;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final eventType =
+        EventType.byCodeOrNull(event.eventType) ?? EventType.mockTypes.last;
+    final timeLabel = event.displayTime ?? 'No time set';
 
     return InkWell(
       onTap: onTap,
@@ -31,7 +42,7 @@ class EventCard extends StatelessWidget {
                 borderRadius: FansivibeRadius.smdBorder,
               ),
               child: Icon(
-                event.eventType.icon,
+                eventType.icon,
                 color: FansivibeColors.accentGold,
                 size: 22,
               ),
@@ -42,7 +53,7 @@ class EventCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    event.name,
+                    event.title,
                     style: theme.textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: FansivibeColors.textPrimary,
@@ -60,7 +71,7 @@ class EventCard extends StatelessWidget {
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
-                          '${event.date} \u2022 ${event.time}',
+                          '${event.displayDate} \u2022 $timeLabel',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: FansivibeColors.textSecondary,
                             fontSize: 12,
@@ -72,7 +83,7 @@ class EventCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    event.eventType.name,
+                    eventType.name,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: FansivibeColors.accentGold.withValues(alpha: 0.8),
                       fontSize: 11,
@@ -83,45 +94,12 @@ class EventCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Column(
-              children: [
-                _buildStatusBadge(context),
-                const SizedBox(height: 4),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: FansivibeColors.textSecondary,
-                  size: 20,
-                ),
-              ],
+            Icon(
+              Icons.chevron_right_rounded,
+              color: FansivibeColors.textSecondary,
+              size: 20,
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusBadge(BuildContext context) {
-    final theme = Theme.of(context);
-    final hasOutfit = event.hasOutfitRecommendation;
-    final bgColor = hasOutfit
-        ? FansivibeColors.successContainer.withValues(alpha: 0.2)
-        : FansivibeColors.textSecondary.withValues(alpha: 0.1);
-    final textColor = hasOutfit
-        ? FansivibeColors.onSuccessContainer
-        : FansivibeColors.textSecondary;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: FansivibeRadius.smBorder,
-      ),
-      child: Text(
-        hasOutfit ? 'Ready' : 'Pending',
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: textColor,
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
         ),
       ),
     );

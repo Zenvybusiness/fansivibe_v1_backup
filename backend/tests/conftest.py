@@ -22,7 +22,7 @@ from app.infrastructure.db.session import DATABASE_URL
 
 _TRUNCATE = (
     "TRUNCATE learning_signals, activity_days, saved_looks, analysis_runs, "
-    "wardrobe_wear_events, wardrobe_wear_groups, user_state, users CASCADE"
+    "user_events, wardrobe_wear_events, wardrobe_wear_groups, user_state, users CASCADE"
 )
 
 

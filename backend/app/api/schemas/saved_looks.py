@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 class SaveLookRequest(BaseModel):
     lookId: Optional[str] = Field(default=None, max_length=200)
     title: str = Field(min_length=1, max_length=200)
-    sourceContext: Literal["hairstyle", "grooming", "outfit"]
+    sourceContext: Literal["hairstyle", "grooming", "outfit", "daily"]
     snapshot: dict[str, Any]
 
 

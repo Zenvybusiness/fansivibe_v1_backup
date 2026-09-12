@@ -29,6 +29,18 @@ class EventType {
     ),
     EventType(id: 'other', name: 'Other', icon: Icons.event_outlined),
   ];
+
+  /// Backend-safe lookup of a frozen type CODE.
+  ///
+  /// Returns null for unknown codes instead of throwing, so backend-first
+  /// surfaces can fall back to the `other` presentation rather than
+  /// crashing on unexpected vocabulary (M8-D).
+  static EventType? byCodeOrNull(String code) {
+    for (final type in EventType.mockTypes) {
+      if (type.id == code) return type;
+    }
+    return null;
+  }
 }
 
 class UserEvent {

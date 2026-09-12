@@ -33,7 +33,13 @@ from app.domain.ports.repositories import (
     WardrobeItemRepository,
 )
 
-_SOURCE_CONTEXTS = {"hairstyle", "grooming", "outfit"}
+_SOURCE_CONTEXTS = {"hairstyle", "grooming", "outfit", "daily"}
+
+# Snapshot `selectedItemIds` ownership validation (BC-56) applies to the
+# outfit family saves: "outfit" and the M9 "daily" TodayLook save (DEC-018
+# §1 — otherwise daily item IDs would skip validation). Hairstyle /
+# grooming snapshots pass through untouched, exactly as before.
+_VALIDATED_CONTEXTS = ("outfit", "daily")
 
 
 def _source_run_id_from_snapshot(snapshot: dict) -> Optional[UUID]:
@@ -86,13 +92,14 @@ class SaveRecommendation:
     def _validated_outfit_snapshot(
         self, *, user_id: UUID, snapshot: dict
     ) -> dict:
-        """Validate and normalize `snapshot.selectedItemIds` for an outfit save.
+        """Validate and normalize `snapshot.selectedItemIds` for an outfit-family save.
 
-        `source_context` is authoritative: this runs only for outfit saves, and
-        outfit identity is never inferred from the snapshot itself. Hairstyle /
-        grooming snapshots pass through untouched. Returns the snapshot to
-        persist — identical except `selectedItemIds`, when supplied, becomes
-        the deterministic sorted list of unique canonical UUID strings.
+        `source_context` is authoritative: this runs only for "outfit" and
+        M9 "daily" saves, and outfit-family identity is never inferred from
+        the snapshot itself. Hairstyle / grooming snapshots pass through
+        untouched. Returns the snapshot to persist — identical except
+        `selectedItemIds`, when supplied, becomes the deterministic sorted
+        list of unique canonical UUID strings.
         """
         if not isinstance(snapshot, dict):
             raise _invalid_selected_item_ids("snapshot must be an object")
@@ -148,7 +155,7 @@ class SaveRecommendation:
         if look_id is not None and self._knowledge.lookup_hairstyle_look(look_id) is None and self._knowledge.lookup_grooming_look(look_id) is None:
             raise not_found()
 
-        if source_context == "outfit":
+        if source_context in _VALIDATED_CONTEXTS:
             # Normalized BEFORE the idempotency check so a byte-identical
             # replay compares against the canonical persisted form and
             # returns the original row (C-12/API-33), instead of conflicting

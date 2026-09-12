@@ -18,7 +18,7 @@ import 'package:fansivibe/features/onboarding/presentation/screens/account_creat
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/presentation/discover_screen.dart';
 import 'package:fansivibe/features/discover/presentation/look_details_screen.dart';
-import 'package:fansivibe/features/events/data/event_mock_data.dart';
+import 'package:fansivibe/features/events/data/event_models.dart';
 import 'package:fansivibe/features/events/presentation/add_event_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_details_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_list_screen.dart';
@@ -350,9 +350,19 @@ GoRoute(
                     path: 'details',
                     name: RouteNames.eventDetails,
                     builder: (context, state) {
-                      final event = state.extra as UserEvent?;
+                      final event = state.extra as EventItem?;
                       return event != null
                           ? EventDetailsScreen(event: event)
+                          : _missingDataScreen();
+                    },
+                  ),
+                  GoRoute(
+                    path: 'edit',
+                    name: RouteNames.eventEdit,
+                    builder: (context, state) {
+                      final event = state.extra as EventItem?;
+                      return event != null
+                          ? AddEventScreen(event: event)
                           : _missingDataScreen();
                     },
                   ),

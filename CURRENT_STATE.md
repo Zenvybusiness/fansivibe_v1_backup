@@ -5,6 +5,627 @@ Updated By: opencode agent
 
 ---
 
+## STEP 19.25 — FULL APP RUN / INTEGRATION CHECK — COMPLETE (audit only, uncommitted)
+
+Task: run the current app end-to-end and report actual working state. NO
+features, NO app-code changes, NO commit, NO push. Skills:
+`.agents/skills/` inspected (21 entries, all Dart/Flutter code-creation)
+— none loaded (run/audit only; 19.17/19.23 precedent). DECISIONS.md
+untouched. Zero application files modified this step (flutter runs
+touched generated registrants only — restored via checkout; smoke
+scripts lived in Temp; DB restored to zero user-state, see Cleanup).
+Live processes left running (detached): uvicorn `127.0.0.1:8000`,
+flutter web-server `:8099` (both HTTP 200 at hand-over).
+
+### P1 discovery
+- Backend start: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+  (from `backend/`, per `backend/README.md`). Health: `GET /health`.
+- Flutter: no fixed run cmd in repo; viable targets here are Chrome/Edge
+  (`localhost` correct) and web-server; no Android SDK/emulator, no VS
+  (Windows build unavailable). All Flutter data clients default to
+  `http://localhost:8000` via `--dart-define=ASSISTANT_BASE_URL=...`;
+  no `10.0.2.2` handling anywhere (will break on Android emulator).
+- DB config (non-secret): host localhost, port 5432, db `fansivibe`,
+  user `fansivibe` (defaults in `settings.py` + `docker-compose.yml`).
+  No `.env` / example-env files exist; `DATABASE_URL`,
+  `FANSIVIBE_DEV_TOKEN` unset (defaults active). Auth = dev seam:
+  `Bearer dev` → auto-seeded dev user (D-AUTH-1).
+- Migrations: Alembic, single head `0018` (`current` = `0018 (head)`).
+  Numbering gap is historical, not a break: `0008.down_revision =
+  "0006"` (no `0007` ever), chain linear, one head.
+- FastAPI 0.141 note: `app.routes` shows `_IncludedRouter` placeholders
+  in a fresh interpreter — inspection artifact only; the live server's
+  `/openapi.json` proves all routes serve.
+
+### P2 database — all YES
+- PostgreSQL reachable YES; database reachable YES.
+- `alembic heads/current` = single `0018 (head)`; `alembic_version` =
+  `0018`. 19 tables incl. users, user_state, wardrobe_items,
+  saved_looks, learning_signals, activity_days, wardrobe_wear_events,
+  wardrobe_wear_groups, event_types, user_events, looks, colors,
+  materials, wardrobe_categories, run_types, signal_types,
+  analysis_runs. Reference seeds intact (event_types 8, looks 8,
+  colors 17, materials 16, categories 5); all user tables 0 rows
+  pre/post check.
+
+### P3 backend — RUNNING, health PASS
+- `http://127.0.0.1:8000`, no import/startup errors, `GET /health` →
+  200 `{"status": "ok"}`. 27 API paths serve (wardrobe 9, events 4,
+  looks 5, knowledge 5, analysis 5, learning 1, users 1, assistant
+  chat+feedback, health).
+
+### P4 API smoke (live PG, dev user; temp rows cleaned)
+- Read suite 15/16 PASS: auth-me 200, unauth/bad-token 401s, knowledge
+  ×5 (unauthenticated by design), learning zero-state 60/0/`[]`,
+  wardrobe empty 200, wear-summary zero 200, saved empty 200, events
+  empty 200, today-empty 404 (honest), feedback-empty-body 422. Sole
+  non-pass was my expectation: `insight` → 204 honest-empty (correct).
+- Write suite ALL PASS: wardrobe create×2/list-2/read/patch,
+  wear-capture 201 + idempotent replay (`created:false`, same ids) +
+  wear-summary totalWears 2, event create/list-1/outfit 200
+  (`Date Night Outfit`, matchScore 0.51)/update, today 200, today-save
+  201 + replay same id, saved-list 1, feedback 204, learning
+  64/2/2/streak 1/recents `["smoke-card","date Look"]`, today-regen
+  200 (seeded), saved-delete 204 + list 0, item deletes + list 0.
+- R36 side-proof: with no event present, today derived
+  `occasion: "date"` from prefs persisted by the earlier event create.
+- Cleanup: API deletes for all temp rows + `DELETE FROM users`
+  (all user tables `ON DELETE CASCADE`, verified) → all user tables 0.
+
+### P5 Flutter — RUNNING (web-server), target web
+- `flutter doctor`: Flutter 3.41.7, no Android SDK, no VS; Chrome/Edge
+  present. `flutter devices`: Windows/Chrome/Edge (no emulator).
+- `flutter build web`: SUCCESS (143s, `build/` ignored by git).
+  `flutter run -d web-server --web-port 8099`: SERVING, HTTP 200.
+  `events_api_test`: 19/19 pass. Backend M10-B re-run: 23/23 pass.
+- Backend URL used by Flutter: `http://localhost:8000` (correct for
+  web/desktop; emulator/physical-device LAN unhandled).
+
+### P6–P8 mock vs real (code-verified, lib/ grep)
+- COMPLETE (real→real→real): assistant feedback (`AssistantService`→
+  `AssistantClient.submitCardFeedback`), saved looks (list/delete),
+  events (list/add/edit/delete/outfit, zero mock consumers),
+  learning summary (Home + Profile backend-first), wardrobe
+  add/details (create/read/update/delete/logWear via real repo),
+  insight + wear-summary slots (real, no mock fallback), hairstyle +
+  grooming services (real client, mock fallback).
+- PARTIAL: wardrobe list/categories/counts (`LearningService` local +
+  `WardrobeMockData`; repo list/detail has mock fallback), knowledge
+  (client+repo real but zero UI consumers — pickers use mock vocab),
+  home greeting name (`LocalStorage`, not `/v1/users/me`),
+  onboarding (local flow; face service real w/ fallback).
+- MOCK: DailyOutfitScreen (`DailyOutfitData.mock`, save → local
+  `LearningService`), home Today's Look card (`TodaysLookData.mock`),
+  outfit_builder ×3 (`OutfitRecommendation.mock`), discover
+  (`forYouMock`/`trendingMock`), stylist (`mockActions`),
+  subscription screen (static plans; no billing backend exists).
+- BROKEN: outfit_scan ×2 (`Bearer dev-token` hardcoded vs seam `dev`
+  → every backend call 401; also hardcoded localhost, no dart-define).
+- NOT STARTED: media library (only `MediaRef` transport).
+
+### P10 scorecard (≈62% genuinely integrated)
+- Formula: COMPLETE=1, PARTIAL=0.5 over the 13 scoped features:
+  Feedback COMPLETE, Knowledge PARTIAL, Wardrobe PARTIAL, Wear
+  COMPLETE, Saved COMPLETE, Events COMPLETE, Today PARTIAL (backend
+  done, UI mock), Learning COMPLETE, Reactions COMPLETE, Outfit-gen
+  PARTIAL (event/today derivation real, builder UI mock), Discover
+  MOCK, Subscriptions MOCK, Media NOT STARTED → (6+4×0.5)/13 ≈ 62%.
+  Backend-only completeness is higher (~85%, 11/13 backends real).
+
+### P11 bugs
+- P1: outfit_scan `dev-token` 401 (2 files); no CORS middleware
+  (browser-web build cannot call the API; desktop/mobile fine);
+  Today's Look UI unconnected to the finished M9 backend.
+- P2: wardrobe list local vs CRUD-via-API split-brain; knowledge
+  pickers mock; no `10.0.2.2`/LAN handling; home name local-only.
+- P3: `Alex` fallback; outfit_scan localhost hardcode.
+- KNOWN BASELINE (untouched, pre-existing): backend saved_looks 5
+  (18.5 FK), users_api 3, grooming_api 2, db_session 2; Flutter
+  wardrobe `Details` 1.
+
+### P12 next
+- Exact next feature: M9-Flutter — wire DailyOutfitScreen to
+  `GET /v1/looks/today` (+POST seed, +save-daily), M8-D pattern.
+
+---
+
+## STEP 19.24 — M9 TODAY'S LOOK BACKEND + SAVE INTEGRATION — PASS (uncommitted)
+
+Task: complete M9 backend in one batch (#31–33, UC-16/17) per frozen
+DEC-017/018. No Flutter, no M13/M11/M14, M8 treated as frozen. Skills:
+`.agents/skills/` inspected (21 entries, all Dart/Flutter
+code-creation) — none loaded (no Python backend skill; 19.19–19.21
+precedent). DECISIONS.md untouched. No commit, no push.
+
+### Implemented (backend only, live PG verified)
+
+- Derivation (`application/today.py`, new): `GetTodayLook` (#31, UC-17)
+  + `RegenerateTodayLook` (#32, UC-16) sharing `_derive_today_look` —
+  READ/DERIVE only (zero commits/writes: no save/signal/wear/prefs/
+  event/wardrobe mutation). Canonical generate→score→rank→select reused
+  verbatim (empty preferred-item set, M8-C precedent). Nearest event via
+  frozen M8 ordering (`from=today-UTC`, date ASC / time ASC NULLS LAST /
+  id ASC, page_size 1); occasions `[event_code]+prefs` deduped,
+  event-first; no event → normal derivation (never 404 for it). Variant/
+  seed are opaque 1..200 selectors over ranked candidates (absent →
+  winner via `select_best_outfit_candidate`; supplied → stable SHA-256
+  index — same key repeats, different keys vary best-effort); `""`/over-
+  length → 422 in use case and router. Weather: no provider, always
+  absent, never a failure. Engine surprise → 500 on GET / 503
+  (`ai_failure()`) on POST; no-candidate → None → 404.
+- C12 adapter: components = owned rows (UUID ids, vocab codes, no hex);
+  matchScore/styleScore = winner native 0–100 int (clamped; styleScore
+  echoes the derivation — 87 banned, no M10 dependency); occasion =
+  event code else first pref else omitted; title `{Label} Look` /
+  `Today's Look`; grounded description/reasons (occasion + coverage +
+  favorites); styleDna = present-only profile projection (gaps tolerated);
+  wardrobeContext = {totalItems, matchingItems}; alternatives =
+  ranked[1:3] minimal {member-derived id, score}; selectedItemIds =
+  canonical sorted-unique winner UUIDs (additive top level).
+- Router (`routers/looks.py`): `GET /v1/looks/today`, `POST
+  /v1/looks/today`, `POST /v1/looks/today/save` registered BEFORE
+  `/saved*` (DEC-017 §7 guard); bare `TodayLook` with `exclude_none`;
+  401/404/422 (+503 POST, +409 save) frozen mappings. Save delegates
+  verbatim to M7 `SaveRecommendation` (TRX-3), enforces
+  `sourceContext == "daily"` (else 422) + required Idempotency-Key.
+- Save compat (DEC-018 §1, additive only): `0018` migration widens the
+  CHECK with `'daily'` (single head 0018; reversible — downgrade/
+  upgrade round-trip proven live, CHECK text verified both ways);
+  `models.py` CHECK + comment; schema `Literal` +4th; `_SOURCE_CONTEXTS`
+  + daily with validation predicate `in ("outfit","daily")` (new
+  `_VALIDATED_CONTEXTS`); outfit predicates (`get_outfit_coverage`,
+  `resolve_preferred_item_ids`, W-7) frozen `== "outfit"`; port/model
+  comments + `TABLE_DEFINITIONS` `source_context` row (prescribed
+  doc-touches). M8 files untouched except one REQUIRED M8-test touch-up:
+  `test_m8a` chain test keeps the 0016→0017 assertions verbatim and
+  extends the head to the linear 0017→0018 link (chain advance owned by
+  this step; round-trip still ends at head).
+
+### Contract discrepancies found (frozen-first, no invention)
+
+- Task text claims wire matchScore "native 0–1"; DEC-017 family spec
+  (`0–100 int`), DEC-018 C12 ("no rescale"), engine 13.2 budget, DAILY
+  §4.4, and the `91` builder mock all fix TodayLook at 0–100 int —
+  implemented 0–100 (same conflict class as M8-C's ensemble case,
+  opposite direction).
+- Task text names `selectedOccasion` (M8 ensemble field); authoritative
+  TodayLook carries `occasion` (DAILY §4.4, DEC-018 C12) — implemented
+  `occasion`.
+- Task text names 503 `EXTERNAL_SERVICE_FAILURE`; the frozen 12-category
+  taxonomy emits 503 as `AI_FAILURE` (`errors.ai_failure()`) — used the
+  frozen helper.
+
+### Tests (`tests/test_m9_today_look_api.py`, new, 35 passed)
+
+A–AD full matrix: auth ×3, empty→404, valid UUID-owned derivation, no
+local IDs, byte-identical GET, read-only snapshot proof (saves/signals/
+activity/wear/items/events/prefs), variant/seed 422s, POST==GET,
+same-seed repeat, different-seed variation, nearest-wins, event-over-
+prefs, dupe-pref byte-equality, pref-only, bare-today, past-ignored,
+weather-absent, tops-only 404 ×2, exact DTO shape + banned-key/reason
+scan, styleDna projection + gap omission, sorted-unique owned
+selectedItemIds, daily save (row + single `look_saved` with daily
+context), replay, 409, missing-key 422, non-daily 422, local/malformed/
+foreign ID fail-closed with zero rows, outfit-save + wardrobe-422
+non-regression, daily list + delete lifecycle, no-wear + single-signal
+proof.
+
+### Regression (serial, live PG)
+
+- New M9 35 green (re-run green after 0018 round-trip).
+- M7 use-case/delete + engine/decision + wardrobe + prefs + M10-B +
+  assistant-feedback 250 green. M8-A/B/C 73 green (after the chain-test
+  touch-up).
+- 5 failures in `test_saved_looks.py`, byte-identical pre-existing
+  baseline (18.5 FK: fixture `sourceRunId 00000000-…-0001` 500s at
+  INSERT before any source-context logic; same 5 IDs as the 19.23
+  audit; widening is a superset and cannot cause them). Nothing fixed
+  (out of scope), nothing new.
+- `py_compile` clean (10 files). `git diff --check` clean. Heads =
+  single `0018`; `current` = `0018 (head)`. Zero Flutter diff this step
+  (newproject diff = pre-existing M8 files only). Staged 0, nothing
+  committed/pushed. New `.pyc` untracked-only.
+
+### Git safety
+
+- HEAD `0f4f368` intact. Diff = M9 files (0018 migration, today
+  use-case/schemas, looks router, M7 compat, models/ports comments,
+  TABLE_DEFINITIONS row, test_m9, test_m8a chain touch-up) + frozen M8
+  work + CURRENT_STATE entry. No Flutter, no registrant, no pycache
+  staged.
+
+---
+
+## STEP 19.23 — M8 EVENTS FINAL CROSS-LAYER AUDIT — COMPLETE (audit only, uncommitted)
+
+Task: audit the complete M8 Events feature (M8-A foundation + M8-B CRUD/R36
++ M8-C outfit + M8-D Flutter). AUDIT ONLY. Skills: `.agents/skills/`
+inspected (21 entries, all Dart/Flutter code-creation) — none loaded
+(audit-only; 19.17 precedent). No product code written, no defect found
+requiring a fix — code left untouched. DECISIONS.md untouched (zero diff
+lines). No commit, no push.
+
+### CHECK 1 — CREATE: PASS
+`POST /v1/events` (`routers/events.py:102-128` → `CreateEvent`,
+`application/events.py:135-190`): Bearer auth (401), strict validation
+(active-type allow-list, past-date vs server-UTC today, `HH:mm` regex,
+1..200 / 1..2000 bounds, no trim), backend UUID PK, 201 bare `UserEvent`.
+R36 append-if-absent runs as sequential second unit after commit; feed
+failure leaves the 201 standing (F-8). No signal/wear/save writes —
+only `user_state.update_preferences` on the R36 path.
+
+### CHECK 2 — LIST: PASS
+`GET /v1/events` (`ListEvents`, `application/events.py:193-228` + repo
+`list_for_user`): owner-scoped (OW-1), absent `from` = server-UTC today,
+`sort=event_date`-only, asc soonest-first, deterministic
+date/time-NULLS-LAST/id ordering, page 1 / page_size 20 / max 100 → 422,
+empty page 200. Flutter `EventListScreen` consumes `EventListPage`
+backend-first: loading/error+retry/empty states, reload on add/details
+return; `mockEvents`/`UserEvent`/`typeById` have zero usages outside
+`event_mock_data.dart` (grep-verified) — no mock fallback.
+
+### CHECK 3 — UPDATE: PASS
+`PUT /v1/events/{id}` (`UpdateEvent`, `application/events.py:231-295`):
+full replacement, UUID path (malformed → frozen 422 handler),
+nullable clearing (None overwrites), full re-validation, 404-not-403
+for foreign/missing, `updated_at` bumped via `func.now()` + refresh
+(M8-A touch-up), R36 only when the type code changed (old preference
+retained). Flutter `AddEventScreen(event:)` prefills from the backend
+item and PUTs the full body with blank→null mapping.
+
+### CHECK 4 — DELETE: PASS
+`DELETE /v1/events/{id}` (`DeleteEvent`, 204): exact backend UUID,
+confirm dialog, 204/alreadyGone pop-true, failure retains the row with
+a truthful snackbar, foreign/missing 404, preferences/history untouched
+(BC-41, no use-case writes at all).
+
+### CHECK 5 — EVENT OUTFIT: PASS
+`POST /v1/events/{id}/outfit` (`GenerateEventOutfit`,
+`application/events.py:327-470`): owner event only (404-not-403), full
+owner wardrobe pages, occasions `[event_code]+prefs` deduped event-first,
+canonical generate→score→rank→select pipeline reused verbatim,
+UUID-only components, deterministic output, `None` → 204 honest empty
+(no 404/503 lies), `exclude_none` honesty subset, zero commits/writes —
+no save, no wear, no signal, no preference/event/wardrobe mutation.
+
+### CHECK 6 — FLUTTER: PASS
+`EventListScreen` backend-first; `AddEventScreen` create + edit via
+repo; `EventDetailsScreen` stateful on backend `EventItem` (exact-UUID
+delete, `eventEdit` route popping the updated item, inline outfit
+section with 204-empty and failure states, no save/wear/signal calls);
+`EventCard` renders `EventItem` with `other` fallback (fabricated badge
+removed); router passes `EventItem` (`eventDetails`/`eventEdit` + new
+`eventEdit` name); R36 absent from Flutter (`LearningService` appears
+only in a doc comment); `_nextId` gone; navigation/components/tokens
+intact; loading/error/empty states truthful (null = unavailable + retry).
+
+### CHECK 7 — UUID SAFETY: PASS
+Events-feature grep: `id` is `String` UUID end-to-end (create → list →
+edit/delete/outfit verbatim, path-interpolated, never translated);
+`EventType.mockTypes` is presentation code→label/icon table only;
+numeric `'1'`–`'4'` ids exist solely in the dead `mockEvents` list with
+zero consumers. Backend components carry owned wardrobe UUID strings;
+`str(record.id)` adaptation only. No numeric/local ID crosses the wire.
+
+### CHECK 8 — SIDE EFFECTS: PASS
+CRUD touches only `user_events` (+ additive `preferred_occasions` R36
+append); outfit generation is read-only (no commit call, prefs read via
+`get_profile` only). No `LearningSignal` insert, no wear ledger/event,
+no `SaveRecommendation`, no wardrobe mutation anywhere in
+`application/events.py` (grep-verified against the only two
+`update_preferences` call sites = R36 create/update paths).
+
+### CHECK 9 — TESTS
+- M8 backend matrix: `test_m8a` + `test_m8b` + `test_m8c` = 73 passed.
+- Scoped regression: wardrobe API + decision/engine + update_prefs +
+  saved-looks-uc/delete + M10-B summary = 240 passed.
+- Flutter: `events_api_test` + `event_screens_test` = 40 passed;
+  outfit-builder + daily-outfit + wardrobe-screen + assistant = 65
+  passed / 1 failed.
+- `flutter analyze` (events/router/tests): No issues found.
+- `py_compile` (11 M8 backend files incl. migration): clean.
+- `git diff --check`: clean.
+- Known baselines still present, proven unrelated (failing files absent
+  from the M8 diff; signatures match prior records): backend 12 =
+  saved_looks 5 (500-on-save FK-fixture cascade, `total` 0 downstream) +
+  users_api 3 (profile drift) + grooming_api 2 + db_session 2 (stale
+  seeds); Flutter 1 = `wardrobe_screen_test` "item tap navigates to
+  item details" (Found 0 widgets with text "Details" — 19.17
+  pristine-worktree proof, wardrobe untouched). Nothing fixed (out of
+  scope), nothing new.
+
+### CHECK 10 — GIT SAFETY
+- HEAD `0f4f368` intact. Staged 0. Nothing committed/pushed.
+- Diff = M8-scoped only (6 backend prod + 1 migration + conftest +
+  main mount + 3 M8 tests + 7 Flutter events/router + 2 Flutter tests +
+  CURRENT_STATE); unrelated-file filter returns empty; DECISIONS.md zero
+  diff; registrant dirs status-clean (audit's own flutter runs rewrote
+  them stat-dirty with zero content diff — restored via checkout, 19.22
+  precedent).
+- Tracked `__pycache__` (cpython-314) pre-exists in HEAD — not introduced
+  by M8. New `.pyc` (cpython-313) from test runs are untracked-only,
+  nothing staged.
+
+### Verdict: M8 EVENTS — COMPLETE
+
+No genuine M8 defect found; zero remaining M8 debt. All acceptance
+criteria pass across backend + Flutter; the full lifecycle
+create → list → edit/delete/outfit is UUID-safe, owner-isolated,
+side-effect-clean, and truthfully surfaced.
+
+---
+
+## STEP 19.22 — M8-D EVENTS FLUTTER INTEGRATION — PASS (uncommitted)
+
+Task: connect the existing Events UI to the completed M8 backend
+(#26–30). No redesign, no backend changes, no M9/M11/M13/M14. Skills
+(read first): `flutter-use-http-package` (Uri.parse/jsonEncode/auth —
+project null-on-failure kept over the skill's throw guidance, 15.5/
+17.4/19.5 precedent), `dart-run-static-analysis` (flutter analyze;
+self-found test-lint issues fixed, no auto-fix). Test conventions
+follow `saved_looks_test`/`knowledge_test` (MockClient, fake repos).
+DECISIONS.md untouched. No commit, no push.
+
+### Implemented (Flutter only)
+
+- Data layer (`features/events/data/`, knowledge/saved-looks pattern):
+  `event_models.dart` (EventItem/EventListPage with `page_size` wire
+  key, EventCreate/UpdateRequest, EventOutfit(+Component/Result with
+  204-noneAvailable, never-fabricated), EventDeleteOutcome;
+  strict required keys into the client null path, nullable
+  time/location/notes, UUID-verbatim ids, ISO/HH:mm display helpers),
+  `events_client.dart` (baseUrl/dev-token/12s Bearer conventions;
+  list/create/update/delete/outfit with exact paths, 201/200/204/
+  404 mappings, empty-POST-body on outfit, never throws),
+  `events_repository.dart` (abstract + verbatim passthrough, null =
+  unavailable, no mock merge). `event_mock_data.dart`: +1 additive
+  `byCodeOrNull` lookup only; `EventType.mockTypes` retained as the
+  presentation code→label/icon table.
+- `EventListScreen` → backend-first (repo injection, FutureBuilder
+  loading/error+retry/empty, reload on add/details return; mock list,
+  local append, and numeric ids gone).
+- `AddEventScreen` → create + edit modes (optional `event`): POST or
+  full PUT with code/date-ISO/HH:mm-or-null/blank→null mapping,
+  optional time, new location/notes fields, truthful failure
+  snackbars, backend UUIDs only; `LearningService.addPreferredOccasion`
+  (NAME-based) and `_nextId` removed — R36 stays server-owned.
+- `EventDetailsScreen` → stateful on the backend item: confirm-dialog
+  delete (exact UUID; 204/alreadyGone pop-true, failure retains),
+  edit via new `eventEdit` route (pops updated item), inline outfit
+  section (ScoreCircle + components + reasons as-is; 204 → truthful
+  empty state; failure → snackbar). No save/wear/signal calls.
+- `EventCard` → EventItem (code lookup with `other` fallback);
+  fabricated Ready/Pending badge removed (no server source).
+  Router passes `EventItem`; `route_names` +`eventEdit`. No backend
+  file touched this step (grep-verified).
+
+### Tests (40 passed)
+
+- `test/events_api_test.dart` (new, 19): parsing, nullables, UUID
+  preservation, wire maps (incl. null-clearing + no-numeric-ID scan),
+  code mapping surface, 401/404/422/429/503→null, outfit 204 vs
+  failure, malformed-200→null, repo passthrough.
+- `test/event_screens_test.dart` (rewritten, 21): loading/error+retry/
+  empty/backend rows, no-mock proof, full add flow (pickers + code
+  mapping + backend row appears), edit prefill + PUT + pop, delete
+  confirm/exact-UUID/cancel/failure/alreadyGone, outfit
+  render/empty/failure, add→details→edit navigation.
+
+### Validation
+
+- New 40 green. Regressions green: profile screens + profile +
+  saved-looks + knowledge 81; wardrobe client/repo/models + learning
+  service/summary 95; assistant + outfit-builder + daily-outfit +
+  wardrobe-screen + home 95 passed / 1 failed — the documented
+  pre-existing `wardrobe_screen_test.dart:179` 'Details' failure
+  (19.17 pristine-worktree proof; wardrobe untouched).
+- `flutter analyze` on events/router/tests: No issues found.
+  `dart format` applied (5 files); unrelated `app_router.dart`
+  format churn reverted to a minimal diff; generated-registrant
+  CRLF-only churn restored via checkout. `git diff --check` clean.
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. HEAD `0f4f368` intact.
+
+---
+
+## STEP 19.21 — M8-C EVENT OUTFIT GENERATION — PASS (uncommitted)
+
+Task: implement ONLY `POST /v1/events/{event_id}/outfit` (#30, UC-21)
+per DEC-015/016 (no Flutter, no second engine, no persistence).
+Skills: `.agents/skills/` inspected (21 entries, all Dart/Flutter
+code-creation) — none loaded (no Python backend skill; 19.5/19.19/
+19.20 precedent). DECISIONS.md untouched. No commit, no push.
+
+### Implemented (backend only, live PG verified)
+
+- `GenerateEventOutfit` (`application/events.py`): owner-scoped event
+  load (404-not-403) → full owner wardrobe (paged, no new lookup) →
+  occasions `[event_code]+prefs` deduped, event first (DEC-018/M9),
+  prefs never mutated → canonical generate→score→rank→select pipeline
+  reused verbatim (records adapted to str ids; empty preferred-item
+  set) → honest `EventOutfitRecommendation` (new port records) or
+  `None`. Past events generate freely. Zero commits, zero writes.
+- Adapter: title `{TypeLabel} Outfit` (vocab label, code fallback);
+  matchScore = winner 0–100 budget /100 → family 0..1 (mock 0.91
+  precedent); components = owned rows (UUID ids, verbatim names,
+  vocab codes, factual slot reasons); reasons = occasion + coverage
+  count + favorites (all grounded, banned-claim scan green);
+  selectedOccasion = TYPE CODE. colorHex/mood/palette/harmony/fit/
+  match-texts/impact/suggestion absent by construction (AI-0);
+  no alternatives (canonical DTO carries none — DAILY §4.4/V1/mock).
+- Router (`routers/events.py`): 200 bare DTO (`exclude_none`), 204
+  empty on no legal candidate (sibling #41 precedent — 404 would lie
+  about the event, 503 about availability), 401/404/422 frozen;
+  503 never emitted (rules engine has no external dependency).
+
+### Contract discrepancies found (authoritative-first, no invention)
+
+- Task text claims wire matchScore "native 0–100"; authoritative
+  REC_API (§§4.3/4.4 ×3), DAILY §4.4, V1, builder mock (`0.91`), and
+  DEC-015 ("winner 0..1") all fix ensemble at 0..1 — implemented 0..1
+  with documented /100 rescale.
+- E-6 empty-wardrobe response is unnamed in INVENTORY #30 / DAILY E-6
+  / UC-21 (only 404-event/503-generation named) — 204 chosen per the
+  identical-DTO/engine sibling #41 ("204 no matching wardrobe") +
+  empty-is-not-error doctrine; documented as inference in code.
+- REC_API:444 loose "title/description/..." row vs DAILY §4.4 / V1 /
+  mock (no `description`, no `alternatives` on the DTO) — followed
+  the three agreeing sources.
+
+### Tests (`tests/test_m8c_event_outfit_api.py`, new, 20 passed)
+
+A–Z full matrix incl. 200 + past-event generation, UUID/ownership
+errors, code occasion, owner-UUID-only + no-mock-ID proofs,
+determinism, prefs-feed +0.05 scoring proof with event priority,
+204 empty/sparse, exact honest shape, 0..1 range, banned-claim scan,
+all omissions, no-alternatives, byte-identical side-effect snapshot
+(saves/signals/activity/wear/event/wardrobe/prefs), 401.
+
+### Regression (serial, live PG)
+
+- New M8-C 20 + M8-A/B + engine/decision 187 green. Wardrobe/wear +
+  saved-uc/delete + M10 + feedback + prefs 203 green. Knowledge +
+  analysis + intent + clothing + enrichment + profile 148 green.
+- 12 failures, ALL documented pre-existing: saved_looks 5 (18.5 FK),
+  users_api 3 (B-A drift), grooming_api 2 + db_session 2 (19.5).
+  Nothing fixed, nothing new.
+- `py_compile` clean. `git diff --check` clean. Probe script removed.
+  No Flutter change (grep-verified).
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. Diff = M8-A/B files + ports
+  records + use case/adapter + schemas + route + 1 test +
+  CURRENT_STATE entry. HEAD `0f4f368` intact.
+
+---
+
+## STEP 19.20 — M8-B EVENTS CRUD + R36 — PASS (uncommitted)
+
+Task: implement ONLY the M8-B backend CRUD + R36 per DEC-015/016 (no
+outfit #30, no Flutter). M8-A preserved; one necessary M8-A touch-up:
+`UserEventRepositorySQL.update` now bumps `updated_at` via
+`func.now()` + `refresh` (wardrobe W-4 precedent — required by the
+frozen update contract). Skills: `.agents/skills/` inspected (21
+entries, all Dart/Flutter code-creation) — none loaded (no Python
+backend skill; 19.5/19.19 precedent). DECISIONS.md untouched. No
+commit, no push.
+
+### Implemented (backend only, live PG verified)
+
+- `application/events.py` (new): `CreateEvent` (#26: one INSERT +
+  commit, then sequential R36 append-if-absent second unit; 201 stands
+  on feed failure; no signal), `ListEvents` (#27: owner-scoped,
+  default `from` = server-UTC today, `sort=event_date`-only,
+  asc soonest-first, page 1 / page_size 20 / max 100 → 422),
+  `UpdateEvent` (#28: full replace, 404-not-403, one UPDATE unit, R36
+  only on type change with old preference retained), `DeleteEvent`
+  (#29: physical delete, 204, prefs/history untouched). Strict
+  validation throughout: active-type check (+allowed), past-date vs
+  UTC today, `HH:mm` regex (seconds/12h/empty → 422), text bounds
+  1..200 / 1..2000 with no trim, DB CHECKs as final layer.
+- `api/schemas/events.py` (new): `EventCreate`/`EventUpdate` (same
+  shape), `UserEvent`, `EventSummary{id,title,eventType,eventDate,
+  time?}`, `UserEventList{items,page,page_size,total}` (camelCase).
+- `api/routers/events.py` (new, thin) + `main.py` mount: POST 201 (no
+  key, retries append), GET 200 (incl. empty), PUT 200, DELETE 204;
+  malformed UUID → 422 via frozen handler; 401 throughout.
+
+### Tests (`tests/test_m8b_events_api.py`, new, 35 passed)
+
+Full §10 matrix incl. exact wire shapes, today-allowed, inactive-type
+422, bounds edges (200/201, 2000/2001, empties), retry-append, R36
+append/no-dupe/preserve + failure-leaves-committed (fake store, create
+and update), upcoming default + `from`, date/time-NULLS-LAST/id order
++ repeat determinism, pagination defaults/slices/100/101/0, bad
+sort/order/from, nullable clearing, ownership 404s, updated_at bump,
+no-signal proofs, 401s, cross-layer lifecycle.
+
+### Regression (serial, live PG)
+
+- New M8-B 35 + M8-A 18 green. Prefs/profile + assistant-feedback +
+  saved-looks-uc/delete 67 green. M10-A/B + knowledge 80 green.
+  Wardrobe/wears/summary 111 green. Decision/engine/intent + analysis
+  UC 195 passed / 5 failed — the exact 18.5 FK baseline (shared
+  SNAPSHOT fake `sourceRunId`; probe-proved pre-signal, untouched
+  files). users_api 3 (memorySummary/styleProfile drift, B-A entry) +
+  grooming_api 2 (ranking/202 drift, 19.5 entry) + db_session 2
+  (stale seeds, 19.5 entry) — all documented pre-existing.
+- `py_compile` clean. `git diff --check` clean. No Flutter event
+  client, no `/outfit` route (grep-verified).
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. Diff = M8-A files + 4 new M8-B
+  files + `main.py` mount + CURRENT_STATE entry. HEAD `0f4f368`
+  intact.
+
+---
+
+## STEP 19.19 — M8-A EVENTS BACKEND FOUNDATION — PASS (uncommitted)
+
+Task: implement ONLY the M8-A backend foundation per DEC-015/016 (no
+CRUD routes, no R36, no outfit, no Flutter). Skills: `.agents/skills/`
+inspected (21 entries, all Dart/Flutter code-creation) — none loaded
+(no Python backend skill; 19.5/19.14/19.15 precedent). DECISIONS.md
+untouched. No commit, no push.
+
+### Implemented (backend foundation only, live PG verified)
+
+- Migration `0017_events` (new head, single chain 0016→0017,
+  reversible — downgrade/upgrade round-trip proven): `event_types`
+  vocab table (code PK/label/sort_order/active/timestamps) seeded with
+  exactly the 8 frozen codes (labels verbatim incl. date→Date Night,
+  sort_order 0, active true, no office) + `user_events` table (UUID PK,
+  user_id FK users CASCADE, title, event_type_id FK event_types
+  RESTRICT, event_date DATE, event_time TIME NULL wall-clock,
+  location/notes NULL, created_at/updated_at) with CHECKs
+  (title 1..200, location NULL-or-1..200, notes NULL-or-1..2000) +
+  btree index `ix_user_events_user_id_event_date`. No unique beyond PK
+  (duplicates allowed, F-8); no archive columns.
+- Models `EventType` + `UserEvent` (`infrastructure/db/models.py`,
+  vocab/check/index conventions per WardrobeCategories/SavedLooks).
+- Ports (`domain/ports/repositories.py`): `UserEventRecord` frozen
+  dataclass + `UserEventRepository` (create/get_for_user/list_for_user
+  with from_date/order/page/page_size/update/delete/commit/rollback,
+  all owner-scoped) + read-only `EventTypeRepository`
+  (list_active/get_by_code reusing `VocabularyRecord`; unknown/inactive
+  → None).
+- SQL (`infrastructure/db/repositories.py`): `UserEventRepositorySQL`
+  (flush-no-commit, deterministic date/time-NULLS-LAST/id ordering) +
+  `EventTypeRepositorySQL` (active-only, `(sort_order,code)` order).
+  No signal writes, no preference writes.
+- `tests/conftest.py`: `user_events` added to `_TRUNCATE`
+  (`event_types` seed intentionally kept, reference-table precedent).
+
+### Tests (`tests/test_m8a_events_foundation.py`, new, 18 passed)
+
+A–Q full matrix (chain linearity, table/seed exactness incl. no-office,
+schema nullability, title/location/notes CHECKs, CASCADE, RESTRICT,
+index, duplicates, nullable time, downgrade+upgrade in one safe test)
++ R repository round-trip (create/get/list/order/from/filter/pagination/
+update-with-clearing/delete, owner isolation, vocab lookup).
+
+### Regression (serial, live PG)
+
+- New M8-A: 18 passed. M10-A + M10-B: 43 passed. db_session +
+  update_preferences: 40 passed / 2 failed — both pre-existing stale
+  seed baselines (19.5-recorded looks 8-vs-4, run_types/signal_types
+  drift), untouched by M8-A.
+- `alembic heads` = single `0017`; `alembic current` = `0017 (head)`.
+  `py_compile` clean (6 files). `git diff --check` clean.
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. Diff = exactly 6 files (1
+  migration + 3 backend edits + conftest + 1 test). No routes/schemas/
+  use-cases/R36/outfit/Flutter. Committed batches intact (HEAD
+  `0f4f368`).
+
+---
+
 ## STEP 19.17 — M10 LEARNING SUMMARY FINAL CROSS-LAYER AUDIT — PASS_WITH_WARNINGS (audit only, uncommitted)
 
 Task: verify M10 end-to-end against DEC-019/020/021. No product code

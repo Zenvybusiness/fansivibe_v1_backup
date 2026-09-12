@@ -17,7 +17,7 @@ from app.ai import engine
 from app.api import errors
 from app.api.deps import get_current_user_id
 from app.api.errors import ApiError
-from app.api.routers import analysis, assistant, knowledge, learning, looks, users, wardrobe
+from app.api.routers import analysis, assistant, events, knowledge, learning, looks, users, wardrobe
 from app.domain.ports.repositories import UserProfileRecord
 from app.infrastructure.db.repositories import UserStateRepositorySQL
 from app.infrastructure.db.session import get_db
@@ -28,6 +28,7 @@ app = FastAPI(title="Fansivibe AI", version="0.1.0")
 errors.register_error_handlers(app)
 app.include_router(analysis.router)
 app.include_router(assistant.router)
+app.include_router(events.router)
 app.include_router(knowledge.router)
 app.include_router(learning.router)
 app.include_router(looks.router)
