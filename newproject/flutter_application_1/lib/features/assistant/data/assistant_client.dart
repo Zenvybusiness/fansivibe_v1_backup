@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:fansivibe/features/assistant/data/models.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 
 /// HTTP client for the Fansivibe AI backend.
 ///
@@ -22,12 +23,16 @@ class AssistantClient {
   final http.Client _client;
   static const Duration _timeout = Duration(seconds: 12);
 
-  static const String _devToken = String.fromEnvironment(
+  static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',
     defaultValue: 'dev',
   );
 
-  Map<String, String> get _authJsonHeaders => const {
+  /// Session-first Bearer token (D-AUTH-1): the persisted session wins;
+  /// the dart-define default covers logged-out/test behavior.
+  static String get _devToken => AuthSession.effectiveToken(_devTokenDefault);
+
+  Map<String, String> get _authJsonHeaders => {
     'Content-Type': 'application/json; charset=UTF-8',
     'Authorization': 'Bearer $_devToken',
   };
@@ -50,6 +55,7 @@ class AssistantClient {
             body: jsonEncode(payload),
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -68,8 +74,12 @@ class AssistantClient {
   ///
   /// Sends `lookId: null`, `title`, `snapshot`, `sourceContext: "outfit"`
   /// with the caller-provided [idempotencyKey] as the `Idempotency-Key`
-  /// header. Returns the saved record on 200/201, null otherwise so the
-  /// caller can leave the outfit unsaved and allow a retry.
+  /// header and the standard Bearer authorization (P1-1: the endpoint is
+  /// auth-gated, so an unauthenticated save can never land). Returns the
+  /// saved record on 200/201, null otherwise so the caller can leave the
+  /// outfit unsaved and allow a retry. Item identity travels only as
+  /// backend-UUID-shaped `selectedItemIds` (sanitized at request build);
+  /// ownership stays server-enforced. Never throws.
   Future<SavedOutfitLook?> saveOutfitLook({
     required OutfitSaveRequest request,
     required String idempotencyKey,
@@ -79,12 +89,13 @@ class AssistantClient {
           .post(
             Uri.parse('$baseUrl/v1/looks/saved'),
             headers: {
-              'Content-Type': 'application/json; charset=UTF-8',
+              ..._authJsonHeaders,
               'Idempotency-Key': idempotencyKey,
             },
             body: jsonEncode(request.toJson()),
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -117,6 +128,7 @@ class AssistantClient {
       final response = await _client
           .get(Uri.parse('$baseUrl/v1/users/me'), headers: _authJsonHeaders)
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -145,6 +157,36 @@ class AssistantClient {
   /// true only when the backend confirms (200). Same timeout/error
   /// degradation conventions as [chat]: false on any failure, never throws.
   Future<bool> updatePreferredOccasions(List<String> occasions) async {
+    final result = await _patchPreferredOccasions(occasions);
+    return result == PreferenceSyncResult.synced;
+  }
+
+  /// Syncs one occasion [code] with append-if-absent merge (P1-2).
+  ///
+  /// Reads the server list first so event-derived (R36) values are never
+  /// wiped and the code is never duplicated: present → [alreadySynced]
+  /// with no PATCH; absent → PATCH `[...current, code]`. Empty codes fail
+  /// closed without network ([invalidInput]); an unreadable server list
+  /// fails as [networkError] rather than risk clobbering. Never throws.
+  Future<PreferenceSyncResult> syncPreferredOccasion({
+    required String code,
+  }) async {
+    if (code.isEmpty) {
+      debugPrint('Preference sync refused: empty occasion code.');
+      return PreferenceSyncResult.invalidInput;
+    }
+    final current = await fetchPreferredOccasions();
+    if (current == null) {
+      debugPrint('Preference sync refused: server list unreadable.');
+      return PreferenceSyncResult.networkError;
+    }
+    if (current.contains(code)) return PreferenceSyncResult.alreadySynced;
+    return _patchPreferredOccasions([...current, code]);
+  }
+
+  Future<PreferenceSyncResult> _patchPreferredOccasions(
+    List<String> occasions,
+  ) async {
     try {
       final response = await _client
           .patch(
@@ -153,15 +195,28 @@ class AssistantClient {
             body: jsonEncode({'preferredOccasions': occasions}),
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
 
-      if (response.statusCode == 200) return true;
-      debugPrint(
-        'Update preferences backend responded ${response.statusCode}: ${response.body}',
-      );
+      switch (response.statusCode) {
+        case 200:
+          return PreferenceSyncResult.synced;
+        case 401:
+          AuthSession.notifyUnauthorized();
+          return PreferenceSyncResult.unauthorized;
+        case 422:
+          return PreferenceSyncResult.invalidInput;
+        case 429:
+          return PreferenceSyncResult.rateLimited;
+        default:
+          debugPrint(
+            'Update preferences backend responded ${response.statusCode}: ${response.body}',
+          );
+          return PreferenceSyncResult.unknown;
+      }
     } catch (error) {
       debugPrint('Update preferences backend unreachable: $error');
+      return PreferenceSyncResult.networkError;
     }
-    return false;
   }
 
   /// Reports a card interaction (`POST /v1/assistant/feedback`, #17/UC-23).
@@ -188,6 +243,7 @@ class AssistantClient {
             body: jsonEncode(body),
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
 
       if (response.statusCode == 204) return true;
       debugPrint(

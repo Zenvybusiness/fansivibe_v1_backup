@@ -1,10 +1,17 @@
 """Dependency seam — resolves a Bearer token to a ``user_id``.
 
-**D-AUTH-1 placeholder (approved decision D1):** until a real auth provider
-lands, a known dev token maps to a seeded dev user. Owner-scoping (OW-1) is
-fully enforced in the repositories regardless of which seam produced the id;
-when real auth arrives it swaps in behind this same dependency with no
-contract change.
+D-AUTH-1 (real authentication): JWT access tokens minted by
+`POST /v1/auth/register` / `/v1/auth/login` verify here against
+signature, expiry, and the R51 session store (`user_sessions`) via
+`application.auth.resolve_session` — the frozen
+``verify_access_token(token) -> Principal`` seam. Owner-scoping (OW-1)
+is fully enforced in the repositories regardless of which path
+produced the id.
+
+Dev fallback: the historical single dev token maps to the seeded dev
+user ONLY when `FANSIVIBE_ALLOW_DEV_TOKEN` is true (tests/dev). It
+defaults to false, so the shared bootstrap identity can never
+silently become production identity.
 """
 
 from __future__ import annotations
@@ -16,8 +23,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.errors import ApiError, authentication_error
+from app.application.auth import resolve_session
 from app.config.settings import get_settings
 from app.infrastructure.db.models import UserState, Users
+from app.infrastructure.db.repositories import AuthRepositorySQL
 from app.infrastructure.db.session import get_db
 
 DEV_TOKEN = get_settings().dev_token
@@ -50,19 +59,27 @@ def get_current_user_id(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> UUID:
-    """Bearer-token → dev user id (dev seam; D-AUTH-1 lands behind this)."""
+    """Bearer-token → authenticated ``user_id`` (D-AUTH-1)."""
     if not authorization or not authorization.startswith("Bearer "):
         raise authentication_error()
     token = authorization.removeprefix("Bearer ").strip()
     if not token:
         raise authentication_error()
-    if token != DEV_TOKEN:
-        raise authentication_error()
+    settings = get_settings()
     try:
-        return _seeded_dev_user(db)
-    except Exception:
-        raise ApiError(
-            status_code=500,
-            code="DATABASE_FAILURE",
-            message="Something went wrong while saving your data. Please try again.",
+        user_id, _ = resolve_session(
+            AuthRepositorySQL(db), token=token, secret=settings.auth_secret
         )
+        return user_id
+    except ApiError:
+        pass
+    if settings.allow_dev_token and token == DEV_TOKEN:
+        try:
+            return _seeded_dev_user(db)
+        except Exception:
+            raise ApiError(
+                status_code=500,
+                code="DATABASE_FAILURE",
+                message="Something went wrong while saving your data. Please try again.",
+            )
+    raise authentication_error()

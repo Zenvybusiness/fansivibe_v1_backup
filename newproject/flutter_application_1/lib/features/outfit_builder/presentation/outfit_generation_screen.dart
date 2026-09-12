@@ -1,18 +1,31 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
-import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart';
+import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart'
+    hide OutfitComponent, OutfitRecommendation;
+import 'package:fansivibe/features/outfit_builder/outfit_builder.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
+/// Step 2 of the builder flow: derives one outfit from the step-1
+/// preferences via the M13 backend (#41 `POST /v1/outfits/generate`).
+///
+/// The stage list below is static process copy (what the derivation
+/// does), never timed fake progress: a single request runs on entry and
+/// the screen forwards on its response. 200 auto-forwards the verbatim
+/// recommendation (plus the request prefs for regenerate) to the
+/// recommendation surface; 204 renders an honest empty state; any
+/// failure renders an error with retry. Nothing here fabricates an
+/// outfit, and no wardrobe/event fetch happens in this layer — the
+/// backend owns all data.
 class OutfitGenerationScreen extends StatefulWidget {
   const OutfitGenerationScreen({
     required this.occasion,
     required this.mood,
     required this.fit,
     required this.colorPalette,
+    this.outfitRepository,
     super.key,
   });
 
@@ -21,65 +34,83 @@ class OutfitGenerationScreen extends StatefulWidget {
   final String fit;
   final String colorPalette;
 
+  /// Backend outfit source. Defaults to the live repository; tests
+  /// inject a fake.
+  final OutfitBuilderRepository? outfitRepository;
+
   @override
   State<OutfitGenerationScreen> createState() => _OutfitGenerationScreenState();
 }
 
 class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
-  int _currentStageIndex = 0;
-  final List<bool> _completedStages = [];
-  Timer? _timer;
+  late final OutfitBuilderRepository _repository;
+  Future<OutfitResult>? _generationFuture;
+  bool _forwarded = false;
 
   @override
   void initState() {
     super.initState();
-    _completedStages.addAll(
-      List.filled(GenerationStage.mockStages.length, false),
-    );
-    _startProcessing();
+    _repository = widget.outfitRepository ?? OutfitBuilderRepositoryImpl();
+    _generate();
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  void _startProcessing() {
-    _processNextStage();
-  }
-
-  void _processNextStage() {
-    if (_currentStageIndex >= GenerationStage.mockStages.length) {
-      _navigateToRecommendation();
-      return;
-    }
-
-    final stage = GenerationStage.mockStages[_currentStageIndex];
-    _timer = Timer(stage.duration, () {
-      if (!mounted) return;
-      setState(() {
-        _completedStages[_currentStageIndex] = true;
-        _currentStageIndex++;
-      });
-      _processNextStage();
+  void _generate() {
+    setState(() {
+      _forwarded = false;
+      _generationFuture = _repository.generateOutfit(
+        occasion: widget.occasion,
+        mood: widget.mood,
+        fit: widget.fit,
+        colorPalette: widget.colorPalette,
+      );
     });
   }
 
-  void _navigateToRecommendation() {
-    if (!mounted) return;
-    context.replaceNamed(RouteNames.outfitRecommendation);
+  void _forward(OutfitRecommendation outfit) {
+    if (_forwarded || !mounted) return;
+    _forwarded = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.replaceNamed(
+        RouteNames.outfitRecommendation,
+        extra: <String, dynamic>{
+          'recommendation': outfit.snapshot,
+          'request': <String, String>{
+            'occasion': widget.occasion,
+            'mood': widget.mood,
+            'fit': widget.fit,
+            'colorPalette': widget.colorPalette,
+          },
+        },
+      );
+    });
+  }
+
+  String _failureMessage(OutfitFailure? failure) {
+    switch (failure) {
+      case OutfitFailure.unauthorized:
+        return 'Please sign in again to build an outfit.';
+      case OutfitFailure.invalidInput:
+        return 'Those preferences look invalid. Please go back and reselect.';
+      case OutfitFailure.rateLimited:
+        return 'Too many requests. Please wait and try again.';
+      case OutfitFailure.serviceUnavailable:
+        return 'Style service unavailable. Please try again.';
+      case OutfitFailure.networkError:
+        return 'Please check your connection and try again.';
+      default:
+        return 'Something went wrong. Please try again.';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final allComplete = _currentStageIndex >= GenerationStage.mockStages.length;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(allComplete ? 'Generation Complete' : 'Building Outfit'),
+        title: const Text('Building Outfit'),
         leading: IconButton(
           icon: Icon(
             Icons.arrow_back_rounded,
@@ -104,78 +135,23 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
                     padding: EdgeInsets.symmetric(
                       horizontal: horizontalPadding,
                     ),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 40),
-
-                        // Visual indicator
-                        Container(
-                          width: 160,
-                          height: 160,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: FansivibeColors.surface,
-                            border: Border.all(
-                              color: allComplete
-                                  ? FansivibeColors.success.withValues(
-                                      alpha: 0.3,
-                                    )
-                                  : FansivibeColors.accentGold.withValues(
-                                      alpha: 0.3,
-                                    ),
-                            ),
-                          ),
-                          child: Center(
-                            child: allComplete
-                                ? const Icon(
-                                    Icons.check_circle_rounded,
-                                    size: 64,
-                                    color: FansivibeColors.success,
-                                  )
-                                : SizedBox(
-                                    width: 48,
-                                    height: 48,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 4,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        FansivibeColors.accentGold,
-                                      ),
-                                    ),
-                                  ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 40),
-
-                        // Selection summary
-                        _buildSelectionSummary(context),
-
-                        const SizedBox(height: 28),
-
-                        // Processing stages
-                        ...GenerationStage.mockStages.asMap().entries.map((
-                          entry,
-                        ) {
-                          final index = entry.key;
-                          final stage = entry.value;
-                          return _buildStageIndicator(
-                            stage: stage,
-                            isActive: index == _currentStageIndex,
-                            isComplete: _completedStages[index],
-                          );
-                        }),
-
-                        const SizedBox(height: 40),
-
-                        if (allComplete)
-                          FansiButton.primary(
-                            label: 'View Generation',
-                            icon: Icons.check_circle_outline,
-                            onPressed: _navigateToRecommendation,
-                          ),
-
-                        const SizedBox(height: 32),
-                      ],
+                    child: FutureBuilder<OutfitResult>(
+                      future: _generationFuture,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return _buildLoading(context);
+                        }
+                        final result = snapshot.data;
+                        if (result != null && result.available) {
+                          _forward(result.outfit!);
+                          return _buildForwarding(context);
+                        }
+                        if (result != null && result.noneAvailable) {
+                          return _buildEmpty(context);
+                        }
+                        return _buildError(context, result?.failure);
+                      },
                     ),
                   ),
                 ),
@@ -184,6 +160,167 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
           },
         ),
       ),
+    );
+  }
+
+  Widget _buildLoading(BuildContext context) {
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+
+        // Visual indicator
+        Container(
+          width: 160,
+          height: 160,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: FansivibeColors.surface,
+            border: Border.all(
+              color: FansivibeColors.accentGold.withValues(alpha: 0.3),
+            ),
+          ),
+          child: const Center(
+            child: SizedBox(
+              width: 48,
+              height: 48,
+              child: CircularProgressIndicator(
+                strokeWidth: 4,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  FansivibeColors.accentGold,
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 40),
+
+        // Selection summary
+        _buildSelectionSummary(context),
+
+        const SizedBox(height: 28),
+
+        // Processing stages (static process copy — no timed fake progress)
+        ...GenerationStage.mockStages.map(
+          (stage) => _buildStageIndicator(stage: stage),
+        ),
+
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  Widget _buildForwarding(BuildContext context) {
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+        Container(
+          width: 160,
+          height: 160,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: FansivibeColors.surface,
+            border: Border.all(
+              color: FansivibeColors.success.withValues(alpha: 0.3),
+            ),
+          ),
+          child: const Center(
+            child: Icon(
+              Icons.check_circle_rounded,
+              size: 64,
+              color: FansivibeColors.success,
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'Generation Complete',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: FansivibeColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  Widget _buildEmpty(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+        const Icon(
+          Icons.checkroom_outlined,
+          size: 64,
+          color: FansivibeColors.textSecondary,
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'No matching outfit',
+          style: theme.textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: FansivibeColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Your wardrobe doesn\'t have the pieces for this combination yet. '
+          'Add wardrobe items to unlock outfit generation.',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: FansivibeColors.textSecondary,
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 24),
+        _buildSelectionSummary(context),
+        const SizedBox(height: 24),
+        FansiButton.secondary(
+          label: 'Try Again',
+          icon: Icons.refresh_rounded,
+          onPressed: _generate,
+        ),
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  Widget _buildError(BuildContext context, OutfitFailure? failure) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+        const Icon(
+          Icons.error_outline_rounded,
+          size: 64,
+          color: FansivibeColors.textSecondary,
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'Couldn\'t build your outfit',
+          style: theme.textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: FansivibeColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _failureMessage(failure),
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: FansivibeColors.textSecondary,
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 24),
+        FansiButton.secondary(
+          label: 'Try Again',
+          icon: Icons.refresh_rounded,
+          onPressed: _generate,
+        ),
+        const SizedBox(height: 32),
+      ],
     );
   }
 
@@ -267,53 +404,24 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
     );
   }
 
-  Widget _buildStageIndicator({
-    required GenerationStage stage,
-    required bool isActive,
-    required bool isComplete,
-  }) {
+  Widget _buildStageIndicator({required GenerationStage stage}) {
     final theme = Theme.of(context);
-    final Color iconColor;
-    final Widget icon;
-
-    if (isComplete) {
-      iconColor = FansivibeColors.success;
-      icon = Icon(Icons.check_circle_rounded, size: 22, color: iconColor);
-    } else if (isActive) {
-      iconColor = FansivibeColors.accentGold;
-      icon = SizedBox(
-        width: 22,
-        height: 22,
-        child: CircularProgressIndicator(
-          strokeWidth: 2.5,
-          valueColor: AlwaysStoppedAnimation<Color>(iconColor),
-        ),
-      );
-    } else {
-      iconColor = FansivibeColors.textSecondary.withValues(alpha: 0.3);
-      icon = Icon(
-        Icons.radio_button_unchecked_rounded,
-        size: 22,
-        color: iconColor,
-      );
-    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          icon,
+          Icon(
+            Icons.radio_button_unchecked_rounded,
+            size: 22,
+            color: FansivibeColors.textSecondary.withValues(alpha: 0.3),
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Text(
               stage.label,
               style: theme.textTheme.bodyLarge?.copyWith(
-                color: isComplete
-                    ? FansivibeColors.textPrimary
-                    : isActive
-                    ? FansivibeColors.textPrimary
-                    : FansivibeColors.textSecondary.withValues(alpha: 0.4),
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                color: FansivibeColors.textSecondary.withValues(alpha: 0.4),
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -324,6 +432,11 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
   }
 
   String _labelForId(List<BuilderOption> options, String id) {
-    return options.firstWhere((o) => o.id == id).label;
+    // Prefs always come from the step-1 picker ids; unknown ids fall back
+    // to the raw id instead of crashing the flow.
+    for (final option in options) {
+      if (option.id == id) return option.label;
+    }
+    return id;
   }
 }

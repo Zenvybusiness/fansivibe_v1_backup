@@ -1,15 +1,36 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:fansivibe/features/home/data/daily_outfit_mock_data.dart';
-import 'package:fansivibe/features/learning/domain/learning_service.dart';
+import 'package:fansivibe/features/home/data/today_look_client.dart';
+import 'package:fansivibe/features/home/data/today_look_models.dart';
+import 'package:fansivibe/features/home/data/today_look_repository.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
+/// Daily Outfit detail surface, backend-first on the M9 Today's Look
+/// endpoints (STEP 19.25).
+///
+/// The backend derivation renders verbatim: title, occasion (only when the
+/// backend derived one — never recalculated here, no event fetch), scores,
+/// components (UUIDs/names verbatim, never resolved against local mock
+/// IDs), reasons, and minimal alternatives. Sourceless mock fields
+/// (weather, colorHex, AI notes, insights, style tips) have no backend
+/// source and are never shown.
+///
+/// Regenerate uses `POST /v1/looks/today` with a deterministic seed
+/// (`look-1`, `look-2`, … — same seed repeats the backend result, no
+/// randomness introduced). Save uses `POST /v1/looks/today/save` with
+/// `sourceContext: "daily"`, the response snapshot verbatim, and one fresh
+/// `Idempotency-Key` per attempt. Saving never logs a wear event — there
+/// is no wear call anywhere in this file.
 class DailyOutfitScreen extends StatefulWidget {
-  const DailyOutfitScreen({super.key});
+  /// Backend Today's Look source. Defaults to the live repository; tests
+  /// inject a fake.
+  final TodayLookRepository? todayLookRepository;
+
+  const DailyOutfitScreen({super.key, this.todayLookRepository});
 
   @override
   State<DailyOutfitScreen> createState() => _DailyOutfitScreenState();
@@ -17,6 +38,7 @@ class DailyOutfitScreen extends StatefulWidget {
 
 class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     with SingleTickerProviderStateMixin {
+  late final TodayLookRepository _repository;
   late AnimationController _controller;
   late Animation<double> _heroAnim;
   late Animation<double> _editorialAnim;
@@ -24,11 +46,22 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
   late Animation<double> _insightsAnim;
   late Animation<double> _alternativesAnim;
   late Animation<double> _actionsAnim;
-  late Animation<double> _tipAnim;
+
+  bool _loading = true;
+  TodayLook? _look;
+  TodayLookFailure? _failure;
+  bool _noneAvailable = false;
+
+  bool _regenerating = false;
+  int _regenCount = 0;
+
+  bool _saving = false;
+  bool _saved = false;
 
   @override
   void initState() {
     super.initState();
+    _repository = widget.todayLookRepository ?? TodayLookRepositoryImpl();
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2400),
@@ -39,8 +72,8 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     _insightsAnim = _buildAnim(0.42, 0.62);
     _alternativesAnim = _buildAnim(0.55, 0.75);
     _actionsAnim = _buildAnim(0.67, 0.85);
-    _tipAnim = _buildAnim(0.78, 0.98);
     _controller.forward();
+    _fetchToday();
   }
 
   Animation<double> _buildAnim(double start, double end) {
@@ -58,9 +91,149 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     super.dispose();
   }
 
+  Future<void> _fetchToday() async {
+    final result = await _repository.getTodayLook();
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      if (result.available) {
+        _look = result.look;
+        _failure = null;
+        _noneAvailable = false;
+      } else if (result.noneAvailable) {
+        _look = null;
+        _noneAvailable = true;
+        _failure = null;
+      } else {
+        _failure = result.failure;
+        _noneAvailable = false;
+      }
+    });
+  }
+
+  void _retry() {
+    setState(() {
+      _loading = true;
+      _failure = null;
+      _noneAvailable = false;
+    });
+    _fetchToday();
+  }
+
+  /// Regenerates via `POST /v1/looks/today` with the next deterministic
+  /// seed. Guarded while any request is pending; the UI only updates when
+  /// the response arrives (never optimistically). A failed regeneration
+  /// keeps the current look visible with truthful feedback.
+  Future<void> _handleGenerateAnother() async {
+    if (_loading || _regenerating || _saving) return;
+    setState(() => _regenerating = true);
+    _regenCount += 1;
+    final result = await _repository.regenerateTodayLook(
+      seed: 'look-$_regenCount',
+    );
+    if (!mounted) return;
+    if (result.available) {
+      setState(() {
+        _look = result.look;
+        _failure = null;
+        _noneAvailable = false;
+        _regenerating = false;
+        _saved = false;
+      });
+    } else {
+      setState(() => _regenerating = false);
+      _showSnackBar(_regenerateErrorMessage(result));
+    }
+  }
+
+  String _regenerateErrorMessage(TodayLookResult result) {
+    if (result.noneAvailable) {
+      return 'No alternative look available right now.';
+    }
+    switch (result.failure) {
+      case TodayLookFailure.serviceUnavailable:
+        return 'Style service unavailable. Please try again.';
+      case TodayLookFailure.rateLimited:
+        return 'Too many requests. Please wait and try again.';
+      case TodayLookFailure.networkError:
+        return 'Couldn\'t regenerate. Please check your connection.';
+      default:
+        return 'Couldn\'t generate another look. Please try again.';
+    }
+  }
+
+  /// Saves via `POST /v1/looks/today/save` (`sourceContext: "daily"`,
+  /// snapshot verbatim, fresh Idempotency-Key per attempt). Guarded while
+  /// any request is pending and disabled once saved, so repeated taps
+  /// never duplicate the save. A failed save keeps the look visible with
+  /// truthful retry feedback. Never logs a wear event.
+  Future<void> _handleSaveOutfit() async {
+    final look = _look;
+    if (_loading || _saving || _regenerating || look == null || _saved) return;
+    final title = look.title.trim();
+    if (title.isEmpty || title.length > 200) {
+      _showSnackBar('This look can\'t be saved (invalid title).');
+      return;
+    }
+    setState(() => _saving = true);
+    final saved = await _repository.saveTodayLook(
+      title: look.title,
+      snapshot: look.snapshot,
+      idempotencyKey: newTodayLookIdempotencyKey(),
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (saved != null) {
+      setState(() => _saved = true);
+      _showSnackBar('Today\'s look saved');
+    } else {
+      _showSnackBar('Couldn\'t save this look. Please try again.');
+    }
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: FansivibeColors.primary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final data = DailyOutfitData.mock;
+    final look = _look;
+    if (_loading) {
+      return _stateScaffold(
+        context,
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (look == null) {
+      if (_noneAvailable) {
+        return _stateScaffold(
+          context,
+          body: _stateMessage(
+            context,
+            title: 'No today\'s look available',
+            message:
+                'There\'s no legal outfit candidate right now. Add wardrobe '
+                'pieces to unlock your daily recommendation.',
+          ),
+        );
+      }
+      return _stateScaffold(
+        context,
+        body: _stateMessage(
+          context,
+          title: 'Couldn\'t load today\'s look',
+          message: _failureMessage(_failure),
+        ),
+      );
+    }
+
     final reduceMotion = MediaQuery.of(context).disableAnimations;
 
     return Scaffold(
@@ -84,7 +257,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                       _animatedSection(
                         _heroAnim,
                         reduceMotion,
-                        _buildHeroSection(context, data, constraints),
+                        _buildHeroSection(context, look, constraints),
                       ),
                       Padding(
                         padding: EdgeInsets.symmetric(
@@ -97,37 +270,35 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                             _animatedSection(
                               _editorialAnim,
                               reduceMotion,
-                              _buildEditorialSummary(context, data),
+                              _buildEditorialSummary(context, look),
                             ),
                             SizedBox(height: FansivibeSpacing.xxl),
                             _animatedSection(
                               _breakdownAnim,
                               reduceMotion,
-                              _buildOutfitBreakdown(context, data),
+                              _buildOutfitBreakdown(context, look),
                             ),
-                            SizedBox(height: FansivibeSpacing.xxl),
-                            _animatedSection(
-                              _insightsAnim,
-                              reduceMotion,
-                              _buildWhyItWorks(context, data),
-                            ),
-                            SizedBox(height: FansivibeSpacing.xxl),
-                            _animatedSection(
-                              _alternativesAnim,
-                              reduceMotion,
-                              _buildAlternatives(context, data),
-                            ),
+                            if (look.reasons.isNotEmpty) ...[
+                              SizedBox(height: FansivibeSpacing.xxl),
+                              _animatedSection(
+                                _insightsAnim,
+                                reduceMotion,
+                                _buildWhyItWorks(context, look),
+                              ),
+                            ],
+                            if (look.alternatives.isNotEmpty) ...[
+                              SizedBox(height: FansivibeSpacing.xxl),
+                              _animatedSection(
+                                _alternativesAnim,
+                                reduceMotion,
+                                _buildAlternatives(context, look),
+                              ),
+                            ],
                             SizedBox(height: FansivibeSpacing.xxl),
                             _animatedSection(
                               _actionsAnim,
                               reduceMotion,
-                              _buildQuickActions(context, data),
-                            ),
-                            SizedBox(height: FansivibeSpacing.xl),
-                            _animatedSection(
-                              _tipAnim,
-                              reduceMotion,
-                              _buildDailyStyleTip(context, data),
+                              _buildQuickActions(context, look),
                             ),
                             SizedBox(height: FansivibeSpacing.xxxl),
                           ],
@@ -139,6 +310,101 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  String _failureMessage(TodayLookFailure? failure) {
+    switch (failure) {
+      case TodayLookFailure.unauthorized:
+        return 'Please sign in again to see today\'s look.';
+      case TodayLookFailure.rateLimited:
+        return 'Too many requests. Please wait and try again.';
+      case TodayLookFailure.serviceUnavailable:
+        return 'Style service unavailable. Please try again.';
+      case TodayLookFailure.networkError:
+        return 'Please check your connection and try again.';
+      default:
+        return 'Something went wrong. Please try again.';
+    }
+  }
+
+  /// Chrome for loading/empty/error states: static back affordance plus
+  /// the screen title so navigation out always works. Never poses data.
+  Widget _stateScaffold(BuildContext context, {required Widget body}) {
+    return Scaffold(
+      backgroundColor: FansivibeColors.surface,
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+              child: Row(
+                children: [
+                  Semantics(
+                    button: true,
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: _glassCircle(
+                        icon: Icons.arrow_back_rounded,
+                        size: 40,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'TODAY\'S LOOK',
+                    style: FansivibeTypography.headlineMediumWithFamily
+                        .copyWith(fontSize: 20, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(child: body),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _stateMessage(
+    BuildContext context, {
+    required String title,
+    required String message,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: FansivibeTypography.headlineMediumWithFamily.copyWith(
+                fontSize: 22,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            SizedBox(height: FansivibeSpacing.sm),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                color: FansivibeColors.secondary,
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+            SizedBox(height: FansivibeSpacing.lg),
+            FansiButton.secondary(
+              label: 'Try Again',
+              icon: Icons.refresh_rounded,
+              onPressed: _retry,
+            ),
+          ],
         ),
       ),
     );
@@ -168,7 +434,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
 
   Widget _buildHeroSection(
     BuildContext context,
-    DailyOutfitData data,
+    TodayLook look,
     BoxConstraints constraints,
   ) {
     final viewHeight = MediaQuery.of(context).size.height;
@@ -176,12 +442,14 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     final w = constraints.maxWidth;
     final isTablet = w > 600;
     final p = isTablet ? 48.0 : 20.0;
-    final scoreColor = _scoreColor(data.matchScore);
+    final scoreColor = _scoreColor(look.matchScore);
 
     final panelWidth = w * 0.62;
     final panelHeight = heroHeight * 0.5;
     final panelTop = heroHeight * 0.17;
     final panelLeft = w - panelWidth + 14;
+
+    final occasion = look.occasion;
 
     return SizedBox(
       height: heroHeight,
@@ -248,7 +516,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
             right: p,
             child: _glassPill(
               icon: Icons.auto_awesome_rounded,
-              text: '${data.matchScore}%',
+              text: '${look.matchScore}%',
               color: scoreColor,
             ),
           ),
@@ -329,35 +597,22 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
               ],
             ),
           ),
-          Positioned(
-            left: p,
-            bottom: heroHeight * 0.17,
-            child: _glassPill(
-              icon: Icons.auto_awesome_rounded,
-              text: 'Confidence Boost',
-              color: FansivibeColors.primary,
+          if (occasion != null)
+            Positioned(
+              left: p,
+              bottom: p,
+              child: Wrap(
+                spacing: FansivibeSpacing.sm,
+                runSpacing: FansivibeSpacing.sm,
+                children: [
+                  _garmentTag(
+                    occasion,
+                    icon: Icons.event_outlined,
+                    color: FansivibeColors.primary,
+                  ),
+                ],
+              ),
             ),
-          ),
-          Positioned(
-            left: p,
-            bottom: p,
-            child: Wrap(
-              spacing: FansivibeSpacing.sm,
-              runSpacing: FansivibeSpacing.sm,
-              children: [
-                _garmentTag(
-                  data.occasion,
-                  icon: Icons.event_outlined,
-                  color: FansivibeColors.primary,
-                ),
-                _garmentTag(
-                  data.weather,
-                  icon: Icons.cloud_outlined,
-                  color: FansivibeColors.secondary,
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -466,14 +721,14 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
 
   // ─────────────────────────── EDITORIAL SUMMARY ───────────────────────────
 
-  Widget _buildEditorialSummary(BuildContext context, DailyOutfitData data) {
+  Widget _buildEditorialSummary(BuildContext context, TodayLook look) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _goldLabel('THE DAILY EDIT'),
         SizedBox(height: FansivibeSpacing.sm),
         Text(
-          data.title,
+          look.title,
           style: FansivibeTypography.displayLargeWithFamily.copyWith(
             fontSize: 36,
             fontWeight: FontWeight.w500,
@@ -483,52 +738,24 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         ),
         SizedBox(height: FansivibeSpacing.md),
         Text(
-          data.description,
+          look.description,
           style: FansivibeTypography.bodyLargeWithFamily.copyWith(
             color: FansivibeColors.secondary,
             height: 1.6,
             fontSize: 16,
           ),
         ),
-        if (data.aiSelectionReason != null) ...[
-          SizedBox(height: FansivibeSpacing.lg),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _garmentTag(
-                'AI NOTE',
-                icon: Icons.auto_awesome_rounded,
-                color: FansivibeColors.primary,
-              ),
-              SizedBox(width: FansivibeSpacing.sm + 4),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(
-                    data.aiSelectionReason!,
-                    style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                      color: FansivibeColors.primary,
-                      fontSize: 14,
-                      height: 1.5,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
       ],
     );
   }
 
   // ─────────────────────────── THE ENSEMBLE ───────────────────────────
 
-  Widget _buildOutfitBreakdown(BuildContext context, DailyOutfitData data) {
+  Widget _buildOutfitBreakdown(BuildContext context, TodayLook look) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionHeader('The Ensemble', '${data.components.length} pieces'),
+        _buildSectionHeader('The Ensemble', '${look.components.length} pieces'),
         SizedBox(height: FansivibeSpacing.md + 4),
         SizedBox(
           height: isTablet(context) ? 190 : 175,
@@ -539,13 +766,13 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
               left: isTablet(context) ? 0 : 4,
               right: FansivibeSpacing.lg,
             ),
-            itemCount: data.components.length,
+            itemCount: look.components.length,
             separatorBuilder: (_, __) =>
                 SizedBox(width: FansivibeSpacing.sm + 4),
             itemBuilder: (context, index) {
               return _componentCard(
                 context,
-                data.components[index],
+                look.components[index],
                 isTablet(context),
               );
             },
@@ -561,11 +788,16 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
 
   Widget _componentCard(
     BuildContext context,
-    DailyOutfitComponent component,
+    TodayLookComponent component,
     bool isTablet,
   ) {
-    final color = _parseColor(component.colorHex);
+    // No colorHex on the wire (no server source): neutral primary tint.
+    const color = FansivibeColors.primary;
     final cardWidth = isTablet ? 200.0 : 170.0;
+
+    final detail = component.material == null
+        ? component.color
+        : '${component.color} \u2022 ${component.material}';
 
     return SizedBox(
       width: cardWidth,
@@ -656,7 +888,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                         Container(
                           width: 8,
                           height: 8,
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             shape: BoxShape.circle,
                             color: color,
                           ),
@@ -664,9 +896,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                         SizedBox(width: FansivibeSpacing.xs + 2),
                         Flexible(
                           child: Text(
-                            component.material == null
-                                ? component.color
-                                : '${component.color} \u2022 ${component.material}',
+                            detail,
                             style: FansivibeTypography.labelSmallWithFamily
                                 .copyWith(
                                   color: FansivibeColors.secondary,
@@ -690,31 +920,28 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
 
   // ─────────────────────────── WHY IT WORKS ───────────────────────────
 
-  Widget _buildWhyItWorks(BuildContext context, DailyOutfitData data) {
+  Widget _buildWhyItWorks(BuildContext context, TodayLook look) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionHeader('Why It Works', 'AI style analysis'),
+        _buildSectionHeader('Why It Works', 'Grounded in your wardrobe'),
         SizedBox(height: FansivibeSpacing.md + 4),
-        if (data.aiInsights.isNotEmpty)
-          ...List.generate(data.aiInsights.length, (index) {
-            final insight = data.aiInsights[index];
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: index < data.aiInsights.length - 1
-                    ? FansivibeSpacing.sm + 4
-                    : 0,
-              ),
-              child: _insightCard(context, insight),
-            );
-          }),
+        ...List.generate(look.reasons.length, (index) {
+          final reason = look.reasons[index];
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: index < look.reasons.length - 1
+                  ? FansivibeSpacing.sm + 4
+                  : 0,
+            ),
+            child: _reasonCard(context, reason),
+          );
+        }),
       ],
     );
   }
 
-  Widget _insightCard(BuildContext context, AiInsightData insight) {
-    final icon = _insightIcon(insight.iconName);
-
+  Widget _reasonCard(BuildContext context, String reason) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
@@ -732,32 +959,26 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
               color: FansivibeColors.primary.withValues(alpha: 0.1),
               borderRadius: FansivibeRadius.smBorder,
             ),
-            child: Center(
-              child: Icon(icon, size: 18, color: FansivibeColors.primary),
+            child: const Center(
+              child: Icon(
+                Icons.check_rounded,
+                size: 18,
+                color: FansivibeColors.primary,
+              ),
             ),
           ),
           SizedBox(width: FansivibeSpacing.sm + 4),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  insight.title,
-                  style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                reason,
+                style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                  color: FansivibeColors.secondary,
+                  fontSize: 13,
+                  height: 1.5,
                 ),
-                SizedBox(height: FansivibeSpacing.xs + 2),
-                Text(
-                  insight.description,
-                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                    color: FansivibeColors.secondary,
-                    fontSize: 13,
-                    height: 1.5,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ],
@@ -767,11 +988,16 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
 
   // ─────────────────────────── ALTERNATIVES ───────────────────────────
 
-  Widget _buildAlternatives(BuildContext context, DailyOutfitData data) {
+  Widget _buildAlternatives(BuildContext context, TodayLook look) {
+    final alternatives = look.alternatives;
+    final count = alternatives.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionHeader('Alternatives', '3 more looks for you'),
+        _buildSectionHeader(
+          'Alternatives',
+          '$count more look${count == 1 ? '' : 's'} for you',
+        ),
         SizedBox(height: FansivibeSpacing.md + 4),
         SizedBox(
           height: isTablet(context) ? 240 : 220,
@@ -782,13 +1008,14 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
               left: isTablet(context) ? 0 : 4,
               right: FansivibeSpacing.lg,
             ),
-            itemCount: data.alternatives.length,
+            itemCount: alternatives.length,
             separatorBuilder: (_, __) =>
                 SizedBox(width: FansivibeSpacing.sm + 4),
             itemBuilder: (context, index) {
               return _alternativeCard(
                 context,
-                data.alternatives[index],
+                alternatives[index],
+                index,
                 isTablet(context),
               );
             },
@@ -800,12 +1027,15 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
 
   Widget _alternativeCard(
     BuildContext context,
-    AlternativeLookData alt,
+    TodayLookAlternative alternative,
+    int index,
     bool isTablet,
   ) {
     final cardWidth = isTablet ? 220.0 : 190.0;
-    final scoreColor = _scoreColor(alt.matchScore);
+    final scoreColor = _scoreColor(alternative.matchScore);
 
+    // Minimal backend mapping (id + score only): no invented names, no
+    // fabricated detail navigation.
     return SizedBox(
       width: cardWidth,
       child: Container(
@@ -860,7 +1090,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                           Icon(Icons.star_rounded, size: 10, color: scoreColor),
                           SizedBox(width: 3),
                           Text(
-                            '${alt.matchScore}%',
+                            '${alternative.matchScore}%',
                             style: FansivibeTypography.labelSmallWithFamily
                                 .copyWith(
                                   color: scoreColor,
@@ -883,7 +1113,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                   children: [
                     Flexible(
                       child: Text(
-                        alt.name,
+                        'Alternative ${index + 1}',
                         style: FansivibeTypography.titleLargeWithFamily
                             .copyWith(
                               fontSize: 14,
@@ -896,7 +1126,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                     SizedBox(height: FansivibeSpacing.xs - 2),
                     Flexible(
                       child: Text(
-                        alt.styleName,
+                        'Another way to wear your wardrobe',
                         style: FansivibeTypography.labelSmallWithFamily
                             .copyWith(
                               color: FansivibeColors.secondary,
@@ -904,29 +1134,6 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                             ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    SizedBox(height: FansivibeSpacing.sm),
-                    SizedBox(
-                      width: double.infinity,
-                      child: GestureDetector(
-                        onTap: () => _handleSeeDetails(context, alt),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Text(
-                            'See Details',
-                            style: FansivibeTypography.labelMediumWithFamily
-                                .copyWith(
-                                  color: FansivibeColors.primary,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12,
-                                  letterSpacing: 0.5,
-                                  decoration: TextDecoration.underline,
-                                  decorationColor: FansivibeColors.primary,
-                                  decorationThickness: 1,
-                                ),
-                          ),
-                        ),
                       ),
                     ),
                   ],
@@ -941,25 +1148,22 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
 
   // ─────────────────────────── QUICK ACTIONS ───────────────────────────
 
-  Widget _buildQuickActions(BuildContext context, DailyOutfitData data) {
+  Widget _buildQuickActions(BuildContext context, TodayLook look) {
+    final busy = _loading || _regenerating || _saving;
     return Column(
       children: [
-        _goldGradientCta(
-          label: 'Wear This Look',
-          icon: Icons.check_circle_outline_rounded,
-          onTap: () => _handleWearThis(context),
-        ),
-        SizedBox(height: FansivibeSpacing.sm + 4),
         FansiButton.secondary(
-          label: 'Generate Another Look',
+          label: _regenerating ? 'Generating…' : 'Generate Another Look',
           icon: Icons.refresh_rounded,
-          onPressed: () => _handleGenerateAnother(context),
+          onPressed: busy ? null : _handleGenerateAnother,
         ),
         SizedBox(height: FansivibeSpacing.sm + 4),
         FansiButton.secondary(
-          label: 'Save Look',
-          icon: Icons.bookmark_outline_rounded,
-          onPressed: () => _handleSaveOutfit(context),
+          label: _saved ? 'Saved' : (_saving ? 'Saving…' : 'Save Look'),
+          icon: _saved
+              ? Icons.bookmark_rounded
+              : Icons.bookmark_outline_rounded,
+          onPressed: busy || _saved ? null : _handleSaveOutfit,
         ),
         SizedBox(height: FansivibeSpacing.sm + 4),
         SizedBox(
@@ -998,120 +1202,6 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     );
   }
 
-  /// Signature primary CTA — `primary` → `primaryContainer` at 135 degrees.
-  Widget _goldGradientCta({
-    required String label,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    return ClipRRect(
-      borderRadius: FansivibeRadius.fullBorder,
-      child: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [FansivibeColors.primary, FansivibeColors.primaryContainer],
-          ),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            child: Container(
-              height: 52,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              alignment: Alignment.center,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.check_circle_outline_rounded,
-                    size: 18,
-                    color: FansivibeColors.onPrimary,
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: FansivibeTypography.bodyLargeWithFamily.copyWith(
-                        color: FansivibeColors.onPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ─────────────────────────── DAILY STYLE TIP ───────────────────────────
-
-  Widget _buildDailyStyleTip(BuildContext context, DailyOutfitData data) {
-    if (data.dailyStyleTip == null) return const SizedBox.shrink();
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            FansivibeColors.primary.withValues(alpha: 0.05),
-            FansivibeColors.surfaceContainerLow,
-          ],
-          stops: const [0.0, 0.7],
-        ),
-        borderRadius: FansivibeRadius.mdBorder,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: FansivibeColors.primary.withValues(alpha: 0.12),
-              borderRadius: FansivibeRadius.smBorder,
-            ),
-            child: Center(
-              child: Icon(
-                Icons.lightbulb_outline_rounded,
-                size: 17,
-                color: FansivibeColors.primary,
-              ),
-            ),
-          ),
-          SizedBox(width: FansivibeSpacing.sm + 4),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _goldLabel('Daily Style Tip', fontSize: 10),
-                SizedBox(height: FansivibeSpacing.xs + 2),
-                Text(
-                  data.dailyStyleTip!,
-                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                    color: FansivibeColors.onSurface,
-                    fontSize: 13,
-                    height: 1.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildSectionHeader(String title, String subtitle) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1146,56 +1236,11 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     );
   }
 
-  void _handleWearThis(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Wearing this look!'),
-        backgroundColor: FansivibeColors.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
-      ),
-    );
-  }
-
-  void _handleGenerateAnother(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Generating a new look...'),
-        backgroundColor: FansivibeColors.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
-      ),
-    );
-  }
-
-  void _handleSaveOutfit(BuildContext context) {
-    LearningService.instance.addSavedLook(DailyOutfitData.mock.title);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Outfit saved to your looks'),
-        backgroundColor: FansivibeColors.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
-      ),
-    );
-  }
-
   void _handleShare(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Share feature coming soon'),
         backgroundColor: FansivibeColors.surfaceContainerHighest,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
-      ),
-    );
-  }
-
-  void _handleSeeDetails(BuildContext context, AlternativeLookData alt) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Viewing ${alt.name} details...'),
-        backgroundColor: FansivibeColors.primary,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
@@ -1209,42 +1254,20 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     return FansivibeColors.error;
   }
 
-  Color _parseColor(String? hex) {
-    if (hex == null) return FansivibeColors.primary;
-    final h = hex.replaceFirst('#', '');
-    final fullHex = h.length == 6 ? 'FF$h' : h;
-    return Color(int.parse(fullHex, radix: 16));
-  }
-
   IconData _categoryIcon(String category) {
-    switch (category) {
-      case 'Outerwear':
+    switch (category.toLowerCase()) {
+      case 'outerwear':
         return Icons.checkroom_rounded;
-      case 'Tops':
+      case 'tops':
         return Icons.person_rounded;
-      case 'Bottoms':
+      case 'bottoms':
         return Icons.accessibility_rounded;
-      case 'Footwear':
+      case 'footwear':
         return Icons.directions_walk_rounded;
-      case 'Accessories':
+      case 'accessories':
         return Icons.diamond_rounded;
       default:
         return Icons.category_rounded;
-    }
-  }
-
-  IconData _insightIcon(String iconName) {
-    switch (iconName) {
-      case 'palette_outlined':
-        return Icons.palette_outlined;
-      case 'accessibility_new_rounded':
-        return Icons.accessibility_new_rounded;
-      case 'auto_awesome_rounded':
-        return Icons.auto_awesome_rounded;
-      case 'event_outlined':
-        return Icons.event_outlined;
-      default:
-        return Icons.lightbulb_outline_rounded;
     }
   }
 }

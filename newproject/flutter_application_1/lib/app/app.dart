@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/app_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/theme/fansivibe_theme.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,6 +15,13 @@ class FansivibeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // D-AUTH-1: any authenticated client that receives a 401 clears the
+    // dead session and lands back on entry (sign-in). The session token
+    // itself restores from platform storage via LocalStorage, so a
+    // relaunch resumes the account until the server rejects it.
+    AuthSession.onSessionExpired = () {
+      (router ?? appRouter).goNamed(RouteNames.entry);
+    };
     // Initialize local storage early via post-frame callback
     // SharedPreferences.getInstance() is async, so we use addPostFrameCallback
     WidgetsBinding.instance.addPostFrameCallback((_) async {

@@ -18,6 +18,9 @@ from sqlalchemy.orm import Session
 from app.domain.ports.repositories import (
     AnalysisRunRecord,
     AnalysisRunSummary,
+    AuthAccountRecord,
+    AuthSessionRecord,
+    FeedbackEventRecord,
     SavedLookCoverage,
     SavedLookRecord,
     UserEventRecord,
@@ -33,9 +36,12 @@ from app.infrastructure.db.models import (
     ActivityDays,
     AnalysisRuns,
     EventType,
+    FeedbackEvents,
     LearningSignals,
+    Looks,
     SavedLooks,
     UserEvent,
+    UserSession,
     UserState,
     Users,
     WardrobeItems,
@@ -1137,3 +1143,197 @@ class EventTypeRepositorySQL:
         if row is None:
             return None
         return VocabularyRecord(code=row.code, label=row.label, sort_order=row.sort_order)
+
+
+class FeedbackRepositorySQL:
+    """SQLAlchemy append-only store for M11 reactions (UC-32).
+
+    One INSERT per submit (tier 1); idempotent replay is keyed by
+    `(user_id, idempotency_key)` (M7 precedent). No commit inside row
+    methods — the owning use case commits.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    @staticmethod
+    def _to_record(row: FeedbackEvents) -> FeedbackEventRecord:
+        return FeedbackEventRecord(
+            id=row.id,
+            user_id=row.user_id,
+            target_look_id=row.target_look_id,
+            target_saved_look_id=row.target_saved_look_id,
+            rating=row.rating,
+            reason=row.reason,
+            idempotency_key=row.idempotency_key,
+            occurred_at=row.occurred_at,
+        )
+
+    def insert(
+        self,
+        *,
+        user_id: UUID,
+        target_look_id: Optional[str],
+        target_saved_look_id: Optional[UUID],
+        rating: str,
+        reason: Optional[str],
+        idempotency_key: str,
+    ) -> FeedbackEventRecord:
+        row = FeedbackEvents(
+            user_id=user_id,
+            target_look_id=target_look_id,
+            target_saved_look_id=target_saved_look_id,
+            rating=rating,
+            reason=reason,
+            idempotency_key=idempotency_key,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return self._to_record(row)
+
+    def get_by_idempotency(
+        self, *, user_id: UUID, idempotency_key: str
+    ) -> Optional[FeedbackEventRecord]:
+        row = self._session.execute(
+            select(FeedbackEvents).where(
+                FeedbackEvents.user_id == user_id,
+                FeedbackEvents.idempotency_key == idempotency_key,
+            )
+        ).scalar_one_or_none()
+        return self._to_record(row) if row else None
+
+    def commit(self) -> None:
+        self._session.commit()
+
+    def rollback(self) -> None:
+        self._session.rollback()
+
+
+class LookRepositorySQL:
+    """SQLAlchemy existence read for catalog looks (M11 target check).
+
+    System-owned, never user-scoped (KN catalog): resolves a submitted
+    `targetLookId` to its canonical code. Read-only — no commit, no
+    write, no user data.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get_by_code(self, *, code: str) -> Optional[str]:
+        row = self._session.get(Looks, code)
+        if row is None:
+            return None
+        return row.code
+
+
+class AuthRepositorySQL:
+    """Account + session persistence for the auth module (D-AUTH-1, M1).
+
+    Identity is always the opaque (provider, subject) pair (BC-1); the
+    bearer token itself is never persisted — sessions are keyed by its
+    SHA-256 digest. Session revocation is revoke-only (a timestamp, no
+    row edit otherwise); account deletion cascades to sessions at the
+    FK (TRX-8), so no explicit session cleanup exists here.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def find_account(
+        self, *, auth_provider: str, auth_subject: str
+    ) -> Optional[AuthAccountRecord]:
+        row = self._session.execute(
+            select(Users).where(
+                Users.auth_provider == auth_provider,
+                Users.auth_subject == auth_subject,
+            )
+        ).scalar_one_or_none()
+        return self._to_account(row) if row is not None else None
+
+    def create_account(
+        self,
+        *,
+        auth_provider: str,
+        auth_subject: str,
+        display_name: str,
+        password_hash: Optional[str],
+        idempotency_key: Optional[str],
+    ) -> AuthAccountRecord:
+        user = Users(
+            auth_provider=auth_provider,
+            auth_subject=auth_subject,
+            display_name=display_name,
+            password_hash=password_hash,
+            register_idempotency_key=idempotency_key,
+        )
+        self._session.add(user)
+        self._session.flush()
+        self._session.add(UserState(user_id=user.id))
+        self._session.flush()
+        self._session.refresh(user)
+        return self._to_account(user)
+
+    def create_session(
+        self,
+        *,
+        session_id: UUID,
+        user_id: UUID,
+        token_digest: str,
+        expires_at: datetime,
+    ) -> AuthSessionRecord:
+        row = UserSession(
+            id=session_id,
+            user_id=user_id,
+            token_digest=token_digest,
+            expires_at=expires_at,
+        )
+        self._session.add(row)
+        self._session.flush()
+        self._session.refresh(row)
+        return self._to_session(row)
+
+    def find_session(
+        self, *, token_digest: str
+    ) -> Optional[AuthSessionRecord]:
+        row = self._session.execute(
+            select(UserSession).where(UserSession.token_digest == token_digest)
+        ).scalar_one_or_none()
+        return self._to_session(row) if row is not None else None
+
+    def revoke_session(self, *, session_id: UUID) -> None:
+        self._session.execute(
+            update(UserSession)
+            .where(
+                UserSession.id == session_id,
+                UserSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=func.now())
+        )
+
+    def commit(self) -> None:
+        self._session.commit()
+
+    def rollback(self) -> None:
+        self._session.rollback()
+
+    @staticmethod
+    def _to_account(row: Users) -> AuthAccountRecord:
+        return AuthAccountRecord(
+            user_id=row.id,
+            auth_provider=row.auth_provider,
+            auth_subject=row.auth_subject,
+            display_name=row.display_name,
+            password_hash=row.password_hash,
+            register_idempotency_key=row.register_idempotency_key,
+        )
+
+    @staticmethod
+    def _to_session(row: UserSession) -> AuthSessionRecord:
+        return AuthSessionRecord(
+            id=row.id,
+            user_id=row.user_id,
+            token_digest=row.token_digest,
+            expires_at=row.expires_at,
+            revoked_at=row.revoked_at,
+        )

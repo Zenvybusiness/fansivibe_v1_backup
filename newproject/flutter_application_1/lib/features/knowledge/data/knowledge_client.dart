@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:fansivibe/features/knowledge/data/knowledge_api_models.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 
 /// HTTP client for the M5 knowledge reads (#18–#22, STEP 19.5).
 ///
@@ -20,10 +21,14 @@ class KnowledgeClient {
     defaultValue: 'http://localhost:8000',
   );
 
-  static const String _devToken = String.fromEnvironment(
+  static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',
     defaultValue: 'dev',
   );
+
+  /// Session-first Bearer token (D-AUTH-1): the persisted session wins;
+  /// the dart-define default covers logged-out/test behavior.
+  static String get _devToken => AuthSession.effectiveToken(_devTokenDefault);
 
   final http.Client _client;
   static const Duration _timeout = Duration(seconds: 12);
@@ -55,6 +60,7 @@ class KnowledgeClient {
             headers: _headers,
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return KnowledgeLookList.fromJson(decoded);
@@ -122,6 +128,7 @@ class KnowledgeClient {
             headers: _headers,
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return KnowledgeVocabularyList.fromJson(decoded);
@@ -152,6 +159,7 @@ class KnowledgeClient {
             headers: _headers,
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return KnowledgeItemReferenceList.fromJson(decoded);

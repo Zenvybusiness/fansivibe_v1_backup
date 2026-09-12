@@ -11,6 +11,7 @@ import 'package:camera/camera.dart';
 
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -224,7 +225,8 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
           imageFile.path,
         ),
       );
-      request.headers['Authorization'] = 'Bearer dev-token';
+      request.headers['Authorization'] =
+          'Bearer ${AuthSession.effectiveToken('dev')}';
 
       final response = await request.send();
       final responseBody = await http.Response.fromStream(response);

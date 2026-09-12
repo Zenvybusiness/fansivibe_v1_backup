@@ -196,6 +196,56 @@ class TodayLookRecommendation:
 
 
 @dataclass(frozen=True)
+class OutfitComponent:
+    """One owned wardrobe item inside a derived outfit (M13, UC-28/UC-29).
+
+    Ensemble-family `OutfitComponent`: `id`/`name` come from the owned
+    row; `category`/`color`/`material` are the stored vocab codes;
+    `reason` states only the grounded slot-pick fact (M8-C precedent).
+    `colorHex` has no server source and is absent by construction
+    (AI-0, same verified fact as DEC-015/M9).
+    """
+
+    id: str
+    name: str
+    category: str
+    color: str
+    material: Optional[str]
+    reason: str
+
+
+@dataclass(frozen=True)
+class OutfitRecommendation:
+    """A derived outfit (M13, UC-28/UC-29) — read/derive only.
+
+    The ensemble-family DTO (REC_API §4.3, V1 §6.7): `match_score` is
+    the winner's 0–100 budget score rescaled to the family 0..1 wire
+    scale (M8-C precedent, no second scoring); `selected_occasion`/
+    `selected_mood`/`selected_color_palette` echo the validated request
+    prefs (stripped, else verbatim). Metric prose (`color_harmony`, `body_fit`,
+    `occasion_match`, `style_score_impact`, `improvement_suggestion`)
+    states only request/composition/score facts (palette + member
+    colors + counts, requested fit, occasion + coverage, ensemble
+    match percent, coverage gaps) — never engine-signal claims, comfort
+    or flattery prose (AI-0). No alternatives: the canonical DTO
+    carries none, so runners-up are never exposed here.
+    """
+
+    title: str
+    match_score: float
+    components: list["OutfitComponent"]
+    reasons: list[str]
+    color_harmony: str
+    body_fit: str
+    occasion_match: str
+    style_score_impact: str
+    improvement_suggestion: str
+    selected_occasion: str
+    selected_mood: str
+    selected_color_palette: str
+
+
+@dataclass(frozen=True)
 class WardrobeItemRecord:
     """A `wardrobe_items` row (owner-scoped read)."""
 
@@ -406,6 +456,68 @@ class SavedLookRepository(Protocol):
     def commit(self) -> None: ...
 
     def rollback(self) -> None: ...
+
+
+@dataclass(frozen=True)
+class FeedbackEventRecord:
+    """One append-only `feedback_events` row (M11, UC-32).
+
+    Raw user reaction: `rating` is the submitted tag string (vocabulary
+    pending the feedback design — stored verbatim, never normalized);
+    at most one of `target_look_id` (catalog `looks.code`) /
+    `target_saved_look_id` (owned `saved_looks.id`) is set.
+    """
+
+    id: UUID
+    user_id: UUID
+    target_look_id: Optional[str]
+    target_saved_look_id: Optional[UUID]
+    rating: str
+    reason: Optional[str]
+    idempotency_key: str
+    occurred_at: datetime
+
+
+class FeedbackRepository(Protocol):
+    """Append-only reaction-history protocol — M11 (UC-32).
+
+    Single INSERT per submit (tier 1, TRX-2 non-transactional value
+    write — no signal, no activity, no second unit). Idempotent replay
+    is keyed by `(user_id, idempotency_key)` (M7 precedent): the use
+    case compares the canonical payload and returns the original row or
+    raises conflict. No commit inside row methods — the owning use case
+    commits (SavedLook precedent).
+    """
+
+    def insert(
+        self,
+        *,
+        user_id: UUID,
+        target_look_id: Optional[str],
+        target_saved_look_id: Optional[UUID],
+        rating: str,
+        reason: Optional[str],
+        idempotency_key: str,
+    ) -> FeedbackEventRecord: ...
+
+    def get_by_idempotency(
+        self, *, user_id: UUID, idempotency_key: str
+    ) -> Optional[FeedbackEventRecord]: ...
+
+    def commit(self) -> None: ...
+
+    def rollback(self) -> None: ...
+
+
+class LookRepository(Protocol):
+    """Minimal catalog-look existence read — M11 target validation.
+
+    Only what UC-32 needs: resolving a submitted `targetLookId`
+    (catalog `looks.code`) to its canonical code. System-owned, never
+    user-scoped (KN catalog). Read-only — no commit, no write.
+    """
+
+    def get_by_code(self, *, code: str) -> Optional[str]: ...
 
 
 class UserEventRepository(Protocol):
@@ -676,3 +788,80 @@ class VocabularyRepository(Protocol):
     """
 
     def list_active(self) -> list["VocabularyRecord"]: ...
+
+
+@dataclass(frozen=True)
+class AuthAccountRecord:
+    """An auth identity row (D-AUTH-1, M1).
+
+    The (provider, subject) pair IS the account identity (BC-1);
+    `password_hash` is the provider-side credential (bcrypt, never the
+    password). `register_idempotency_key` is the C-12 replay key of the
+    register call that created the account (None for legacy rows).
+    """
+
+    user_id: UUID
+    auth_provider: str
+    auth_subject: str
+    display_name: str
+    password_hash: Optional[str]
+    register_idempotency_key: Optional[str]
+
+
+@dataclass(frozen=True)
+class AuthSessionRecord:
+    """One R51 device/session row (D-AUTH-1, M1).
+
+    `token_digest` identifies the row without persisting the bearer
+    token; `revoked_at` stamps logout; `expires_at` bounds lifetime.
+    """
+
+    id: UUID
+    user_id: UUID
+    token_digest: str
+    expires_at: datetime
+    revoked_at: Optional[datetime]
+
+
+class AuthRepository(Protocol):
+    """Account + session seam for the auth module (D-AUTH-1, M1).
+
+    Minimal on purpose: account lookup/creation by the opaque
+    (provider, subject) identity plus session issue/lookup/revoke.
+    Password hashing and token minting live in the infrastructure auth
+    adapter (`app/infrastructure/auth.py`) — never here, never in
+    domain logic (F-3/DR-1: domain sees `user_id` only).
+    """
+
+    def find_account(
+        self, *, auth_provider: str, auth_subject: str
+    ) -> Optional[AuthAccountRecord]: ...
+
+    def create_account(
+        self,
+        *,
+        auth_provider: str,
+        auth_subject: str,
+        display_name: str,
+        password_hash: Optional[str],
+        idempotency_key: Optional[str],
+    ) -> AuthAccountRecord: ...
+
+    def create_session(
+        self,
+        *,
+        session_id: UUID,
+        user_id: UUID,
+        token_digest: str,
+        expires_at: datetime,
+    ) -> AuthSessionRecord: ...
+
+    def find_session(
+        self, *, token_digest: str
+    ) -> Optional[AuthSessionRecord]: ...
+
+    def revoke_session(self, *, session_id: UUID) -> None: ...
+
+    def commit(self) -> None: ...
+
+    def rollback(self) -> None: ...

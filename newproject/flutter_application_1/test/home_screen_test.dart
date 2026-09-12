@@ -3,9 +3,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
 import 'package:fansivibe/app/router/app_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
+import 'package:fansivibe/features/home/data/today_look_models.dart';
+import 'package:fansivibe/features/home/data/today_look_repository.dart';
+import 'package:fansivibe/features/home/presentation/daily_outfit_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
+import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 
 /// Creates a [FansivibeApp] with an isolated router to prevent state
@@ -13,6 +18,107 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 Widget _freshApp() {
   return FansivibeApp(
     router: GoRouter(initialLocation: '/home', routes: appRoutes),
+  );
+}
+
+/// Fixed backend look for the M9 Home tests (STEP 19.25).
+TodayLookResult _backendLookResult() => TodayLookResult.available(
+  TodayLook.fromJson({
+    'title': 'City Layers',
+    'occasion': 'work',
+    'description': 'Layered neutrals built from owned staples.',
+    'matchScore': 84,
+    'styleScore': 84,
+    'components': [
+      {
+        'id': '78ff3686-c950-4cd6-84c3-7e18d6634dfa',
+        'name': 'Camel Overcoat',
+        'category': 'outerwear',
+        'color': 'Camel',
+      },
+      {
+        'id': '4412f646-56a9-4afa-8717-b330da03b3d0',
+        'name': 'Grey Knit',
+        'category': 'tops',
+        'color': 'Grey',
+      },
+    ],
+    'reasons': ['Picked for a work occasion'],
+    'wardrobeContext': {'totalItems': 2, 'matchingItems': 2},
+    'alternatives': <Map<String, dynamic>>[],
+    'selectedItemIds': [
+      '4412f646-56a9-4afa-8717-b330da03b3d0',
+      '78ff3686-c950-4cd6-84c3-7e18d6634dfa',
+    ],
+  }),
+);
+
+class _FakeTodayLookRepository implements TodayLookRepository {
+  _FakeTodayLookRepository(this.result);
+
+  final TodayLookResult result;
+
+  @override
+  Future<TodayLookResult> getTodayLook() async => result;
+
+  @override
+  Future<TodayLookResult> regenerateTodayLook({String? seed}) async => result;
+
+  @override
+  Future<SavedTodayLook?> saveTodayLook({
+    String? lookId,
+    required String title,
+    required Map<String, dynamic> snapshot,
+    required String idempotencyKey,
+  }) async => null;
+}
+
+class _ZeroSummaryRepository implements LearningSummaryRepository {
+  @override
+  Future<LearningSummary?> getSummary() async => const LearningSummary(
+    styleScore: 60,
+    breakdown: LearningSummaryBreakdown(
+      base: 60,
+      wardrobePoints: 0,
+      savedPoints: 0,
+      total: 60,
+    ),
+    streak: 0,
+    recentSignals: [],
+  );
+}
+
+/// App with the backend-fed Home slot (M9, STEP 19.25): the same fake feeds
+/// both Home and the Daily Outfit detail surface.
+Widget _backendApp() {
+  final todayRepo = _FakeTodayLookRepository(_backendLookResult());
+  return FansivibeApp(
+    router: GoRouter(
+      initialLocation: '/home',
+      routes: [
+        GoRoute(
+          path: '/home',
+          builder: (context, state) => HomeScreen(
+            todayLookRepository: todayRepo,
+            summaryRepository: _ZeroSummaryRepository(),
+          ),
+          routes: [
+            GoRoute(
+              path: 'daily-outfit',
+              name: RouteNames.dailyOutfit,
+              builder: (context, state) =>
+                  DailyOutfitScreen(todayLookRepository: todayRepo),
+            ),
+            GoRoute(
+              path: 'build-outfit',
+              name: RouteNames.buildOutfit,
+              builder: (context, state) =>
+                  const Scaffold(body: Center(child: Text('Build Outfit'))),
+            ),
+          ],
+        ),
+      ],
+    ),
   );
 }
 
@@ -27,29 +133,34 @@ void main() {
       expect(find.text('Good morning, Alex'), findsOneWidget);
     });
 
-    testWidgets('renders Today\'s Look card with all components', (
+    testWidgets('renders Today\'s Look card from the backend', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(_freshApp());
+      // M9 (STEP 19.25): the slot renders the backend derivation verbatim —
+      // no mock titles, wardrobe names, or numeric IDs.
+      await tester.pumpWidget(_backendApp());
+      await tester.pumpAndSettle();
 
       // Verify Today's Look card elements
       expect(find.text('TODAY\'S LOOK'), findsOneWidget);
-      expect(find.text('Your Look'), findsOneWidget);
-      expect(find.text('Everyday'), findsOneWidget);
-      expect(find.text('Style Score'), findsOneWidget);
-      expect(find.text('87%'), findsWidgets); // Style score badge
+      expect(find.text('City Layers'), findsOneWidget);
+      expect(find.text('work'), findsOneWidget);
+      expect(find.text('84%'), findsWidgets); // Style score badge
 
-      // Verify description
+      // Verify backend description
       expect(
-        find.textContaining(
-          'Great start with Unstructured Blazer and Merino Crew Neck',
-        ),
+        find.textContaining('Layered neutrals built from owned staples'),
         findsOneWidget,
       );
 
-      // Verify outfit items (built from the default wardrobe)
-      expect(find.text('Unstructured Blazer'), findsOneWidget);
-      expect(find.text('Merino Crew Neck'), findsOneWidget);
+      // Verify backend outfit items (UUID-addressed, verbatim names)
+      expect(find.text('Camel Overcoat'), findsOneWidget);
+      expect(find.text('Grey Knit'), findsOneWidget);
+
+      // No mock leftovers posing as data
+      expect(find.text('Your Look'), findsNothing);
+      expect(find.text('Modern Minimalist'), findsNothing);
+      expect(find.text('Unstructured Blazer'), findsNothing);
 
       // Verify action buttons
       expect(find.text('Try This Look'), findsOneWidget);
@@ -147,7 +258,9 @@ void main() {
     testWidgets('HomeScreen is scrollable with all sections', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(_freshApp());
+      // M9 (STEP 19.25): scrolled through the backend-fed slot.
+      await tester.pumpWidget(_backendApp());
+      await tester.pumpAndSettle();
 
       await tester.drag(
         find.byType(SingleChildScrollView),
@@ -179,7 +292,9 @@ void main() {
     testWidgets('Try This Look navigates to Daily Outfit screen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(_freshApp());
+      // M9 (STEP 19.25): navigation runs through the backend-fed slot.
+      await tester.pumpWidget(_backendApp());
+      await tester.pumpAndSettle();
 
       await tester.scrollUntilVisible(find.text('Try This Look'), 500.0);
       await tester.pumpAndSettle();
@@ -187,6 +302,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text("TODAY'S LOOK"), findsOneWidget);
+      expect(find.text('City Layers'), findsWidgets);
     });
 
     testWidgets(

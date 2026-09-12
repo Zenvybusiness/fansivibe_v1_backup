@@ -12,6 +12,16 @@ do not request the `db` fixture and run everywhere.
 
 from __future__ import annotations
 
+import os
+
+# D-AUTH-1: the shared dev-token fallback (`Bearer dev` → seeded dev
+# user) is DISABLED by default and enabled here for the test suite
+# only, so the existing suites keep their historical identity while
+# production can never silently inherit it. Set before any `app.*`
+# import because settings are cached at first access.
+os.environ.setdefault("FANSIVIBE_ALLOW_DEV_TOKEN", "true")
+os.environ.setdefault("FANSIVIBE_AUTH_SECRET", "test-only-auth-secret")
+
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -22,7 +32,8 @@ from app.infrastructure.db.session import DATABASE_URL
 
 _TRUNCATE = (
     "TRUNCATE learning_signals, activity_days, saved_looks, analysis_runs, "
-    "user_events, wardrobe_wear_events, wardrobe_wear_groups, user_state, users CASCADE"
+    "feedback_events, user_events, wardrobe_wear_events, wardrobe_wear_groups, "
+    "user_sessions, user_state, users CASCADE"
 )
 
 

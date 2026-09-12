@@ -104,7 +104,7 @@ def get_me(
     """Return the authenticated user's profile (`ProfileView`, bare)."""
     use_case = GetProfile(user_state=UserStateRepositorySQL(db))
     record = use_case(user_id=user_id)
-    return _build_profile_view(db, record)
+    return build_profile_view(db, record)
 
 
 @router.patch(
@@ -123,13 +123,15 @@ def update_me(
     record = use_case(
         user_id=user_id, preferred_occasions=request.preferredOccasions
     )
-    return _build_profile_view(db, record)
+    return build_profile_view(db, record)
 
 
-def _build_profile_view(db: Session, record: UserProfileRecord) -> ProfileView:
+def build_profile_view(db: Session, record: UserProfileRecord) -> ProfileView:
     """Render a `ProfileView` with the saved-look count and occasions summary.
 
     Shared by `GET /me` and `PATCH /me` so both return the identical contract.
+    The auth router reuses this (same layer, same contract) so register/login
+    return byte-consistent profiles with the identity read.
     """
     user_id = record.user_id
     # Compute saved looks count from the database

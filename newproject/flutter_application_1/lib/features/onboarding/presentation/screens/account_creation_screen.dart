@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/auth/auth.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
@@ -8,7 +9,12 @@ import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 
 class AccountCreationScreen extends StatefulWidget {
-  const AccountCreationScreen({super.key});
+  /// Auth source (D-AUTH-1). Defaults to the live repository; tests
+  /// inject a fake. [mode] is 'register' or 'login' (via route extra).
+  const AccountCreationScreen({super.key, this.authRepository, this.mode = 'register'});
+
+  final AuthRepository? authRepository;
+  final String mode;
 
   @override
   State<AccountCreationScreen> createState() => _AccountCreationScreenState();
@@ -25,6 +31,11 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
   final _passwordController = TextEditingController();
   final _nameController = TextEditingController();
   bool _isValid = false;
+  bool _submitting = false;
+  String? _authError;
+  late final AuthRepository _auth;
+
+  bool get _isLogin => widget.mode == 'login';
 
   static const _paletteColors = [
     Color(0xFF2D2D2D),
@@ -37,6 +48,7 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
   @override
   void initState() {
     super.initState();
+    _auth = widget.authRepository ?? AuthRepositoryImpl();
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
@@ -71,23 +83,89 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
     super.dispose();
   }
 
-  void _onCreateAccount() {
-    context.goNamed(
-      RouteNames.home,
-      extra: {
-        'onboarding_complete': true,
-        'display_name': _nameController.text.isNotEmpty
-            ? _nameController.text
+  /// Submits register (create mode) or login (sign-in mode) against
+  /// the real backend (D-AUTH-1). Success persists the session inside
+  /// the client and navigates home; failures render truthful copy —
+  /// never a fake login success.
+  Future<void> _onSubmit() async {
+    if (_submitting) return;
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      setState(() {
+        _authError = 'Enter your email and password to continue.';
+      });
+      return;
+    }
+    setState(() {
+      _submitting = true;
+      _authError = null;
+    });
+    final AuthResult result;
+    if (_isLogin) {
+      result = await _auth.login(email: email, password: password);
+    } else {
+      result = await _auth.register(
+        email: email,
+        password: password,
+        displayName: _nameController.text.trim().isNotEmpty
+            ? _nameController.text.trim()
             : null,
-      },
-    );
+        idempotencyKey: newAuthIdempotencyKey(),
+      );
+    }
+    if (!mounted) return;
+    setState(() => _submitting = false);
+    if (result.isAuthenticated) {
+      context.goNamed(
+        RouteNames.home,
+        extra: {
+          'onboarding_complete': true,
+          'display_name': result.displayName ??
+              (_nameController.text.isNotEmpty ? _nameController.text : null),
+        },
+      );
+      return;
+    }
+    setState(() {
+      _authError = switch (result.status) {
+        AuthStatus.invalidCredentials =>
+          'Those credentials didn\'t match. Check your email and password and try again.',
+        AuthStatus.emailTaken =>
+          'That email is already registered. Try signing in instead.',
+        AuthStatus.invalidInput =>
+          'Check your email and password — they don\'t look quite right.',
+        AuthStatus.providerUnavailable =>
+          'Social sign-in isn\'t available yet. Use email instead.',
+        AuthStatus.networkError =>
+          'Couldn\'t reach the sign-in service. Check your connection and try again.',
+        AuthStatus.authenticated || AuthStatus.signedOut => null,
+      };
+    });
   }
 
-  void _onSocialSignIn(String provider) {
-    context.goNamed(
-      RouteNames.home,
-      extra: {'onboarding_complete': true, 'provider': provider, 'analysis_cached': true},
+  void _onCreateAccount() => _onSubmit();
+
+  Future<void> _onSocialSignIn(String provider) async {
+    if (_submitting) return;
+    setState(() {
+      _submitting = true;
+      _authError = null;
+    });
+    // No external identity provider is configured (honest 502 behind
+    // this call): the result is always providerUnavailable and no
+    // session is ever fabricated from an unverified token.
+    final result = await _auth.socialSignIn(
+      provider: provider,
+      providerToken: '',
     );
+    if (!mounted) return;
+    setState(() {
+      _submitting = false;
+      _authError = result.status == AuthStatus.providerUnavailable
+          ? 'Social sign-in isn\'t available yet. Use email instead.'
+          : null;
+    });
   }
 
   void _onMaybeLater() {
@@ -134,11 +212,12 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
                         _buildCtaSection(),
                         SizedBox(height: FansivibeSpacing.lg),
                         _buildSocialSection(),
-                        SizedBox(height: FansivibeSpacing.md),
-                        FansiButton.tertiary(
-                          label: 'Create Account',
-                          onPressed: _isValid ? _onCreateAccount : null,
-                        ),
+                SizedBox(height: FansivibeSpacing.md),
+                FansiButton.tertiary(
+                  label: _isLogin ? 'Sign In' : 'Create Account',
+                  onPressed:
+                      (_isValid && !_submitting) ? _onCreateAccount : null,
+                ),
                         SizedBox(height: FansivibeSpacing.xxl),
                         FansiButton.tertiary(
                           label: 'Maybe Later — Save Locally',
@@ -197,7 +276,7 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
                 ),
                 SizedBox(height: FansivibeSpacing.lg),
                 Text(
-                  'Save Your Style Journey',
+                  _isLogin ? 'Welcome Back' : 'Save Your Style Journey',
                   textAlign: TextAlign.center,
                   style: FansivibeTypography.headlineMediumWithFamily.copyWith(
                     fontSize: 24,
@@ -206,7 +285,9 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
                 ),
                 SizedBox(height: FansivibeSpacing.sm),
                 Text(
-                  'Your Style DNA, score, and analysis\nwill be saved to your account.',
+                  _isLogin
+                      ? 'Sign in to pick up your style where you left off.'
+                      : 'Your Style DNA, score, and analysis\nwill be saved to your account.',
                   textAlign: TextAlign.center,
                   style: FansivibeTypography.bodyMediumWithFamily.copyWith(
                     color: FansivibeColors.secondary,
@@ -341,10 +422,29 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
       builder: (context, _) {
         return Opacity(
           opacity: _ctaAnim.value,
-          child: FansiButton.primary(
-            label: 'Create Account',
-            icon: Icons.arrow_forward_rounded,
-            onPressed: _isValid ? _onCreateAccount : null,
+          child: Column(
+            children: [
+              if (_authError != null)
+                Padding(
+                  padding: EdgeInsets.only(bottom: FansivibeSpacing.md),
+                  child: Text(
+                    _authError!,
+                    textAlign: TextAlign.center,
+                    style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                      color: FansivibeColors.error,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              FansiButton.primary(
+                label: _submitting
+                    ? 'Please wait…'
+                    : (_isLogin ? 'Sign In' : 'Create Account'),
+                icon: Icons.arrow_forward_rounded,
+                onPressed:
+                    (_isValid && !_submitting) ? _onCreateAccount : null,
+              ),
+            ],
           ),
         );
       },

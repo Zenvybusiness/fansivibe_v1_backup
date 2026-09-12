@@ -5,6 +5,851 @@ Updated By: opencode agent
 
 ---
 
+## STEP 19.31 — RELEASE READINESS + HARDENING AUDIT — CONDITIONAL (audit only, uncommitted)
+
+Task: determine production/release readiness. NO features, NO fixes, NO
+contract changes, NO commit, NO push. Skills: `.agents/skills/`
+inspected (21 entries) — none loaded (audit-only). Three read-only
+subagent sweeps (Flutter build audit, backend prod audit, journey
+robustness) verified personally below. DECISIONS.md untouched.
+
+### Verdict: NOT YET — 1 P0 gate + 10 P2s before a real production build
+
+Highest-priority item: land D-AUTH-1 real auth (P0 gate — every install
+shares the single dev identity today). Highest-priority code fix:
+wardrobe grid backend-first (real items invisible, mock shown as real).
+
+### P0/P1/P2/P3 table
+
+- P0: no real auth — D-AUTH-1 pending; all installs share one `dev`
+  identity (deps.py seam), so a production build has no real accounts,
+  login/logout are local-only stubs, token obtain/refresh/persist do not
+  exist. Accepted direction (not a surprise defect), but it gates real
+  release. No other P0: no data-loss, IDOR, leak, or corruption found.
+- P1: none remaining (19.30 fixed both).
+- P2 (should fix, ordered): (1) wardrobe grid from local mocks +
+  `getItem` fabricates 'Unknown Item' — backend list exists, wire it,
+  return null on miss; (2) assistant composition-chip nav uses
+  `Navigator.pushNamed+arguments` vs go_router `extra` → missing-data
+  screen; (3) outfit-scan hardcoded localhost + wrong `dev-token`
+  (always 401) — use dart-define base + authed client or hide entry;
+  (4) offline assistant poses as intelligence (no offline badge/label);
+  (5) chat omits auth (server occasion precedence never engages);
+  (6) preferences stale chip highlight + lost sync on mid-sync switch
+  (19.30 gaps); (7) device permissions missing (Android camera/media,
+  iOS NS*UsageDescriptions) + debug signing + no ATS/cleartext story —
+  scan flows fail on real devices; (8) home mock insight/'Alex' copy;
+  (9) prod deploy hardening: pinned requirements, Dockerfile/workers,
+  env-secret story, DB pool tuning, readiness probe (shallow /health),
+  CORS-if-web, docs/openapi exposure, rate limiting; (10) crash
+  reporting (no runZonedGuarded/FlutterError wiring).
+- P3 / DEFERRED: saved/events 20-row truncation (bounded, safe);
+  `alembic check` metadata-only drift (4 CHECKs ORM-only, 2 indexes
+  DB-only, comment noise — no table/column/FK drift); request_id
+  body/header mismatch; README env-name drift; cupertino_icons unused;
+  interpolated ID paths; dead mock widgets/files; retry fan-out +
+  discover race (guarded loads); score-0 badge; unknown-eventType
+  fallback; transient outfit-failure section; LocalStorage post-frame
+  race; mock_data format drift; first-time/your-analysis mock scope;
+  media M16 / subscriptions M15 / R-A15 / weather / P3 history.
+- BASELINE (reproduced, untouched): backend saved_looks 5, users 3,
+  grooming 2, db_session 2, PG-slot flakes (solo green), Flutter
+  wardrobe `Details` 1, add_wardrobe_item 3, wardrobe_item_details 15,
+  grooming_processing 2.
+
+### P2 triage (Phase 1)
+
+- RELEASE BLOCKER: P0 auth gate only.
+- SHOULD FIX: P2 (1)–(10) above.
+- SAFE TO DEFER: P3 list above + CORS-unless-web + dead-code cleanup.
+- No harmless convenience escalated: static picker labels, process-copy
+  stages, generic alt labels, chat unbounded list all acceptable.
+
+### Journey (Phase 2 — code + widget-test + live-API evidence)
+
+Authenticated backend-driven flows all hold states honestly (M9/M11/M13/
+M14/D/E suites + 19.29 live flows): loading/empty/error/retry/guards/
+retention verified for today/regen/save/saved/feedback/events/outfit/
+builder/discover/detail. Gaps found: wardrobe grid + details-miss
+fabrication (P2-1), assistant chip nav (P2-2), offline-assistant
+labeling (P2-4), preferences highlight/switch (P2-6), login/logout
+local-only (P0 gate), 401 dead-ends with no sign-in route (P2 w/ auth),
+saved-orphan local titles (P3), search/filter races (P3).
+
+### Flutter production (Phase 3)
+
+- 13 clients use `ASSISTANT_BASE_URL`/`FANSIVIBE_DEV_TOKEN` dart-define
+  (localhost:8000 + `dev` dev defaults — must inject prod values);
+  exactly 2 real hardcodes (outfit-scan URL/token, P2-3). No other
+  secrets; zero `print`; no token/header logging; no test backdoors
+  (scan `_isTestMode` is test-only).
+- Android: INTERNET ok; appId com.fansivibe.fansivibe; NO camera/media
+  permissions (P2-7); debug signing (P2-7); SDK versions deferred to
+  Flutter; no deep links. iOS: bundle ok; NO ATS config (prod needs
+  HTTPS), NO camera/photo strings (P2-7). Icons default templates;
+  no splash/icon packages; fonts present; no codegen; no l10n.
+- `flutter build web --release`: PASS (47s, tree-shaken). `flutter
+  analyze` on scope: clean (29 pre-existing infos elsewhere).
+  `main.dart`/`app.dart`: no env handling, no error zones (P2-10),
+  no router auth guard (waits on D-AUTH-1).
+
+### Backend production (Phase 4)
+
+- Auth complete on all /v1/* except frozen-public chat (optional) +
+  knowledge reads; no debug routes; catch-all leaks nothing (generic
+  5xx + request_id; header/body IDs differ — P3). Zero logging anywhere
+  (clean, but zero observability — P2-9/10).
+- Dev defaults unsafe for prod: DB URL w/ password, `dev` token,
+  vision localhost, README env drift, lru_cache import-time config
+  (P2-9). No CORS (P2-if-web). No rate limiting, /docs exposed (P2-9).
+  Pool defaults only (5/10, pre_ping; P2-9). No Dockerfile/workers/
+  entrypoint (P2-9). Alembic resolves URL from same settings chain;
+  single-transaction upgrades; compose has plaintext creds + floating
+  tags + no healthchecks (dev-only file).
+
+### Database (Phase 5)
+
+- `alembic heads` = single `0019`; `current` = `0019 (head)`; history
+  linear (0007 never existed). Downgrade 0019→0018 + upgrade →0019
+  round-trip clean on empty DB. `alembic check` flags ONLY the known
+  metadata drift (no structural drift). Ownership/cascade/SET NULL/
+  RESTRICT verified in 19.29 — unchanged.
+
+### Security/privacy (Phase 6, live)
+
+- Foreign UUIDs → 404 on wardrobe/saved/events/runs (no 403 leaks, no
+  data). Catalog codes in UUID slots → 422; UUID as catalog code → 404.
+  Error bodies typed+generic (422 echoes input position only).
+- No face/image bytes persisted locally (memory-only handoff); local
+  prefs store names/prefs only, no tokens; backend logs nothing;
+  debugPrints never log headers/tokens. Cross-user isolation =
+  owner-scoped queries + suites (multi-user auth waits on D-AUTH-1).
+
+### Performance (Phase 7, code-verified)
+
+- No Future-in-build, no retry loops (bounded 30-poll scan only),
+  cursor/offset pagination on feeds, server caps (50/100), shared
+  futures, guarded regen/save. Minor: unguarded retries, discover
+  refresh race, full-wardrobe page loops (bounded by user data). No
+  N+1, no leaks, no premature optimization done.
+
+### Recommended fixes, ordered
+
+1. D-AUTH-1 real auth (P0 gate) + sign-in route + 401 recovery.
+2. Wardrobe grid ← GET /v1/wardrobe/items w/ loading/error/empty;
+   getItem null → missing screen (P2-1).
+3. Assistant chip nav → go_router extra (P2-2).
+4. Outfit-scan URL/token via dart-define client (P2-3).
+5. Offline badge for offline assistant content (P2-4).
+6. Chat Authorization header (P2-5).
+7. Prefs highlight rebuild + queue-or-disable mid-sync switch (P2-6).
+8. Device permissions + signing + ATS (P2-7).
+9. Home insight gating/copy (P2-8).
+10. Prod deploy pack + crash reporting (P2-9/10).
+
+### Files changed / tests / git
+
+- Audit wrote zero product files; only this entry. Staged 0, nothing
+  committed/pushed.
+- Validation this audit: release web build PASS; alembic
+  heads/current/check + -1/+1 round-trip; live IDOR/code-confusion/
+  error-body probes (all 404/422, no leaks); DB zeroed + server
+  stopped; scope suites re-green (preferences/assistant/discover 35).
+
+---
+## STEP 19.30 — RELEASE HARDENING (P1-1 + P1-2) — PASS (uncommitted)
+
+Task: fix exactly the 2 audit P1s. No unrelated P2/P3 cleanup, no UI
+redesign, no contract changes, no M8/M9/M11/M13/M14 behavior change, no
+subscriptions/media, no commit, no push. Skills: `.agents/skills/`
+inspected (21 entries) — `flutter-use-http-package` (null-on-failure
+kept over throw guidance) + `dart-add-unit-test` loaded.
+DECISIONS.md untouched. Zero backend prod lines changed (both fixes are
+Flutter + additive backend-proof tests).
+
+### Frozen-contract notes (authoritative-first, 2 discrepancies recorded)
+
+- P1-1 `sourceContext`: the task line said `remains exactly "assistant"`,
+  but the frozen M7 vocabulary is hairstyle/grooming/outfit/daily only
+  (CHECK + use-case allow-list + schema Literal) — `"assistant"` 422s at
+  two layers (proven by new test). The existing code already sends
+  `"outfit"`, so "remains" + frozen contract both keep `"outfit"`.
+- P1-1 `components[]`: M7's generic `POST /v1/looks/saved` requires NO
+  `components[]` (only M13's `/outfits/saved` pre-check does, out of
+  scope here); it validates `selectedItemIds`-when-present. Inventing
+  component names would violate no-invention, so the fix sanitizes
+  `selectedItemIds` instead (documented in code + tests).
+
+### P1-1 — assistant save (Flutter: models.dart + assistant_client.dart)
+
+- `saveOutfitLook` now sends the standard Bearer authorization
+  (`..._authJsonHeaders` + Idempotency-Key); unauthenticated saves could
+  never land before (always 401).
+- `OutfitSaveRequest.fromOutfitIntelligence` sanitizes `selectedItemIds`
+  via new `isBackendUuidShape` (canonical-UUID gate): local engine IDs
+  (`1`–`24`, `blazer-001`, …) are dropped, survivors keep order, the key
+  is omitted when none survive (M7 then skips item validation and
+  freezes the snapshot verbatim). Ownership of surviving UUIDs stays
+  server-enforced (404-not-403). `saveOutfit` orchestration untouched
+  (true only on 201).
+- Tests: new `assistant_save_test.dart` (10: shape-gate unit,
+  sanitize/order/omit, sourceContext frozen, no-local-ID wire proof,
+  auth+key headers, 201/401/409/422/offline mapping, service true/false
+  + retry) + new `test_assistant_save_api.py` (10: 401, no-key 422,
+  `"assistant"`-context 422, sanitized-shape 201 with exact TRX-3 proof
+  (1 row + 1 `look_saved`, zero other writes), UUID canonicalization,
+  local-ID 422, unknown/foreign 404 with zero rows, replay identity,
+  409). Updated 2 tests that encoded the defect (`snapshot preserves…`,
+  wiring test F → F/F2).
+
+### P1-2 — preferences sync (Flutter: assistant_client.dart +
+### preferences_screen.dart; backend: proofs only, zero prod change)
+
+- `AssistantClient.syncPreferredOccasion` (additive; existing client, no
+  new client): fail-closed empty code (no network) → GET /me → unreadable
+  list fails without writing → present returns `alreadySynced` with NO
+  PATCH (no dupes) → else PATCH `[...current, code]` (R36 values never
+  wiped) → typed `PreferenceSyncResult` (synced/alreadySynced/
+  invalidInput/unauthorized/rateLimited/networkError/unknown).
+  `updatePreferredOccasions` bool parity preserved (true iff synced).
+- `preferences_screen`: frozen `occasionLabelToCode` (Casual→casual,
+  Business→business, Formal→formal; Smart Casual/Streetwear have no codes
+  — no invention, local-only with truthful message). Local instant save
+  preserved; mappable taps PATCH-merge with pending guard (double-tap =
+  1 PATCH) and per-outcome status line (Synced/Already/Session/Rate/
+  Offline/Failed). Injectable client (router `const` still compiles).
+- Tests: new `preferences_sync_test.dart` (13: map exactness + no-entry
+  proof, PATCH-sent/merged/auth, alreadySynced-zero-PATCH, empty-code
+  zero-call, unreadable-list no-write, status table, offline, bool
+  parity, 4 screen tests incl. pending-guard) + new
+  `test_preferences_sync_api.py` (7: 401, non-list 422, persist +
+  round-trip, replace + clear, R36-append preserves synced value, synced
+  pref consumed by today derivation pref-only, write-scope proof) +
+  updated profile chip test to the synced flow.
+- Backend PATCH/R36/generation untouched (they already honored the
+  contract — the gap was the zero-caller client).
+
+### Targeted regression (serial, slot-safe)
+
+- New 40 green (backend 10 + 7, Flutter 10 + 13).
+- Backend: saved-uc/delete + assistant-feedback 46, prefs/profile 21,
+  M13 30, M8b 35, M8a/M8c/M5 green; M9 full-file shows the known slot
+  flake (same 2 tests, solo green — file untouched).
+- Flutter: assistant 73, profile+learning+preferences 83, saved/
+  feedback/today 52 green. `flutter analyze` on scope: clean (1 hit is
+  the pre-existing learning_service_test `item2` warning).
+- `py_compile` clean. `git diff --check` clean. Format churn on touched
+  files reverted (functional hunks only; pre-existing unformatted
+  regions left byte-identical).
+- Baseline comparison: saved_looks 5 / users 3 / grooming 2 / db_session
+  2, wardrobe `Details` 1, add_wardrobe_item 3, wardrobe_item_details 15,
+  grooming_processing 2 — all reproduced at pristine HEAD or previously
+  recorded, untouched. Nothing repaired, nothing new.
+
+### Live probe (:8000, cleaned after)
+
+- A: sanitized assistant snapshot → 201 (verbatim keys, outfit ctx);
+  + 3 owned UUIDs → 201 canonical-sorted; replay same id; conflict 409;
+  list shows correct UUID components; deletes 204.
+- B: PATCH [casual] → 200 → event create (R36) → prefs [casual, party]
+  (UI value preserved) → today derives party; backend test proves
+  pref-only consumption (PATCH [date] → occasion date).
+- Counts: saves 2 / signals 2 / activity 1 / wardrobe 3 / events 1 /
+  wears+feedback 0 (no unintended writes) → all deletes → `DELETE FROM
+  users` → all user tables 0, server stopped.
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. Diff = 3 Flutter prod files +
+  3 updated test files + 4 new test files (2 backend, 2 Flutter).
+  Zero backend prod lines; zero M8/M9/M11/M13/M14 lines.
+
+### Verdict: RELEASE HARDENING PASS — BOTH P1s FIXED
+
+---
+## STEP 19.29 — FULL MVP CROSS-LAYER AUDIT — CONDITIONAL PASS (audit only, uncommitted)
+
+Task: audit-only sweep over all completed MVP modules (Wardrobe/Wear/Saved/
+Assistant-feedback/Knowledge/M10/M8/M9/M13/M11/M14). NO features implemented,
+NO migrations touched, NO contracts changed, NO commit, NO push. Skills:
+`.agents/skills/` inspected (21 Dart/Flutter entries) — none loaded
+(audit-only; 19.17/19.23 precedent). Three read-only subagent sweeps
+(route table, Flutter mock leaks, migration chain) verified personally
+below. DECISIONS.md untouched.
+
+### Verdict: CONDITIONAL PASS — no P0; 2 P1s to fix in hardening
+
+- P0 (blocker): none. Auth/ownership/cascades/route-guard/idempotency/
+  TRX/ranking/pagination all hold live; no duplicate engine; no invented
+  backend content; no mock production source of truth on any completed
+  backend-driven surface.
+- P1-1 assistant outfit-save dead: `assistant_client.saveOutfitLook`
+  omits Authorization (backend `POST /v1/looks/saved` → always 401)
+  AND its snapshot lacks M7-required `components[]` UUIDs (would 422 with
+  auth; `selectedItemIds` are local engine IDs). `saveOutfit` can never
+  return true against the real backend (verified in code; backend path
+  proven working with correct shape in flow E).
+- P1-2 preferences never sync: `preferences_screen` writes
+  `addPreferredOccasion` locally only; backend `PATCH /v1/users/me`
+  (`updatePreferredOccasions`) has ZERO callers, so UI selections never
+  reach the server or feed R36/generation (values are labels, not vocab
+  codes — wiring needs mapping + 422 handling).
+- P2: chat omits auth (server occasion precedence never engages);
+  wardrobe list/counts local+mock fallback (CRUD/detail/wear backend-
+  first); home insight mock.copyWith + 'Alex' fallback; hairstyle/groom
+  local dual-writes (display hints; backend lists authoritative);
+  outfit_scan `dev-token`/localhost hardcode (19.25-known); interpolated
+  ID paths (events/wardrobe/runs/saved) vs pathSegments gold standard;
+  dead mock-typed widgets retained.
+- P3: ORM/DB metadata drift (4 label CHECKs ORM-only; 2 indexes DB-only
+  `ix_wardrobe_items_user_id` + 2nd signals index — no data impact);
+  conftest TRUNCATE missing explicit `wardrobe_items` (safe via CASCADE);
+  29 pre-existing analyze infos (zero in M14/discover/router files);
+  mock_data not dart-format-clean at HEAD; first-time/your-analysis
+  mock-driven (out of MVP scope).
+- BASELINE (reproduced, untouched): backend saved_looks 5 (18.5 FK),
+  users_api 3, grooming_api 2, db_session 2; PG-slot full-file flakes
+  (M9, M8b-1, M10a-combined — pass solo/split); Flutter wardrobe
+  `Details` 1. NEWLY recorded this audit (proven at pristine HEAD via
+  stash): add_wardrobe_item 3, wardrobe_item_details 15,
+  grooming_processing 2.
+- CONTRACT-DEFERRED (not built, per frozen contracts): R-A15, rating
+  vocab, feedback-201, weather, today_look_records, P3 history, M14 filter
+  honoring/personalization/isOwned/save-mapping, score-scale unification,
+  media M16, subscriptions M15, conversation retention.
+
+### Module table
+
+- Wardrobe Intelligence PASS (P2 list-fallback noted) | Wear PASS |
+  Saved Looks PASS | Assistant chat/cards/feedback PASS, outfit-save
+  FAIL(P1-1) | Knowledge PASS | M10 PASS | M8 PASS | M9 PASS | M13 PASS |
+  M11 PASS | M14 PASS | Profile preferences CONDITIONAL (P1-2).
+
+### Flows A—H (live :8000, cleaned after, all PASS)
+
+A 401s + dev-me 200. B 3 creates, vocab-422, list order, 404/422 IDs,
+wear 201 + identical replay + 409-changed + 404-unknown, summary
+counts, insight 200. C create/list/update/R36-append (`formal`,`date`),
+outfit 200 event-seeded w/ owned UUIDs, foreign 404, delete 204 +
+repeat-404. D GET 200, seed-regen varies, save 201 + replay-same-id,
+wrong-context 422. E generate/regenerate/save-201/replay/409/no-key-422.
+F 204 + replay-204 + 409 + no-key-422 + bad-rating-422; DB proves
+exactly 1 feedback row + zero other writes. G summary 67 = 60+3+4,
+streak 1, recents = save labels; wear/feedback add no score (by design).
+H feed walk 3+3+2, filter-422, unknown-404. Final invariant query +
+`DELETE FROM users` → all user tables 0, server stopped.
+
+### Security/DB highlights
+
+- 41 routes mapped: auth on all /v1/* except frozen-public chat
+  (optional) + 5 knowledge reads; keys on today-save/saved/outfit-
+  saved/wears/feedback (422-if-missing); no path+method duplicates;
+  looks guard order today/save/saved/feed/detail verified.
+- Chain linear 0001→0019 single head (0007 never existed);
+  all user tables CASCADE, vocab RESTRICT, SET NULL/nullable correct,
+  signals zero-inbound, wear-item refs FK-less by design; models.py
+  table/column-exact (metadata drift only, P3).
+- Flutter: zero mock consumers on completed surfaces; zero throws in
+  clients (null-on-failure holds); mock IDs never cross the wire
+  (guards verified); read-only endpoints commit-free.
+
+### Tests run (serial, slot-safe)
+
+Backend green: M14 45, M11 20, M13 30, M10b+a 42+1-solo, M8a 18, M8b 35,
+M8c 20, knowledge 37, saved-uc/delete 36, assistant-feedback 10,
+wardrobe 49, wears 47, engine/decision/rules 185, prefs/profile 21.
+Flutter green: discover 36, today 39, home/daily 34, events 40,
+saved/outfit 50, feedback/assistant/profile 52, knowledge/learning/
+entry 41, wardrobe-client/repo/wear/insight 140+, grooming/hairstyle/
+scan 44+37. `flutter analyze lib test`: 29 pre-existing issues, none in
+audit-scope files. `py_compile` clean. `git diff --check` clean.
+
+### Git safety
+
+- Audit wrote zero product files; only this CURRENT_STATE entry.
+  Staged 0. NOTHING committed/pushed.
+
+---
+
+## STEP 19.28 — M14 DISCOVER END-TO-END — PASS (uncommitted)
+
+Task: M14 end-to-end in one batch (backend → Flutter → audit) per the
+frozen contracts (#43 `GET /v1/looks` UC-31, #44 `GET /v1/looks/{look_id}`;
+REC_API §4.3/§5, V1 §4.3/§6.7, INVENTORY §5.14, PAGINATION §9.7,
+TABLE_DEFINITIONS `looks`, MODULE_MAP M14, DEC-014 P-3). No commit, no push.
+No M14-specific DEC exists — implemented against the freezes above plus
+DEC-010/012/013 constraints. Skills: `.agents/skills/` inspected (21
+Dart/Flutter entries) — `flutter-use-http-package` (project
+null-on-failure kept over throw guidance), `dart-run-static-analysis`
+loaded for Phase 2. DECISIONS.md untouched. No M15/subscriptions/media.
+M8/M9/M11/M13 behavior untouched (backend diff = appended routes + 3 new
+files; zero shared-logic lines).
+
+### Frozen-contract synthesis (authoritative-first, discrepancies recorded)
+
+- Source: the system-owned `looks` catalog (8 rows: 4 hairstyle + 4
+  grooming) served through the canonical `CatalogKnowledgeSource` (the
+  same infrastructure M5/M7/M9 reuse — no second catalog, no second
+  engine, no migration). Verified the seeded payloads carry NO
+  occasion/style/fit attributes, NO image, NO ensemble, NO wardrobe
+  linkage.
+- Filters (`occasion`/`style`/`fit`): any supplied value → truthful 422
+  with NO `allowed` list (DEC-014 P-3 precedent verbatim — claiming
+  values the catalog cannot honor would be invention). PAGINATION §9.7
+  says "validated → 422 with allowed values"; P-3 overrules the
+  `allowed` part for this catalog (documented inference, same class as
+  the M8-C/M9 rescale notes).
+- Ranking ("engine-ranked", API-27): deterministic score-descending over
+  the catalog `scoreSeed` (the Scoring-stage value), ties by code asc
+  (API-21 stable secondary key) — the canonical ordering semantics,
+  no per-user rescoring. No `sort` param (API-27).
+- Scores: `matchScore` = `round(scoreSeed*100)` int (derived-look family
+  0–100, REC_API §4.4 — discover is a derived-look surface).
+- Personalization (UC-31 names wardrobe/signals): NO grounded linkage
+  exists (garment UUIDs never address hairstyle/grooming codes; no stored
+  per-user score), so v1 derives nothing per user and serves NO
+  `isOwned`/`wardrobeMatchCount`/`isTrending`/`matchScoreDetails`/tags/
+  ensemble fields (AI-0 absent-not-fabricated, DEC-015 E-6 precedent).
+  Auth still required (frozen); `user_id` accepted as the seam.
+  Wardrobe/signal reads deferred, not wired dead. Discover `id` = stable
+  catalog code (PR-3 string, NOT a UUID).
+- Cursor pagination exactly as frozen: opaque base64url
+  `<score>:<code>` cursor, `limit` default 20 / max 50 (422 outside),
+  envelope `{items, next_cursor, has_more}` (no `total`), malformed or
+  unknown cursor → 422 (never silently reset), empty → 200.
+
+### PHASE 1 — backend (new: application/discover.py,
+### schemas/discover.py, tests/test_m14_discover_api.py; touched:
+### routers/looks.py append only)
+
+- `GetLookFeed` (UC-31, read-only, no session): merged catalog in rank
+  order, honest-422 filters, limit/cursor validation, `(items,
+  next_cursor, has_more)`. `GetLookDetail`: exact code lookup (hairstyle
+  then grooming), `None` → 404. Zero writes (no commit/insert/signal/
+  wear/prefs mutation — grep-verified); imports are stdlib + errors +
+  the `KnowledgeSource` port only (no second engine).
+- Schemas `LookSummary`/`LookDetail`/`LookFeed` (camelCase wire, grounded
+  fields only). Router appends `GET /v1/looks` + `GET /v1/looks/{look_id}`
+  AFTER `/today*` + `/saved*` (route-ordering guard, served-order
+  verified: today, today/save, saved, saved/{id}, "", "{look_id}").
+- Tests `tests/test_m14_discover_api.py` (45 green): auth 401s, exact
+  envelope/item shapes + banned-key scans (17 keys), verbatim-catalog
+  proof vs source, rank order + byte-identical repeat, 3-page cursor walk
+  over all 8 rows, cursor-shape assertion, limit default/bounds (0/-1/51/
+  100/101 → 422; 1/8/50 ok), bad-cursor 422s (garbage/empty/unknown),
+  filter 422s (single + triple, no `allowed`), detail 8/8 + 404s
+  (unknown/`fy_1`/UUID) + feed-detail score parity, guard proof
+  (today-404/saved-200 intact), read-only snapshot proof.
+
+### PHASE 2 — Flutter (new: data/discover_models|client|repository +
+### barrel discover.dart, discover_api_test + discover_screens_test;
+### rewritten: discover_screen, look_details_screen, LookCard,
+### discover_widgets_test; touched: app_router lookDetails only;
+### deleted: discover_screen_test, look_details_screen_test)
+
+- Client: GET /v1/looks (null filters omitted, cursor/limit verbatim),
+  GET /v1/looks/{code} via pathSegments (verbatim, never interpolated);
+  200 strict-parse, detail-404 → notFound, 401/422/429/else typed,
+  offline → typed, never throws. Repository verbatim passthrough +
+  public contract barrel (today_look precedent).
+- DiscoverScreen backend-first (injected repo): loading / error+Try Again
+  (per-kind copy; invalidInput → "Filters not supported yet" + Reset)
+  / empty / rows in server order + Load more (cursor append, failure keeps
+  rows + snackbar). Filters travel verbatim (`all` omitted); search is a
+  client-side pseudo-filter over loaded titles/descriptions only
+  (wardrobe-chip precedent). ForYou/Trending tabs + local
+  `_personalizeLooks` score math + LearningService listener deleted (mock
+  source of truth + local score invention — M14-required); header/
+  search/filter-sheet/results/grid/empty visuals preserved (65/35 card
+  rule intact via FansiHeroCard default).
+- LookDetailsScreen backend-first by `lookId`: loading / notFound ("no
+  longer in the catalog") / failure+retry / verbatim render (hero+badge,
+  reasons, The Details: styling/maintenance/best-for). Sourceless
+  sections removed (tags/ensemble/alternatives/score-breakdown); fake
+  local save + AppBar favorite removed (DEC-013 forbids wiring mock ids;
+  no save mapping exists — M14-required); Share kept (device stub,
+  no data fabricated). Router carries the backend code String
+  (`state.extra as String?`).
+- Mock file `discover_mock_data.dart` untouched with ZERO prod consumers
+  of `DiscoverLookData`/`forYouMock`/`trendingMock` (grep-verified,
+  M8-D precedent); filter-option label lists stay as the frozen filter-UI
+  affordance (ids sent verbatim).
+- Tests: `discover_api_test.dart` (21: shapes/strictness, paths+verbatim
+  query, failure table, offline, repo passthrough, no-fabrication proofs)
+  + `discover_screens_test.dart` (12: loading/render-order via card
+  sequence, error+retry, empty, filter-422+reset, load-more+cursor,
+  search-no-refetch, no-mock proof, named-route code handoff, detail
+  render/notFound/retry/no-save+no-sourceless-sections) + rewritten
+  `discover_widgets_test.dart` (3: tabs, backend card, badge-off).
+
+### PHASE 3 — audit (backend + Flutter together, once)
+
+- Live probe (:8000, cleaned after): openapi order today/today-save/
+  saved/saved-id/feed/detail; 401s; feed 8 rows in rank order;
+  limit=3 walk page1→page2→page3 (2 rows, has_more false, cursor
+  null); filter 422 triple-field no-`allowed`; bad-cursor/limit
+  0/51 → 422; detail exact 8 keys; `fy_1` 404; guard intact.
+  Post-probe counts: only the auth-seam dev user+state (bootstrap),
+  zero domain rows — then `DELETE FROM users`, server stopped.
+- Cross-checks: backend↔Flutter key parity mechanical (11/11);
+  discover.py imports stdlib+errors+port only (no engine); zero writes
+  (grep); zero mock/data invention in prod (grep); request log only
+  `/v1/looks*`; LookCard 65/35 default preserved; no trending/ownership
+  chrome; router String-extra both ends.
+- Regression: M14 45 + M11 20 + M13 30 + knowledge 18+19 + saved-uc/
+  delete 36 + M8a 18 green; M9 35-file + M8b 1-file show the documented
+  environmental PG-slot flake full-file (`remaining connection slots`
+  FATAL, moves between tests, both pass solo) — untouched files,
+  not a regression. Flutter M14 36 + today 39 + home/daily 34 + events
+  40 + saved/outfit 50 + feedback/assistant/profile 52 + knowledge/
+  learning/first-time/entry 41 green. Sole failure anywhere is the
+  documented pre-existing wardrobe `Details` 1 (19.17 proof).
+- `flutter analyze` (discover/router/tests): No issues found.
+  `py_compile` clean. `git diff --check` clean. `dart format` applied to
+  own files only; app_router + mock_data format churn reverted to minimal
+  diffs (19.22 precedent).
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. Backend diff = looks.py append +
+  3 new files. Flutter diff = 2 screens + LookCard + router lookDetails
+  hunk + barrel + 3 data files + 2 new test files + 1 rewritten test
+  file + 2 deleted obsolete test files. Zero M8/M9/M11/M13 logic lines.
+
+### Remaining M14 debt
+
+- None in scope: feed → render → paginate → filter-truth \
+  → detail → states passes live with zero in-scope debt.
+  (Deferred by contract, not built: grounded occasion/style/fit
+  attribution + filter honoring, `recommendationReasons` structured form,
+  image/ensemble/wardrobe-alternative content, per-user personalization
+  function, `isOwned`/`isTrending` computation, discover→save
+  mapping decision.)
+
+---
+
+## STEP 19.27 — M11 FEEDBACK/REACTIONS END-TO-END — PASS (uncommitted)
+
+Task: M11 end-to-end in one batch (backend → Flutter → audit) per the
+frozen contracts (#35 `POST /v1/feedback`, UC-32). No commit, no push.
+No M11-specific DEC exists — implemented against FEEDBACK_LEARNING_API
+§5.1, INVENTORY §5.11, UC-32, TABLE_DEFINITIONS P1, DEC-010/012/013/
+019/020 constraints. Skills: `.agents/skills/` inspected (21
+Dart/Flutter entries) — `flutter-use-http-package` (null-on-failure
+kept over throw guidance), `dart-run-static-analysis`,
+`flutter-add-widget-test`, `dart-add-unit-test` for Phase 2.
+DECISIONS.md untouched. No M14/subscriptions/media. M8/M9/M13 behavior
+untouched except one REQUIRED chain-test touch-up (head advance owned
+by this step, M9 precedent).
+
+### PHASE 1 — backend (new: 0019 migration, model, ports, SQL, schemas,
+use case, router, tests; touched: main.py mount, conftest truncate)
+
+- `0019_feedback_events` (single head 0019, round-trip proven):
+  `feedback_events` per TABLE_DEFINITIONS 421-445 (UUID PK, owner
+  CASCADE, look-code + saved-look SET NULL targets, rating text with
+  deliberately NO CHECK — vocabulary pending per BC-38/39/PR-12,
+  reason NULL, raw idempotency key + uq(user,key), occurred_at) +
+  `(user_id, occurred_at)` index. Fully reversible.
+- `SubmitRecommendationFeedback` (UC-32, tier-1 single INSERT, zero
+  other writes — NO learning signal (PR-7), NO activity day, NO
+  wear/save/wardrobe/event mutation; aggregation R-A15 deferred, not
+  built): rating structural-only (non-blank ≤200 — NO vocab freeze),
+  reason ≤2000 (blank-if-provided 422, M8-notes bound borrowed),
+  at-most-one-target 422, look-code existence 404, saved-UUID
+  malformed 422 / foreign-or-missing 404-not-403 with nothing stored.
+  Replay (same key+payload) → original without re-insert; conflict →
+  409 (M7 semantics). Missing key → 422 (project convention; status
+  unfrozen for F-1, documented).
+- Router `POST /v1/feedback` → always 204 accepted-ack (no
+  representation DTO is frozen — none invented; 201 reserved). Distinct
+  prefix, no ordering hazard. Minimal `LookRepository.get_by_code` +
+  `LookRepositorySQL` added (no look port existed); M7/assistant/
+  learning files untouched.
+- Tests `tests/test_m11_feedback_api.py` (20 green): auth, rating/
+  reason/cardinality 422s, look 404/204, saved-UUID 422/404/foreign-
+  404/204, general rating, replay-single-row, 409, key-required,
+  exact-scope snapshot proof (only feedback_events +1), SET NULL
+  survival on save-delete, user-delete cascade. Helpers share one
+  engine (per-call engines exhaust PG slots full-file — environmental,
+  also flake-hits pre-existing M9).
+
+### PHASE 2 — Flutter (new: features/feedback data+barrel, 2 test
+files; touched: saved_looks_screen.dart only)
+
+- Client: POST /v1/feedback (rating + optional reason/targets, nulls
+  omitted), 201/204 → sent (replay acks equal), 409/401/422/429/else
+  typed, offline → typed, empty key fail-closed with zero calls;
+  `newFeedbackIdempotencyKey()` (feature-local). Repository
+  passthrough + public contract.
+- UI: no rating/like UI existed (verified — assistant Open is F-2,
+  favorites are save/crud metaphors, LookDetails save is M14-adjacent
+  mock left alone). Added per-row Like/Dislike (sending contract-
+  example `like`/`dislike` — backend structural-only, spellings
+  documented as UI choice) on SavedLooksScreen rows, whose UUIDs are
+  real and owner-verified. Per-row pending guard (spinner), truthful
+  per-status snackbars, no local signals/saves. Design otherwise
+  untouched; no new route.
+- Tests: `feedback_api_test.dart` (10: path/body/key, 201-compat,
+  error table, offline, key rules, repo, UUID/path safety) +
+  `feedback_screens_test.dart` (8: render, like/dislike payload+UUID+
+  key, pending guard, failure-keeps-row, conflict/auth messages,
+  no-fabrication proof).
+
+### PHASE 3 — audit
+
+- Live probe (:8000, cleaned after): 204-empty → replay 204 →
+  conflict 409 → no-key 422 → bad-rating 422 → unknown-look 404 →
+  exactly 1 row; saved-target 204 → save-delete 204 → row retained
+  with target nulled; users/feedback zeroed, server stopped.
+- Cross-checks: backend↔Flutter key parity mechanical (4/4);
+  request log is only `/v1/feedback`; UC writes nothing but the row
+  (grep-verified); no duplicate infra (F-2 intact);Assistant/learning/
+  M7 files untouched; tracked pycache churn restored (untracked .pyc
+  left per precedent).
+- Regression: M11 20 + M8-A/B/C 73 + M9 35 (halves) + M13 30 +
+  assistant-feedback/M10 (23 + transient single, green on rerun) +
+  saved-uc/delete/engine/decision/analysis/prefs 239 + wardrobe/wear/
+  knowledge 121 green; Flutter M11 18 + saved/profile/assistant-
+  feedback 76 green. Pre-existing only: saved_looks API 5 (18.5 FK),
+  db_session 2 (stale seeds, verified identical text), wardrobe
+  'Details' 1 (19.17 proof) — all compared to baseline, untouched.
+- `flutter analyze` (feedback/screen/tests): No issues found.
+  `py_compile` clean. `git diff --check` clean. `dart format` clean.
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. Backend diff = model/ports/SQL/
+  main/conftest + M8A chain touch-up + 7 new files. Flutter diff =
+  saved_looks_screen + 6 new files. Zero M8/M9/M13 logic lines; no
+  staged files.
+
+### Remaining M11 debt
+
+- None in scope: submit → ack → replay/conflict → survival lifecycle
+  passes live with zero in-scope debt. (Deferred by contract, not
+  built: R-A15 aggregation, quantified rate limits, 201
+  representation, rating-vocab freeze.)
+
+---
+
+## STEP 19.26 — M13 OUTFIT GENERATION + SAVE (BACKEND + FLUTTER + AUDIT) — PASS (uncommitted)
+
+Task: complete M13 end-to-end in one batch per the frozen contracts
+(#41 `POST /v1/outfits/generate` UC-28/29, #42 `POST /v1/outfits/saved`
+UC-30). No commit, no push. No M13-specific DEC exists — implemented
+against REC_API §4.3, V1 §6.7, INVENTORY §5.13, UC-28/29/30, DEC-010/
+012/013/015 constraints. Skills: `.agents/skills/` inspected (21
+Dart/Flutter entries) — `flutter-use-http-package` (null-on-failure
+kept over throw guidance), `dart-run-static-analysis`,
+`flutter-add-widget-test`, `dart-add-unit-test` loaded for Phase 2.
+DECISIONS.md untouched. M8/M9 behavior untouched (no shared file
+touched); no migration (outfit already in the saved_looks CHECK).
+
+### PHASE 1 — backend (new: application/outfits.py, schemas/outfits.py,
+routers/outfits.py; touched: ports records + main.py mount only)
+
+- `GenerateOutfit` (UC-28/29, TRX-2 read/derive only, zero writes):
+  prefs validated structurally (non-blank 1..200 — no frozen backend
+  vocab table exists; documented inference), occasions =
+  `[occasion]+prefs` deduped read-only, preferred-item set empty
+  (M8-C/M9 precedent), canonical generate→score→rank→select reused
+  verbatim, seed = opaque SHA-256 ranked pick (absent → winner; body
+  field per the `OutfitGenerateRequest{…seed?}` input row — the `?seed=`
+  attestations documented as the resolved discrepancy). 200 bare DTO /
+  204 empty (tops-only/empty) / 401 / 422 / 429-declared / 503 via
+  frozen `ai_failure()` (contract labels EXTERNAL_SERVICE_FAILURE —
+  M9 precedent, documented).
+- Adapter: ensemble DTO exact (0..1 `round(score/100,4)`, UUID-owned
+  components in slot order with grounded slot reasons, occasion-first
+  reasons + coverage + favorites, echoes stripped-verbatim, metric
+  prose = request/composition/score facts only — no engine-signal
+  claims, no invented score points; `colorHex` omitted, no source
+  exists (AI-0, M8-C/M9 precedent, documented vs DEC-015/V1 `*`).
+- `SaveOutfit` (UC-30) validates component IDs fail-closed (malformed/
+  blank → 422, unknown/foreign → 404, empty/missing components → 422,
+  nothing stored) then delegates verbatim to untouched M7
+  (`sourceContext="outfit"`, TRX-3, replay→original, conflict→409).
+  Router enforces `sourceContext=="outfit"` + required Idempotency-Key
+  (mirrors today/save).
+- Tests `tests/test_m13_outfits_api.py` (30 green): auth, 204s,
+  pref/seed 422s, UUID ownership + foreign exclusion, exact shape +
+  banned-key/prose scans, determinism + same-seed identity, read-only
+  snapshot proof, event/prefs echo isolation, save + replay + 409 +
+  key-required + context rejection + local/malformed/unknown/foreign/
+  empty fail-closed with zero rows, no-wear + single-signal proof.
+  Helpers use one shared engine (per-call engines exhaust PG slots
+  full-file — environmental, also flake-hits pre-existing M9).
+
+### PHASE 2 — Flutter (new: data/outfit_models|client|repository +
+barrel; builder screens backend-first; router carries rec+request)
+
+- Client: POST generate (prefs + seed-in-body, seed omitted when null),
+  POST saved (`sourceContext:"outfit"` hardcoded, verbatim snapshot,
+  required key fail-closed); typed `OutfitResult` (200/204/failure
+  table); `newOutfitBuilderIdempotencyKey()` (feature-local).
+- Generation screen: single request on entry, static stage copy (timers
+  removed), auto-forward with rec+prefs extra on 200, honest 204 empty,
+  error + retry. Recommendation screen: verbatim render (ScoreCircle
+  0..1, backend component cards — hex tint neutralized, metrics,
+  insights), Regenerate (same prefs + `outfit-N` seeds, guarded, keeps
+  outfit on failure), Save (guarded, `Saved` lock, truthful snackbars).
+  Old swapped mock labels ('Wearing this look!'/'Look saved to
+  wardrobe') gone — ZERO wear logging (grep-verified). No
+  wardrobe/event fetch in builder (backend owns data). Pickers +
+  navigation preserved; no new route.
+- Tests: `outfit_builder_api_test.dart` (18: parse/shape/strictness,
+  paths+bodies+seed-in-body, key rules, failure table, repo
+  passthrough, path/ID safety) + rewritten
+  `outfit_builder_screens_test.dart` (33: build gating untouched,
+  generation loading/empty/error/retry/router-forward, recommendation
+  render/regen+guards/save+guards/failure-keeps-look/stale-ID safety,
+  no-wear proof).
+
+### PHASE 3 — audit (backend + Flutter together)
+
+- Live probe (server :8000, cleaned after): openapi serves both paths;
+  3 items → 200 exact 12-key DTO → same-seed byte-identical → save 201
+  outfit → replay same id → list 1 outfit row → delete 204 → wardrobe +
+  users zeroed, server stopped.
+- Cross-checks: backend↔Flutter wire keys parity mechanical (12/12
+  both directions); request log contains only today/outfit paths;
+  builder has zero wear/signal/mock-data refs (only static
+  `GenerationStage` labels remain — process copy, not data).
+- Regression: M13 30 + M8-A/B/C 73 + M9 35 (17+18 halves — full-file
+  single-process hits the environmental slot flake, passes split/solo)
+  + engine/decision/analysis-rules/saved-uc/delete 221 + wardrobe/wear/
+  prefs/feedback 124 + M10/knowledge 61 green; Flutter M13 51 + M9/Home/
+  Daily 73 + saved/wardrobe/events 112 + assistant/outfit/learning/
+  first-time 134 green. Pre-existing failures only: saved_looks 5
+  (18.5 FK baseline, byte-identical), wardrobe 'Details' 1 (19.17
+  proof), users/grooming/db_session per prior entries — all untouched.
+- `flutter analyze` (builder/router/tests): No issues found.
+  `py_compile` clean. `git diff --check` clean. `dart format`: 0
+  changes. DB single head 0018; no migration this step.
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. Backend diff = ports records +
+  main.py mount + 4 new files. Flutter diff = 2 builder screens +
+  widgets hex + router rec-extra + 4 new data files + 2 test files
+  (1 new, 1 rewritten). Zero M8/M9/backend-migration lines; no
+  registrant churn; no staged files.
+
+### Remaining M13 debt
+
+- None in scope: generate → render → regenerate → save → saved-result
+  passes live with zero remaining in-scope debt.
+
+---
+
+## STEP 19.25 — M9 TODAY'S LOOK FLUTTER HOME INTEGRATION — PASS (uncommitted)
+
+Task: wire Home/Daily Outfit to the frozen M9 backend (#31–33). No commit,
+no push. M9 backend untouched and frozen; DEC-017/018 untouched; M8 Events
+behavior untouched; no M13/M11/M14; no mock backend data; no new route.
+Skills (read first): `flutter-use-http-package` (Uri/jsonEncode/auth —
+project null-on-failure kept over the skill's throw guidance, 19.22
+precedent), `dart-run-static-analysis` (flutter analyze), `flutter-add-
+widget-test` + `dart-add-unit-test` (MockClient/fake-repo conventions per
+events_api_test/event_screens_test). DECISIONS.md untouched.
+
+### Data layer (new, `features/home/data/`, M10/M8 pattern)
+
+- `today_look_models.dart`: TodayLook(+Component/StyleDna/WardrobeContext/
+  Alternative) mirroring the frozen honesty subset exactly (camelCase, no
+  weather/colorHex/AI-prose fields — absence is normal); `snapshot` keeps
+  the decoded response body for verbatim save; `SavedTodayLook` (201
+  body); `TodayLookFailure` (unauthorized/invalidInput/rateLimited/
+  serviceUnavailable/networkError/unknown); `TodayLookResult.available` /
+  `.noneAvailable` (404, truthful empty) / `.failure` (retryable).
+- `today_look_client.dart`: GET /v1/looks/today, POST /v1/looks/today?seed=
+  (verbatim, absent → winner), POST /v1/looks/today/save with hardcoded
+  `sourceContext: "daily"` + verbatim snapshot + required Idempotency-Key
+  (empty key fails closed, zero network calls); 401/422/429/503/elsewhere
+  mapped per frozen table; never throws. `newTodayLookIdempotencyKey()`
+  mirrors the outfit/wear key convention (feature-local, no new dep).
+- `today_look_repository.dart`: abstract + verbatim passthrough (no mock
+  merge, no local math). Public contract `features/home/today_look.dart`
+  (models + repository, learning_summary.dart precedent).
+
+### Home (`home_screen.dart`)
+
+- Today slot is backend-first (injected `todayLookRepository`, one GET):
+  loading / look / friendly 404 ("No today's look available…") /
+  error + Try Again. Rest of Home stays usable on failure. Card mapping is
+  verbatim (title/desc/scores, component UUIDs+names, occasion only when
+  derived — static 'Everyday' fallback is presentation copy, never event
+  logic; no weather shown; no second fetch; no local IDs). Navigation
+  preserved (Try → daily-outfit, Change Style → build-outfit). Local mock
+  builders (`_determineOccasion/_buildDescription/_buildOutfitItems` with
+  numeric '1'/'2' IDs) deleted.
+
+### Daily Outfit (`daily_outfit_screen.dart`, injected repository)
+
+- Loading/404/error chrome with back + Try Again; success reuses the
+  existing visual sections fed by the backend: score pill, occasion chip
+  only when present (no weather chip — no provider), title/description,
+  ensemble (neutral tint, no colorHex; case-insensitive icons),
+  reasons-as-Why-It-Works, minimal alternatives (dynamic count, no
+  invented names/details). AI-note/tip/insights sections removed
+  (sourceless). Regenerate = POST seed `look-1, look-2, …` (deterministic,
+  no randomness; pending-guarded; UI updates only on response; failure
+  keeps the look + truthful message). Save = daily + verbatim snapshot +
+  fresh key per attempt (title 1–200 guard; pending-guarded; disabled once
+  Saved; failure keeps the look + retry). "Wear This Look" CTA and the
+  local `LearningService.addSavedLook` path removed — ZERO wear logging
+  (grep-verified: no logWear//wears/learning refs in the M9 surface).
+
+### Tests (39 new + 2 files rewritten, all green)
+
+- `test/today_look_api_test.dart` (21): A–E (parse incl. partial styleDna
+  + strict rejects + snapshot identity; GET/regen/save paths+seed+key;
+  repo passthrough), failure table, empty-key fail-closed, key freshness/
+  shape, P (daily hardcoded), Q (snapshot json-identical), R (paths are
+  exactly today/today/today-save — no wear/event/signal), S (no numeric
+  IDs; UUIDs preserved).
+- `test/today_look_screens_test.dart` (18): F–I (Home render/loading/404/
+  error, no mock leftovers), X (retry refetch), J–K (regen seed
+  `look-1`, pending guard, failure keeps look), L–N (save payload/key,
+  success feedback), M+O (save guard, failure keeps look), R (no wear
+  affordance/copy), T/U (UUID verbatim, stale-ID safety), V (no weather;
+  occasion conditional), W (request log has no /v1/events across
+  fetch+save).
+- Rewritten to the backend contract (required-by-feature, 19.16/19.22
+  precedent): `daily_outfit_screen_test.dart` (14), `home_screen_test.dart`
+  Today-look/scroll/navigate tests (backend-fed router keeps navigation
+  proven; mock widgets/data files left intact for isolation).
+
+### Regression (flutter)
+
+- M9 new 39 + Home 20 + Daily 14 + Saved/Wardrobe-client/repo/models 72
+  green; Events (40) + wardrobe-screen/insight/wear-summary + learning
+  summary + first-time-light + outfit-builder + assistant-screen green
+  (112 + 34 runs: sole failure is the documented pre-existing
+  `wardrobe_screen_test` 'Details' miss — 19.17 pristine-worktree proof,
+  byte-identical signature, wardrobe untouched).
+- `flutter analyze` on home/tests: clean except the documented
+  pre-existing `userState` unused-var warning (19.16-recorded, untouched).
+  `dart format` applied (6 own files); `git diff --check` clean.
+
+### Git safety
+
+- Staged 0. NOTHING committed/pushed. Diff = 2 prod + 2 test edits + 6
+  new files (data ×3, contract ×1, tests ×2). Zero backend/docs/decision
+  lines; pubspec.lock tool-churn reverted; no registrant churn; no
+  local/mock IDs on the wire; no duplicate save/wear calls; no UI
+  redesign (TodaysLookCard/FansiButton/tokens untouched, no new route).
+
+### Remaining M9 gaps
+
+- None in scope: GET/regen/save + all 8 Home states + guards + UUID
+  safety + error table are wired and tested. Adjacent known debt stays
+  out of scope (wardrobe list mock fallback, outfit_scan dev-token 401,
+  no CORS for browser-web, knowledge pickers mock — see prior entries).
+
+---
+
 ## STEP 19.25 — FULL APP RUN / INTEGRATION CHECK — COMPLETE (audit only, uncommitted)
 
 Task: run the current app end-to-end and report actual working state. NO

@@ -164,6 +164,23 @@ class LocalStorage {
         .toList();
   }
 
+  /// ----- Auth Session (D-AUTH-1) -----
+  ///
+  /// Persists the current access token using the project's supported
+  /// platform mechanism (shared_preferences). Null-safe: reads are null
+  /// without init, writes are dropped without init — callers fall back
+  /// to the per-client dart-define token (existing test convention).
+  /// Tokens are never logged anywhere (ER-4).
+  static String? get authToken => _prefs?.getString('auth_token');
+  static set authToken(String? value) {
+    if (_prefs == null) return;
+    if (value != null) {
+      _prefs!.setString('auth_token', value);
+    } else {
+      _prefs!.remove('auth_token');
+    }
+  }
+
   /// Clear all persisted journey state (for onboarding reset or logout)
   static void clear() {
     _prefs?.clear();

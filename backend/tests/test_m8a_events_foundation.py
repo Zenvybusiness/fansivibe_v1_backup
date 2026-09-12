@@ -118,24 +118,29 @@ def _seed_event(
 
 
 # ---------------------------------------------------------------------------
-# Chain: linear single head 0016 -> 0017 -> 0018 (DB-free)
+# Chain: linear single head 0016 -> 0017 -> 0018 -> 0019 (DB-free)
 # ---------------------------------------------------------------------------
 
 
 def test_chain_linear_single_head_0016_to_0017():
-    """Migration chain stays linear with 0018 as the single head.
+    """Migration chain stays linear with 0019 as the single head.
 
     The M8-A link (0016 -> 0017) is preserved verbatim; the M9 save batch
-    appends the linear 0017 -> 0018 CHECK-widen link (STEP 19.24).
+    appends the linear 0017 -> 0018 CHECK-widen link (STEP 19.24); the
+    M11 feedback batch appends the linear 0018 -> 0019 feedback_events
+    link (STEP 19.27).
     """
     script = ScriptDirectory.from_config(_alembic_config())
-    assert tuple(script.get_heads()) == ("0018",)
+    assert tuple(script.get_heads()) == ("0019",)
     revision = script.get_revision("0017")
     assert revision is not None
     assert revision.down_revision == "0016"
     tip = script.get_revision("0018")
     assert tip is not None
     assert tip.down_revision == "0017"
+    head = script.get_revision("0019")
+    assert head is not None
+    assert head.down_revision == "0018"
 
 
 # ---------------------------------------------------------------------------

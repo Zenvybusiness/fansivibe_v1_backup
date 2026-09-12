@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:fansivibe/features/events/data/event_models.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 
 /// HTTP client for the M8 event calendar surface (#26–30, STEP 19.22).
 ///
@@ -24,10 +25,14 @@ class EventsClient {
     defaultValue: 'http://localhost:8000',
   );
 
-  static const String _devToken = String.fromEnvironment(
+  static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',
     defaultValue: 'dev',
   );
+
+  /// Session-first Bearer token (D-AUTH-1): the persisted session wins;
+  /// the dart-define default covers logged-out/test behavior.
+  static String get _devToken => AuthSession.effectiveToken(_devTokenDefault);
 
   final http.Client _client;
   static const Duration _timeout = Duration(seconds: 12);
@@ -51,6 +56,7 @@ class EventsClient {
       final response = await _client
           .get(uri, headers: _headers)
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return EventListPage.fromJson(decoded);
@@ -78,6 +84,7 @@ class EventsClient {
             body: jsonEncode(request.toJson()),
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 201) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return EventItem.fromJson(decoded);
@@ -108,6 +115,7 @@ class EventsClient {
             body: jsonEncode(request.toJson()),
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return EventItem.fromJson(decoded);
@@ -132,6 +140,7 @@ class EventsClient {
       final response = await _client
           .delete(Uri.parse('$baseUrl/v1/events/$id'), headers: _headers)
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 204) {
         return EventDeleteOutcome.deleted;
       }
@@ -162,6 +171,7 @@ class EventsClient {
       final response = await _client
           .post(Uri.parse('$baseUrl/v1/events/$id/outfit'), headers: _headers)
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return EventOutfitResult.available(EventOutfit.fromJson(decoded));

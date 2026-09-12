@@ -316,7 +316,7 @@ void main() {
 
   group('Save behavior unchanged', () {
     test(
-      'F. snapshot keeps full selectedItemIds even when display skips one',
+      'F. snapshot drops local IDs so they never cross the wire',
       () {
         final intelligence = _intelligence(
           selectedIds: const ['1', 'deleted-id', '9'],
@@ -327,13 +327,28 @@ void main() {
           wardrobe: _wardrobe,
         );
         expect(resolved.map((i) => i.id), equals(['1', '9']));
-        // ...while save still snapshots the untouched intelligence.
+        // ...while save sanitizes to backend-UUID-shaped IDs only (P1-1):
+        // local engine IDs are dropped, and the key is omitted when none
+        // survive so M7 skips item validation instead of 422ing.
         final request = OutfitSaveRequest.fromOutfitIntelligence(intelligence);
         expect(request.lookId, isNull);
         expect(request.sourceContext, equals('outfit'));
+        expect(request.snapshot, isNot(contains('selectedItemIds')));
+      },
+    );
+
+    test(
+      'F2. snapshot keeps UUID-shaped IDs verbatim and in order',
+      () {
+        const uuidA = '78ff3686-c950-4cd6-84c3-7e18d6634dfa';
+        const uuidB = '4412f646-56a9-4afa-8717-b330da03b3d0';
+        final intelligence = _intelligence(
+          selectedIds: const ['1', uuidA, 'deleted-id', uuidB],
+        );
+        final request = OutfitSaveRequest.fromOutfitIntelligence(intelligence);
         expect(
           request.snapshot['selectedItemIds'],
-          equals(['1', 'deleted-id', '9']),
+          equals([uuidA, uuidB]),
         );
       },
     );

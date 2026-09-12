@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart';
+import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.dart'
+    hide OutfitComponent, OutfitRecommendation;
+import 'package:fansivibe/features/outfit_builder/data/outfit_models.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_insight_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -243,6 +245,8 @@ class OutfitComponentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // No colorHex on the wire (no server source): neutral accent tint.
+    const tint = FansivibeColors.accentGold;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -257,17 +261,15 @@ class OutfitComponentCard extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: _parseColor(component.colorHex).withValues(alpha: 0.2),
+              color: tint.withValues(alpha: 0.2),
               borderRadius: FansivibeRadius.smdBorder,
-              border: Border.all(
-                color: _parseColor(component.colorHex).withValues(alpha: 0.3),
-              ),
+              border: Border.all(color: tint.withValues(alpha: 0.3)),
             ),
             child: Center(
               child: Icon(
                 _categoryIcon(component.category),
                 size: 20,
-                color: _parseColor(component.colorHex),
+                color: tint,
               ),
             ),
           ),
@@ -354,11 +356,5 @@ class OutfitComponentCard extends StatelessWidget {
       default:
         return Icons.category_rounded;
     }
-  }
-
-  Color _parseColor(String hex) {
-    hex = hex.replaceFirst('#', '');
-    if (hex.length == 6) hex = 'FF$hex';
-    return Color(int.parse(hex, radix: 16));
   }
 }

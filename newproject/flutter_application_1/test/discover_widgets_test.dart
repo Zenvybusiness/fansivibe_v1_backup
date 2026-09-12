@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
+import 'package:fansivibe/features/discover/discover.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 
@@ -10,6 +11,16 @@ Widget wrapWithTheme(Widget widget) {
   return MaterialApp(
     theme: ThemeData.dark(),
     home: Scaffold(body: widget),
+  );
+}
+
+LookSummary backendSummary() {
+  return const LookSummary(
+    id: 'textured_quiff',
+    title: 'Textured Quiff',
+    description: 'A modern take on the classic quiff.',
+    matchScore: 94,
+    reasons: ['Volume on top suits oval faces'],
   );
 }
 
@@ -43,10 +54,10 @@ void main() {
       expect(find.byIcon(Icons.trending_up_rounded), findsOneWidget);
     });
 
-    testWidgets('LookCard renders with constraints', (
+    testWidgets('LookCard renders a backend row with match badge', (
       WidgetTester tester,
     ) async {
-      final look = DiscoverLookData.forYouMock.first;
+      final look = backendSummary();
       await tester.pumpWidget(
         wrapWithTheme(
           SizedBox(
@@ -56,15 +67,35 @@ void main() {
               data: look,
               onTap: _emptyCallback,
               showMatchBadge: true,
-              showTrendingBadge: false,
             ),
           ),
         ),
       );
 
       expect(find.text(look.title), findsOneWidget);
-      expect(find.text(look.occasion), findsOneWidget);
+      expect(find.text(look.description), findsOneWidget);
       expect(find.byType(FansiBadge), findsOneWidget);
+    });
+
+    testWidgets('LookCard hides the badge and trending chrome', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapWithTheme(
+          SizedBox(
+            width: 200,
+            height: 300,
+            child: LookCard(
+              data: backendSummary(),
+              onTap: _emptyCallback,
+              showMatchBadge: false,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(FansiBadge), findsNothing);
+      expect(find.text('Trending'), findsNothing);
     });
   });
 }

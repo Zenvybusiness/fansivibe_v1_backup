@@ -2,131 +2,149 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
+import 'package:fansivibe/features/discover/discover.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
-import 'package:fansivibe/features/learning/data/models.dart';
-import 'package:fansivibe/features/learning/domain/learning_service.dart';
-import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_chip.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
-/// The Discover screen - Personalized style discovery.
+/// The Discover screen — personalized style discovery (M14).
+///
+/// Backend-first over #43 `GET /v1/looks` (UC-31): the ranked catalog
+/// feed is the single source of truth. There is no local mock merge and
+/// no local score math — rows render verbatim in server order (API-27,
+/// never re-sorted locally) and every displayed id is a backend catalog
+/// code.
+///
+/// Occasion/style/fit selections travel verbatim as the frozen query
+/// params (`all` is omitted); the current catalog honors no filters, so
+/// a non-`all` selection truthfully surfaces the backend 422 instead of
+/// fake-filtering. The search box is a client-side pseudo-filter over
+/// loaded backend titles/descriptions only (wardrobe `all`-chip
+/// precedent) — it never invents attributes and never changes ids.
 class DiscoverScreen extends StatefulWidget {
   /// Creates a [DiscoverScreen].
-  const DiscoverScreen({super.key, this.service});
+  const DiscoverScreen({super.key, this.repository});
 
-  /// Injectable for tests; when null the screen owns its own [LearningService].
-  final LearningService? service;
+  /// Injectable for tests; when null the screen owns its own repository.
+  final DiscoverRepository? repository;
 
   @override
   State<DiscoverScreen> createState() => _DiscoverScreenState();
 }
 
 class _DiscoverScreenState extends State<DiscoverScreen> {
-  DiscoverTab _selectedTab = DiscoverTab.forYou;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
-  // Filter states
+  // Filter states (`all` = omitted from the backend query).
   String _selectedOccasion = 'all';
   String _selectedStyle = 'all';
   String _selectedFit = 'all';
 
-  // Filter options
+  // Filter options (presentation labels; ids travel verbatim).
   List<FilterOption> _occasionOptions = OccasionFilters.options;
   List<FilterOption> _styleOptions = StyleFilters.options;
   List<FilterOption> _fitOptions = FitFilters.options;
 
-  late final LearningService _service;
+  late final DiscoverRepository _repository;
+
+  bool _loading = true;
+  DiscoverFailure? _failure;
+  List<LookSummary> _items = [];
+  String? _nextCursor;
+  bool _hasMore = false;
+  bool _loadingMore = false;
 
   @override
   void initState() {
     super.initState();
-    _service = widget.service ?? LearningService.instance;
-    _service.addListener(_onLearningChanged);
-    _onLearningChanged();
+    _repository = widget.repository ?? DiscoverRepositoryImpl();
+    _refresh();
   }
 
   @override
   void dispose() {
-    _service.removeListener(_onLearningChanged);
     _searchController.dispose();
     super.dispose();
   }
 
-  void _onLearningChanged() {
-    final face = _service.face;
-    final occasions = _service.preferredOccasions;
-    final savedLooks = _service.savedLooks;
+  String? _activeOrNull(String id) => id == 'all' ? null : id;
 
-    // Build personalized look data based on user model
-    _personalizedLooks = _personalizeLooks(
-      DiscoverLookData.forYouMock,
-      face: face,
-      preferredOccasions: occasions,
-      savedLooks: savedLooks,
-    );
-  }
-
-  List<DiscoverLookData> _personalizedLooks = [];
-
-  /// Personalize mock looks based on user's face profile, preferences, and wardrobe.
-  List<DiscoverLookData> _personalizeLooks(
-    List<DiscoverLookData> looks, {
-    FaceProfile? face,
-    List<String> preferredOccasions = const [],
-    List<String> savedLooks = const [],
-  }) {
-    // Start with all looks
-    final personalized = <DiscoverLookData>[];
-
-    for (final look in looks) {
-      var scoreAdjustment = 0;
-
-      // Boost score if look matches preferred occasions
-      if (preferredOccasions.isNotEmpty) {
-        final lookOccasion = look.occasion.toLowerCase();
-        for (final occasion in preferredOccasions) {
-          if (lookOccasion.contains(occasion.toLowerCase())) {
-            scoreAdjustment += 10;
-            break;
-          }
-        }
-      }
-
-      // Boost score if look's style tags align with user's style profile
-      if (face?.styleType != null) {
-        final styleTag = look.styleTags.firstOrNull;
-        if (styleTag != null &&
-            face!.styleType!.toLowerCase().contains(styleTag.toLowerCase())) {
-          scoreAdjustment += 5;
-        }
-      }
-
-      // Adjust score based on wardrobe match count
-      scoreAdjustment += look.wardrobeMatchCount;
-
-      // Don't show saved looks again (unless they're in the mock data)
-      final lookTitle = look.title;
-      if (savedLooks.contains(lookTitle)) {
-        scoreAdjustment -= 20; // downgrade saved looks
-      }
-
-      final adjustedScore = (look.matchScore + scoreAdjustment).clamp(0, 100);
-      final personalizedLook = look.copyWith(matchScore: adjustedScore);
-      personalized.add(personalizedLook);
-    }
-
-    // Sort by adjusted score descending
-    personalized.sort((a, b) => b.matchScore.compareTo(a.matchScore));
-    return personalized;
-  }
-
-  void _onTabChanged(DiscoverTab tab) {
+  Future<void> _refresh() async {
     setState(() {
-      _selectedTab = tab;
+      _loading = true;
+      _failure = null;
     });
+    final result = await _repository.getLookFeed(
+      occasion: _activeOrNull(_selectedOccasion),
+      style: _activeOrNull(_selectedStyle),
+      fit: _activeOrNull(_selectedFit),
+    );
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      if (result.isPage) {
+        _items = result.page!.items;
+        _nextCursor = result.page!.nextCursor;
+        _hasMore = result.page!.hasMore;
+      } else {
+        _failure = result.failure;
+        _items = [];
+        _nextCursor = null;
+        _hasMore = false;
+      }
+    });
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore || _nextCursor == null) return;
+    setState(() => _loadingMore = true);
+    final result = await _repository.getLookFeed(
+      occasion: _activeOrNull(_selectedOccasion),
+      style: _activeOrNull(_selectedStyle),
+      fit: _activeOrNull(_selectedFit),
+      cursor: _nextCursor,
+    );
+    if (!mounted) return;
+    setState(() => _loadingMore = false);
+    if (result.isPage) {
+      setState(() {
+        _items = [..._items, ...result.page!.items];
+        _nextCursor = result.page!.nextCursor;
+        _hasMore = result.page!.hasMore;
+      });
+    } else {
+      // Failure keeps the loaded rows with a truthful message (retry
+      // keeps the same cursor).
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_failureCopy(result.failure)),
+          backgroundColor: FansivibeColors.accentGold,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: FansivibeRadius.smdBorder,
+          ),
+        ),
+      );
+    }
+  }
+
+  static String _failureCopy(DiscoverFailure? failure) {
+    switch (failure) {
+      case DiscoverFailure.unauthorized:
+        return 'Your session expired. Please sign in again.';
+      case DiscoverFailure.invalidInput:
+        return 'These filters aren\u2019t supported by the current look catalog yet.';
+      case DiscoverFailure.rateLimited:
+        return 'Too many requests. Please try again shortly.';
+      case DiscoverFailure.networkError:
+        return 'Check your connection and try again.';
+      case DiscoverFailure.unknown:
+      case null:
+        return 'Something went wrong. Please try again.';
+    }
   }
 
   void _onOccasionChanged(FilterOption option) {
@@ -136,6 +154,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           .map((o) => o.copyWith(isSelected: o.id == option.id))
           .toList();
     });
+    _refresh();
   }
 
   void _onStyleChanged(FilterOption option) {
@@ -145,6 +164,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           .map((o) => o.copyWith(isSelected: o.id == option.id))
           .toList();
     });
+    _refresh();
   }
 
   void _onFitChanged(FilterOption option) {
@@ -154,6 +174,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           .map((o) => o.copyWith(isSelected: o.id == option.id))
           .toList();
     });
+    _refresh();
   }
 
   void _onSearchChanged(String query) {
@@ -169,54 +190,36 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     });
   }
 
-  List<DiscoverLookData> _getFilteredLooks() {
-    final baseLooks = _selectedTab == DiscoverTab.forYou
-        ? _personalizedLooks.isNotEmpty
-              ? _personalizedLooks
-              : DiscoverLookData.forYouMock
-        : DiscoverLookData.trendingMock;
+  void _resetAll() {
+    _searchController.clear();
+    setState(() {
+      _searchQuery = '';
+      _selectedOccasion = 'all';
+      _selectedStyle = 'all';
+      _selectedFit = 'all';
+      _occasionOptions = OccasionFilters.options;
+      _styleOptions = StyleFilters.options;
+      _fitOptions = FitFilters.options;
+    });
+    _refresh();
+  }
 
-    if (_searchQuery.isEmpty &&
-        _selectedOccasion == 'all' &&
-        _selectedStyle == 'all' &&
-        _selectedFit == 'all') {
-      return baseLooks;
-    }
-
-    return baseLooks.where((look) {
-      final matchesSearch =
-          _searchQuery.isEmpty ||
-          look.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          look.description.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          look.styleTags.any(
-            (tag) => tag.toLowerCase().contains(_searchQuery.toLowerCase()),
-          ) ||
-          look.fitTags.any(
-            (tag) => tag.toLowerCase().contains(_searchQuery.toLowerCase()),
-          );
-
-      final matchesOccasion =
-          _selectedOccasion == 'all' ||
-          look.occasion.toLowerCase().contains(_selectedOccasion);
-
-      final matchesStyle =
-          _selectedStyle == 'all' ||
-          look.styleTags.any((tag) => tag.toLowerCase() == _selectedStyle);
-
-      final matchesFit =
-          _selectedFit == 'all' ||
-          look.fitTags.any((tag) => tag.toLowerCase() == _selectedFit);
-
-      return matchesSearch && matchesOccasion && matchesStyle && matchesFit;
-    }).toList();
+  /// Loaded backend rows, narrowed by the client-side search box only.
+  List<LookSummary> _getVisibleLooks() {
+    if (_searchQuery.isEmpty) return _items;
+    final query = _searchQuery.toLowerCase();
+    return _items
+        .where(
+          (look) =>
+              look.title.toLowerCase().contains(query) ||
+              look.description.toLowerCase().contains(query),
+        )
+        .toList();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isPersonalized =
-        _selectedTab == DiscoverTab.forYou && _personalizedLooks.isNotEmpty;
-    final filteredLooks = _getFilteredLooks();
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -242,7 +245,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                         const SizedBox(height: 8),
 
                         // Header
-                        _buildHeader(context, isPersonalized),
+                        _buildHeader(context),
 
                         const SizedBox(height: 20),
 
@@ -251,18 +254,18 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
                         const SizedBox(height: 20),
 
-                        // Tabs (For You / Trending)
-                        _buildTabs(context),
-
-                        const SizedBox(height: 20),
-
                         // Results count
-                        _buildResultsHeader(context, filteredLooks.length),
+                        _buildResultsHeader(
+                          context,
+                          _loading || _failure != null
+                              ? null
+                              : _getVisibleLooks().length,
+                        ),
 
                         const SizedBox(height: 16),
 
-                        // Looks Grid
-                        _buildLooksGrid(context, filteredLooks),
+                        // Looks content
+                        _buildBody(context),
 
                         const SizedBox(height: 32),
                       ],
@@ -277,7 +280,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context, bool isPersonalized) {
+  Widget _buildHeader(BuildContext context) {
     final theme = Theme.of(context);
 
     return Row(
@@ -309,9 +312,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               ),
               const SizedBox(height: 2),
               Text(
-                isPersonalized
-                    ? 'Your personalized looks, based on your style and preferences'
-                    : 'Find looks tailored to your style',
+                'Find looks tailored to your style',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: FansivibeColors.textSecondary,
                 ),
@@ -450,37 +451,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
-  Widget _buildTabs(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: DiscoverTabData.all.map((tabData) {
-          final isSelected = _selectedTab == tabData.tab;
-          final isForYou = tabData.tab == DiscoverTab.forYou;
-          final hasPersonalization = isForYou && _personalizedLooks.isNotEmpty;
-          final badge = hasPersonalization
-              ? FansiBadge(
-                  score: _personalizedLooks.length,
-                  size: BadgeSize.compact,
-                )
-              : null;
-
-          return Padding(
-            padding: EdgeInsets.only(
-              right: tabData == DiscoverTabData.all.last ? 0 : 12,
-            ),
-            child: DiscoverTabButton(
-              data: tabData,
-              isSelected: isSelected,
-              onTap: () => _onTabChanged(tabData.tab),
-              badge: badge,
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
   int _activeFilterCount() {
     int count = 0;
     if (_selectedOccasion != 'all') count++;
@@ -520,18 +490,17 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             _fitOptions = FitFilters.options;
           });
           Navigator.of(ctx).pop();
+          _refresh();
         },
       ),
     );
   }
 
-  Widget _buildResultsHeader(BuildContext context, int count) {
+  Widget _buildResultsHeader(BuildContext context, [int? count]) {
     final theme = Theme.of(context);
-    final isPersonalized =
-        _selectedTab == DiscoverTab.forYou && _personalizedLooks.isNotEmpty;
 
-    final label = isPersonalized
-        ? '$count ${count == 1 ? 'look' : 'looks'} for you'
+    final label = count == null
+        ? 'Loading looks...'
         : '$count ${count == 1 ? 'look' : 'looks'} found';
 
     return Row(
@@ -547,29 +516,102 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         if (_selectedOccasion != 'all' ||
             _selectedStyle != 'all' ||
             _selectedFit != 'all')
-          FansiButton.tertiary(
-            label: 'Clear filters',
-            onPressed: () {
-              setState(() {
-                _selectedOccasion = 'all';
-                _selectedStyle = 'all';
-                _selectedFit = 'all';
-                _occasionOptions = OccasionFilters.options;
-                _styleOptions = StyleFilters.options;
-                _fitOptions = FitFilters.options;
-              });
-            },
-          ),
+          FansiButton.tertiary(label: 'Clear filters', onPressed: _resetAll),
       ],
     );
   }
 
-  Widget _buildLooksGrid(BuildContext context, List<DiscoverLookData> looks) {
-    final maxWidth = MediaQuery.of(context).size.width;
-
-    if (looks.isEmpty) {
+  Widget _buildBody(BuildContext context) {
+    if (_loading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(48),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+    if (_failure != null) {
+      return _buildErrorState(context, _failure!);
+    }
+    final visible = _getVisibleLooks();
+    if (visible.isEmpty) {
       return _buildEmptyState(context);
     }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildLooksGrid(context, visible),
+        if (_hasMore) ...[
+          const SizedBox(height: 20),
+          Center(
+            child: _loadingMore
+                ? const CircularProgressIndicator()
+                : FansiButton.secondary(
+                    label: 'Load more',
+                    icon: Icons.expand_more_rounded,
+                    onPressed: _loadMore,
+                  ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildErrorState(BuildContext context, DiscoverFailure failure) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              failure == DiscoverFailure.networkError
+                  ? Icons.cloud_off_rounded
+                  : Icons.info_outline_rounded,
+              size: 64,
+              color: FansivibeColors.accentGold.withValues(alpha: 0.4),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              failure == DiscoverFailure.invalidInput
+                  ? 'Filters not supported yet'
+                  : 'Looks unavailable',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: FansivibeColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _failureCopy(failure),
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: FansivibeColors.textSecondary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            if (failure == DiscoverFailure.invalidInput)
+              FansiButton.primary(
+                label: 'Reset filters',
+                icon: Icons.refresh_rounded,
+                onPressed: _resetAll,
+              )
+            else
+              FansiButton.primary(
+                label: 'Try Again',
+                icon: Icons.refresh_rounded,
+                onPressed: _refresh,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLooksGrid(BuildContext context, List<LookSummary> looks) {
+    final maxWidth = MediaQuery.of(context).size.width;
 
     // Determine cross axis count based on screen width
     int crossAxisCount;
@@ -597,7 +639,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           data: look,
           onTap: () => _handleLookTap(context, look),
           showMatchBadge: true,
-          showTrendingBadge: look.isTrending,
         );
       },
     );
@@ -639,18 +680,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             FansiButton.primary(
               label: 'Reset filters',
               icon: Icons.refresh_rounded,
-              onPressed: () {
-                setState(() {
-                  _searchQuery = '';
-                  _searchController.clear();
-                  _selectedOccasion = 'all';
-                  _selectedStyle = 'all';
-                  _selectedFit = 'all';
-                  _occasionOptions = OccasionFilters.options;
-                  _styleOptions = StyleFilters.options;
-                  _fitOptions = FitFilters.options;
-                });
-              },
+              onPressed: _resetAll,
             ),
           ],
         ),
@@ -658,8 +688,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
-  void _handleLookTap(BuildContext context, DiscoverLookData look) {
-    context.pushNamed(RouteNames.lookDetails, extra: look);
+  void _handleLookTap(BuildContext context, LookSummary look) {
+    // The backend catalog code travels verbatim — never a local id.
+    context.pushNamed(RouteNames.lookDetails, extra: look.id);
   }
 }
 

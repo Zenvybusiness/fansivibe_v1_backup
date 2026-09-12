@@ -27,6 +27,23 @@ class Settings(BaseSettings):
 
     database_url: str = Field(default=_DEFAULT_DATABASE_URL)
     dev_token: str = Field(default="dev", alias="FANSIVIBE_DEV_TOKEN")
+    # D-AUTH-1 — local email/password provider (the backend acts as its own
+    # IdentityProvider behind the verify→Principal seam). The dev-token
+    # fallback in `api/deps.py` is active ONLY when this flag is true
+    # (tests/dev); production paths must leave it false so no shared
+    # bootstrap identity can silently become production identity.
+    allow_dev_token: bool = Field(
+        default=False, alias="FANSIVIBE_ALLOW_DEV_TOKEN"
+    )
+    # HMAC secret minting/verifying JWT access tokens. The default is a
+    # dev-only placeholder — production MUST set FANSIVIBE_AUTH_SECRET.
+    auth_secret: str = Field(
+        default="dev-only-insecure-auth-secret",
+        alias="FANSIVIBE_AUTH_SECRET",
+    )
+    auth_expires_in_s: int = Field(
+        default=3600, alias="FANSIVIBE_AUTH_EXPIRES_IN_S"
+    )
     vision_host: str = Field(
         default="http://localhost:11434", alias="FANSIVIBE_VISION_HOST"
     )

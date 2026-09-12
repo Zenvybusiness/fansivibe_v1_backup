@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 
 /// HTTP client for the saved-looks collection (DEC-013, STEP 18.4).
 ///
@@ -20,10 +21,14 @@ class SavedLooksClient {
     defaultValue: 'http://localhost:8000',
   );
 
-  static const String _devToken = String.fromEnvironment(
+  static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',
     defaultValue: 'dev',
   );
+
+  /// Session-first Bearer token (D-AUTH-1): the persisted session wins;
+  /// the dart-define default covers logged-out/test behavior.
+  static String get _devToken => AuthSession.effectiveToken(_devTokenDefault);
 
   final http.Client _client;
   static const Duration _timeout = Duration(seconds: 12);
@@ -43,6 +48,7 @@ class SavedLooksClient {
       final response = await _client
           .get(uri, headers: {'Authorization': 'Bearer $_devToken'})
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return SavedLookListPage.fromJson(decoded);
@@ -71,6 +77,7 @@ class SavedLooksClient {
             headers: {'Authorization': 'Bearer $_devToken'},
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 204) {
         return SavedLookDeleteOutcome.deleted;
       }

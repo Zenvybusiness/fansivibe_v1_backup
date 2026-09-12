@@ -1,10 +1,10 @@
 """Looks API router — M9 Today's Look (#31 `GET /v1/looks/today`, #32
 `POST /v1/looks/today`, #33 `POST /v1/looks/today/save`) plus endpoints
 #23 (`POST /v1/looks/saved`), #24 (`GET /v1/looks/saved`), and #25
-(`DELETE /v1/looks/saved/{saved_look_id}`, DEC-013).
+(`DELETE /v1/looks/saved/{saved_look_id}`, DEC-013), and M14 Discover (#43 `GET /v1/looks`, #44 `GET /v1/looks/{look_id}`, UC-31).
 
 The `/today` routes are registered BEFORE `/saved*` (DEC-017 §7 guard —
-no generic route may shadow them; no `/{look_id}` route exists today).
+no generic route may shadow them; the M14 `/` feed and `/{look_id}` detail are registered last).
 
 Requires the contract's `Idempotency-Key` header (C-12/API-33). On replay
 returns the original save; on a conflicting replay returns 409.
@@ -18,6 +18,7 @@ from uuid import UUID
 
 from app.api.deps import get_current_user_id
 from app.api.errors import not_found, validation
+from app.api.schemas.discover import LookDetail, LookFeed, LookSummary
 from app.api.schemas.saved_looks import SaveLookRequest, SavedLook, SavedLookList
 from app.api.schemas.today import (
     TodayLook,
@@ -31,6 +32,7 @@ from app.application.saved_looks import (
     ListSavedLooks,
     SaveRecommendation,
 )
+from app.application.discover import GetLookDetail, GetLookFeed
 from app.application.today import GetTodayLook, RegenerateTodayLook
 from app.domain.ports.repositories import TodayLookRecommendation
 from app.infrastructure.db.repositories import (
@@ -289,3 +291,74 @@ def delete_saved_look(
     use_case = DeleteSavedLook(saved_looks=SavedLookRepositorySQL(db))
     use_case(user_id=user_id, saved_look_id=saved_look_id)
     return None
+
+
+@router.get(
+    "",
+    response_model=LookFeed,
+    responses={401: {"model": dict}, 422: {"model": dict}},
+)
+def get_look_feed(
+    occasion: str | None = Query(
+        default=None,
+        description="Not supported by the current catalog; any value -> 422.",
+    ),
+    style: str | None = Query(
+        default=None,
+        description="Not supported by the current catalog; any value -> 422.",
+    ),
+    fit: str | None = Query(
+        default=None,
+        description="Not supported by the current catalog; any value -> 422.",
+    ),
+    cursor: str | None = Query(
+        default=None,
+        description="Opaque page cursor from a previous feed response.",
+    ),
+    limit: int = Query(default=20, ge=1, le=50, description="Items per page, max 50"),
+    user_id: UUID = Depends(get_current_user_id),
+) -> LookFeed:
+    """Serve the ranked look feed (TRX read-only, UC-31).
+
+    Registered AFTER `/today*` and `/saved*` (route-ordering guard).
+    Engine-ranked catalog order (API-27, no `sort` param); cursor page
+    `{items, next_cursor, has_more}` with no `total`. Empty catalog →
+    200 with `items: []`. No side effects.
+    """
+    use_case = GetLookFeed(knowledge=CatalogKnowledgeSource())
+    items, next_cursor, has_more = use_case(
+        user_id=user_id,
+        occasion=occasion,
+        style=style,
+        fit=fit,
+        cursor=cursor,
+        limit=limit,
+    )
+    return LookFeed(
+        items=[LookSummary(**item) for item in items],
+        next_cursor=next_cursor,
+        has_more=has_more,
+    )
+
+
+@router.get(
+    "/{look_id}",
+    response_model=LookDetail,
+    response_model_exclude_none=True,
+    responses={401: {"model": dict}, 404: {"model": dict}},
+)
+def get_look_detail(
+    look_id: str = Path(..., description="Stable catalog look code (PR-3)"),
+    user_id: UUID = Depends(get_current_user_id),
+) -> LookDetail:
+    """Serve one catalog look (endpoint #44).
+
+    Registered last (route-ordering guard): the `/{look_id}` param route
+    must never shadow `/today*` or `/saved*`. Unknown code → 404.
+    Read-only.
+    """
+    use_case = GetLookDetail(knowledge=CatalogKnowledgeSource())
+    record = use_case(user_id=user_id, look_id=look_id)
+    if record is None:
+        raise not_found()
+    return LookDetail(**record)

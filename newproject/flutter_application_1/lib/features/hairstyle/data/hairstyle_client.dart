@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
 import 'package:fansivibe/features/hairstyle/data/hairstyle_models.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 
 /// HTTP client for the hairstyle recommendation API.
 ///
@@ -22,10 +23,14 @@ class HairstyleClient {
     defaultValue: 'http://localhost:8000',
   );
 
-  static const String _devToken = String.fromEnvironment(
+  static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',
     defaultValue: 'dev',
   );
+
+  /// Session-first Bearer token (D-AUTH-1): the persisted session wins;
+  /// the dart-define default covers logged-out/test behavior.
+  static String get _devToken => AuthSession.effectiveToken(_devTokenDefault);
 
   final http.Client _client;
   static const Duration _timeout = Duration(seconds: 12);
@@ -90,6 +95,7 @@ class HairstyleClient {
         streamed,
       ).timeout(_timeout);
 
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 202) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return decoded['run_id'] as String?;
@@ -145,6 +151,7 @@ class HairstyleClient {
             headers: {'Authorization': 'Bearer $_devToken'},
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return AnalysisRun.fromJson(decoded);
@@ -169,6 +176,7 @@ class HairstyleClient {
             headers: {'Authorization': 'Bearer $_devToken'},
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return AnalysisRunPage.fromJson(decoded);
@@ -209,6 +217,7 @@ class HairstyleClient {
             body: jsonEncode(payload),
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 201) {
         return true;
       }
@@ -233,6 +242,7 @@ class HairstyleClient {
             headers: {'Authorization': 'Bearer $_devToken'},
           )
           .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return SavedLookPage.fromJson(decoded);

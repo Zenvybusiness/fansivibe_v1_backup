@@ -259,10 +259,12 @@ void main() {
         testIntelligence(),
       );
       final snapshot = request.snapshot;
+      // P1-1: local engine IDs (`blazer-001`, …) never cross the wire, so
+      // the key is omitted when nothing UUID-shaped survives; M7 then
+      // skips item validation and freezes the remaining snapshot verbatim.
       expect(
         snapshot.keys,
         unorderedEquals([
-          'selectedItemIds',
           'outfitComposition',
           'occasion',
           'stylingRationale',
@@ -272,10 +274,7 @@ void main() {
           'dataAvailability',
         ]),
       );
-      expect(
-        snapshot['selectedItemIds'],
-        equals(['blazer-001', 'shirt-001', 'trousers-001', 'derbies-001', 'watch-001']),
-      );
+      expect(snapshot, isNot(contains('selectedItemIds')));
       expect(
         (snapshot['outfitComposition'] as Map<String, dynamic>)['styleScore'],
         equals(91),
@@ -323,6 +322,11 @@ void main() {
         idempotencyKey: 'key-123',
       );
       expect(seenHeaders!['Idempotency-Key'], equals('key-123'));
+      // P1-1: the auth-gated save carries Bearer authorization.
+      expect(
+        seenHeaders!['Authorization'],
+        equals('Bearer dev'),
+      );
       expect(seenBody!['lookId'], isNull);
       expect(seenBody!['sourceContext'], equals('outfit'));
       expect(seenBody!['title'], equals('Office Outfit'));

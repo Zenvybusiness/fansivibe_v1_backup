@@ -1,12 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/features/assistant/data/assistant_client.dart';
+import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
+/// UI label → backend occasion code (P1-2).
+///
+/// Exact matches against the frozen knowledge occasion vocabulary only
+/// (`casual`/`formal`/`business`/`date`/`party`/`travel`/`workout`/`other`/
+/// `office` — the codes R36 appends and generation consumes). Labels with
+/// no counterpart (`Smart Casual`, `Streetwear`) have no entry: no code is
+/// invented for them and they stay local-only (truthfully reported).
+const Map<String, String> occasionLabelToCode = {
+  'Casual': 'casual',
+  'Business': 'business',
+  'Formal': 'formal',
+};
+
 class PreferencesScreen extends StatefulWidget {
-  const PreferencesScreen({super.key});
+  const PreferencesScreen({super.key, this.preferencesClient});
+
+  /// Injectable for tests; when null the screen owns its own client.
+  final AssistantClient? preferencesClient;
 
   @override
   State<PreferencesScreen> createState() => _PreferencesScreenState();
@@ -14,14 +32,18 @@ class PreferencesScreen extends StatefulWidget {
 
 class _PreferencesScreenState extends State<PreferencesScreen> {
   late LearningService _learningService;
+  late final AssistantClient _client;
   List<PreferenceOption> _preferences = [];
-  String? _lastSavedOccasion;
+  String? _statusMessage;
+  bool _syncing = false;
 
   @override
   void initState() {
     super.initState();
     _learningService = LearningService.instance;
+    _client = widget.preferencesClient ?? AssistantClient();
     _learningService.load().then((_) {
+      if (!mounted) return;
       setState(() {
         _preferences = _buildPreferences();
       });
@@ -56,11 +78,40 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     )];
   }
 
-  void _onOptionSelected(String value) {
-    // Call learning service to persist the preference
+  Future<void> _onOptionSelected(String value) async {
+    // Local behavior is preserved: instant UI + on-device persistence.
     _learningService.addPreferredOccasion(value);
+    if (_syncing) return;
+    final code = occasionLabelToCode[value];
+    if (code == null) {
+      // No backend counterpart exists — nothing truthful to send (P1-2:
+      // no invented codes). Local-only, reported as such.
+      setState(() {
+        _statusMessage = 'Saved: $value (this device only)';
+      });
+      return;
+    }
     setState(() {
-      _lastSavedOccasion = value;
+      _syncing = true;
+      _statusMessage = 'Syncing $value…';
+    });
+    final result = await _client.syncPreferredOccasion(code: code);
+    if (!mounted) return;
+    setState(() {
+      _syncing = false;
+      _statusMessage = switch (result) {
+        PreferenceSyncResult.synced => 'Synced: $value',
+        PreferenceSyncResult.alreadySynced => 'Already synced: $value',
+        PreferenceSyncResult.invalidInput =>
+          'Could not sync: unsupported value.',
+        PreferenceSyncResult.unauthorized =>
+          'Session expired — sign in again to sync.',
+        PreferenceSyncResult.rateLimited =>
+          'Too many requests — try again shortly.',
+        PreferenceSyncResult.networkError =>
+          'No connection — saved on this device.',
+        PreferenceSyncResult.unknown => 'Sync failed — saved on this device.',
+      };
     });
   }
 
@@ -126,11 +177,11 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                           ),
                         ),
                         const SizedBox(height: 32),
-                        if (_lastSavedOccasion != null)
+                        if (_statusMessage != null)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 8.0),
                             child: Text(
-                              'Saved: $_lastSavedOccasion',
+                              _statusMessage!,
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: FansivibeColors.successContainer,
                                 fontWeight: FontWeight.w500,

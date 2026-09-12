@@ -15,7 +15,6 @@ import 'package:fansivibe/features/onboarding/presentation/screens/photo_capture
 import 'package:fansivibe/features/onboarding/presentation/screens/ai_analysis_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/your_analysis_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/account_creation_screen.dart';
-import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/presentation/discover_screen.dart';
 import 'package:fansivibe/features/discover/presentation/look_details_screen.dart';
 import 'package:fansivibe/features/events/data/event_models.dart';
@@ -35,6 +34,7 @@ import 'package:fansivibe/features/hairstyle/presentation/hairstyle_result_scree
 import 'package:fansivibe/features/home/presentation/daily_outfit_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
+import 'package:fansivibe/features/outfit_builder/outfit_builder.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/outfit_generation_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/outfit_recommendation_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_analysis_screen.dart';
@@ -112,7 +112,12 @@ final List<RouteBase> appRoutes = [
   GoRoute(
     path: '/onboarding/account',
     name: RouteNames.accountCreation,
-    builder: (context, state) => const AccountCreationScreen(),
+    builder: (context, state) {
+      final extra = state.extra as Map<String, dynamic>?;
+      return AccountCreationScreen(
+        mode: extra?['mode'] as String? ?? 'register',
+      );
+    },
   ),
   GoRoute(
     path: '/assistant',
@@ -154,9 +159,11 @@ final List<RouteBase> appRoutes = [
                 path: 'look-details',
                 name: RouteNames.lookDetails,
                 builder: (context, state) {
-                  final look = state.extra as DiscoverLookData?;
-                  return look != null
-                      ? LookDetailsScreen(look: look)
+                  // The backend catalog code travels verbatim (M14) — never
+                  // a local id. Missing extra renders the shared fallback.
+                  final lookId = state.extra as String?;
+                  return lookId != null
+                      ? LookDetailsScreen(lookId: lookId)
                       : _missingDataScreen();
                 },
               ),
@@ -227,8 +234,26 @@ GoRoute(
                       GoRoute(
                         path: 'recommendation',
                         name: RouteNames.outfitRecommendation,
-                        builder: (context, state) =>
-                            const OutfitRecommendationScreen(),
+                        builder: (context, state) {
+                          final data = state.extra as Map<String, dynamic>?;
+                          final recJson =
+                              data?['recommendation'] as Map<String, dynamic>?;
+                          final reqJson =
+                              data?['request'] as Map<String, dynamic>?;
+                          if (recJson == null || reqJson == null) {
+                            return _missingDataScreenWithText(
+                              'Missing outfit recommendation.',
+                            );
+                          }
+                          return OutfitRecommendationScreen(
+                            recommendation: OutfitRecommendation.fromJson(
+                              Map<String, dynamic>.from(recJson),
+                            ),
+                            request: OutfitGenerateRequest.fromJson(
+                              Map<String, dynamic>.from(reqJson),
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),

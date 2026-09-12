@@ -6,6 +6,7 @@ import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart
 import 'package:fansivibe/features/home/presentation/first_time_light_path_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/backend_summary_cards.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
+import 'package:fansivibe/features/home/today_look.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -21,7 +22,17 @@ class HomeScreen extends StatefulWidget {
   /// the future is created once in [initState] for the main branch.
   final LearningSummaryRepository? summaryRepository;
 
-  const HomeScreen({super.key, this.onboardingData, this.summaryRepository});
+  /// Backend Today's Look source (M9, STEP 19.25). Defaults to the live
+  /// repository; tests inject a fake. Fetched once for the main branch
+  /// only — first-visit onboarding shows no look slot.
+  final TodayLookRepository? todayLookRepository;
+
+  const HomeScreen({
+    super.key,
+    this.onboardingData,
+    this.summaryRepository,
+    this.todayLookRepository,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -30,6 +41,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late final LearningSummaryRepository _summaryRepository;
   Future<LearningSummary?>? _summaryFuture;
+  late final TodayLookRepository _todayLookRepository;
+  Future<TodayLookResult>? _todayLookFuture;
 
   @override
   void initState() {
@@ -41,12 +54,24 @@ class _HomeScreenState extends State<HomeScreen> {
       _summaryRepository =
           widget.summaryRepository ?? LearningSummaryRepositoryImpl();
       _summaryFuture = _summaryRepository.getSummary();
+      // Backend-first M9 Today's Look (STEP 19.25): same single-fetch
+      // discipline — one GET feeds the slot; failures render honest
+      // loading/error/empty states, never mock content.
+      _todayLookRepository =
+          widget.todayLookRepository ?? TodayLookRepositoryImpl();
+      _todayLookFuture = _todayLookRepository.getTodayLook();
     }
   }
 
   void _retrySummary() {
     setState(() {
       _summaryFuture = _summaryRepository.getSummary();
+    });
+  }
+
+  void _retryTodayLook() {
+    setState(() {
+      _todayLookFuture = _todayLookRepository.getTodayLook();
     });
   }
 
@@ -122,7 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 8),
                         _buildGreetingHeader(theme, _displayName),
                         const SizedBox(height: 28),
-                        _buildTodaysLookCard(context, learningService),
+                        _buildTodaysLookSlot(context),
                         const SizedBox(height: 24),
                         _buildScoreSlot(),
                         const SizedBox(height: 24),
@@ -250,135 +275,71 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${weekdays[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
   }
 
-  Widget _buildTodaysLookCard(
-    BuildContext context,
-    LearningService learningService,
-  ) {
-    final hasWardrobe = learningService.wardrobe.isNotEmpty;
-
-    if (!hasWardrobe) {
-      // Show honest state when no wardrobe data
-      return TodaysLookCard(
-        data: TodaysLookData.mock,
-        onTryThisLook: () => context.pushNamed(RouteNames.dailyOutfit),
-        onChangeStyle: () => context.pushNamed(RouteNames.buildOutfit),
-      );
-    }
-
-    // Build personalized today's look based on actual wardrobe
-    final outerwear = learningService.wardrobe
-        .where((item) => item.category == 'outerwear')
-        .map((e) => e.name)
-        .toList();
-    final tops = learningService.wardrobe
-        .where((item) => item.category == 'tops')
-        .map((e) => e.name)
-        .toList();
-
-    final title = outerwear.isNotEmpty ? 'Your Look' : 'Building Your Look';
-    final occasion = _determineOccasion(learningService);
-    final description = _buildDescription(outerwear, tops);
-
-    return TodaysLookCard(
-      data: TodaysLookData.mock.copyWith(
-        title: title,
-        occasion: occasion,
-        description: description,
-        items: _buildOutfitItems(outerwear, tops),
-      ),
-      onTryThisLook: () => context.pushNamed(RouteNames.dailyOutfit),
-      onChangeStyle: () => context.pushNamed(RouteNames.buildOutfit),
+  Widget _buildTodaysLookSlot(BuildContext context) {
+    // Backend-first M9 Today's Look (STEP 19.25): the server derivation
+    // renders verbatim. Loading/empty/error states keep the slot title
+    // with no value — there is deliberately no mock fallback here, and a
+    // failed look never makes the rest of Home unusable. Navigation is
+    // preserved: Try opens the Daily Outfit detail surface, Change Style
+    // opens the outfit builder.
+    return FutureBuilder<TodayLookResult>(
+      future: _todayLookFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SummaryLoadingCard(title: "Today's Look");
+        }
+        final result = snapshot.data;
+        if (result == null || result.failure != null) {
+          return SummaryErrorCard(
+            title: "Today's Look",
+            message:
+                'Couldn\'t load today\'s look. Please check your connection.',
+            onRetry: _retryTodayLook,
+          );
+        }
+        if (result.noneAvailable) {
+          return SummaryErrorCard(
+            title: "Today's Look",
+            message:
+                'No today\'s look available right now. Add wardrobe pieces '
+                'to unlock your daily recommendation.',
+            onRetry: _retryTodayLook,
+          );
+        }
+        final look = result.look!;
+        return TodaysLookCard(
+          data: _todayLookCardData(look),
+          onTryThisLook: () => context.pushNamed(RouteNames.dailyOutfit),
+          onChangeStyle: () => context.pushNamed(RouteNames.buildOutfit),
+        );
+      },
     );
   }
 
-  String _determineOccasion(LearningService learningService) {
-    final occasions = learningService.preferredOccasions;
-    if (occasions.isNotEmpty) {
-      return occasions.join(' • ');
-    }
-    return 'Everyday';
-  }
-
-  String _buildDescription(List<String> outerwear, List<String> tops) {
-    if (outerwear.isNotEmpty && tops.isNotEmpty) {
-      return 'Great start with ${outerwear.first} and ${tops.first}. '
-          'Consider adding bottoms and accessories for complete looks.';
-    }
-    if (outerwear.isNotEmpty) {
-      return 'You have ${outerwear.first}. '
-          'Add tops and other categories to build complete outfits.';
-    }
-    return 'Start building your wardrobe by adding key pieces.';
-  }
-
-  List<OutfitItemData> _buildOutfitItems(
-    List<String> outerwear,
-    List<String> tops,
-  ) {
-    final items = <OutfitItemData>[];
-
-    if (outerwear.isNotEmpty) {
-      items.add(
-        OutfitItemData(
-          id: '1',
-          name: outerwear.first,
-          category: 'outerwear',
-          color: 'Charcoal',
-        ),
-      );
-    }
-    if (tops.isNotEmpty) {
-      items.add(
-        OutfitItemData(
-          id: '2',
-          name: tops.first,
-          category: 'tops',
-          color: 'Off-White',
-        ),
-      );
-    }
-
-    // Add default items if wardrobe is sparse
-    if (items.isEmpty) {
-      items.addAll(_defaultOutfitItems());
-    }
-
-    return items;
-  }
-
-  List<OutfitItemData> _defaultOutfitItems() {
-    return const [
-      OutfitItemData(
-        id: '1',
-        name: 'Charcoal Unstructured Blazer',
-        category: 'outerwear',
-        color: 'Charcoal',
-      ),
-      OutfitItemData(
-        id: '2',
-        name: 'Merino Wool Crewneck',
-        category: 'tops',
-        color: 'Off-White',
-      ),
-      OutfitItemData(
-        id: '3',
-        name: 'Tapered Wool Trousers',
-        category: 'bottoms',
-        color: 'Charcoal',
-      ),
-      OutfitItemData(
-        id: '4',
-        name: 'Leather Chelsea Boots',
-        category: 'footwear',
-        color: 'Black',
-      ),
-      OutfitItemData(
-        id: '5',
-        name: 'Minimalist Leather Belt',
-        category: 'accessories',
-        color: 'Black',
-      ),
-    ];
+  /// Maps the backend [TodayLook] onto the existing card data without
+  /// inventing content: title/description/scores verbatim, component UUIDs
+  /// and names verbatim (never resolved against local mock IDs, never
+  /// fetched again here). `occasion` shows only when the backend derived
+  /// one — the static 'Everyday' fallback is presentation copy, never an
+  /// event recalculation (no event fetch happens in this layer).
+  TodaysLookData _todayLookCardData(TodayLook look) {
+    return TodaysLookData(
+      title: look.title,
+      occasion: look.occasion ?? 'Everyday',
+      weather: '',
+      description: look.description,
+      items: look.components
+          .map(
+            (component) => OutfitItemData(
+              id: component.id,
+              name: component.name,
+              category: component.category,
+              color: component.color,
+            ),
+          )
+          .toList(),
+      styleScore: look.styleScore,
+    );
   }
 
   Widget _buildQuickActions(

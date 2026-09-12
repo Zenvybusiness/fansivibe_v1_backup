@@ -1,6 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fansivibe/features/assistant/data/assistant_client.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_repository.dart';
 import 'package:fansivibe/features/profile/presentation/preferences_screen.dart';
@@ -79,16 +84,37 @@ void main() {
       expect(find.text('Formal'), findsOneWidget);
     });
 
-    testWidgets('tapping chip changes selection', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const PreferencesScreen()));
+    testWidgets('tapping chip syncs the mapped code', (
+      WidgetTester tester,
+    ) async {
+      final client = AssistantClient(
+        client: MockClient((request) async {
+          if (request.method == 'GET') {
+            return http.Response(
+              jsonEncode({
+                'preferences': {
+                  'preferredOccasions': <String>[],
+                },
+              }),
+              200,
+            );
+          }
+          return http.Response('{"displayName":"Dev User"}', 200);
+        }),
+      );
+      await tester.pumpWidget(
+        wrapApp(PreferencesScreen(preferencesClient: client)),
+      );
       await tester.pumpAndSettle();
 
       final chipFinder = find.text('Business');
       await tester.ensureVisible(chipFinder);
       await tester.tap(chipFinder);
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      expect(find.text('Saved: Business'), findsOneWidget);
+      // Mapped label syncs truthfully end-to-end (P1-2).
+      expect(find.text('Synced: Business'), findsOneWidget);
+      client.dispose();
     });
 
     testWidgets('back button pops', (WidgetTester tester) async {

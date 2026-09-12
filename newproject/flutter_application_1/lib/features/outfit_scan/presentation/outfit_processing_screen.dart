@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -67,7 +68,7 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
       final uri = Uri.parse('$_baseUrl/v1/analysis/runs/$_runId');
       final response = await http.get(
         uri,
-        headers: {'Authorization': 'Bearer dev-token'},
+        headers: {'Authorization': 'Bearer ${AuthSession.effectiveToken('dev')}'},
       );
 
       if (!mounted) return;
@@ -104,6 +105,7 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
           return;
         }
       } else if (response.statusCode == 401) {
+        AuthSession.notifyUnauthorized();
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

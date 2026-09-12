@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/auth/auth.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/profile_widgets.dart';
@@ -16,7 +17,11 @@ class ProfileScreen extends StatefulWidget {
   /// tests inject a fake.
   final LearningSummaryRepository? summaryRepository;
 
-  const ProfileScreen({super.key, this.summaryRepository});
+  /// Auth source (D-AUTH-1). Defaults to the live repository; tests
+  /// inject a fake.
+  final AuthRepository? authRepository;
+
+  const ProfileScreen({super.key, this.summaryRepository, this.authRepository});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -24,7 +29,9 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   late final LearningSummaryRepository _summaryRepository;
+  late final AuthRepository _authRepository;
   late Future<LearningSummary?> _summaryFuture;
+  bool _signingOut = false;
 
   @override
   void initState() {
@@ -34,6 +41,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // renders its error state. No mock fallback, ever.
     _summaryRepository =
         widget.summaryRepository ?? LearningSummaryRepositoryImpl();
+    _authRepository = widget.authRepository ?? AuthRepositoryImpl();
     _summaryFuture = _summaryRepository.getSummary();
   }
 
@@ -204,16 +212,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
       case 'settings':
         context.pushNamed(RouteNames.profileSettings);
       case 'sign_out':
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Signing out...'),
-            backgroundColor: FansivibeColors.accentGold,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: FansivibeRadius.smdBorder,
-            ),
-          ),
-        );
+        _handleSignOut(context);
     }
+  }
+
+  /// Real sign-out (D-AUTH-1): revokes the server session, clears the
+  /// local one, then returns to entry. The guard prevents double-taps
+  /// from issuing parallel logouts.
+  Future<void> _handleSignOut(BuildContext context) async {
+    if (_signingOut) return;
+    setState(() => _signingOut = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Signing out...'),
+        backgroundColor: FansivibeColors.accentGold,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: FansivibeRadius.smdBorder,
+        ),
+      ),
+    );
+    await _authRepository.logout();
+    if (!context.mounted) return;
+    setState(() => _signingOut = false);
+    context.goNamed(RouteNames.entry);
   }
 }

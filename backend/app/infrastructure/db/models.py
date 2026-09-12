@@ -61,8 +61,51 @@ class Users(Base):
     auth_provider: Mapped[str] = mapped_column(Text, nullable=False)
     auth_subject: Mapped[str] = mapped_column(Text, nullable=False)
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    # D-AUTH-1 — local email/password provider credential. Bcrypt hash of
+    # the password (never the password itself); NULL for legacy dev rows
+    # and non-password identities. The (provider, subject) UNIQUE pair
+    # remains the account identity (BC-1); email accounts use
+    # provider "email" with the normalized email as subject, so email
+    # uniqueness is enforced by the existing pair constraint.
+    password_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # D-AUTH-1 — `POST /v1/auth/register` replay key (C-12): a retried
+    # register with the same key returns the same account, never a
+    # duplicate (M7 replay/conflict semantics for account creation).
+    register_idempotency_key: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class UserSession(Base):
+    """One device/session row — the R51 session/token store (D-AUTH-1).
+
+    One `POST /v1/auth/register` or `/v1/auth/login` mints one row and
+    one JWT (`jti` = this row id). `POST /v1/auth/logout` stamps
+    `revoked_at`; revoked/expired rows never authenticate again.
+    The bearer token itself is never stored — `token_digest` is the
+    SHA-256 of the JWT. Account erasure cascades (TRX-8): deleting the
+    user deletes every session, so all tokens die with the account.
+    INSERT / SELECT / revoke-only; rows are never edited otherwise.
+    """
+
+    __tablename__ = "user_sessions"
+    __table_args__ = (
+        UniqueConstraint("token_digest", name="uq_user_sessions_token_digest"),
+        Index("ix_user_sessions_user_id_expires_at", "user_id", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_digest: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class UserState(Base):
@@ -219,6 +262,44 @@ class LearningSignals(Base):
     )
     label: Mapped[str] = mapped_column(Text, nullable=False)
     context: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class FeedbackEvents(Base):
+    """One append-only user reaction (M11, UC-32, P1 feature-gated).
+
+    Raw reaction history (rating / why + optional look/saved-look
+    target) feeding the deferred derived-preference aggregation via
+    reads — never state, never a learning signal. INSERT / SELECT
+    only; no unique constraint beyond the PK (repeats with fresh keys
+    append; idempotent replay is guarded by
+    `uq_feedback_events_idempotency`). `rating` carries deliberately no
+    CHECK (vocabulary pending the feedback design, BC-38/39, PR-12).
+    Targets are SET NULL so feedback history survives target removal
+    (BC-38/39, DEC-013).
+    """
+
+    __tablename__ = "feedback_events"
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_feedback_events_idempotency"),
+        Index("ix_feedback_events_user_id_occurred_at", "user_id", "occurred_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    target_look_id: Mapped[Optional[str]] = mapped_column(
+        Text, ForeignKey("looks.code", ondelete="SET NULL"), nullable=True
+    )
+    target_saved_look_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("saved_looks.id", ondelete="SET NULL"), nullable=True
+    )
+    rating: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 

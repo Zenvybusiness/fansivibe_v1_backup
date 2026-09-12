@@ -1,17 +1,71 @@
 import 'package:flutter/material.dart';
-import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
+import 'package:fansivibe/features/discover/discover.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/look_details_widgets.dart';
-import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
-/// The Look Details screen (DISCOVER-002).
-class LookDetailsScreen extends StatelessWidget {
-  const LookDetailsScreen({required this.look, super.key});
+/// The Look Details screen (DISCOVER-002, M14).
+///
+/// Backend-first over #44 `GET /v1/looks/{look_id}`: the screen takes a
+/// backend catalog code and fetches the detail verbatim. Loading,
+/// not-found (unknown code), and failure states are truthful with retry;
+/// nothing renders until the backend answers.
+///
+/// Only grounded catalog fields render (title, description, match score,
+/// reasons, styling tips, maintenance, best-for). The catalog carries no
+/// image, occasion/style/fit tags, ensemble, wardrobe alternatives, or
+/// trending signal, so those sections do not exist here (AI-0 honesty).
+/// There is no save affordance: persisting a discover look has no
+/// mapping decision (DEC-013 forbids wiring mock ids to the save
+/// surface), so no fake local save is offered.
+class LookDetailsScreen extends StatefulWidget {
+  const LookDetailsScreen({required this.lookId, this.repository, super.key});
 
-  final DiscoverLookData look;
+  /// Backend catalog code, verbatim (never a local id).
+  final String lookId;
+
+  /// Injectable for tests; when null the screen owns its own repository.
+  final DiscoverRepository? repository;
+
+  @override
+  State<LookDetailsScreen> createState() => _LookDetailsScreenState();
+}
+
+class _LookDetailsScreenState extends State<LookDetailsScreen> {
+  late final DiscoverRepository _repository;
+  bool _loading = true;
+  LookDetail? _detail;
+  bool _notFound = false;
+  DiscoverFailure? _failure;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository = widget.repository ?? DiscoverRepositoryImpl();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    setState(() {
+      _loading = true;
+      _notFound = false;
+      _failure = null;
+    });
+    final result = await _repository.getLookDetail(lookId: widget.lookId);
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      if (result.isAvailable) {
+        _detail = result.detail;
+      } else if (result.notFound) {
+        _notFound = true;
+      } else {
+        _failure = result.failure;
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,27 +84,21 @@ class LookDetailsScreen extends StatelessWidget {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
-          look.title,
+          _detail?.title ?? 'Look Details',
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w600,
             color: FansivibeColors.textPrimary,
           ),
         ),
         actions: [
-          IconButton(
-            icon: Icon(
-              Icons.share_rounded,
-              color: FansivibeColors.textSecondary,
+          if (_detail != null)
+            IconButton(
+              icon: Icon(
+                Icons.share_rounded,
+                color: FansivibeColors.textSecondary,
+              ),
+              onPressed: () => _handleShare(context),
             ),
-            onPressed: () => _handleShare(context),
-          ),
-          IconButton(
-            icon: Icon(
-              Icons.favorite_border_rounded,
-              color: FansivibeColors.textSecondary,
-            ),
-            onPressed: () => _handleSave(context),
-          ),
         ],
       ),
       body: SafeArea(
@@ -69,40 +117,7 @@ class LookDetailsScreen extends StatelessWidget {
                     padding: EdgeInsets.symmetric(
                       horizontal: horizontalPadding,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 12),
-
-                        _buildHeroSection(context),
-                        const SizedBox(height: 24),
-
-                        _buildMatchScoreSection(context),
-                        if (look.recommendationReasons != null &&
-                            look.recommendationReasons!.isNotEmpty) ...[
-                          const SizedBox(height: 24),
-                          _buildReasonsSection(context),
-                        ],
-                        const SizedBox(height: 24),
-                        _buildTagsSection(context),
-                        const SizedBox(height: 24),
-
-                        if (look.ensembleComponents != null &&
-                            look.ensembleComponents!.isNotEmpty) ...[
-                          _buildEnsembleSection(context),
-                          const SizedBox(height: 24),
-                        ],
-
-                        if (look.wardrobeAlternatives != null &&
-                            look.wardrobeAlternatives!.isNotEmpty) ...[
-                          _buildAlternativesSection(context),
-                          const SizedBox(height: 24),
-                        ],
-
-                        _buildActionsSection(context),
-                        const SizedBox(height: 32),
-                      ],
-                    ),
+                    child: _buildBody(context),
                   ),
                 ),
               ),
@@ -113,7 +128,100 @@ class LookDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHeroSection(BuildContext context) {
+  Widget _buildBody(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.all(48),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_notFound) {
+      return _buildMessageState(
+        context,
+        icon: Icons.search_off_rounded,
+        title: 'Look not available',
+        message: 'This look is no longer in the catalog.',
+        actionLabel: 'Go Back',
+        onAction: () => Navigator.of(context).pop(),
+      );
+    }
+    if (_failure != null || _detail == null) {
+      return _buildMessageState(
+        context,
+        icon: Icons.cloud_off_rounded,
+        title: 'Look unavailable',
+        message: 'Check your connection and try again.',
+        actionLabel: 'Try Again',
+        onAction: _fetch,
+      );
+    }
+    final look = _detail!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 12),
+        _buildHeroSection(context, look),
+        const SizedBox(height: 24),
+        _buildReasonsSection(context, look),
+        const SizedBox(height: 24),
+        _buildDetailsSection(context, look),
+        const SizedBox(height: 24),
+        _buildActionsSection(context, look),
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  Widget _buildMessageState(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String message,
+    required String actionLabel,
+    required VoidCallback onAction,
+  }) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 64,
+              color: FansivibeColors.accentGold.withValues(alpha: 0.4),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: FansivibeColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: FansivibeColors.textSecondary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            FansiButton.primary(
+              label: actionLabel,
+              icon: Icons.refresh_rounded,
+              onPressed: onAction,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeroSection(BuildContext context, LookDetail look) {
     final theme = Theme.of(context);
 
     return Column(
@@ -180,138 +288,98 @@ class LookDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildMatchScoreSection(BuildContext context) {
-    final details = look.matchScoreDetails;
-    if (details == null) {
-      return const SizedBox.shrink();
+  Widget _buildReasonsSection(BuildContext context, LookDetail look) {
+    final theme = Theme.of(context);
+
+    return LookDetailCard(
+      title: 'Why This Look Works',
+      subtitle: 'Grounded matching reasons',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: look.reasons
+            .map(
+              (reason) => Padding(
+                padding: EdgeInsets.only(
+                  bottom: reason == look.reasons.last ? 0 : 12,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: FansivibeColors.accentGold,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        reason,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: FansivibeColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _buildDetailsSection(BuildContext context, LookDetail look) {
+    final theme = Theme.of(context);
+
+    Widget row(String label, String value, {bool last = false}) {
+      return Padding(
+        padding: EdgeInsets.only(bottom: last ? 0 : 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: FansivibeColors.textSecondary,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: FansivibeColors.textPrimary,
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     return LookDetailCard(
-      title: 'Match Score',
-      subtitle: 'How well this look fits your style',
+      title: 'The Details',
+      subtitle: 'Styling, care, and best-for',
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ScoreCategoryRow(label: 'Fit', score: details.fit),
-          const SizedBox(height: 12),
-          ScoreCategoryRow(label: 'Color Harmony', score: details.colorHarmony),
-          const SizedBox(height: 12),
-          ScoreCategoryRow(label: 'Occasion', score: details.occasion),
-          const SizedBox(height: 12),
-          ScoreCategoryRow(label: 'Creativity', score: details.creativity),
+          row('Styling', look.stylingTips),
+          row('Maintenance', look.maintenance),
+          row('Best for', look.bestFor, last: true),
         ],
       ),
     );
   }
 
-  Widget _buildReasonsSection(BuildContext context) {
-    final reasons = look.recommendationReasons!;
-
-    return LookDetailCard(
-      title: 'Why We Recommend This',
-      subtitle: 'Personalized matching reasons',
-      child: Column(
-        children: reasons
-            .map(
-              (reason) => Padding(
-                padding: EdgeInsets.only(
-                  bottom: reason == reasons.last ? 0 : 14,
-                ),
-                child: ReasonRow(reason: reason),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildTagsSection(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'STYLE & FIT',
-          style: theme.textTheme.bodySmall?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: FansivibeColors.textSecondary,
-            letterSpacing: 0.5,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            ...look.styleTags.map((tag) => LookTag(label: tag)),
-            ...look.fitTags.map((tag) => LookTag(label: tag, isFit: true)),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Text(
-          look.occasion,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: FansivibeColors.accentGold,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEnsembleSection(BuildContext context) {
-    final components = look.ensembleComponents!;
-
-    return LookDetailCard(
-      title: 'Complete The Look',
-      subtitle: 'Pieces in this ensemble',
-      child: Column(
-        children: components
-            .map(
-              (component) => Padding(
-                padding: EdgeInsets.only(
-                  bottom: component == components.last ? 0 : 12,
-                ),
-                child: ComponentRow(component: component),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildAlternativesSection(BuildContext context) {
-    final alternatives = look.wardrobeAlternatives!;
-
-    return LookDetailCard(
-      title: 'Wardrobe Alternatives',
-      subtitle: 'Swap pieces from your wardrobe',
-      child: Column(
-        children: alternatives
-            .map(
-              (alt) => Padding(
-                padding: EdgeInsets.only(
-                  bottom: alt == alternatives.last ? 0 : 16,
-                ),
-                child: AlternativeSection(alternative: alt),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildActionsSection(BuildContext context) {
+  Widget _buildActionsSection(BuildContext context, LookDetail look) {
     return Row(
       children: [
-        Expanded(
-          child: FansiButton.primary(
-            label: 'Save Look',
-            icon: Icons.favorite_rounded,
-            onPressed: () => _handleSave(context),
-          ),
-        ),
-        const SizedBox(width: 12),
         Expanded(
           child: FansiButton.secondary(
             label: 'Share',
@@ -323,22 +391,11 @@ class LookDetailsScreen extends StatelessWidget {
     );
   }
 
-  void _handleSave(BuildContext context) {
-    LearningService.instance.addSavedLook(look.title);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${look.title} saved to your looks'),
-        backgroundColor: FansivibeColors.accentGold,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
-      ),
-    );
-  }
-
   void _handleShare(BuildContext context) {
+    final title = _detail?.title ?? 'this look';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Sharing ${look.title}...'),
+        content: Text('Sharing $title...'),
         backgroundColor: FansivibeColors.accentGold,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),

@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
+import 'package:fansivibe/features/discover/discover.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_chip.dart';
 import 'package:fansivibe/shared/components/fansi_hero_card.dart';
 import 'package:fansivibe/shared/components/fansi_image_well.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
-import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
-import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
 /// A tab button for Discover tabs (For You / Trending).
 class DiscoverTabButton extends StatelessWidget {
@@ -74,10 +73,7 @@ class DiscoverTabButton extends StatelessWidget {
                   ),
                 ),
               ),
-              if (badge != null) ...[
-                const SizedBox(width: 6),
-                badge!,
-              ],
+              if (badge != null) ...[const SizedBox(width: 6), badge!],
             ],
           ),
         ),
@@ -139,97 +135,44 @@ class DiscoverFilterChipsRow extends StatelessWidget {
 }
 
 /// Look card widget for Discover grid.
+/// A backend-fed look card (M14).
+///
+/// Renders one ranked [LookSummary] verbatim: title, description, and the
+/// backend match score. The catalog carries no image, occasion, style/fit
+/// tags, or trending signal, so the visual area is the neutral well and
+/// no tag/trending chrome is rendered (AI-0 honesty — never fabricated).
+/// Card proportions follow the shared [FansiHeroCard] default (65/35).
 class LookCard extends StatelessWidget {
   const LookCard({
     required this.data,
     this.onTap,
     this.showMatchBadge = true,
-    this.showTrendingBadge = false,
     super.key,
   });
 
-  final DiscoverLookData data;
+  /// Ranked backend row (catalog code id, verbatim fields).
+  final LookSummary data;
   final VoidCallback? onTap;
   final bool showMatchBadge;
-  final bool showTrendingBadge;
 
   @override
   Widget build(BuildContext context) {
-    final tags = <String>[
-      ...data.styleTags.take(2),
-      if (data.fitTags.isNotEmpty) data.fitTags.first,
-    ];
-
     return FansiHeroCard(
       onTap: onTap,
-      image: Stack(
+      image: const Stack(
         fit: StackFit.expand,
         children: [
           FansiImageWell(
-            icon: _categoryIcon(data.occasion),
+            icon: Icons.checkroom_rounded,
             color: FansivibeColors.accentGold,
           ),
-          if (showTrendingBadge)
-            Positioned(
-              top: FansivibeSpacing.md,
-              left: FansivibeSpacing.md,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: FansivibeSpacing.sm + 2,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: FansivibeColors.accentGold,
-                  borderRadius: FansivibeRadius.fullBorder,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.trending_up_rounded,
-                      size: 12,
-                      color: FansivibeColors.onPrimary,
-                    ),
-                    const SizedBox(width: 3),
-                    Text(
-                      'Trending',
-                      style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                        color: FansivibeColors.onPrimary,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 9,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
         ],
       ),
       title: data.title,
-      subtitle: data.occasion,
-      tags: tags.take(2).toList(),
+      subtitle: data.description,
       badge: showMatchBadge
           ? FansiBadge(score: data.matchScore, size: BadgeSize.compact)
           : null,
     );
-  }
-
-  IconData _categoryIcon(String occasion) {
-    switch (occasion.toLowerCase()) {
-      case 'work':
-      case 'business':
-        return Icons.business_center_rounded;
-      case 'casual':
-      case 'weekend':
-        return Icons.wb_sunny_rounded;
-      case 'evening':
-        return Icons.nightlife_rounded;
-      case 'event':
-        return Icons.event_rounded;
-      case 'travel':
-        return Icons.flight_rounded;
-      default:
-        return Icons.checkroom_rounded;
-    }
   }
 }

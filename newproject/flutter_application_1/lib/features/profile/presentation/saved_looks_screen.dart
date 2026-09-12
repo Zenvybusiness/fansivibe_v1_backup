@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/features/feedback/data/feedback_client.dart';
+import 'package:fansivibe/features/feedback/feedback.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_repository.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
@@ -12,18 +14,21 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
-/// Saved looks collection (DEC-013, STEP 18.4).
+/// Saved looks collection (DEC-013, STEP 18.4; reactions M11).
 ///
 /// The backend `GET /v1/looks/saved` collection is the single source of
 /// truth. There is no local-service merge and no mock fallback: a
-/// fabricated row would corrupt the delete surface. [repository] is
-/// injectable for tests; when null the screen uses the live backend
-/// implementation.
+/// fabricated row would corrupt the delete surface. [repository] and
+/// [feedbackRepository] are injectable for tests; when null the screen
+/// uses the live backend implementations.
 class SavedLooksScreen extends StatefulWidget {
-  const SavedLooksScreen({super.key, this.repository});
+  const SavedLooksScreen({super.key, this.repository, this.feedbackRepository});
 
   /// Injectable for tests; when null the screen uses the live repository.
   final SavedLooksRepository? repository;
+
+  /// Injectable for tests; when null the screen uses the live repository.
+  final FeedbackRepository? feedbackRepository;
 
   @override
   State<SavedLooksScreen> createState() => _SavedLooksScreenState();
@@ -31,6 +36,7 @@ class SavedLooksScreen extends StatefulWidget {
 
 class _SavedLooksScreenState extends State<SavedLooksScreen> {
   late final SavedLooksRepository _repository;
+  late final FeedbackRepository _feedbackRepository;
   List<SavedLookItem> _looks = [];
   bool _isLoading = true;
   bool _loadFailed = false;
@@ -38,10 +44,14 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
   /// Backend UUIDs with a delete request in flight (pending guard).
   final Set<String> _deletingIds = <String>{};
 
+  /// Backend UUIDs with a reaction submit in flight (pending guard).
+  final Set<String> _reactingIds = <String>{};
+
   @override
   void initState() {
     super.initState();
     _repository = widget.repository ?? SavedLooksRepositoryImpl();
+    _feedbackRepository = widget.feedbackRepository ?? FeedbackRepositoryImpl();
     _loadSavedLooks();
   }
 
@@ -73,6 +83,51 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
         shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
+  }
+
+  /// Submits one reaction for a saved look (M11 `#35 POST /v1/feedback`).
+  ///
+  /// The row's backend UUID travels as `targetSavedLookId` with a fresh
+  /// key per tap; repeated taps while pending are ignored. Only an
+  /// accepted backend ack shows success — failures keep the row for a
+  /// truthful retry. No local signal is recorded either way.
+  Future<void> _reactToLook(SavedLookItem look, String rating) async {
+    if (_reactingIds.contains(look.id)) return;
+    setState(() {
+      _reactingIds.add(look.id);
+    });
+
+    late final FeedbackResult result;
+    try {
+      result = await _feedbackRepository.submitFeedback(
+        rating: rating,
+        targetSavedLookId: look.id,
+        idempotencyKey: newFeedbackIdempotencyKey(),
+      );
+    } catch (_) {
+      result = const FeedbackResult.failure(FeedbackStatus.unknown);
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _reactingIds.remove(look.id);
+    });
+
+    switch (result.status) {
+      case FeedbackStatus.sent:
+        _showMessage('Thanks — feedback recorded');
+      case FeedbackStatus.conflict:
+        _showMessage('Feedback already recorded');
+      case FeedbackStatus.unauthorized:
+        _showMessage('Please sign in again to send feedback.');
+      case FeedbackStatus.rateLimited:
+        _showMessage('Too many attempts. Please wait and try again.');
+      case FeedbackStatus.networkError:
+        _showMessage('Couldn\'t send feedback. Please check your connection.');
+      case FeedbackStatus.invalid:
+      case FeedbackStatus.unknown:
+        _showMessage('Couldn\'t send feedback. Please try again.');
+    }
   }
 
   /// Deletes one saved look after an explicit confirmation.
@@ -214,7 +269,10 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
             child: _SavedLookCard(
               look: look,
               isDeleting: _deletingIds.contains(look.id),
+              isReacting: _reactingIds.contains(look.id),
               onDelete: () => _deleteLook(look),
+              onLike: () => _reactToLook(look, FeedbackRating.like),
+              onDislike: () => _reactToLook(look, FeedbackRating.dislike),
             ),
           ),
         ),
@@ -262,12 +320,18 @@ class _SavedLookCard extends StatelessWidget {
   const _SavedLookCard({
     required this.look,
     required this.onDelete,
+    required this.onLike,
+    required this.onDislike,
     this.isDeleting = false,
+    this.isReacting = false,
   });
 
   final SavedLookItem look;
   final VoidCallback onDelete;
+  final VoidCallback onLike;
+  final VoidCallback onDislike;
   final bool isDeleting;
+  final bool isReacting;
 
   /// Source label derived ONLY from the backend `sourceContext`.
   /// Null/unknown values render generically — the source is never inferred
@@ -336,6 +400,32 @@ class _SavedLookCard extends StatelessWidget {
             label: isDeleting ? 'Removing…' : 'Remove',
             onPressed: isDeleting ? null : onDelete,
           ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (isReacting)
+              const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else ...[
+              IconButton(
+                tooltip: 'Like',
+                icon: const Icon(Icons.thumb_up_outlined, size: 20),
+                color: FansivibeColors.textSecondary,
+                onPressed: onLike,
+              ),
+              IconButton(
+                tooltip: 'Dislike',
+                icon: const Icon(Icons.thumb_down_outlined, size: 20),
+                color: FansivibeColors.textSecondary,
+                onPressed: onDislike,
+              ),
+            ],
+          ],
         ),
       ],
     );

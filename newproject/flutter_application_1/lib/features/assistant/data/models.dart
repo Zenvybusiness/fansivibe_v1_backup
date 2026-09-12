@@ -133,11 +133,42 @@ class OutfitIntelligence {
   };
 }
 
+/// Backend-UUID shape gate for outbound item identity (P1-1).
+///
+/// The assistant engine echoes the IDs of the wardrobe snapshot it was
+/// given, which are local on-device IDs (`1`–`24`, never backend UUIDs).
+/// M7 validates `selectedItemIds` as owned backend UUIDs and fail-closes
+/// anything else, so local IDs must never cross the wire: only
+/// canonical-UUID-shaped strings survive sanitization. This is a shape
+/// gate only — parsing and ownership stay server-authoritative (unknown
+/// or foreign UUIDs still 404 there). Kept order-stable; the server
+/// canonicalizes (sorts/uniques) before persisting.
+bool isBackendUuidShape(String value) {
+  if (value.length != 36) return false;
+  const hyphens = [8, 13, 18, 23];
+  for (var i = 0; i < value.length; i++) {
+    final unit = value.codeUnitAt(i);
+    final isHex =
+        (unit >= 0x30 && unit <= 0x39) ||
+        (unit >= 0x61 && unit <= 0x66) ||
+        (unit >= 0x41 && unit <= 0x46);
+    if (hyphens.contains(i)) {
+      if (unit != 0x2D) return false;
+    } else if (!isHex) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /// Save request for the existing backend contract `POST /v1/looks/saved`.
 ///
 /// Outfit saves always use `lookId = null` (no outfit look catalog) and
-/// `sourceContext = "outfit"`. The title is derived from the occasion;
-/// the snapshot preserves the generated [OutfitIntelligence].
+/// `sourceContext = "outfit"` — the frozen M7 vocabulary
+/// (`hairstyle`/`grooming`/`outfit`/`daily`; `"assistant"` is not an
+/// accepted value and would 422, so the assistant outfit flow reuses the
+/// outfit-family context it snapshots). The title is derived from the
+/// occasion; the snapshot preserves the generated [OutfitIntelligence].
 class OutfitSaveRequest {
   const OutfitSaveRequest({
     this.lookId,
@@ -169,21 +200,30 @@ class OutfitSaveRequest {
 
   factory OutfitSaveRequest.fromOutfitIntelligence(
     OutfitIntelligence intelligence,
-  ) => OutfitSaveRequest(
-    lookId: null,
-    title: titleForOccasion(intelligence.occasion),
-    snapshot: {
-      'selectedItemIds': intelligence.selectedItemIds,
-      'outfitComposition': intelligence.outfitComposition.toJson(),
-      'occasion': intelligence.occasion,
-      'stylingRationale': intelligence.stylingRationale,
-      'compatibilityRationale': intelligence.compatibilityRationale,
-      'confidence': intelligence.confidence,
-      'explanation': intelligence.explanation,
-      'dataAvailability': intelligence.dataAvailability,
-    },
-    sourceContext: 'outfit',
-  );
+  ) {
+    // P1-1: strip local engine IDs — only backend-UUID-shaped IDs travel.
+    // When none survive, the key is omitted and M7 skips item validation
+    // (the snapshot still freezes verbatim); ownership of any surviving
+    // UUID stays server-enforced (404-not-403).
+    final uuidIds = intelligence.selectedItemIds
+        .where(isBackendUuidShape)
+        .toList();
+    return OutfitSaveRequest(
+      lookId: null,
+      title: titleForOccasion(intelligence.occasion),
+      snapshot: {
+        if (uuidIds.isNotEmpty) 'selectedItemIds': uuidIds,
+        'outfitComposition': intelligence.outfitComposition.toJson(),
+        'occasion': intelligence.occasion,
+        'stylingRationale': intelligence.stylingRationale,
+        'compatibilityRationale': intelligence.compatibilityRationale,
+        'confidence': intelligence.confidence,
+        'explanation': intelligence.explanation,
+        'dataAvailability': intelligence.dataAvailability,
+      },
+      sourceContext: 'outfit',
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'lookId': lookId,
@@ -340,6 +380,30 @@ class AssistantReply {
             json['outfitIntelligence'] as Map<String, dynamic>,
           ),
   );
+}
+
+/// Typed outcome of syncing one occasion code (P1-2).
+enum PreferenceSyncResult {
+  /// Server now holds the code (PATCH 200).
+  synced,
+
+  /// The code was already present server-side; no PATCH sent (no dupes).
+  alreadySynced,
+
+  /// Empty code (fail-closed, no network) or server 422.
+  invalidInput,
+
+  /// Server 401.
+  unauthorized,
+
+  /// Server 429.
+  rateLimited,
+
+  /// Server state unreadable, transport failure, or unexpected status.
+  networkError,
+
+  /// Any other unexpected status.
+  unknown,
 }
 
 /// A single message in the conversation shown in the chat screen.

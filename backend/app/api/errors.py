@@ -75,6 +75,19 @@ def ai_failure() -> ApiError:
     )
 
 
+def external_failure() -> ApiError:
+    """An external provider the request depends on is unreachable.
+
+    D-AUTH-1 social sign-in answers this while no external identity
+    provider is configured (AUTH_API §5.2: 502 on the social exchange).
+    """
+    return ApiError(
+        status_code=502,
+        code="EXTERNAL_SERVICE_FAILURE",
+        message="The sign-in service is temporarily unavailable. Please try again shortly.",
+    )
+
+
 def database_failure() -> ApiError:
     return ApiError(
         status_code=500,
@@ -108,10 +121,15 @@ def _body(error: ApiError, request: Request) -> dict[str, Any]:
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(request: Request, exc: ApiError) -> JSONResponse:
+        headers = {"X-Request-Id": _request_id(request)}
+        if exc.code == "AUTHENTICATION_ERROR":
+            # Frozen contract (API-7, ERROR_HANDLING §5.2): every 401
+            # carries the Bearer challenge.
+            headers["WWW-Authenticate"] = "Bearer"
         return JSONResponse(
             status_code=exc.status_code,
             content=_body(exc, request),
-            headers={"X-Request-Id": _request_id(request)},
+            headers=headers,
         )
 
     @app.exception_handler(RequestValidationError)

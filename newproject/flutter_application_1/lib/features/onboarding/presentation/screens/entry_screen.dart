@@ -6,6 +6,7 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 
 class EntryScreen extends StatefulWidget {
@@ -58,8 +59,11 @@ class _EntryScreenState extends State<EntryScreen>
   }
 
   void _checkReturningUser() {
-    if (LocalStorage.onboardingComplete) {
-      // Returning user - skip onboarding and go directly to home
+    // Returning users skip onboarding: a persisted session (restored
+    // from platform storage at launch) or a completed onboarding both
+    // go directly home. A dead session 401s on first use and routes
+    // back here through AuthSession.
+    if (LocalStorage.onboardingComplete || AuthSession.isAuthenticated) {
       Future.delayed(const Duration(milliseconds: 1500), () {
         if (mounted) {
           context.goNamed(RouteNames.home);
@@ -99,7 +103,12 @@ class _EntryScreenState extends State<EntryScreen>
   }
 
   void _onSignIn() {
-    context.goNamed(RouteNames.home);
+    // Real sign-in (D-AUTH-1): the account screen in login mode talks
+    // to POST /v1/auth/login — never a local-only fake success.
+    context.pushNamed(
+      RouteNames.accountCreation,
+      extra: {'mode': 'login'},
+    );
   }
 
   @override
