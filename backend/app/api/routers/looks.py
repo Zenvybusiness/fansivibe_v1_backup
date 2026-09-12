@@ -1,4 +1,6 @@
-"""Looks API router — endpoints #23 (`POST /v1/looks/saved`) and #24 (`GET /v1/looks/saved`).
+"""Looks API router — endpoints #23 (`POST /v1/looks/saved`), #24
+(`GET /v1/looks/saved`), and #25 (`DELETE /v1/looks/saved/{saved_look_id}`,
+DEC-013).
 
 Requires the contract's `Idempotency-Key` header (C-12/API-33). On replay
 returns the original save; on a conflicting replay returns 409.
@@ -6,14 +8,18 @@ returns the original save; on a conflicting replay returns 409.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, Path, Query
 from sqlalchemy.orm import Session
 from uuid import UUID
 
 from app.api.deps import get_current_user_id
 from app.api.errors import validation
 from app.api.schemas.saved_looks import SaveLookRequest, SavedLook, SavedLookList
-from app.application.saved_looks import ListSavedLooks, SaveRecommendation
+from app.application.saved_looks import (
+    DeleteSavedLook,
+    ListSavedLooks,
+    SaveRecommendation,
+)
 from app.infrastructure.db.repositories import (
     LearningSignalRepositorySQL,
     SavedLookRepositorySQL,
@@ -92,3 +98,24 @@ def list_saved_looks(
         page_size=page_size,
         total=total,
     )
+
+
+@router.delete(
+    "/saved/{saved_look_id}",
+    status_code=204,
+    responses={401: {"model": dict}, 404: {"model": dict}, 422: {"model": dict}},
+)
+def delete_saved_look(
+    saved_look_id: UUID = Path(..., description="UUID of the saved look to delete"),
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> None:
+    """Delete one owned saved look (DEC-013).
+
+    Owner-scoped delete. Foreign/non-existent id → 404 (OW-1, 404-not-403).
+    Successful delete → 204 No Content. The row (snapshot included) is
+    physically removed; learning signals are preserved.
+    """
+    use_case = DeleteSavedLook(saved_looks=SavedLookRepositorySQL(db))
+    use_case(user_id=user_id, saved_look_id=saved_look_id)
+    return None

@@ -9,6 +9,10 @@ run.
 
 List (`ListSavedLooks`) is the owner-scoped read surface for endpoint #24
 (`GET /v1/looks/saved`): paginated, `createdAt`-desc, no fabrication.
+
+Delete (`DeleteSavedLook`) is the owner-scoped removal surface for endpoint
+#25 (`DELETE /v1/looks/saved/{saved_look_id}`, DEC-013): physical row delete,
+single commit, no signal write — history (`learning_signals`) is preserved.
 """
 
 from __future__ import annotations
@@ -209,3 +213,30 @@ class ListSavedLooks:
         return self._saved_looks.list_for_user(
             user_id=user_id, page=page, page_size=page_size
         )
+
+
+class DeleteSavedLook:
+    """Delete one owned saved look (endpoint #25, DEC-013).
+
+    Owner-scoped delete: a missing or foreign id is the same not-found
+    condition (OW-1, 404-not-403). Successful delete physically removes
+    exactly that row (snapshot included) with a single commit. No
+    learning signal is written and existing signals are untouched.
+    """
+
+    def __init__(self, *, saved_looks: SavedLookRepository) -> None:
+        self._saved_looks = saved_looks
+
+    def __call__(
+        self,
+        *,
+        user_id: UUID,
+        saved_look_id: UUID,
+    ) -> None:
+        record = self._saved_looks.get_for_user(
+            user_id=user_id, saved_look_id=saved_look_id
+        )
+        if record is None:
+            raise not_found()
+        self._saved_looks.delete(user_id=user_id, saved_look_id=saved_look_id)
+        self._saved_looks.commit()

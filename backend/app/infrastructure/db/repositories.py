@@ -379,6 +379,18 @@ class SavedLookRepositorySQL:
             represented_categories=dict(sorted(represented_categories.items())),
         )
 
+    def delete(
+        self, *, user_id: UUID, saved_look_id: UUID
+    ) -> None:
+        row = self._session.execute(
+            select(SavedLooks).where(
+                SavedLooks.id == saved_look_id, SavedLooks.user_id == user_id
+            )
+        ).scalar_one_or_none()
+        if row is not None:
+            self._session.delete(row)
+            self._session.flush()
+
     @staticmethod
     def _to_record(row: SavedLooks) -> SavedLookRecord:
         return SavedLookRecord(

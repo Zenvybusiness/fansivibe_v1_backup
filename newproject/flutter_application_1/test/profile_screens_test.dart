@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
+import 'package:fansivibe/features/profile/data/saved_looks_repository.dart';
 import 'package:fansivibe/features/profile/presentation/preferences_screen.dart';
 import 'package:fansivibe/features/profile/presentation/saved_looks_screen.dart';
 import 'package:fansivibe/features/profile/presentation/subscription_screen.dart';
@@ -9,6 +11,42 @@ import 'package:fansivibe/features/profile/presentation/settings_screen.dart';
 
 Widget wrapApp(Widget child) {
   return MaterialApp(theme: ThemeData.dark(), home: child);
+}
+
+/// Backend-backed double: the `GET /v1/looks/saved` envelope is the only
+/// source (DEC-013, STEP 18.4). No local-service merge, no mock fallback.
+class _FakeSavedLooksRepository implements SavedLooksRepository {
+  _FakeSavedLooksRepository(this.rows);
+
+  final List<SavedLookItem> rows;
+
+  @override
+  Future<SavedLookListPage?> listSavedLooks({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    return SavedLookListPage(
+      items: List.of(rows),
+      page: page,
+      pageSize: pageSize,
+      total: rows.length,
+    );
+  }
+
+  @override
+  Future<SavedLookDeleteOutcome?> deleteSavedLook({required String id}) async {
+    return SavedLookDeleteOutcome.deleted;
+  }
+}
+
+SavedLookItem _row(String id, String title, String? sourceContext) {
+  return SavedLookItem(
+    id: id,
+    title: title,
+    createdAt: DateTime.utc(2026, 9, 1, 10),
+    sourceContext: sourceContext,
+    snapshot: const {},
+  );
 }
 
 void main() {
@@ -72,52 +110,48 @@ void main() {
   });
 
   group('SavedLooksScreen Widget Tests', () {
-    testWidgets('renders title and subtitle', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
+    testWidgets('renders title and backend rows', (WidgetTester tester) async {
+      final repo = _FakeSavedLooksRepository([
+        _row('id-1', 'Textured Quiff', 'hairstyle'),
+        _row('id-2', 'Corporate Beard', 'grooming'),
+      ]);
+      await tester.pumpWidget(wrapApp(SavedLooksScreen(repository: repo)));
       await tester.pumpAndSettle();
 
-      expect(find.text('6 Saved Looks'), findsOneWidget);
+      expect(find.text('2 Saved Looks'), findsOneWidget);
       expect(find.text('Your curated style collection'), findsOneWidget);
+      expect(find.text('Textured Quiff'), findsOneWidget);
+      expect(find.text('Corporate Beard'), findsOneWidget);
     });
 
-    testWidgets('renders all saved looks', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
+    testWidgets('renders outfit and legacy rows generically', (
+      WidgetTester tester,
+    ) async {
+      final repo = _FakeSavedLooksRepository([
+        _row('id-3', 'Date Night Outfit', 'outfit'),
+        _row('id-4', 'Old Save', null),
+      ]);
+      await tester.pumpWidget(wrapApp(SavedLooksScreen(repository: repo)));
       await tester.pumpAndSettle();
 
-      expect(find.text('Modern Minimalist'), findsOneWidget);
-      expect(find.text('Weekend Casual'), findsOneWidget);
-      expect(find.text('Smart Business'), findsOneWidget);
-      expect(find.text('Date Night'), findsOneWidget);
-      expect(find.text('Summer Breeze'), findsOneWidget);
-      expect(find.text('Office Ready'), findsOneWidget);
+      expect(find.text('OUTFIT LOOK'), findsOneWidget);
+      expect(find.text('SAVED LOOK'), findsOneWidget);
     });
 
-    testWidgets('renders scores', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
+    testWidgets('empty backend list shows empty state', (
+      WidgetTester tester,
+    ) async {
+      final repo = _FakeSavedLooksRepository(const []);
+      await tester.pumpWidget(wrapApp(SavedLooksScreen(repository: repo)));
       await tester.pumpAndSettle();
 
-      expect(find.text('87%'), findsOneWidget);
-      expect(find.text('91%'), findsOneWidget);
-    });
-
-    testWidgets('renders dates', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Saved Jul 12'), findsOneWidget);
-      expect(find.text('Saved Jul 10'), findsOneWidget);
-    });
-
-    testWidgets('renders item descriptions', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('White Linen Shirt'), findsOneWidget);
-      expect(find.textContaining('Navy Blazer'), findsOneWidget);
+      expect(find.text('0 Saved Looks'), findsOneWidget);
+      expect(find.text('No saved looks yet'), findsOneWidget);
     });
 
     testWidgets('back button pops', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const SavedLooksScreen()));
+      final repo = _FakeSavedLooksRepository(const []);
+      await tester.pumpWidget(wrapApp(SavedLooksScreen(repository: repo)));
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.arrow_back_rounded));

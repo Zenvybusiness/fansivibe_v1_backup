@@ -1,6 +1,6 @@
 # Fansivibe Current State
 
-Last Updated: 2026-09-11
+Last Updated: 2026-09-12
 Updated By: opencode agent
 
 ## MAINTENANCE — STALE-TAG FIX (committed-state correction, no product change)
@@ -19,6 +19,375 @@ Updated By: opencode agent
   byproducts left alone (unstaged, regenerable).
 - Skills: none loaded (doc-only header correction; all `.agents/skills/`
   are Dart/Flutter code-creation skills with no trigger).
+
+---
+
+## STEP 18.5 — SAVED LOOKS FINAL CROSS-LAYER REGRESSION + AUDIT — PASS (uncommitted)
+
+Task: final audit of the complete DEC-013 Saved Looks lifecycle
+(POST → GET → Flutter render → DELETE → GET-confirms-gone) across
+backend and Flutter. Audit + tests only; no scope, no behavior change
+(no genuine defect found), no migrations, no commit/push.
+
+### Git safety
+
+- Branch main, HEAD `aafeb31`, origin/main `faceec8`, 1 unpushed
+  (`aafeb31` intentional), no stash, staged = 0. Uncommitted 18.2
+  (docs) + 18.3 (backend) + 18.4 (Flutter) work preserved intact.
+
+### Backend contract audit (diff-verified, additive only)
+
+- POST/GET zero diff (behavior, idempotency, outfit UUID validation,
+  TRX-3 signals unchanged). List ordering path untouched (DEC-013
+  id-tiebreak stays a documented implementation allowance, no wire
+  change). DELETE per DEC-013: auth dep, `Path` UUID (malformed →
+  422 via frozen handler), `get_for_user` owner scope (foreign/
+  missing → 404, never 403), 204 empty, physical row + snapshot
+  delete, single commit, no signal write, no `Idempotency-Key`, no
+  migration, no unrelated-row contact.
+
+### Lifecycle / ownership / signals / snapshot (live PG, serial)
+
+- POST → 201 → GET shows row → DELETE exact UUID → 204 → GET total 0 →
+  repeat DELETE → 404 (`test_saved_looks_delete_api.py` **8 passed**).
+- User B DELETE of User A row → 404 (never 403), row intact; A deletes
+  own row afterwards (same file, test D + A).
+- Signals: save (1 signal) → delete → looks 0, signals 1, types exactly
+  `{look_saved}` — no deletion signal, no mutation, no new type.
+- Snapshot: distinctive snapshot retrievable pre-delete, row select →
+  None post-delete; 3-save isolation leaves exact 2 with byte-identical
+  snapshots.
+
+### Flutter audits (code inspection)
+
+- Data layer: envelope (`items`/`page`/`page_size`/`total`), verbatim
+  UUID, nullable `sourceContext`, full snapshot, 200 → page / 204 →
+  deleted / 404 → alreadyGone / else+offline → null (never fake
+  success). No local numeric IDs anywhere.
+- Screen: backend GET is the only source (zero
+  Grooming/Hairstyle/LearningService references — grep-verified);
+  loading/error+retry/empty states; hairstyle/grooming cards verbatim;
+  outfit OUTFIT + persisted-count only; legacy generic, never inferred;
+  stale refs never hide rows; visual structure intact.
+- Delete UX: per-card Remove → named confirm dialog → pending guard →
+  exact-UUID call → success/already-gone reload with distinct truthful
+  snackbars → failure/offline retains row, no fake offline delete.
+
+### Test execution
+
+- Backend (serial): DELETE file **8 passed**; use-case **28 passed**;
+  `test_saved_looks.py` **12 passed / 5 failed** — byte-identical to
+  the established pre-18.3 baseline (shared SNAPSHOT fake `sourceRunId`
+  FK violation; same 5 tests, same signatures); wardrobe API **49
+  passed**; decision subset **23 passed / 74 deselected**;
+  `py_compile` clean (4 files).
+- Flutter: `saved_looks` + profile screens + profile screen **67
+  passed**; hairstyle/client/models + learning + grooming
+  result/details **93 passed** (112 with the earlier 18.4 run set —
+  zero failures anywhere). `flutter analyze` on profile scope: **No
+  issues found**. Self-found: none (no prod/test change needed).
+- Full-Flutter-suite not run per scope (unrelated known-failure
+  surface untouched).
+
+### Diff / scope audit
+
+- `git diff --check` clean. Tracked diff = exactly the 18.2/18.3/18.4
+  files (4 backend + 1 screen + 2 test updates + 2 docs); untracked =
+  exactly the 5 new files (1 backend test + 3 data-layer + 1 Flutter
+  test). No migrations, no DECISIONS change this step, no generated
+  registrants (CRLF churn restored via checkout, zero content diff),
+  no pycache staged, no unrelated files.
+- DEC-013 acceptance matrix: 32/32 PASS — Backend 13/13
+  (auth/UUID/owner/foreign-404/missing-404/204-empty/repeat-404/
+  physical-row/snapshot/signals/no-signal/no-key/no-migration);
+  GET/list 7/7 (source-of-truth/pagination/ordering/empty/
+  sourceContext/outfit/legacy); Flutter 10/10 (typed model/repo+client/
+  exact-UUID/confirm/pending/success/404/failure/offline/no-merge);
+  Regression 5/5 (POST/GET/signals/intelligence-areas/generated-files).
+
+### Files changed in 18.5 (uncommitted, nothing staged)
+
+- `CURRENT_STATE.md` (this entry only). Zero production/test lines
+  changed by this step.
+
+### Git safety
+
+- Staged = 0 files. NOTHING committed, NOTHING pushed. No worktrees
+  left registered.
+
+---
+
+## STEP 18.4 — FLUTTER SAVED LOOKS LIST + DELETE UX — PASS (uncommitted)
+
+Task: implement ONLY the Flutter/client portion of DEC-013. Backend
+`GET /v1/looks/saved` is the single source of truth; dual local merge
+(`GroomingService` + `HairstyleService`) removed. No backend, migration,
+POST, signal, intelligence, route, or redesign change. Skills (read
+first): `flutter-use-http-package` (GET/DELETE, `Uri.parse`, path/auth
+asserts — project null-on-failure kept over the skill's throw guidance),
+`flutter-add-widget-test` (testWidgets checklist, `scrollUntilVisible`
+for below-fold cards), `dart-add-unit-test` (group/test/expect,
+`flutter test` runner), `dart-run-static-analysis` (`flutter analyze`,
+self-found issues fixed below, no auto-fix).
+
+### Implemented (3 new lib files + 1 screen rewrite, Flutter only)
+
+- `profile/data/saved_looks_models.dart` (new: `SavedLookItem`
+  camelCase wire — id/title/sourceContext incl. null/snapshot/
+  sourceRunId/createdAt + `toJson`/`copyWith` per file style +
+  `selectedItemIds` count-only getter; `SavedLookListPage` envelope incl.
+  `page_size`; `SavedLookDeleteOutcome {deleted, alreadyGone}`).
+- `profile/data/saved_looks_client.dart` (new `SavedLooksClient`:
+  baseUrl/dev-token/timeout conventions; `listSavedLooks(page:1,
+  pageSize:20)` 200 → parsed else null; `deleteSavedLook(id)` 204 →
+  deleted, 404 → alreadyGone, else/exception → null; IDs verbatim).
+- `profile/data/saved_looks_repository.dart` (new abstract
+  `SavedLooksRepository` + verbatim `SavedLooksRepositoryImpl` —
+  single-abstraction pattern; null = unavailable, safe to retry; no
+  local merge, no mock fallback).
+- `profile/presentation/saved_looks_screen.dart` (rewired: optional
+  `repository` ctor param, live impl default — router's
+  `const SavedLooksScreen()` unchanged; loads page 1/20 once; shared
+  `FansiLoadingView`/`FansiErrorView`(retry)/empty state; existing
+  `FansiHeroCard`/`FansiBadge`/`FansiImageWell` card patterns kept;
+  hairstyle/grooming footers verbatim; outfit = OUTFIT eyebrow +
+  persisted `selectedItemIds` count (no name resolution); legacy NULL =
+  SAVED LOOK generic (never inferred); stale refs never hide a row;
+  per-card Remove (tertiary) → `AlertDialog` confirm naming the title →
+  pending guard (`_deletingIds` + disabled control) → repo DELETE →
+  deleted/alreadyGone: distinct snackbars + backend reload, failure/
+  offline: row retained + connection copy, no optimistic delete).
+
+### Gap found while implementing (documented, not invented)
+
+- `hairstyle_models.dart` `SavedLook.fromJson` reads snake_case
+  (`look_id`/`created_at`/`source_run_id`) and has no `sourceContext`,
+  while the backend wire is camelCase (`lookId`/`createdAt`/
+  `sourceRunId` + `sourceContext`). The new models decode the real wire;
+  the old typed model is untouched (out of scope) — the screen no longer
+  depends on it.
+
+### Tests (new `test/saved_looks_test.dart`, 17 tests)
+
+Models (envelope/UUID/sourceContext incl. null/snapshot/provenance/
+roundtrip); client (path/query/auth asserts, malformed-200/401/500/
+offline → null, 204 → deleted, 404 → alreadyGone); repo passthrough +
+null; screen with fake repo — backend rows render, empty state, error +
+retry, OUTFIT count without names, legacy generic, cancel no-op,
+exact-UUID delete + reload + success snackbar, failure retained + error,
+404 removed without false success, pending guard (1 call), offline
+retained. Self-found test bugs fixed (no prod changes): below-fold
+Remove taps (added `scrollUntilVisible` helper), gate handler now
+simulates server removal, analyzer `referenced_before_declaration` +
+`unused_element_parameter` + dangling doc fixed.
+- Updated `test/profile_screens_test.dart` SavedLooksScreen group (was 5
+  pre-existing failures: stale '6 Saved Looks'/mock-title expectations
+  vs the service-driven screen — proven at baseline this step) to
+  fake-repo contract tests. Updated `test/profile_screen_test.dart`
+  navigation test the same way (HEAD screen rendered '0 Saved Looks'
+  under the test binding — `git show HEAD:...` verified — so its '6
+  Saved Looks' expectation was equally pre-existing; now asserts the
+  honest offline error state).
+
+### Validation
+
+- New file: **17 passed**. Profile screens + profile screen + saved
+  looks: **67 passed** (5 stale + 1 navigation pre-existing failures
+  resolved by contract updates above; zero remaining).
+- Related regressions: hairstyle service/client/models, grooming
+  result/details, profile screen, learning service — **112 passed**,
+  zero failures.
+- `flutter analyze` on all 7 touched files: **No issues found**.
+  `git diff --check` clean. Staged = 0.
+
+### Files changed in 18.4 (uncommitted, nothing staged)
+
+- `.../profile/data/saved_looks_models.dart` (new)
+- `.../profile/data/saved_looks_client.dart` (new)
+- `.../profile/data/saved_looks_repository.dart` (new)
+- `.../profile/presentation/saved_looks_screen.dart` (rewired)
+- `.../test/saved_looks_test.dart` (new, 17 tests)
+- `.../test/profile_screens_test.dart` (SavedLooksScreen group re-cut)
+- `.../test/profile_screen_test.dart` (1 navigation expectation)
+- `CURRENT_STATE.md` (this entry)
+
+### Git safety
+
+- Staged = 0 files. NOTHING committed, NOTHING pushed. No backend,
+  migration, DECISION, contract-doc, pubspec, route, or shared-component
+  change in this step (18.2/18.3 entries above preserved uncommitted).
+
+---
+
+## STEP 18.3 — SAVED-LOOK DELETE BACKEND IMPLEMENTATION — PASS (uncommitted)
+
+Task: implement ONLY the backend portion of DEC-013 (endpoint #25).
+Backend only: port + SQL repository delete, `DeleteSavedLook` use case,
+`DELETE /v1/looks/saved/{saved_look_id}` route, focused API tests. No
+Flutter, no migrations, no POST/GET change, no signal semantics change,
+no new signal type, no Outfit/Wear/Wardrobe Intelligence change. Skills:
+`.agents/skills/` inspected (21 entries, all Dart/Flutter
+code-creation) — none loaded (Python backend; 14.7/15.3/15.4B precedent).
+
+### Implemented (4 prod files, minimal, layering preserved)
+
+- `domain/ports/repositories.py` (`SavedLookRepository` +`delete(user_id,
+  saved_look_id)` mirroring `WardrobeItemRepository.delete`).
+- `infrastructure/db/repositories.py` (`SavedLookRepositorySQL.delete`:
+  owner-scoped select + `session.delete` + `flush`, mirroring
+  `WardrobeItemRepositorySQL.delete`; existing `get_for_user` reused for
+  the 404 check).
+- `application/saved_looks.py` (+`DeleteSavedLook`: `get_for_user` →
+  None → `not_found()` (OW-1, 404-not-403); else `delete` + single
+  `commit`; no signal write; module docstring extended).
+- `api/routers/looks.py` (+`DELETE /saved/{saved_look_id}`: `Path` UUID
+  → malformed `422` via the frozen handler; existing auth dep; thin
+  use-case call; `204` empty on success; `401/404/422` declared; no new
+  error code; router docstring notes #25).
+
+### Explicitly untouched
+
+- POST/GET saved-look behavior, schemas, `SaveRecommendation`,
+  `ListSavedLooks`, coverage, signals, migrations (none needed — row
+  delete on the existing table), DEC-010/011/013, contract docs, Flutter
+  (zero files), Outfit/Wear/Wardrobe Intelligence.
+
+### Tests (new `backend/tests/test_saved_looks_delete_api.py`, 8 tests)
+
+A owned delete → 204 + empty body + row/snapshot gone (list total 0);
+B repeat → 404 `NOT_FOUND`; C random UUID → 404; D foreign row → 404
+(never 403) + row intact (wardrobe-foreign precedent: direct-seeded other
+user); E `not-a-uuid` → 422 `VALIDATION_ERROR`; F 3 saves → delete 1 →
+exact 2 remain with snapshots unchanged; G save (1 signal) → delete →
+looks 0, signals still 1, types exactly `{look_saved}` (no new type);
+H snapshot dies with the row (direct select → None). +401 no-token test.
+Fixtures use FK-safe snapshots (no bogus `sourceRunId`).
+
+### Validation (strictly serial, live PG)
+
+- New DELETE file: **8 passed**. `test_saved_looks_use_case.py`: **28
+  passed**. `test_saved_looks.py`: **12 passed / 5 failed** — the exact
+  documented pre-existing baseline (11.16/14.4/14.7: shared SNAPSHOT's
+  fake `sourceRunId` violates `saved_looks_source_run_id_fkey`; all 5 use
+  the shared fixture; POST path proven intact by the 8 new 201s +
+  `typed_look_saved` green). `test_wardrobe_api.py`: **49 passed**
+  (shared `repositories.py` untouched in behavior). Decision subset:
+  **23 passed / 74 deselected**. `py_compile` clean (5 files).
+- `git diff --check` clean. Staged = 0.
+
+### Files changed in 18.3 (uncommitted, nothing staged)
+
+- `backend/app/domain/ports/repositories.py` (+port `delete`)
+- `backend/app/infrastructure/db/repositories.py` (+SQL `delete`)
+- `backend/app/application/saved_looks.py` (+`DeleteSavedLook`)
+- `backend/app/api/routers/looks.py` (+DELETE route)
+- `backend/tests/test_saved_looks_delete_api.py` (new, 8 tests;
+  untracked, not staged)
+- `CURRENT_STATE.md` (this entry)
+
+### Git safety
+
+- Staged = 0 files. NOTHING committed, NOTHING pushed. No Flutter,
+  migration, DECISION, contract-doc, or platform-file change in this step
+  (18.2 doc entries above preserved uncommitted).
+
+---
+
+## STEP 18.2 — SAVED-LOOKS DELETE + COMPLETION SPECIFICATION — PASS (specification only, uncommitted)
+
+Task: define the accepted implementation-ready contract for completing
+Saved Looks (owner-scoped DELETE + coherent Flutter list surface). Docs
+only: one `DECISIONS.md` entry (DEC-013), this status entry. No production
+code, no tests, no migrations, no Flutter source, no existing-API behavior
+change, no commits, no pushes. Skills: `.agents/skills/` inspected (21
+entries, all Dart/Flutter code-creation); `flutter-use-http-package`
+SKILL.md read for DELETE/null-on-failure conventions (project
+null-on-failure kept over the skill's throw guidance — 15.5/17.4
+precedent); no code applied (spec-only — 15.1/17.2 precedent).
+
+### Specification status
+
+- DEC-013 created (see `DECISIONS.md`): backend DELETE contract, Flutter
+  source of truth (Option B: `GET /v1/looks/saved`), list semantics,
+  supported types (outfit/hairstyle/grooming/legacy), delete UX, ownership/
+  error semantics, save↔delete consistency, out-of-scope, deferred items.
+- DEC-010/DEC-011/DEC-012 untouched. No API-doc file changed: inventory #25
+  (`API_INVENTORY.md:635-649`), contract catalog
+  (`FANSIVIBE_API_CONTRACT_V1.md:261`, `API_CONTRACT_RULES.md:471`,
+  `API_SECURITY_REVIEW.md:634`) already list DELETE consistently (auth,
+  OW-1 404-not-403, 204/404) — no rewrite needed.
+- Evidence inspected: `SavedLooks` model + CHECK/UNIQUE/index
+  (`models.py:164-195`); `SaveRecommendation` TRX-3 + outfit
+  `selectedItemIds` canonicalization + 404/422 rules
+  (`application/saved_looks.py`); `SavedLook`/`SavedLookList` wire shapes
+  (`api/schemas/saved_looks.py`); `SavedLookRecord` + `SavedLookRepository`
+  incl. existing `get_for_user` (`domain/ports/repositories.py:48-63,
+  244-271`); `SavedLookRepositorySQL` incl. `list_for_user`
+  (`createdAt`-desc) + `get_outfit_coverage` stale-tolerance
+  (`infrastructure/db/repositories.py:263-392`); `looks.py` router (POST/
+  GET only — DELETE missing); `DeleteWardrobeItem` + `WardrobeItem
+  .delete` single-row precedent (`application/wardrobe.py:254-275`,
+  `repositories.py:543-553`); `test_saved_looks.py` (save/replay/409/404/
+  422/list/pagination/11.16 outfit canonicalization) +
+  `test_saved_looks_use_case.py` (TRX-3/idempotency fakes); Flutter
+  `saved_looks_screen.dart` (merges hairstyle+grooming service lists,
+  no outfit handling, no delete), hairstyle/grooming clients (same GET
+  endpoint, null-on-failure) + `saveLook` idempotency, assistant
+  `saveOutfitLook` (outfit saves already backend-backed),
+  Discover/Home local-only `addSavedLook(title)` saves, wardrobe
+  `_deleteItem` confirm/pending/snackbar UX precedent.
+
+### Accepted decisions (DEC-013)
+
+- DELETE ` /v1/looks/saved/{saved_look_id}`: auth, UUID path (`422` when
+  malformed), `get_for_user` owner scope (unknown/foreign → `404`, never
+  403), physical row delete + commit → `204` empty; repeat → `404`; no
+  signal write; snapshot deleted with row; signals preserved (no FK);
+  no `Idempotency-Key`; no cascade (only conditional-future `SET NULL`
+  FKs, tables nonexistent).
+- Append-only tension resolved per repo: "add/remove only" list
+  (`HISTORY_AND_VERSIONING.md`), "removed by user or at erasure" (R5),
+  BC-39 `SET NULL` survival — append-only protects snapshots/signals/runs,
+  not list membership. No soft delete invented.
+- Flutter source of truth Option B; list = existing contract
+  (`page`/`page_size` 20/`[1,100]`, `createdAt` desc + `id`-desc tiebreak
+  at implementation level, envelope, empty → `200 items:[]`); no
+  `sourceContext` filter.
+- Types: one newest-first list; hairstyle/grooming existing cards; outfit
+  generic v1 (`selectedItemIds` count, no name resolution); legacy generic,
+  never inferred; stale refs never hide a row.
+- Delete UX minimum per wardrobe `_deleteItem` precedent (confirm dialog,
+  pending guard, success/failure/404/offline snackbars, reload, no
+  optimistic removal, no new routes, no redesign).
+- Consistency: POST authoritative unchanged; Discover/Home mock saves stay
+  local (no valid `sourceContext`/UUID mapping — boundary preserved);
+  assistant outfit saves flow into the same list; local title hints
+  untouched (no remove API invented).
+
+### Unresolved / deferred (not blocking)
+
+- Enriched outfit card rendering with resolved item names (deferred —
+  mirrors DEC-012 item-name deferral; v1 generic count is honest per R31).
+- Additive `sourceContext` list filter (explicitly future per
+  `PAGINATION_FILTERING.md` §9.3; not decided).
+
+### Implementation readiness: READY
+
+Backend DELETE needs only the DEC-013 shape (use-case + repo delete +
+route + tests, wardrobe-DELETE precedent); Flutter needs one saved-looks
+read + delete call + per-card confirm affordance (existing envelope/JSON
+already renders current cards). No migration, no contract rewrite, no wear/
+outfit/learning change.
+
+### Files changed in 18.2 (docs only, uncommitted, nothing staged)
+
+- `DECISIONS.md` (+DEC-013; DEC-010/011/012 untouched).
+- `CURRENT_STATE.md` (this entry + header date).
+
+### Git safety
+
+- Staged = 0 files. NOTHING committed, NOTHING pushed. No production,
+  test, migration, Flutter, or API-doc file touched.
 
 ---
 

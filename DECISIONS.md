@@ -251,3 +251,103 @@ Nothing else changes: no new screen, no outfit-save behavior change, no
   sole writer of `learning_signals`, no client signal-submit, wear never
   becomes a preference write. That document is intentionally not edited
   here (frozen STEP-6 design record).
+
+---
+
+## DEC-013 — Saved Looks Completion (STEP 18.2)
+
+Status: Accepted
+
+Saved Looks completes with one owner-scoped physical delete plus one
+authoritative Flutter list surface. No migration, no new endpoint family,
+no save-behavior change, no signal-model change, no Discover/Home backend
+wiring. DEC-010/DEC-011/DEC-012 untouched.
+
+- **Backend delete (endpoint #25).** `DELETE
+  /v1/looks/saved/{saved_look_id}`: auth via `Depends(get_current_user_id)`;
+  path param is a UUID (`422 VALIDATION_ERROR` when malformed — wardrobe
+  `{item_id}` precedent); owner-scoped read via the existing
+  `SavedLookRepository.get_for_user` (unknown/foreign id → `404 NOT_FOUND`,
+  never 403 — OW-1); success physically deletes the `SavedLooks` row and
+  commits, returning `204` with an empty body; repeated DELETE of the same
+  id → `404`. Single-row transaction following `DeleteWardrobeItem`
+  (`get_by_id → delete → commit`); no learning-signal write on delete (no
+  `look_unsaved` vocabulary exists; M10 sole-writer rules unchanged). The
+  row's `snapshot` is deleted with the row; `learning_signals` rows are
+  preserved (no FK from signals to saved looks — No-FK-to-trigger rule), so
+  history survives list removal. No `Idempotency-Key` on DELETE (C-12/API-33
+  keys only the POST family; `FANSIVIBE_API_CONTRACT_V1.md` §3.6 lists
+  DELETE as naturally idempotent). No cascade side effects: the only inbound
+  FKs are conditional-future (`feedback_events.target_saved_look_id`,
+  `recommendation_history`, both `SET NULL`, neither table exists).
+- **Append-only reconciliation.** Inventory #25's "(append-only storage;
+  history rules apply)" describes the storage class, not a delete
+  prohibition: `HISTORY_AND_VERSIONING.md` classifies `saved_looks` as
+  CURRENT_STATE list + immutable snapshot per row with "add/remove only";
+  `SECURITY_PRIVACY_DESIGN.md` removes saved looks "by user or at erasure"
+  (R5); BC-39 requires feedback targets to survive saved-look removal (`SET
+  NULL`). Append-only protects snapshots/signals/runs (R31, TRX-3/TRX-5, S-8
+  no run delete) — list membership stays user-mutable. Hence physical
+  delete; no soft-delete column invented.
+- **Flutter source of truth: Option B (`GET /v1/looks/saved`).** The
+  endpoint returns every type (hairstyle/grooming/outfit/legacy) with full
+  snapshot, `lookId`, `sourceRunId`, `createdAt` — the exact JSON the
+  `SavedLooksScreen` cards already render. Option A (hairstyle+grooming
+  services merged) is rejected: both services call the same endpoint
+  without a source filter, so merging duplicates every row, has no paging,
+  no deterministic merge order, and no delete path. Option C (merge backend
+  with `LearningService.savedLooks` title strings) is rejected: title
+  strings carry no IDs/snapshots, cannot address a DELETE, and would
+  duplicate backend rows. The screen consumes the `SavedLookList` envelope
+  through one saved-looks read; client placement follows the existing
+  feature-first pattern (profile owns its screen's data access) with the
+  project null-on-failure convention (17.4 precedent).
+- **List semantics (existing contract, no wire change).** `GET
+  /v1/looks/saved?page=&page_size=` (defaults 20, bounds `[1,100]` → 422
+  outside); `createdAt` desc; offset envelope `{items,page,page_size,total}`;
+  empty → `200` with `items:[]`; deterministic tiebreak `id` desc at
+  implementation level (wardrobe `id`-tiebreak precedent; no client-visible
+  change). Duplicates are impossible (one row per save; idempotent replay
+  returns the original). No `sourceContext` filter is added (additive-only
+  future per `PAGINATION_FILTERING.md` §9.3).
+- **Saved-look types (one list, newest-first regardless of type).**
+  Hairstyle/grooming render with the existing card patterns (title,
+  `sourceContext` eyebrow, snapshot `matchScore`/`description`/`reasons`,
+  `sourceRunId` footer — all present verbatim in the backend snapshot).
+  Outfit renders generically in v1: OUTFIT eyebrow + title + persisted
+  `selectedItemIds` count ("N items"), no item-name resolution (enriched
+  rendering deferred — mirrors the DEC-012 item-name deferral).
+  Legacy/NULL `source_context` renders generically (SAVED LOOK eyebrow +
+  title), never inferred (DEC-010). Stale/deleted wardrobe refs never hide
+  a row (R31 frozen snapshot; BC-36/BC-37 survival precedents); v1 shows
+  the persisted count verbatim.
+- **Delete UX (minimum, `SavedLooksScreen` only, no redesign, no new
+  routes).** Per-card delete affordance following the wardrobe
+  `_deleteItem` precedent: `AlertDialog` confirm (Cancel/Delete) → pending
+  guard with disabled control → repo delete → success snackbar + row
+  removal with list reload (next-page fill); failure snackbar + row
+  retained (no optimistic removal); `404` means already gone → remove the
+  row with an "already removed" snackbar; network failure → retained row
+  with a "check your connection" retry copy (wardrobe precedent). Router,
+  cards, and design tokens untouched.
+- **Ownership/errors.** Auth 401; unknown/foreign/malformed-unknown id 404
+  (404-not-403); malformed UUID 422; 204 has an empty body; no new error
+  codes (frozen taxonomy).
+- **Save ↔ delete consistency.** `POST /v1/looks/saved` stays authoritative
+  (TRX-3, outfit UUID validation with 404/422, replay/409 — unchanged).
+  Discover (`look_details_screen.dart:327`) and Home
+  (`daily_outfit_screen.dart:1172`) mock saves stay local-only: Discover
+  mock IDs (`fy_*`/`tr_*`) map to no catalog code and no valid
+  `sourceContext`; Home mock carries no backend UUIDs (DEC-012). Wiring
+  them without a mapping decision is forbidden (UUID boundary preserved).
+  Assistant outfit saves (`sourceContext: "outfit"`, `lookId: null`) flow
+  into the same list unchanged. Local `LearningService.savedLooks` title
+  strings are display hints only (no IDs, no remove API — none invented);
+  backend delete does not touch them.
+- **Explicitly out of scope.** Migrations; POST/GET behavior changes; a
+  `sourceContext` query filter; per-row edit; signal/history writes on
+  delete; Discover/Home backend save wiring; UUID-sync repair; outfit
+  item-name resolution; `recommendation_history` (P3); feedback (M11);
+  design-system changes.
+- **Deferred (not blocking).** Enriched outfit card rendering with resolved
+  item names; additive `sourceContext` list filter.

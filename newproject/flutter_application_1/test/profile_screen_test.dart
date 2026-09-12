@@ -207,7 +207,12 @@ void main() {
       );
       await tester.tap(savedLooksFinder);
       await tester.pumpAndSettle();
-      expect(find.text('6 Saved Looks'), findsOneWidget);
+      // Backend is unreachable under the test binding, so the backend-truth
+      // screen lands on its honest error state (DEC-013, STEP 18.4).
+      expect(
+        find.text('Couldn\'t load saved looks. Please check your connection.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('menu actions navigate to SubscriptionScreen', (
