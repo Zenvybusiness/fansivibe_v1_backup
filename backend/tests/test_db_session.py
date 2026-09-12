@@ -71,7 +71,7 @@ def test_knowledge_seed_run_and_signal_types(db):
         signal_types = session.execute(
             select(text("code")).select_from(text("signal_types")).order_by(text("code"))
         ).scalars().all()
-    assert run_types == ["grooming", "hairstyle"]
+    assert run_types == ["grooming", "hairstyle", "outfit"]
     assert signal_types == [
         "analysis_updated",
         "assistant_navigation",

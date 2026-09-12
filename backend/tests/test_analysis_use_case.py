@@ -1769,13 +1769,6 @@ def test_11_13_outfit_run_persists_typed_signals_db(_11_13_db):
     Session = _11_13_db
     session = Session()
     try:
-        session.execute(
-            text(
-                "INSERT INTO run_types (code, label, sort_order) "
-                "VALUES ('outfit', 'Outfit', 3) ON CONFLICT (code) DO NOTHING"
-            )
-        )
-        session.commit()
         uid = _11_13_seed_user(session)
         use_case = CreateOutfitRun(
             runs=AnalysisRunRepositorySQL(session),
@@ -1809,13 +1802,9 @@ def test_11_13_outfit_run_persists_typed_signals_db(_11_13_db):
             "run_type": "outfit",
         }
     finally:
-        # Release the temporary vocab seed: the test run row references it
-        # (RESTRICT), so remove dependent rows first. The fixture teardown
-        # truncates the transactional tables afterwards regardless.
         session.execute(
             text("DELETE FROM analysis_runs WHERE run_type = 'outfit'")
         )
-        session.execute(text("DELETE FROM run_types WHERE code = 'outfit'"))
         session.commit()
         session.close()
 
