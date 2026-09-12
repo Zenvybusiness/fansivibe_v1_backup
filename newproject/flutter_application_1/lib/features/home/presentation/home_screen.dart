@@ -9,7 +9,9 @@ import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
 import 'package:fansivibe/features/home/today_look.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
-import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -27,11 +29,17 @@ class HomeScreen extends StatefulWidget {
   /// only — first-visit onboarding shows no look slot.
   final TodayLookRepository? todayLookRepository;
 
+  /// Backend wardrobe insight source (P2-8). Defaults to the live
+  /// repository; tests inject a fake. Fetched once for the main branch
+  /// only — first-visit onboarding shows no insight slot.
+  final WardrobeRepository? wardrobeRepository;
+
   const HomeScreen({
     super.key,
     this.onboardingData,
     this.summaryRepository,
     this.todayLookRepository,
+    this.wardrobeRepository,
   });
 
   @override
@@ -43,6 +51,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<LearningSummary?>? _summaryFuture;
   late final TodayLookRepository _todayLookRepository;
   Future<TodayLookResult>? _todayLookFuture;
+  late final WardrobeRepository _wardrobeRepository;
+  Future<WardrobeInsightData?>? _insightFuture;
 
   @override
   void initState() {
@@ -60,6 +70,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _todayLookRepository =
           widget.todayLookRepository ?? TodayLookRepositoryImpl();
       _todayLookFuture = _todayLookRepository.getTodayLook();
+      // Backend-first wardrobe insight (P2-8): live backend insight renders
+      // truthful intelligence; empty/null response hides the card.
+      _wardrobeRepository =
+          widget.wardrobeRepository ?? WardrobeRepositoryImpl();
+      _insightFuture = _wardrobeRepository.getInsight();
     }
   }
 
@@ -99,9 +114,13 @@ class _HomeScreenState extends State<HomeScreen> {
       widget.onboardingData?.containsKey('onboarding_complete') == true ||
       (_onboardingDataFromLocalStorage()?.containsKey('onboarding_complete') ==
           true);
-  String? get _displayName =>
-      widget.onboardingData?['display_name'] as String? ??
-      _onboardingDataFromLocalStorage()?['display_name'] as String?;
+  String? get _displayName {
+    final raw = widget.onboardingData?['display_name'] as String? ??
+        _onboardingDataFromLocalStorage()?['display_name'] as String? ??
+        LocalStorage.displayName;
+    if (raw == null || raw.trim().isEmpty) return null;
+    return raw.trim();
+  }
   String? get _vibeName =>
       widget.onboardingData?['vibe'] as String? ??
       _onboardingDataFromLocalStorage()?['vibe'] as String?;
@@ -109,7 +128,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final learningService = LearningService.instance;
-    final userState = _userState(learningService);
 
     if (_isFirstVisit && _hasAnalysis && UserSession.hasSavedWardrobeItem) {
       return FirstTimeLightPathHomeScreen(vibeName: _vibeName);
@@ -159,8 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         _buildQuickActions(context, learningService),
                         const SizedBox(height: 24),
                         _buildStreakSlot(),
-                        const SizedBox(height: 24),
-                        _buildAIInsight(context, learningService),
+                        _buildAIInsight(),
                         const SizedBox(height: 32),
                       ],
                     ),
@@ -171,21 +188,6 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         ),
       ),
-    );
-  }
-
-  UserState _userState(LearningService learningService) {
-    final face = learningService.face;
-    final preferredOccasions = learningService.preferredOccasions;
-    final savedLooks = learningService.savedLooks;
-    return UserState(
-      hasAnalysis: face != null,
-      hasPreferences: preferredOccasions.isNotEmpty,
-      hasSavedLooks: savedLooks.isNotEmpty,
-      face: face,
-      styleType: learningService.styleType,
-      savedLooksCount: savedLooks.length,
-      preferredOccasions: preferredOccasions,
     );
   }
 
@@ -237,11 +239,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildGreetingHeader(ThemeData theme, String? displayName) {
-    final name = displayName ?? 'Alex';
     return GreetingHeader(
       data: GreetingData(
         greeting: 'Good morning',
-        name: name,
+        name: displayName ?? '',
         dateLabel: _formatDate(),
       ),
     );
@@ -368,36 +369,23 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildAIInsight(
-    BuildContext context,
-    LearningService learningService,
-  ) {
-    final hasWardrobe = learningService.wardrobe.isNotEmpty;
-
-    if (!hasWardrobe) {
-      return const SizedBox.shrink();
-    }
-
-    final outerwearCount = learningService.wardrobe
-        .where((item) => item.category == 'outerwear')
-        .length;
-    final topsCount = learningService.wardrobe
-        .where((item) => item.category == 'tops')
-        .length;
-
-    final insightTitle = 'Wardrobe Insight';
-    final insightBody =
-        'You have $outerwearCount outerwear pieces and $topsCount tops. '
-        'Adding more variety would unlock additional outfit combinations.';
-    final actionLabel = 'View Recommendations';
-
-    return AIInsightCard(
-      data: AIWardrobeInsightData.mock.copyWith(
-        title: insightTitle,
-        insight: insightBody,
-        actionLabel: actionLabel,
-      ),
-      onActionPressed: () => _handleViewRecommendations(context),
+  Widget _buildAIInsight() {
+    // Backend-first wardrobe insight (P2-8): live backend insight renders
+    // verbatim via [WardrobeInsightCard]. When unavailable (204 empty
+    // wardrobe, loading, or network error), the slot is hidden rather than
+    // fabricating user intelligence or mock advice.
+    return FutureBuilder<WardrobeInsightData?>(
+      future: _insightFuture,
+      builder: (context, snapshot) {
+        final insight = snapshot.data;
+        if (insight == null) {
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.only(top: 24),
+          child: WardrobeInsightCard(data: insight),
+        );
+      },
     );
   }
 
@@ -425,35 +413,4 @@ class _HomeScreenState extends State<HomeScreen> {
         );
     }
   }
-
-  void _handleViewRecommendations(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Opening Wardrobe Recommendations...'),
-        backgroundColor: FansivibeColors.accentGold,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
-      ),
-    );
-  }
-}
-
-class UserState {
-  final bool hasAnalysis;
-  final bool hasPreferences;
-  final bool hasSavedLooks;
-  final dynamic face;
-  final String? styleType;
-  final int savedLooksCount;
-  final List<String> preferredOccasions;
-
-  UserState({
-    required this.hasAnalysis,
-    required this.hasPreferences,
-    required this.hasSavedLooks,
-    required this.face,
-    required this.styleType,
-    required this.savedLooksCount,
-    required this.preferredOccasions,
-  });
 }

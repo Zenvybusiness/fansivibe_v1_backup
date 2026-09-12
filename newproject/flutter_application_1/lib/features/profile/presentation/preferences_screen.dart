@@ -20,6 +20,13 @@ const Map<String, String> occasionLabelToCode = {
   'Formal': 'formal',
 };
 
+/// Backend occasion code → UI label (P2-6).
+const Map<String, String> occasionCodeToLabel = {
+  'casual': 'Casual',
+  'business': 'Business',
+  'formal': 'Formal',
+};
+
 class PreferencesScreen extends StatefulWidget {
   const PreferencesScreen({super.key, this.preferencesClient});
 
@@ -34,8 +41,18 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
   late LearningService _learningService;
   late final AssistantClient _client;
   List<PreferenceOption> _preferences = [];
+  String? _selectedOccasion;
   String? _statusMessage;
   bool _syncing = false;
+  bool _isError = false;
+
+  static const List<String> _allOccasions = [
+    'Casual',
+    'Smart Casual',
+    'Business',
+    'Formal',
+    'Streetwear',
+  ];
 
   @override
   void initState() {
@@ -45,74 +62,144 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     _learningService.load().then((_) {
       if (!mounted) return;
       setState(() {
+        _selectedOccasion = _initialOccasion();
         _preferences = _buildPreferences();
       });
     });
   }
 
-  List<PreferenceOption> _buildPreferences() {
+  String _initialOccasion() {
     final currentOccasions = _learningService.preferredOccasions;
-    final allOccasions = <String>['Casual', 'Smart Casual', 'Business', 'Formal', 'Streetwear'];
+    for (final occ in currentOccasions.reversed) {
+      if (_allOccasions.contains(occ)) {
+        return occ;
+      }
+      final mapped = occasionCodeToLabel[occ];
+      if (mapped != null && _allOccasions.contains(mapped)) {
+        return mapped;
+      }
+    }
+    return 'Smart Casual';
+  }
 
-    // Build occasion focus preference showing current selection
+  List<PreferenceOption> _buildPreferences() {
+    final current = _selectedOccasion ?? _initialOccasion();
+    final idx = _allOccasions.indexOf(current);
+    final selectedIndex = idx >= 0 ? idx : 1;
+
     final occasionOptions = <PreferenceOption>[];
     for (var option in ProfileMockData.stylePreferences
         .where((p) => p.label == 'Occasion Focus')
         .toList()) {
-      final isSelected = currentOccasions.contains(option.value);
       occasionOptions.add(
         PreferenceOption(
           label: option.label,
-          value: option.value,
+          value: current,
           options: option.options,
-          selectedIndex:
-              isSelected ? allOccasions.indexOf(option.value) : 0,
+          selectedIndex: selectedIndex,
         ),
       );
     }
-    return [occasionOptions.isNotEmpty ? occasionOptions.first : const PreferenceOption(
-      label: 'Occasion Focus',
-      value: 'Smart Casual',
-      options: ['Casual', 'Smart Casual', 'Business', 'Formal', 'Streetwear'],
-      selectedIndex: 1,
-    )];
+    return [
+      occasionOptions.isNotEmpty
+          ? occasionOptions.first
+          : PreferenceOption(
+              label: 'Occasion Focus',
+              value: current,
+              options: _allOccasions,
+              selectedIndex: selectedIndex,
+            ),
+    ];
   }
 
   Future<void> _onOptionSelected(String value) async {
-    // Local behavior is preserved: instant UI + on-device persistence.
-    _learningService.addPreferredOccasion(value);
+    // While a preference mutation is pending, ignore taps to prevent conflicting
+    // duplicate/rapid mutations from creating silently-local state divergence (P2-6).
     if (_syncing) return;
+
     final code = occasionLabelToCode[value];
     if (code == null) {
       // No backend counterpart exists — nothing truthful to send (P1-2:
       // no invented codes). Local-only, reported as such.
+      _learningService.addPreferredOccasion(value);
       setState(() {
+        _selectedOccasion = value;
+        _preferences = _buildPreferences();
+        _isError = false;
         _statusMessage = 'Saved: $value (this device only)';
       });
       return;
     }
+
+    final previousOccasion = _selectedOccasion;
+
+    // Instant-save UX: highlight selected chip immediately and show syncing indicator.
     setState(() {
       _syncing = true;
+      _selectedOccasion = value;
+      _preferences = _buildPreferences();
+      _isError = false;
       _statusMessage = 'Syncing $value…';
     });
+
     final result = await _client.syncPreferredOccasion(code: code);
     if (!mounted) return;
-    setState(() {
-      _syncing = false;
-      _statusMessage = switch (result) {
-        PreferenceSyncResult.synced => 'Synced: $value',
-        PreferenceSyncResult.alreadySynced => 'Already synced: $value',
-        PreferenceSyncResult.invalidInput =>
-          'Could not sync: unsupported value.',
-        PreferenceSyncResult.unauthorized =>
-          'Session expired — sign in again to sync.',
-        PreferenceSyncResult.rateLimited =>
-          'Too many requests — try again shortly.',
-        PreferenceSyncResult.networkError =>
-          'No connection — saved on this device.',
-        PreferenceSyncResult.unknown => 'Sync failed — saved on this device.',
-      };
-    });
+
+    switch (result) {
+      case PreferenceSyncResult.synced:
+        _learningService.addPreferredOccasion(value);
+        setState(() {
+          _syncing = false;
+          _isError = false;
+          _statusMessage = 'Synced: $value';
+        });
+      case PreferenceSyncResult.alreadySynced:
+        _learningService.addPreferredOccasion(value);
+        setState(() {
+          _syncing = false;
+          _isError = false;
+          _statusMessage = 'Already synced: $value';
+        });
+      case PreferenceSyncResult.networkError:
+        _learningService.addPreferredOccasion(value);
+        setState(() {
+          _syncing = false;
+          _isError = false;
+          _statusMessage = 'No connection — saved on this device.';
+        });
+      case PreferenceSyncResult.unknown:
+        _learningService.addPreferredOccasion(value);
+        setState(() {
+          _syncing = false;
+          _isError = false;
+          _statusMessage = 'Sync failed — saved on this device.';
+        });
+      case PreferenceSyncResult.unauthorized:
+        // Do not pretend the server accepted the change: roll back selection truthfully.
+        setState(() {
+          _syncing = false;
+          _selectedOccasion = previousOccasion;
+          _preferences = _buildPreferences();
+          _isError = true;
+          _statusMessage = 'Session expired — sign in again to sync.';
+        });
+      case PreferenceSyncResult.invalidInput:
+        setState(() {
+          _syncing = false;
+          _selectedOccasion = previousOccasion;
+          _preferences = _buildPreferences();
+          _isError = true;
+          _statusMessage = 'Could not sync: unsupported value.';
+        });
+      case PreferenceSyncResult.rateLimited:
+        setState(() {
+          _syncing = false;
+          _selectedOccasion = previousOccasion;
+          _preferences = _buildPreferences();
+          _isError = true;
+          _statusMessage = 'Too many requests — try again shortly.';
+        });
+    }
   }
 
   @override
@@ -171,6 +258,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                               _PreferenceTile(
                                 preference: pref,
                                 onOptionSelected: _onOptionSelected,
+                                isSyncing: _syncing,
                               ),
                             ])
                                 .toList(),
@@ -183,7 +271,11 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                             child: Text(
                               _statusMessage!,
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: FansivibeColors.successContainer,
+                                color: _syncing
+                                    ? FansivibeColors.textSecondary
+                                    : _isError
+                                        ? FansivibeColors.error
+                                        : FansivibeColors.successContainer,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -206,10 +298,12 @@ class _PreferenceTile extends StatelessWidget {
   const _PreferenceTile({
     required this.preference,
     required this.onOptionSelected,
+    this.isSyncing = false,
   });
 
   final PreferenceOption preference;
   final void Function(String) onOptionSelected;
+  final bool isSyncing;
 
   @override
   Widget build(BuildContext context) {
@@ -236,7 +330,9 @@ class _PreferenceTile extends StatelessWidget {
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: GestureDetector(
-                    onTap: () => onOptionSelected(preference.options[i]),
+                    onTap: isSyncing
+                        ? null
+                        : () => onOptionSelected(preference.options[i]),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,

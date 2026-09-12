@@ -11,6 +11,10 @@ import 'package:fansivibe/features/assistant/presentation/widgets/outfit_recomme
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/learning_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/presentation/wardrobe_item_details_screen.dart';
+import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/app/router/app_router.dart';
+import 'package:go_router/go_router.dart';
 
 /// STEP 13.17 — wiring tests: `selectedItemIds` resolved against the
 /// already-loaded learning wardrobe and passed to [OutfitRecommendationCard].
@@ -312,6 +316,45 @@ void main() {
       expect(find.text('Your Outfit'), findsOneWidget);
       expect(find.text('Merino Crew Neck'), findsNothing);
     });
+
+    testWidgets(
+      'composition chip tap navigates to wardrobe item details passing item id in extra',
+      (tester) async {
+        final message = AssistantMessage(
+          role: 'assistant',
+          text: 'For date, a charcoal pairing.',
+          outfitIntelligence: _intelligence(),
+        );
+
+        final router = GoRouter(
+          initialLocation: '/test-bubble',
+          routes: [
+            GoRoute(
+              path: '/test-bubble',
+              builder: (context, state) => Scaffold(
+                body: SingleChildScrollView(
+                  child: MessageBubble(
+                    message: message,
+                    wardrobe: _wardrobe,
+                  ),
+                ),
+              ),
+            ),
+            ...appRoutes,
+          ],
+        );
+
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Merino Crew Neck'), findsOneWidget);
+        await tester.tap(find.text('Merino Crew Neck'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(WardrobeItemDetailsScreen), findsOneWidget);
+        expect(find.text('Details'), findsOneWidget);
+      },
+    );
   });
 
   group('Save behavior unchanged', () {

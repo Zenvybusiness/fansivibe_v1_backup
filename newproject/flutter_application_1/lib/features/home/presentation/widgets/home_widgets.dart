@@ -454,11 +454,15 @@ class GreetingHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final hasName = data.name.trim().isNotEmpty;
+    final greetingText =
+        hasName ? '${data.greeting}, ${data.name.trim()}' : data.greeting;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '${data.greeting}, ${data.name}',
+          greetingText,
           style: theme.textTheme.displayLarge?.copyWith(
             fontWeight: FontWeight.bold,
             color: FansivibeColors.textPrimary,

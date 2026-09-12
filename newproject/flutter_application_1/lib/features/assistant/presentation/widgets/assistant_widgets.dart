@@ -122,6 +122,39 @@ class MessageBubble extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (message.isOffline) ...[
+              Container(
+                key: const Key('assistant_offline_badge'),
+                margin: const EdgeInsets.only(bottom: FansivibeSpacing.xs + 2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: FansivibeSpacing.sm,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: FansivibeColors.surfaceContainerHigh,
+                  borderRadius: FansivibeRadius.fullBorder,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.cloud_off_rounded,
+                      size: 12,
+                      color: FansivibeColors.secondary,
+                    ),
+                    const SizedBox(width: FansivibeSpacing.xs),
+                    Text(
+                      'Offline',
+                      style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                        color: FansivibeColors.secondary,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (message.text.isNotEmpty) ...[
               Text(
                 message.text,

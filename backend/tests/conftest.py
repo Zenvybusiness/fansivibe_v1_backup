@@ -51,6 +51,7 @@ def _run_migrations(url: str) -> None:
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     config.set_main_option("sqlalchemy.url", url)
+    config.attributes["configure_logger"] = False
     command.upgrade(config, "head")
 
 
@@ -81,3 +82,11 @@ def db(migrated_db: str):
 def make_session(url: str = DATABASE_URL) -> sessionmaker:
     engine = create_engine(url)
     return sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_dependency_overrides():
+    from app.main import app
+
+    yield
+    app.dependency_overrides.clear()

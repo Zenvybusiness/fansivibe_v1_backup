@@ -128,7 +128,7 @@ def test_round_profile_ranks_goatee(db):
     )
     run_id = resp.json()["run_id"]
     body = client.get(f"/v1/analysis/runs/{run_id}", headers=HEADERS).json()
-    assert body["result"]["recommendations"]["top"]["id"] == "classic_stubble"
+    assert body["result"]["recommendations"]["top"]["id"] == "structured_goatee"
 
 
 def test_recommendation_failure_marks_run_failed_with_processsing_failure(db, monkeypatch):
@@ -232,8 +232,9 @@ def test_submit_rejects_missing_face_profile_ref():
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
-def test_correct_response_structure_202():
+def test_correct_response_structure_202(db):
     """202 response contains run_id."""
+    _seed_profile(db, {"face_shape": "Oval"})
     resp = client.post(
         "/v1/analysis/grooming",
         json={"face_profile_ref": str(uuid.uuid4())},

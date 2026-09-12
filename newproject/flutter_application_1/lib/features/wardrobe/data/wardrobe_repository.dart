@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
-import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
+    show WardrobeInsightData, WardrobeItemData;
 
 /// Maps an API [WardrobeItem] DTO to the UI-facing [WardrobeItemData] model.
 /// This is the single controlled location for API ↔ domain model mapping.
@@ -111,11 +112,12 @@ String _topCategoryLine(Map<String, int> byCategory, int total) {
 /// Abstract contract for wardrobe data operations.
 ///
 /// The [WardrobeRepository] becomes the single abstraction used by the feature,
-/// combining the [WardrobeClient] API as the primary source with [WardrobeMockData]
-/// as the guaranteed fallback path.
+/// backed by the [WardrobeClient] API as the single source of truth.
+/// There is deliberately NO mock fallback — missing or unavailable data
+/// propagates truthfully to the UI.
 abstract class WardrobeRepository {
   /// Returns the current list of wardrobe items, filtered and paginated.
-  /// API is the primary source; falls back to [WardrobeMockData] when unreachable.
+  /// API is the primary source; propagates errors when unreachable.
   Future<List<WardrobeItemData>> listItems({
     String? category,
     String? color,
@@ -126,7 +128,7 @@ abstract class WardrobeRepository {
   });
 
   /// Gets a single wardrobe item by ID.
-  /// API is the primary source; falls back to [WardrobeMockData] when unreachable.
+  /// API is the primary source; returns null when unreachable or not found.
   Future<WardrobeItemData?> getItem({required String itemId});
 
   /// Creates a new wardrobe item.
@@ -191,10 +193,10 @@ abstract class WardrobeRepository {
 }
 
 /// Concrete implementation of [WardrobeRepository] that uses the [WardrobeClient]
-/// as the primary data source and [WardrobeMockData] as the fallback path.
+/// as the primary and authoritative data source with zero mock fallback.
 ///
 /// API success → domain model (mapped from [WardrobeItem] DTO)
-/// API failure → existing [WardrobeMockData] fallback with no accidental data loss
+/// API failure → truthful failure propagation (throw on listItems, null on getItem)
 class WardrobeRepositoryImpl implements WardrobeRepository {
   final WardrobeClient _client;
 
@@ -225,9 +227,9 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
       return apiResult.items.map(mapItemDtoToUi).toList();
     }
 
-    // Fallback to mock data - API was unreachable (returned null)
-    final mockItems = WardrobeMockData.itemsForCategory(category ?? 'all');
-    return mockItems;
+    // Backend unreachable / failed: propagate failure so WardrobeScreen
+    // can display its loading/error/retry UI. Never fall back to mock data.
+    throw StateError('Wardrobe backend unavailable');
   }
 
   @override
@@ -238,11 +240,8 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
       return mapItemDtoToUi(apiItem);
     }
 
-    // Fallback to mock data for offline/test mock IDs, but return null on miss.
-    // Never fabricate "Unknown Item" objects — missing items must truthfully be null.
-    for (final item in WardrobeMockData.items) {
-      if (item.id == itemId) return item;
-    }
+    // Backend unreachable or item not found: truthfully return null.
+    // Never fall back to mock data.
     return null;
   }
 

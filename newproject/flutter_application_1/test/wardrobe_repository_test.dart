@@ -5,8 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
-import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 
 void main() {
   group('WardrobeRepository.listItems', () {
@@ -51,7 +51,7 @@ void main() {
         client: MockClient((request) async {
           return http.Response(
             jsonEncode({
-              'items': [],
+              'items': <Map<String, dynamic>>[],
               'page': 1,
               'page_size': 20,
               'total': 0,
@@ -67,7 +67,7 @@ void main() {
       expect(result, isEmpty);
     });
 
-    test('API failure → WardrobeMockData fallback', () async {
+    test('API failure → propagates error (no WardrobeMockData fallback)', () async {
       final client = WardrobeClient(
         client: MockClient(
           (request) async => http.Response('{}', 500),
@@ -75,30 +75,13 @@ void main() {
       );
 
       final repo = WardrobeRepositoryImpl(client: client);
-      final result = await repo.listItems();
 
-      expect(result, isNotEmpty);
-      expect(result.first, isA<WardrobeItemData>());
-      expect(result.first.name, 'Merino Crew Neck');
-    });
-
-    test('no accidental data loss during fallback', () async {
-      final client = WardrobeClient(
-        client: MockClient(
-          (request) async => http.Response('{}', 500),
-        ),
-      );
-
-      final repo = WardrobeRepositoryImpl(client: client);
-      final result = await repo.listItems();
-
-      expect(result.length, WardrobeMockData.items.length);
-      expect(result.any((item) => item.id == '1'), isTrue);
+      expect(() => repo.listItems(), throwsA(isA<StateError>()));
     });
   });
 
   group('WardrobeRepository.getItem', () {
-test('API success → domain model', () async {
+    test('API success → domain model', () async {
       final client = WardrobeClient(
         client: MockClient((request) async {
           return http.Response(
@@ -126,7 +109,7 @@ test('API success → domain model', () async {
       expect(result.isFavorite, true);
     });
 
-    test('API failure → WardrobeMockData fallback', () async {
+    test('API failure → returns null (no WardrobeMockData fallback)', () async {
       final client = WardrobeClient(
         client: MockClient(
           (request) async => http.Response('{}', 500),
@@ -136,11 +119,10 @@ test('API success → domain model', () async {
       final repo = WardrobeRepositoryImpl(client: client);
       final result = await repo.getItem(itemId: '1');
 
-      expect(result, isNotNull);
-      expect(result?.name, 'Merino Crew Neck');
+      expect(result, isNull);
     });
 
-    test('mock item found by ID when API returns 404', () async {
+    test('API 404 → returns null (no WardrobeMockData fallback)', () async {
       final client = WardrobeClient(
         client: MockClient(
           (request) async => http.Response('{"error":{}}', 404),
@@ -150,9 +132,7 @@ test('API success → domain model', () async {
       final repo = WardrobeRepositoryImpl(client: client);
       final result = await repo.getItem(itemId: '1');
 
-      expect(result, isNotNull);
-      expect(result!.id, '1');
-      expect(result.name, 'Merino Crew Neck');
+      expect(result, isNull);
     });
 
     test('missing item returns null on miss instead of fabricating Unknown Item', () async {

@@ -3,7 +3,8 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/auth/auth.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
-import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
+import 'package:fansivibe/features/profile/data/profile_mock_data.dart'
+    show ProfileMenuAction;
 import 'package:fansivibe/features/profile/presentation/widgets/profile_widgets.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/style_summary_section.dart';
 import 'package:fansivibe/shared/components/fansi_error_view.dart';
@@ -11,6 +12,41 @@ import 'package:fansivibe/shared/components/fansi_loading_view.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
+
+const List<ProfileMenuAction> _defaultMenuActions = [
+  ProfileMenuAction(
+    id: 'preferences',
+    label: 'Preferences',
+    iconName: 'tune_rounded',
+  ),
+  ProfileMenuAction(
+    id: 'saved_looks',
+    label: 'Saved Looks',
+    iconName: 'bookmark_rounded',
+  ),
+  ProfileMenuAction(
+    id: 'subscription',
+    label: 'Subscription',
+    iconName: 'workspace_premium_rounded',
+  ),
+  ProfileMenuAction(
+    id: 'support',
+    label: 'Support',
+    iconName: 'help_outline_rounded',
+  ),
+  ProfileMenuAction(
+    id: 'settings',
+    label: 'Settings',
+    iconName: 'settings_rounded',
+  ),
+  ProfileMenuAction(
+    id: 'sign_out',
+    label: 'Sign Out',
+    iconName: 'logout_rounded',
+  ),
+];
 
 class ProfileScreen extends StatefulWidget {
   /// Backend summary source (M10-C). Defaults to the live repository;
@@ -21,7 +57,15 @@ class ProfileScreen extends StatefulWidget {
   /// inject a fake.
   final AuthRepository? authRepository;
 
-  const ProfileScreen({super.key, this.summaryRepository, this.authRepository});
+  /// Optional display name override for testing / direct injection.
+  final String? displayName;
+
+  const ProfileScreen({
+    super.key,
+    this.summaryRepository,
+    this.authRepository,
+    this.displayName,
+  });
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -53,8 +97,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final profile = ProfileData.mock;
-
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
@@ -78,10 +120,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         const SizedBox(height: 8),
                         _buildHero(),
-                        const SizedBox(height: 24),
-                        AchievementBar(achievements: profile.achievements),
-                        const SizedBox(height: 24),
-                        StyleDnaCard(data: profile.styleDna),
                         const SizedBox(height: 24),
                         _buildSummarySection(),
                         Row(
@@ -111,7 +149,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        SavedLooksRow(looks: profile.savedLooks),
+                        const SavedLooksRow(looks: []),
                         const SizedBox(height: 24),
                         Text(
                           'Account',
@@ -128,7 +166,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             vertical: 4,
                           ),
                           child: Column(
-                            children: profile.menuActions.map((action) {
+                            children: _defaultMenuActions.map((action) {
                               return Column(
                                 children: [
                                   ProfileMenuCard(
@@ -136,7 +174,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     onTap: () =>
                                         _handleMenuAction(context, action.id),
                                   ),
-                                  if (action.id != profile.menuActions.last.id)
+                                  if (action.id != _defaultMenuActions.last.id)
                                     Divider(
                                       height: 1,
                                       color: FansivibeColors.accentGold
@@ -161,18 +199,193 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// Backend-fed hero score (M10-C): the same summary future feeds the
-  /// section below, so one GET serves the whole screen.
+  /// Truthful hero bound to real authenticated user identity.
+  /// Renders real display name & initials when present, neutral empty profile
+  /// state when absent, and server-authoritative score/streak from M10 summary.
+  /// Never fabricates Alex, @alex_styles, fake levels, or fake ranks.
   Widget _buildHero() {
-    final profile = ProfileData.mock;
+    final displayName = widget.displayName ??
+        UserSession.displayName ??
+        LocalStorage.displayName;
+    final hasName = displayName != null && displayName.trim().isNotEmpty;
+    final cleanName = hasName ? displayName.trim() : null;
+    final initial = cleanName != null ? cleanName[0].toUpperCase() : null;
+
     return FutureBuilder<LearningSummary?>(
       future: _summaryFuture,
       builder: (context, snapshot) {
-        // Null while loading or unavailable renders the honest
-        // placeholder inside the hero — never the mock score.
-        return ProfileHeroCard(
-          data: profile,
-          styleScore: snapshot.data?.styleScore,
+        final summary = snapshot.data;
+        final score = summary?.styleScore;
+        final streak = summary?.streak;
+
+        return FansivibeCard(
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 32,
+                    backgroundColor: FansivibeColors.accentGold.withValues(
+                      alpha: 0.15,
+                    ),
+                    child: initial != null
+                        ? Text(
+                            initial,
+                            style: Theme.of(context)
+                                .textTheme
+                                .displayLarge
+                                ?.copyWith(
+                                  color: FansivibeColors.accentGold,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 28,
+                                ),
+                          )
+                        : const Icon(
+                            Icons.person_outline_rounded,
+                            color: FansivibeColors.accentGold,
+                            size: 32,
+                          ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          cleanName ?? 'Style Profile',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: FansivibeColors.textPrimary,
+                              ),
+                        ),
+                        if (cleanName != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            '@${cleanName.toLowerCase().replaceAll(' ', '_')}',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  color: FansivibeColors.textSecondary,
+                                ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: FansivibeColors.surfaceContainerLow,
+                        borderRadius: FansivibeRadius.smBorder,
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.star_rounded,
+                                size: 16,
+                                color: FansivibeColors.accentGold,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  score?.toString() ?? '–',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: FansivibeColors.textPrimary,
+                                        fontFamily: 'sans-serif',
+                                      ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Style Score',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                  color: FansivibeColors.textSecondary,
+                                  fontSize: 11,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: FansivibeColors.surfaceContainerLow,
+                        borderRadius: FansivibeRadius.smBorder,
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.local_fire_department_rounded,
+                                size: 16,
+                                color: FansivibeColors.accentGold,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  streak != null ? '$streak d' : '–',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: FansivibeColors.textPrimary,
+                                        fontFamily: 'sans-serif',
+                                      ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Streak',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                  color: FansivibeColors.textSecondary,
+                                  fontSize: 11,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         );
       },
     );

@@ -26,6 +26,7 @@ def _alembic_config() -> Config:
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     config.set_main_option("sqlalchemy.url", DATABASE_URL)
+    config.attributes["configure_logger"] = False
     return config
 
 
@@ -52,7 +53,11 @@ def test_knowledge_seed_looks_present(db):
     assert rows == [
         "brushed_up_undercut",
         "classic_pompadour",
+        "classic_stubble",
+        "full_beard",
+        "goatee_with_mustache",
         "side_part",
+        "structured_goatee",
         "textured_quiff",
     ]
 
@@ -61,13 +66,19 @@ def test_knowledge_seed_run_and_signal_types(db):
     Session = make_session()
     with Session() as session:
         run_types = session.execute(
-            select(text("code")).select_from(text("run_types"))
+            select(text("code")).select_from(text("run_types")).order_by(text("code"))
         ).scalars().all()
         signal_types = session.execute(
-            select(text("code")).select_from(text("signal_types"))
+            select(text("code")).select_from(text("signal_types")).order_by(text("code"))
         ).scalars().all()
-    assert run_types == ["hairstyle"]
-    assert signal_types == ["analysis_updated", "look_saved", "outfit_selected"]
+    assert run_types == ["grooming", "hairstyle"]
+    assert signal_types == [
+        "analysis_updated",
+        "assistant_navigation",
+        "look_saved",
+        "outfit_selected",
+        "suggestion_opened",
+    ]
 
 
 # ============================================================================

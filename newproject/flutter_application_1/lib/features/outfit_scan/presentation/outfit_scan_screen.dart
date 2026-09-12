@@ -10,13 +10,16 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:camera/camera.dart';
 
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/outfit_scan/data/outfit_scan_client.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 class OutfitScanScreen extends StatefulWidget {
-  const OutfitScanScreen({super.key});
+  const OutfitScanScreen({super.key, this.client});
+
+  final OutfitScanClient? client;
 
   @override
   State<OutfitScanScreen> createState() => _OutfitScanScreenState();
@@ -46,9 +49,12 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     return bindingType.contains('TestWidgetsFlutterBinding');
   }
 
+  late final OutfitScanClient _client;
+
   @override
   void initState() {
     super.initState();
+    _client = widget.client ?? OutfitScanClient();
     WidgetsBinding.instance.addObserver(this);
 
     // Defer init so context is ready and to avoid exceptions during tests.
@@ -217,28 +223,16 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
 
   Future<void> _uploadImageAndNavigate(BuildContext context, File imageFile) async {
     try {
-      final uri = Uri.parse('http://localhost:8000/v1/analysis/outfit');
-      final request = http.MultipartRequest('POST', uri);
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'image',
-          imageFile.path,
-        ),
-      );
-      request.headers['Authorization'] =
-          'Bearer ${AuthSession.effectiveToken('dev')}';
+      final runId = await _client.submitOutfitAnalysis(imageFile);
 
-      final response = await request.send();
-      final responseBody = await http.Response.fromStream(response);
+      if (!context.mounted) return;
 
-      if (response.statusCode == 202) {
-        final data = jsonDecode(responseBody.body);
-        final runId = data['run_id'] as String;
+      if (runId != null) {
         context.pushNamed(RouteNames.scanProcessing, extra: runId);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Upload failed: ${response.statusCode}'),
+            content: const Text('Upload failed'),
             backgroundColor: FansivibeColors.error,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(

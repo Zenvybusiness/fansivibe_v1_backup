@@ -7,10 +7,12 @@ DB-backed — runs when PostgreSQL is reachable, skips otherwise
 from __future__ import annotations
 
 import pytest
+from uuid import UUID
+
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app.infrastructure.db.models import LearningSignals, SavedLooks, Users
+from app.infrastructure.db.models import AnalysisRuns, LearningSignals, SavedLooks, Users
 from tests.conftest import make_session
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -60,7 +62,19 @@ def _make_user():
         if user is None:
             user = Users(auth_provider="dev", auth_subject="dev-user", display_name="Dev User")
             session.add(user)
-            session.commit()
+            session.flush()
+        run_id = UUID("00000000-0000-0000-0000-000000000001")
+        run = session.execute(select(AnalysisRuns).where(AnalysisRuns.id == run_id)).scalar_one_or_none()
+        if run is None:
+            run = AnalysisRuns(
+                id=run_id,
+                user_id=user.id,
+                run_type="hairstyle",
+                status="completed",
+                engine_version="1.0",
+            )
+            session.add(run)
+        session.commit()
         return user.id
 
 

@@ -1,8 +1,17 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
 android {
@@ -30,11 +39,41 @@ android {
         versionName = flutter.versionName
     }
 
+    val isStrictReleaseSigning = project.hasProperty("requireReleaseSigning") ||
+        System.getenv("REQUIRE_RELEASE_SIGNING") == "true" ||
+        System.getenv("CI") == "true" ||
+        project.hasProperty("prodRelease")
+
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreProperties["keyAlias"] as String?
+            keyPassword = keystoreProperties["keyPassword"] as String?
+            storeFile = (keystoreProperties["storeFile"] as String?)?.let { file(it) }
+            storePassword = keystoreProperties["storePassword"] as String?
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                val hasAllKeys = !(keystoreProperties["keyAlias"] as String?).isNullOrBlank() &&
+                    !(keystoreProperties["keyPassword"] as String?).isNullOrBlank() &&
+                    !(keystoreProperties["storePassword"] as String?).isNullOrBlank() &&
+                    !(keystoreProperties["storeFile"] as String?).isNullOrBlank()
+                if (hasAllKeys) {
+                    signingConfigs.getByName("release")
+                } else if (isStrictReleaseSigning) {
+                    throw GradleException("Production release signing requires complete key.properties (keyAlias, keyPassword, storePassword, storeFile).")
+                } else {
+                    logger.warn("WARNING: key.properties is incomplete. Falling back to debug signing for local test builds ONLY.")
+                    signingConfigs.getByName("debug")
+                }
+            } else if (isStrictReleaseSigning) {
+                throw GradleException("Production release signing requires key.properties. Silent fallback to debug signing is prohibited.")
+            } else {
+                logger.warn("WARNING: key.properties not found. Falling back to debug signing for local test builds ONLY.")
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

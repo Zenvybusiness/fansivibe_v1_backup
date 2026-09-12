@@ -150,18 +150,30 @@ def _boom_outfit(*args, **kwargs):
     raise AssertionError("hairstyle image must not route through CreateOutfitRun")
 
 
+class FakeActivityDays:
+    calls: list = []
+
+    def __init__(self, db=None) -> None:
+        pass
+
+    def upsert_styled_day(self, *, user_id, day) -> None:
+        FakeActivityDays.calls.append({"user_id": user_id, "day": day})
+
+
 def _client(monkeypatch) -> TestClient:
     from app.main import app
 
     FakeRuns.rows = {}
     FakeUserState.profile = {"face_shape": "Oval"}
     FakeLearningSignal.calls = []
+    FakeActivityDays.calls = []
     RecordingVisionPort.instances = []
     RecordingVisionPort.mode = "ok"
 
     monkeypatch.setattr(analysis_router, "AnalysisRunRepositorySQL", FakeRuns)
     monkeypatch.setattr(analysis_router, "UserStateRepositorySQL", FakeUserState)
     monkeypatch.setattr(analysis_router, "LearningSignalRepositorySQL", FakeLearningSignal)
+    monkeypatch.setattr(analysis_router, "ActivityDayRepositorySQL", FakeActivityDays)
     monkeypatch.setattr(analysis_router, "OllamaVisionAppearanceAdapter", RecordingVisionPort)
     monkeypatch.setattr(
         analysis_router, "DevelopmentAppearanceAnalysisAdapter", _boom_dev
@@ -171,10 +183,8 @@ def _client(monkeypatch) -> TestClient:
     from app.api.deps import get_current_user_id
     from app.infrastructure.db.session import get_db
 
-    # Re-applied per test (same values); no cleanup needed — every test
-    # re-establishes these overrides before use.
-    app.dependency_overrides[get_db] = lambda: object()
-    app.dependency_overrides[get_current_user_id] = lambda: USER
+    monkeypatch.setitem(app.dependency_overrides, get_db, lambda: object())
+    monkeypatch.setitem(app.dependency_overrides, get_current_user_id, lambda: USER)
     return TestClient(app)
 
 

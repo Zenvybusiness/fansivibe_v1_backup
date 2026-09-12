@@ -10,6 +10,8 @@ import 'package:fansivibe/features/assistant/data/assistant_client.dart';
 import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/profile/presentation/preferences_screen.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 /// Scriptable preferences backend: canned GET list, recorded PATCHes.
 class ScriptedPreferencesBackend {
@@ -147,16 +149,28 @@ void main() {
     });
   });
 
-  group('PreferencesScreen sync (P1-2)', () {
+  group('PreferencesScreen sync (P1-2 & P2-6)', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
       LearningService.instance.resetForTest();
+      AuthSession.onSessionExpired = null;
     });
 
     Widget harness(AssistantClient client) => MaterialApp(
       theme: ThemeData.dark(),
       home: PreferencesScreen(preferencesClient: client),
     );
+
+    bool isChipSelected(WidgetTester tester, String label) {
+      final container = tester.widget<Container>(
+        find.ancestor(
+          of: find.text(label),
+          matching: find.byType(Container),
+        ).first,
+      );
+      final decoration = container.decoration as BoxDecoration?;
+      return decoration?.color == FansivibeColors.accentGold;
+    }
 
     testWidgets('mappable tap syncs and reports success', (
       WidgetTester tester,
@@ -229,6 +243,134 @@ void main() {
 
       expect(backend.patchRequests, hasLength(1));
       expect(find.text('Synced: Casual'), findsOneWidget);
+    });
+
+    testWidgets('selected chip highlight reflects initial and updated state (P2-6)', (
+      WidgetTester tester,
+    ) async {
+      // Pre-seed an existing preference
+      LearningService.instance.addPreferredOccasion('Formal');
+
+      final backend = ScriptedPreferencesBackend();
+      await tester.pumpWidget(harness(backend.client()));
+      await tester.pumpAndSettle();
+
+      // Initially 'Formal' is selected, others are not
+      expect(isChipSelected(tester, 'Formal'), isTrue);
+      expect(isChipSelected(tester, 'Casual'), isFalse);
+      expect(isChipSelected(tester, 'Business'), isFalse);
+
+      // Tap 'Business'
+      final businessChip = find.text('Business');
+      await tester.ensureVisible(businessChip);
+      await tester.tap(businessChip);
+      await tester.pumpAndSettle();
+
+      // Now 'Business' is selected, 'Formal' is unselected
+      expect(isChipSelected(tester, 'Business'), isTrue);
+      expect(isChipSelected(tester, 'Formal'), isFalse);
+      expect(find.text('Synced: Business'), findsOneWidget);
+    });
+
+    testWidgets('conflicting rapid taps cannot produce silent state divergence (P2-6)', (
+      WidgetTester tester,
+    ) async {
+      final backend = ScriptedPreferencesBackend();
+      await tester.pumpWidget(harness(backend.client()));
+      await tester.pumpAndSettle();
+
+      final formalChip = find.text('Formal');
+      final businessChip = find.text('Business');
+      await tester.ensureVisible(formalChip);
+      await tester.tap(formalChip);
+      // Conflicting tap while sync is pending
+      await tester.tap(businessChip);
+      await tester.pumpAndSettle();
+
+      // Exactly 1 patch request sent (for formal, not business)
+      expect(backend.patchRequests, hasLength(1));
+      expect(backend.patchRequests.single.body, '{"preferredOccasions":["formal"]}');
+
+      // Local state does NOT silently contain Business
+      expect(LearningService.instance.preferredOccasions, contains('Formal'));
+      expect(LearningService.instance.preferredOccasions, isNot(contains('Business')));
+
+      // Selection reflects Formal
+      expect(isChipSelected(tester, 'Formal'), isTrue);
+      expect(isChipSelected(tester, 'Business'), isFalse);
+      expect(find.text('Synced: Formal'), findsOneWidget);
+    });
+
+    testWidgets('in-progress sync shows truthful syncing state and chip highlight (P2-6)', (
+      WidgetTester tester,
+    ) async {
+      final backend = ScriptedPreferencesBackend();
+      await tester.pumpWidget(harness(backend.client()));
+      await tester.pumpAndSettle();
+
+      final chip = find.text('Formal');
+      await tester.ensureVisible(chip);
+      await tester.tap(chip);
+      // Observe immediate state during sync
+      await tester.pump();
+
+      expect(find.text('Syncing Formal…'), findsOneWidget);
+      expect(isChipSelected(tester, 'Formal'), isTrue);
+
+      // Settle completion
+      await tester.pumpAndSettle();
+      expect(find.text('Synced: Formal'), findsOneWidget);
+      expect(isChipSelected(tester, 'Formal'), isTrue);
+    });
+
+    testWidgets('failed sync rolls back chip selection and does not record local preference (P2-6)', (
+      WidgetTester tester,
+    ) async {
+      // Pre-seed 'Formal' as initial state
+      LearningService.instance.addPreferredOccasion('Formal');
+
+      final backend = ScriptedPreferencesBackend()..patchStatus = 401;
+      await tester.pumpWidget(harness(backend.client()));
+      await tester.pumpAndSettle();
+
+      expect(isChipSelected(tester, 'Formal'), isTrue);
+
+      final casualChip = find.text('Casual');
+      await tester.ensureVisible(casualChip);
+      await tester.tap(casualChip);
+      await tester.pumpAndSettle();
+
+      // Error reported truthfully
+      expect(find.textContaining('Session expired'), findsOneWidget);
+
+      // Reverted to Formal: Casual is NOT selected, Formal is selected
+      expect(isChipSelected(tester, 'Casual'), isFalse);
+      expect(isChipSelected(tester, 'Formal'), isTrue);
+
+      // LearningService does not pretend Casual was accepted
+      expect(LearningService.instance.preferredOccasions, isNot(contains('Casual')));
+      expect(LearningService.instance.preferredOccasions, contains('Formal'));
+    });
+
+    testWidgets('401 during preference sync triggers AuthSession unauthorized notification (P2-6)', (
+      WidgetTester tester,
+    ) async {
+      var expiredNotified = false;
+      AuthSession.onSessionExpired = () {
+        expiredNotified = true;
+      };
+
+      final backend = ScriptedPreferencesBackend()..patchStatus = 401;
+      await tester.pumpWidget(harness(backend.client()));
+      await tester.pumpAndSettle();
+
+      final chip = find.text('Casual');
+      await tester.ensureVisible(chip);
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+
+      expect(expiredNotified, isTrue);
+      AuthSession.onSessionExpired = null;
     });
   });
 }

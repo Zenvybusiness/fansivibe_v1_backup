@@ -81,6 +81,7 @@ class AssistantService extends ChangeNotifier {
 
     if (_disposed) return;
 
+    final isOffline = reply == null;
     final result = reply ?? _offline.replyFor(trimmed, _buildContext());
 
     final index = _messages.length - 1;
@@ -91,6 +92,7 @@ class AssistantService extends ChangeNotifier {
       clarifications: result.clarifications,
       navigation: result.navigation,
       outfitIntelligence: result.outfitIntelligence,
+      isOffline: isOffline,
     );
     _isSending = false;
     _safeNotify();

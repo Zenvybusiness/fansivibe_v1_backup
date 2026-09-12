@@ -32,6 +32,9 @@ class AssistantClient {
   /// the dart-define default covers logged-out/test behavior.
   static String get _devToken => AuthSession.effectiveToken(_devTokenDefault);
 
+  /// Canonical effective Bearer token (D-AUTH-1).
+  static String get devToken => _devToken;
+
   Map<String, String> get _authJsonHeaders => {
     'Content-Type': 'application/json; charset=UTF-8',
     'Authorization': 'Bearer $_devToken',
@@ -51,7 +54,7 @@ class AssistantClient {
       final response = await _client
           .post(
             Uri.parse('$baseUrl/v1/assistant/chat'),
-            headers: const {'Content-Type': 'application/json; charset=UTF-8'},
+            headers: _authJsonHeaders,
             body: jsonEncode(payload),
           )
           .timeout(_timeout);

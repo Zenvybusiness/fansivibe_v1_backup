@@ -7,12 +7,36 @@ Wire body: ``{ "error": { "code", "message", "details"? } }``
 
 from __future__ import annotations
 
+import logging
+import re
 import uuid
 from typing import Any, Optional
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+logger = logging.getLogger("fansivibe.api.errors")
+
+_DB_URL_PASSWORD_REGEX = re.compile(r"(://[^:]+:)([^@]+)(@)")
+_BEARER_REGEX = re.compile(r"Bearer\s+[A-Za-z0-9_\-\.]+", re.IGNORECASE)
+_JWT_REGEX = re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+")
+_PARAM_SECRET_REGEX = re.compile(
+    r"(password|secret|token|access_token|refresh_token|api_key)=([^&\s]+)",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_log_message(msg: str) -> str:
+    """Scrub database passwords, Bearer tokens, JWTs, and credential params from log messages."""
+    if not msg:
+        return msg
+    s = _DB_URL_PASSWORD_REGEX.sub(r"\1[REDACTED]\3", msg)
+    s = _BEARER_REGEX.sub("Bearer [REDACTED]", s)
+    s = _JWT_REGEX.sub("[REDACTED_JWT]", s)
+    s = _PARAM_SECRET_REGEX.sub(r"\1=[REDACTED]", s)
+    return s
 
 
 class ApiError(Exception):
@@ -105,7 +129,20 @@ def internal_error() -> ApiError:
 
 
 def _request_id(request: Request) -> str:
-    return str(uuid.uuid4())
+    """Resolve and cache correlation ID for the lifetime of this request."""
+    state = getattr(request, "state", None)
+    if state is not None:
+        existing = getattr(state, "request_id", None)
+        if existing:
+            return str(existing)
+    header_id = request.headers.get("X-Request-Id")
+    req_id = header_id if header_id else str(uuid.uuid4())
+    if state is not None:
+        try:
+            state.request_id = req_id
+        except Exception:
+            pass
+    return req_id
 
 
 def _body(error: ApiError, request: Request) -> dict[str, Any]:
@@ -121,11 +158,33 @@ def _body(error: ApiError, request: Request) -> dict[str, Any]:
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(request: Request, exc: ApiError) -> JSONResponse:
-        headers = {"X-Request-Id": _request_id(request)}
+        req_id = _request_id(request)
+        headers = {"X-Request-Id": req_id}
         if exc.code == "AUTHENTICATION_ERROR":
             # Frozen contract (API-7, ERROR_HANDLING §5.2): every 401
             # carries the Bearer challenge.
             headers["WWW-Authenticate"] = "Bearer"
+
+        if exc.status_code >= 500:
+            logger.error(
+                "API 5xx error %s (%s) on %s %s [request_id=%s]: %s",
+                exc.code,
+                exc.status_code,
+                request.method,
+                request.url.path,
+                req_id,
+                _sanitize_log_message(exc.message),
+            )
+        elif exc.status_code >= 400:
+            logger.info(
+                "API 4xx error %s (%s) on %s %s [request_id=%s]",
+                exc.code,
+                exc.status_code,
+                request.method,
+                request.url.path,
+                req_id,
+            )
+
         return JSONResponse(
             status_code=exc.status_code,
             content=_body(exc, request),
@@ -134,6 +193,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _request_validation(request: Request, exc: RequestValidationError) -> JSONResponse:
+        req_id = _request_id(request)
         field_errors: list[dict[str, Any]] = []
         for err in exc.errors():
             item: dict[str, Any] = {
@@ -145,17 +205,73 @@ def register_error_handlers(app: FastAPI) -> None:
                     item["allowed"] = err["ctx"].get("expected")
             field_errors.append(item)
         error = validation(field_errors)
+        logger.warning(
+            "Validation error on %s %s [request_id=%s]: %s field errors",
+            request.method,
+            request.url.path,
+            req_id,
+            len(field_errors),
+        )
         return JSONResponse(
             status_code=error.status_code,
             content=_body(error, request),
-            headers={"X-Request-Id": _request_id(request)},
+            headers={"X-Request-Id": req_id},
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        req_id = _request_id(request)
+        if exc.status_code == 404:
+            err = not_found()
+        elif exc.status_code == 405:
+            err = ApiError(
+                status_code=405,
+                code="METHOD_NOT_ALLOWED",
+                message="Method not allowed for this resource.",
+            )
+        elif exc.status_code == 401:
+            err = authentication_error()
+        elif exc.status_code >= 500:
+            err = internal_error()
+            logger.error(
+                "HTTP 5xx error on %s %s [request_id=%s]: %s",
+                request.method,
+                request.url.path,
+                req_id,
+                _sanitize_log_message(str(exc.detail)),
+            )
+        else:
+            err = ApiError(
+                status_code=exc.status_code,
+                code="HTTP_ERROR",
+                message="A request error occurred. Please verify and try again.",
+            )
+
+        headers = {"X-Request-Id": req_id}
+        if err.code == "AUTHENTICATION_ERROR":
+            headers["WWW-Authenticate"] = "Bearer"
+
+        return JSONResponse(
+            status_code=err.status_code,
+            content=_body(err, request),
+            headers=headers,
         )
 
     @app.exception_handler(Exception)
     async def _unexpected(request: Request, exc: Exception) -> JSONResponse:
+        req_id = _request_id(request)
         error = internal_error()
+        sanitized_exc = _sanitize_log_message(f"{type(exc).__name__}: {exc}")
+        logger.error(
+            "Unhandled server exception on %s %s [request_id=%s]: %s",
+            request.method,
+            request.url.path,
+            req_id,
+            sanitized_exc,
+            exc_info=True,
+        )
         return JSONResponse(
             status_code=error.status_code,
             content=_body(error, request),
-            headers={"X-Request-Id": _request_id(request)},
+            headers={"X-Request-Id": req_id},
         )

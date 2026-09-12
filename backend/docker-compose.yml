@@ -1,6 +1,21 @@
 services:
+  api:
+    build: .
+    container_name: fansivibe-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fansivibe}:${POSTGRES_PASSWORD:-fansivibe_dev}@postgres:5432/${POSTGRES_DB:-fansivibe}
+      FANSIVIBE_ENV: ${FANSIVIBE_ENV:-development}
+      FANSIVIBE_AUTH_SECRET: ${FANSIVIBE_AUTH_SECRET:-dev-only-insecure-auth-secret}
+      FANSIVIBE_VISION_HOST: http://ollama:11434
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.5.7
     container_name: fansivibe-ollama
     ports:
       - "11434:11434"
@@ -9,16 +24,21 @@ services:
     command: serve
 
   postgres:
-    image: postgres:16
+    image: postgres:16-alpine
     container_name: fansivibe-postgres
     environment:
-      POSTGRES_USER: fansivibe
-      POSTGRES_PASSWORD: fansivibe_dev
-      POSTGRES_DB: fansivibe
+      POSTGRES_USER: ${POSTGRES_USER:-fansivibe}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fansivibe_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-fansivibe}
     ports:
       - "5432:5432"
     volumes:
       - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-fansivibe} -d $${POSTGRES_DB:-fansivibe}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   ollama:

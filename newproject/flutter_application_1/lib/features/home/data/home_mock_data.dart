@@ -5,7 +5,7 @@ class GreetingData {
   /// Creates a [GreetingData].
   const GreetingData({
     required this.greeting,
-    required this.name,
+    this.name = '',
     required this.dateLabel,
   });
 

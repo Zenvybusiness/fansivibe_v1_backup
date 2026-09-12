@@ -17,14 +17,26 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config.settings import get_settings
 
-DATABASE_URL = get_settings().database_url
+_settings = get_settings()
+DATABASE_URL = _settings.database_url
 
 
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
 
-engine: Engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+_engine_kwargs: dict = {"pool_pre_ping": True}
+if not DATABASE_URL.startswith("sqlite"):
+    _engine_kwargs.update(
+        {
+            "pool_size": _settings.db_pool_size,
+            "max_overflow": _settings.db_max_overflow,
+            "pool_timeout": _settings.db_pool_timeout_s,
+            "pool_recycle": _settings.db_pool_recycle_s,
+        }
+    )
+
+engine: Engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 

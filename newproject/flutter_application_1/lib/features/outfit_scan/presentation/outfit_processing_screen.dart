@@ -1,10 +1,9 @@
-import 'dart:convert';
 import 'dart:math';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/outfit_scan/data/outfit_scan_client.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -12,9 +11,10 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class OutfitProcessingScreen extends StatefulWidget {
-  const OutfitProcessingScreen({super.key, this.runId});
+  const OutfitProcessingScreen({super.key, this.runId, this.client});
 
   final String? runId;
+  final OutfitScanClient? client;
 
   @override
   State<OutfitProcessingScreen> createState() => _OutfitProcessingScreenState();
@@ -23,8 +23,8 @@ class OutfitProcessingScreen extends StatefulWidget {
 class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
   static const _pollInterval = Duration(seconds: 3);
   static const _maxPollAttempts = 30;
-  static const _baseUrl = 'http://localhost:8000';
 
+  late final OutfitScanClient _client;
   String? _runId;
   Map<String, dynamic>? _runStatus;
   int _pollAttempts = 0;
@@ -35,6 +35,7 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
   @override
   void initState() {
     super.initState();
+    _client = widget.client ?? OutfitScanClient();
     _runId = widget.runId;
     _pollRunStatus();
   }
@@ -65,33 +66,29 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
     }
 
     try {
-      final uri = Uri.parse('$_baseUrl/v1/analysis/runs/$_runId');
-      final response = await http.get(
-        uri,
-        headers: {'Authorization': 'Bearer ${AuthSession.effectiveToken('dev')}'},
-      );
+      final result = await _client.getAnalysisRun(_runId!);
 
       if (!mounted) return;
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>?;
+      if (result.statusCode == 200) {
+        final data = result.data;
         setState(() {
           _runStatus = data;
           _isLoading = false;
         });
 
-        if (data?['status'] == 'completed') {
+        if (result.isCompleted) {
           if (!mounted) return;
           context.pushNamed(RouteNames.scanAnalysis, extra: data);
           return;
         }
 
-        if (data?['status'] == 'failed') {
+        if (result.isFailed) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                'Analysis failed: ${data?['error'] ?? 'Unknown error'}',
+                'Analysis failed: ${result.error ?? 'Unknown error'}',
               ),
               backgroundColor: FansivibeColors.error,
               behavior: SnackBarBehavior.floating,
@@ -104,12 +101,11 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
           Navigator.of(context).popUntil((route) => route.isFirst);
           return;
         }
-      } else if (response.statusCode == 401) {
-        AuthSession.notifyUnauthorized();
+      } else if (result.statusCode == 401) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Authentication error, please re-scan'),
+            content: const Text('Authentication error, please re-scan'),
             backgroundColor: FansivibeColors.error,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -123,13 +119,14 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
       } else {
         setState(() {
           _pollAttempts = attempts;
-          _errorMessage = 'Server returned ${response.statusCode}, retrying...';
+          _errorMessage = 'Server returned ${result.statusCode}, retrying...';
         });
       }
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Polling error: $e, retrying...';
+        _errorMessage = 'Polling error: $e';
+        _isLoading = false;
       });
     }
 

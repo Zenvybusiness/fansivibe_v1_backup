@@ -6,8 +6,9 @@ import 'package:fansivibe/features/learning/data/local_store.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/learning_repository.dart';
 
-/// Default starter wardrobe (mirrors `WardrobeMockData.items`) so a brand-new
-/// user immediately has a usable wardrobe and the app keeps its current UX.
+/// Starter wardrobe for test/demo environments only (mirrors `WardrobeMockData.items`).
+/// In production, users start with an honest empty wardrobe until items are added or loaded.
+@visibleForTesting
 const List<WardrobeEntry> defaultWardrobe = [
   WardrobeEntry(
     id: '1',
@@ -199,7 +200,7 @@ class LearningService extends ChangeNotifier implements LearningRepository {
   static final LearningService instance = LearningService._();
 
   final LocalStore _store;
-  UserModel _model = UserModel(wardrobe: defaultWardrobe);
+  UserModel _model = UserModel(wardrobe: const []);
   bool _loaded = false;
 
   /// Server sync hooks for preference persistence (STEP 11.8). Null means
@@ -247,7 +248,7 @@ class LearningService extends ChangeNotifier implements LearningRepository {
   Future<void> load() async {
     if (_loaded) return;
     final persisted = await _store.load();
-    if (persisted != null && persisted.wardrobe.isNotEmpty) {
+    if (persisted != null) {
       _model = persisted;
     }
     _loaded = true;

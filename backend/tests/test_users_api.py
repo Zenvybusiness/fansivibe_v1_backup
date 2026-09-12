@@ -97,7 +97,13 @@ def test_get_profile_returns_empty_profile_for_fresh_user(db):
     assert resp.status_code == 200
     body = resp.json()
     assert body["displayName"] == "Dev User"
-    assert body["styleProfile"] == {}
+    assert body["styleProfile"] == {
+        "faceShape": None,
+        "skinTone": None,
+        "bodyType": None,
+        "styleType": None,
+        "sourceRunId": None,
+    }
     assert body["preferences"] == {}
     assert body["settings"] == {}
     assert body["flags"] == {}
@@ -155,6 +161,7 @@ def test_get_profile_returns_valid_profile(db):
         "settings",
         "flags",
         "version",
+        "memorySummary",
     }
 
 
@@ -171,4 +178,10 @@ def test_get_profile_is_owner_scoped(db):
     assert resp.status_code == 200
     body = resp.json()
     assert body["displayName"] == "Dev User"
-    assert body["styleProfile"] == {"faceShape": "Oval"}
+    assert body["styleProfile"] == {
+        "faceShape": "Oval",
+        "skinTone": None,
+        "bodyType": None,
+        "styleType": None,
+        "sourceRunId": None,
+    }

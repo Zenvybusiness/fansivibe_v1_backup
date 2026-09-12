@@ -416,6 +416,7 @@ class AssistantMessage {
     this.navigation,
     this.outfitIntelligence,
     this.pending = false,
+    this.isOffline = false,
   });
 
   final String role;
@@ -428,12 +429,17 @@ class AssistantMessage {
   /// True while waiting for the backend reply (typing indicator).
   final bool pending;
 
+  /// True when this content was produced from offline/local fallback data
+  /// rather than live backend intelligence.
+  final bool isOffline;
+
   bool get isUser => role == 'user';
 
   AssistantMessage copyWith({
     String? text,
     bool? pending,
     OutfitIntelligence? outfitIntelligence,
+    bool? isOffline,
   }) => AssistantMessage(
     role: role,
     text: text ?? this.text,
@@ -442,6 +448,7 @@ class AssistantMessage {
     navigation: navigation,
     outfitIntelligence: outfitIntelligence ?? this.outfitIntelligence,
     pending: pending ?? this.pending,
+    isOffline: isOffline ?? this.isOffline,
   );
 }
 

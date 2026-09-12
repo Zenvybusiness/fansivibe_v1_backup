@@ -11,19 +11,52 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.ai import engine
 from app.api import errors
 from app.api.deps import get_current_user_id
 from app.api.errors import ApiError
-from app.api.routers import analysis, assistant, auth, events, feedback, knowledge, learning, looks, outfits, users, wardrobe
+from app.api.routers import (
+    analysis,
+    assistant,
+    auth,
+    events,
+    feedback,
+    knowledge,
+    learning,
+    looks,
+    outfits,
+    users,
+    wardrobe,
+)
+from app.config.settings import get_settings
 from app.domain.ports.repositories import UserProfileRecord
 from app.infrastructure.db.repositories import UserStateRepositorySQL
 from app.infrastructure.db.session import get_db
 from app.models.schemas import AssistantReply, AssistantRequest
 
-app = FastAPI(title="Fansivibe AI", version="0.1.0")
+settings = get_settings()
+
+app = FastAPI(
+    title="Fansivibe AI",
+    version="0.1.0",
+    docs_url="/docs" if settings.is_docs_enabled else None,
+    redoc_url="/redoc" if settings.is_docs_enabled else None,
+    openapi_url="/openapi.json" if settings.is_docs_enabled else None,
+)
+
+if settings.cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
 errors.register_error_handlers(app)
 app.include_router(auth.router)
@@ -41,7 +74,22 @@ app.include_router(wardrobe.router)
 
 @app.get("/health")
 def health() -> dict:
+    """Liveness probe: verifies process responsiveness."""
     return {"status": "ok"}
+
+
+@app.get("/ready")
+@app.get("/health/ready")
+def ready(db: Session = Depends(get_db)) -> dict:
+    """Readiness probe: validates database connectivity before routing traffic."""
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "ready", "database": "connected"}
+    except Exception:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "database": "disconnected"},
+        )
 
 
 @app.post("/v1/assistant/chat", response_model=AssistantReply)

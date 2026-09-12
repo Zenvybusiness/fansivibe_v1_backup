@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
@@ -317,9 +318,9 @@ class _OutfitRecommendationCardViewState
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         onSelected: (_) {
           if (!context.mounted) return;
-          Navigator.of(context).pushNamed(
+          context.pushNamed(
             RouteNames.wardrobeItemDetails,
-            arguments: item.id,
+            extra: item.id,
           );
         },
       ),

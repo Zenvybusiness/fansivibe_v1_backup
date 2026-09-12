@@ -19,7 +19,8 @@ void main() {
     await tester.pumpWidget(_freshApp());
 
     // Verify the home screen is shown by default.
-    expect(find.text('Good morning, Alex'), findsOneWidget);
+    expect(find.text('Good morning'), findsOneWidget);
+    expect(find.text('Good morning, Alex'), findsNothing);
 
     // Verify all 5 navigation destinations are present in the bottom nav bar.
     expect(find.byType(NavigationBar), findsOneWidget);
@@ -101,7 +102,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Home screen is shown again.
-    expect(find.text('Good morning, Alex'), findsOneWidget);
+    expect(find.text('Good morning'), findsOneWidget);
+    expect(find.text('Good morning, Alex'), findsNothing);
   });
 
   testWidgets('Build Outfit card navigates to BuildOutfitScreen', (

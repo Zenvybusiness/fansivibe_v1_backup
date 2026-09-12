@@ -2,7 +2,6 @@ import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
-import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 
 /// A single outfit suggestion mirroring `backend/app/data/catalog.py`.
 class _LookCard {
@@ -257,18 +256,28 @@ class OfflineAssistant {
   }
 
   AssistantReply _wardrobe(AssistantUserContext context) {
-    final items = context.wardrobe.isNotEmpty
-        ? context.wardrobe
-        : WardrobeMockData.items.map(
-            (i) => WardrobeEntry(
-              id: i.id,
-              name: i.name,
-              category: i.category,
-              color: i.color,
-              material: i.material,
-              isFavorite: i.isFavorite,
-            ),
-          );
+    final items = context.wardrobe;
+    if (items.isEmpty) {
+      return const AssistantReply(
+        intent: 'wardrobe',
+        text:
+            'Your wardrobe is currently empty. Add your clothes to get personalized outfit recommendations!',
+        cards: [
+          SuggestionCard(
+            kind: 'wardrobe',
+            title: 'Wardrobe Empty',
+            subtitle:
+                'Start by adding tops, bottoms, and shoes to your wardrobe.',
+            items: [
+              '0 items',
+              '0 favourites',
+              '0 categories',
+            ],
+            action: 'open_wardrobe',
+          ),
+        ],
+      );
+    }
     final favorites = items.where((i) => i.isFavorite).length;
     final categories = items.map((i) => i.category).toSet().length;
     return AssistantReply(

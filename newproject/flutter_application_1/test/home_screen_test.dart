@@ -11,7 +11,11 @@ import 'package:fansivibe/features/home/presentation/daily_outfit_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 /// Creates a [FansivibeApp] with an isolated router to prevent state
 /// leaking across navigation tests.
@@ -88,9 +92,69 @@ class _ZeroSummaryRepository implements LearningSummaryRepository {
   );
 }
 
+class _FakeInsightRepository implements WardrobeRepository {
+  _FakeInsightRepository(this.insight);
+
+  final WardrobeInsightData? insight;
+
+  @override
+  Future<WardrobeInsightData?> getInsight() async => insight;
+
+  @override
+  Future<List<WardrobeItemData>> listItems({
+    String? category,
+    String? color,
+    String? sortBy,
+    String? order,
+    int page = 1,
+    int pageSize = 20,
+  }) async =>
+      const [];
+
+  @override
+  Future<WardrobeItemData?> getItem({required String itemId}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<WardrobeItemData?> createItem({
+    required String name,
+    required String category,
+    required String color,
+    String? material,
+    MediaRef? imageRef,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<WardrobeItemData?> updateItem({
+    required String itemId,
+    String? name,
+    String? category,
+    String? color,
+    String? material,
+    bool? isFavorite,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<bool?> deleteItem({required String itemId}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<WearEventLogResponse?> logWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<WearSummary?> getWearSummary() => throw UnimplementedError();
+}
+
 /// App with the backend-fed Home slot (M9, STEP 19.25): the same fake feeds
 /// both Home and the Daily Outfit detail surface.
-Widget _backendApp() {
+Widget _backendApp({WardrobeRepository? wardrobeRepository}) {
   final todayRepo = _FakeTodayLookRepository(_backendLookResult());
   return FansivibeApp(
     router: GoRouter(
@@ -101,6 +165,7 @@ Widget _backendApp() {
           builder: (context, state) => HomeScreen(
             todayLookRepository: todayRepo,
             summaryRepository: _ZeroSummaryRepository(),
+            wardrobeRepository: wardrobeRepository,
           ),
           routes: [
             GoRoute(
@@ -124,13 +189,31 @@ Widget _backendApp() {
 
 void main() {
   group('HomeScreen Widget Tests', () {
-    testWidgets('renders greeting header with personalized greeting', (
+    setUp(() {
+      LocalStorage.displayName = null;
+      LocalStorage.onboardingComplete = false;
+    });
+
+    testWidgets('renders greeting header truthfully without fabricated name', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_freshApp());
 
-      // Verify greeting is displayed
-      expect(find.text('Good morning, Alex'), findsOneWidget);
+      // Verify unauthenticated user sees generic greeting without "Alex"
+      expect(find.text('Good morning'), findsOneWidget);
+      expect(find.text('Good morning, Alex'), findsNothing);
+      expect(find.text('Alex'), findsNothing);
+    });
+
+    testWidgets('renders greeting header with real display name when available', (
+      WidgetTester tester,
+    ) async {
+      LocalStorage.displayName = 'Taylor';
+      await tester.pumpWidget(_freshApp());
+
+      // Verify real stored display name is used
+      expect(find.text('Good morning, Taylor'), findsOneWidget);
+      expect(find.text('Good morning, Alex'), findsNothing);
     });
 
     testWidgets('renders Today\'s Look card from the backend', (
@@ -239,27 +322,33 @@ void main() {
       expect(find.text('Sun'), findsNothing);
     });
 
-    testWidgets('renders AI Wardrobe Insight card', (
+    testWidgets('omits AI insight card when no backend insight exists (no fabricated content)', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_freshApp());
+      await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('AI Insight'), 500.0);
-
-      expect(find.text('AI Insight'), findsOneWidget);
-      expect(find.text('Wardrobe Insight'), findsOneWidget);
-      expect(
-        find.textContaining('You have 4 outerwear pieces and 8 tops'),
-        findsOneWidget,
-      );
-      expect(find.text('View Recommendations'), findsOneWidget);
+      // Verify mock insight is NOT rendered
+      expect(find.text('Wardrobe Insight'), findsNothing);
+      expect(find.textContaining('outerwear pieces'), findsNothing);
+      expect(find.text('Wardrobe Gap Detected'), findsNothing);
+      expect(find.text('View Recommendations'), findsNothing);
     });
 
-    testWidgets('HomeScreen is scrollable with all sections', (
+    testWidgets('renders live backend insight verbatim when returned', (
       WidgetTester tester,
     ) async {
-      // M9 (STEP 19.25): scrolled through the backend-fed slot.
-      await tester.pumpWidget(_backendApp());
+      const liveInsight = WardrobeInsightData(
+        title: 'Palette Harmony',
+        insight: 'Your neutral layers create 10 versatile combinations.',
+        iconName: 'lightbulb_outline_rounded',
+        accentColor: 0xFFC5A059,
+      );
+      await tester.pumpWidget(
+        _backendApp(
+          wardrobeRepository: _FakeInsightRepository(liveInsight),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.drag(
@@ -268,11 +357,48 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Good morning, Alex'), findsOneWidget);
+      // Verify backend insight is rendered truthfully
+      expect(find.text('Palette Harmony'), findsOneWidget);
+      expect(
+        find.text('Your neutral layers create 10 versatile combinations.'),
+        findsOneWidget,
+      );
+      expect(find.text('AI Insight'), findsOneWidget);
+      // Verify no mock insight text is present
+      expect(find.textContaining('outerwear pieces'), findsNothing);
+      expect(find.text('Wardrobe Gap Detected'), findsNothing);
+    });
+
+    testWidgets('HomeScreen is scrollable with all sections (truthful content)', (
+      WidgetTester tester,
+    ) async {
+      // M9 (STEP 19.25) + P2-8: scrolled through truthful backend slots.
+      const liveInsight = WardrobeInsightData(
+        title: 'Seasonal Balance',
+        insight: 'Neutral layers match well.',
+        iconName: 'lightbulb_outline_rounded',
+        accentColor: 0xFFC5A059,
+      );
+      await tester.pumpWidget(
+        _backendApp(
+          wardrobeRepository: _FakeInsightRepository(liveInsight),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(
+        find.byType(SingleChildScrollView),
+        const Offset(0, -1000),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Good morning'), findsOneWidget);
+      expect(find.text('Good morning, Alex'), findsNothing);
       expect(find.text("TODAY'S LOOK"), findsOneWidget);
       expect(find.text('Style Score'), findsOneWidget);
       expect(find.text('Quick Actions'), findsOneWidget);
       expect(find.text('Style Streak'), findsOneWidget);
+      expect(find.text('Seasonal Balance'), findsOneWidget);
       expect(find.text('AI Insight'), findsOneWidget);
     });
 
@@ -351,32 +477,20 @@ void main() {
       expect(find.text('View Analysis'), findsOneWidget);
     });
 
-    testWidgets('View Recommendations button on AI Insight shows snackbar', (
+    testWidgets('does not present fabricated recommendations snackbar on Home', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_freshApp());
+      await tester.pumpAndSettle();
 
-      final scrollable = find.byType(SingleChildScrollView);
-      await tester.dragUntilVisible(
-        find.text('View Recommendations'),
-        scrollable,
-        const Offset(0, -300),
-        maxIteration: 30,
-      );
-
-      final viewRecButton = find.text('View Recommendations');
-      expect(viewRecButton, findsOneWidget);
-
-      await tester.tap(viewRecButton);
-      await tester.pump();
-      await tester.pump();
-
-      expect(find.text('Opening Wardrobe Recommendations...'), findsOneWidget);
+      // Fabricated CTA and fake snackbar are completely absent
+      expect(find.text('View Recommendations'), findsNothing);
+      expect(find.text('Opening Wardrobe Recommendations...'), findsNothing);
     });
   });
 
   group('Home Feature Widgets Tests', () {
-    testWidgets('GreetingHeader renders correctly', (
+    testWidgets('GreetingHeader renders with name when provided', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -387,6 +501,30 @@ void main() {
       );
 
       expect(find.text('Good morning, Alex'), findsOneWidget);
+      expect(find.text('Monday, January 13'), findsOneWidget);
+    });
+
+    testWidgets('GreetingHeader renders without trailing comma when name is empty', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const Scaffold(
+            body: GreetingHeader(
+              data: GreetingData(
+                greeting: 'Good morning',
+                name: '',
+                dateLabel: 'Monday, January 13',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Good morning'), findsOneWidget);
+      expect(find.text('Good morning, '), findsNothing);
+      expect(find.text('Good morning, Alex'), findsNothing);
       expect(find.text('Monday, January 13'), findsOneWidget);
     });
 
