@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_models.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 
@@ -34,10 +35,8 @@ class OutfitBuilderClient {
     : _client = client ?? http.Client();
 
   /// Backend base URL.
-  static const String baseUrl = String.fromEnvironment(
-    'ASSISTANT_BASE_URL',
-    defaultValue: 'http://localhost:8000',
-  );
+  /// Canonical base URL — single source of truth is [AppConfig.apiBaseUrl].
+  static const String baseUrl = AppConfig.apiBaseUrl;
 
   static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',

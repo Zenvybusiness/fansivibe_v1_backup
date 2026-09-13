@@ -1,19 +1,92 @@
-/// Central application configuration for Fansivibe.
+/// Central application configuration for Fansivibe (P0-4).
 ///
-/// In production, builds targeting physical devices must supply:
-/// `--dart-define=ASSISTANT_BASE_URL=https://<your-backend-host>`
+/// Single authoritative API base URL for all backend clients.
 ///
-/// If omitted, defaults to `http://localhost:8000` for local dev/testing.
+/// - Local development / tests: default `http://localhost:8000`, or
+///   override with `--dart-define=ASSISTANT_BASE_URL=...`.
+/// - Production: build with BOTH
+///   `--dart-define=PRODUCTION=true` and
+///   `--dart-define=ASSISTANT_BASE_URL=https://<your-backend-host>`.
+///   No production domain is hardcoded here (none exists yet).
+///
+/// Production never silently falls back to localhost and never uses
+/// cleartext HTTP: [validateOrThrow] fails fast with a clear [StateError]
+/// instead of issuing unusable network requests. `main()` calls it at
+/// startup before `runApp()`.
 abstract final class AppConfig {
   AppConfig._();
 
+  /// Authoritative API base URL (dart-define configurable).
   static const String apiBaseUrl = String.fromEnvironment(
     'ASSISTANT_BASE_URL',
     defaultValue: 'http://localhost:8000',
   );
 
-  static bool get isLocalhost =>
-      apiBaseUrl.contains('localhost') || apiBaseUrl.contains('127.0.0.1');
+  /// True for production builds (`--dart-define=PRODUCTION=true`).
+  /// Development and tests default to false so localhost keeps working.
+  static const bool isProduction = bool.fromEnvironment(
+    'PRODUCTION',
+    defaultValue: false,
+  );
 
-  static bool get isHttps => apiBaseUrl.startsWith('https://');
+  /// Whether [url] targets a loopback host.
+  static bool isLocalhostUrl(String url) =>
+      url.contains('localhost') || url.contains('127.0.0.1');
+
+  /// Whether the configured base URL targets a loopback host.
+  static bool get isLocalhost => isLocalhostUrl(apiBaseUrl);
+
+  /// Whether [url] uses HTTPS.
+  static bool isHttpsUrl(String url) => url.startsWith('https://');
+
+  /// Whether the configured base URL uses HTTPS.
+  static bool get isHttps => isHttpsUrl(apiBaseUrl);
+
+  /// Validates the API configuration, failing clearly in production.
+  ///
+  /// - Non-production: always passes (localhost + HTTP allowed for dev).
+  /// - Production: throws [StateError] when the URL is missing, targets
+  ///   localhost, is not HTTPS, or is otherwise unparsable — never a
+  ///   silent fallback to an unusable endpoint.
+  ///
+  /// The optional parameters exist so tests can exercise the production
+  /// rules without recompiling with different dart-defines.
+  static void validateOrThrow({String? baseUrl, bool? production}) {
+    final String url = baseUrl ?? apiBaseUrl;
+    final bool prod = production ?? isProduction;
+    if (!prod) return;
+    if (url.isEmpty) {
+      throw StateError(
+        'PRODUCTION build requires '
+        '--dart-define=ASSISTANT_BASE_URL=https://<your-backend-host> '
+        '(missing or empty). Refusing to start with an unusable endpoint.',
+      );
+    }
+    if (isLocalhostUrl(url)) {
+      throw StateError(
+        'PRODUCTION build must not use localhost ($url). Supply '
+        '--dart-define=ASSISTANT_BASE_URL=https://<your-backend-host>.',
+      );
+    }
+    if (!isHttpsUrl(url)) {
+      throw StateError(
+        'PRODUCTION API base URL must use HTTPS ($url). Supply '
+        '--dart-define=ASSISTANT_BASE_URL=https://<your-backend-host>.',
+      );
+    }
+    final Uri? uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme || !uri.hasAuthority) {
+      throw StateError(
+        'PRODUCTION API base URL is invalid ($url). Supply '
+        '--dart-define=ASSISTANT_BASE_URL=https://<your-backend-host>.',
+      );
+    }
+  }
+
+  /// Returns the validated API base URL (throws in production when
+  /// misconfigured — see [validateOrThrow]).
+  static String requireApiBaseUrl() {
+    validateOrThrow();
+    return apiBaseUrl;
+  }
 }

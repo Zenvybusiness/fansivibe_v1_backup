@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/knowledge/data/knowledge_api_models.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 
@@ -16,10 +17,8 @@ import 'package:fansivibe/shared/auth/auth_session.dart';
 class KnowledgeClient {
   KnowledgeClient({http.Client? client}) : _client = client ?? http.Client();
 
-  static const String baseUrl = String.fromEnvironment(
-    'ASSISTANT_BASE_URL',
-    defaultValue: 'http://localhost:8000',
-  );
+  /// Canonical base URL — single source of truth is [AppConfig.apiBaseUrl].
+  static const String baseUrl = AppConfig.apiBaseUrl;
 
   static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',

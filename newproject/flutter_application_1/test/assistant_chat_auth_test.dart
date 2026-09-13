@@ -4,17 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fansivibe/features/assistant/data/assistant_client.dart';
 import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/assistant/domain/assistant_service.dart';
 import 'package:fansivibe/features/assistant/presentation/widgets/assistant_widgets.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    LocalStorage.init(prefs: await SharedPreferences.getInstance());
     AuthSession.resetForTest();
     await AuthSession.clearSession();
   });

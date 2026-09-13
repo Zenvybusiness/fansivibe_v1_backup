@@ -15,6 +15,11 @@ class LocalStorage {
     _prefs = prefs;
   }
 
+  /// Test-only reset: drops the prefs reference so tests can simulate
+  /// a fresh cold start. Production always initializes once in main().
+  static void resetForTest() {
+    _prefs = null;
+  }
 
   /// ----- Onboarding & Session -----
 

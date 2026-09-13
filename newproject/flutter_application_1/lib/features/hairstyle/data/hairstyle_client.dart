@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
+import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_models.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 
@@ -18,10 +19,8 @@ class HairstyleClient {
     : _client = client ?? http.Client(),
       _pollInterval = pollInterval ?? const Duration(milliseconds: 600);
 
-  static const String baseUrl = String.fromEnvironment(
-    'ASSISTANT_BASE_URL',
-    defaultValue: 'http://localhost:8000',
-  );
+  /// Canonical base URL — single source of truth is [AppConfig.apiBaseUrl].
+  static const String baseUrl = AppConfig.apiBaseUrl;
 
   static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',

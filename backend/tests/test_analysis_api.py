@@ -398,3 +398,83 @@ def test_create_outfit_run_success_db(db, monkeypatch):
     assert matching[0]["run_type"] == "outfit"
 
 
+def test_create_outfit_run_does_not_use_development_adapter(db, monkeypatch):
+    # P0-2: the outfit production path must use OllamaVisionAppearanceAdapter
+    # — never DevelopmentAppearanceAnalysisAdapter.
+
+    def _boom_dev(*args, **kwargs):
+        raise AssertionError(
+            "outfit production path must not use DevelopmentAppearanceAnalysisAdapter"
+        )
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.DevelopmentAppearanceAnalysisAdapter", _boom_dev
+    )
+
+    from app.domain.value_objects import AppearanceProfile
+
+    class RecordingOutfitVisionPort:
+        adapter_id = "ollama-vision-v1"
+
+        def analyze(self, *, media_ref, user_id, image_bytes=None):
+            return AppearanceProfile(
+                faceShape="oval",
+                skinTone="",
+                bodyType="",
+                styleType="",
+                sourceRunId="",
+            )
+
+        def validate_result(self, result) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.OllamaVisionAppearanceAdapter",
+        RecordingOutfitVisionPort,
+    )
+    image_bytes = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 50
+    resp = client.post(
+        "/v1/analysis/outfit",
+        files={"image": ("outfit.jpg", image_bytes, "image/jpeg")},
+        headers=HEADERS,
+    )
+    assert resp.status_code == 202
+    assert resp.json()["run_id"]
+
+
+def test_create_outfit_failed_analyzer_marks_run_failed(db, monkeypatch):
+    # P0-2: analyzer failure → honest terminal `failed` run with
+    # PROCESSING_FAILURE + details.run_id + reason (existing error contract).
+    from app.ai.vision_appearance_adapter import AppearanceAnalysisError
+
+    class FailingOutfitVisionPort:
+        adapter_id = "ollama-vision-v1"
+
+        def analyze(self, *, media_ref, user_id, image_bytes=None):
+            raise AppearanceAnalysisError("no_face_detected")
+
+        def validate_result(self, result) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.OllamaVisionAppearanceAdapter",
+        FailingOutfitVisionPort,
+    )
+    resp = client.post(
+        "/v1/analysis/outfit",
+        files={"image": ("outfit.jpg", b"outfit-no-face-bytes", "image/jpeg")},
+        headers=HEADERS,
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+
+    got = client.get(f"/v1/analysis/runs/{run_id}", headers=HEADERS)
+    assert got.status_code == 200
+    body = got.json()
+    assert body["status"] == "failed"
+    assert body["result"] is None
+    assert body["error"]["code"] == "PROCESSING_FAILURE"
+    assert body["error"]["details"]["run_id"] == run_id
+    assert body["error"]["details"]["reason"] == "no_face_detected"
+
+
