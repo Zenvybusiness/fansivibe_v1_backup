@@ -1,7 +1,67 @@
 # Fansivibe Current State
 
-Last Updated: 2026-09-12
+Last Updated: 2026-09-13
 Updated By: opencode agent
+
+---
+
+## STEP 21.2-A + 21.2-B — PRODUCTION HARDENING (git guardrails + reproducible build) — PASS (uncommitted)
+
+Task: implement ONLY 21.2-A (secret/local-file git guardrails) and 21.2-B
+(reproducible backend build, pytest out of prod image). No auth, migration,
+contract, Flutter, vision, rate-limit, signing, or cloud changes. No commit,
+no push, no reset, no stash. Skills: `.agents/skills/` inspected (21
+entries) — `dart-resolve-package-conflicts` read; Dart-pub-specific, not
+applicable to pip (principle borrowed: pin exact tested versions).
+DECISIONS.md untouched.
+
+### 21.2-A — files changed: `.gitignore`, `backend/.gitignore` (append-only)
+
+- Appended (existing 4 pycache lines byte-identical): `.env`, `.env.*`,
+  `!.env.example`, `key.properties`, `*.jks`, `*.keystore`,
+  `local.properties`, `.venv/`, `*.log` (same block in both files;
+  `android/.gitignore` already covered keystore/key.properties/local.properties
+  for the Flutter subproject — root/backend were the gap).
+- Verified: zero secret/key files tracked (`git ls-files` grep = 0);
+  `git ls-files | git check-ignore --stdin` = empty (no tracked file newly
+  ignored); spot `git check-ignore -v` confirms every pattern hits and
+  `.env.example` stays committable. No secrets/keystore/key.properties created.
+
+### 21.2-B — files changed: `backend/requirements-prod.txt` (new),
+### `backend/requirements.txt`, `backend/Dockerfile` (3 lines)
+
+- `requirements-prod.txt`: 11 runtime deps pinned to the exact versions the
+  984-passing baseline was verified against (all satisfy old `>=` floors):
+  fastapi==0.141.1, uvicorn[standard]==0.52.0, pydantic==2.13.4,
+  pydantic-settings==2.15.0, httpx==0.28.1, sqlalchemy==2.0.52,
+  psycopg[binary]==3.3.4, alembic==1.19.1, python-multipart==0.0.32,
+  bcrypt==5.0.0, PyJWT==2.14.0. No upgrades, no new packages. D-AUTH-1
+  comment preserved on bcrypt/PyJWT.
+- `requirements.txt` is now the test/dev env: `-r requirements-prod.txt` +
+  `pytest==9.1.1` (single source of truth, no version duplication; README
+  `pip install -r requirements.txt` workflow unchanged, pytest still available).
+- `Dockerfile`: `COPY`/`pip install` target switched to
+  `requirements-prod.txt` only; entrypoint, Alembic startup, non-root
+  `appuser`, `/health` healthcheck, base image all byte-identical.
+- Pin-vs-env proof: script-compared all 12 pinned versions against installed
+  dists — zero mismatches.
+
+### Validation
+
+- `pytest tests/test_docker_entrypoint.py tests/test_production_hardening.py`:
+  27 passed. `pytest tests/test_auth_unit.py`: 19 passed. (`-p no:cacheprovider`;
+  no env changes, no DB needed.)
+- `git diff --check`: clean (only pre-existing CRLF warnings on the 7
+  untouched generated registrants). `git status --short`: 4 modified
+  (`.gitignore`, `backend/.gitignore`, `backend/Dockerfile`,
+  `backend/requirements.txt`) + 1 new (`backend/requirements-prod.txt`) +
+  the 7 pre-existing line-ending-noise registrants (untouched, preserved).
+- Staged 0. NOTHING committed/pushed. Remaining Phase 21.2 blockers: prod
+  host/TLS/DNS + reverse proxy, Android keystore/key.properties (out-of-band,
+  never commit), Ollama vision provisioning decision, edge rate limiting,
+  transitive-dep lockfile (direct deps pinned; `pip --upgrade pip` line left
+  floating by design as smallest safe change), log/crash sinks, Postgres
+  backup/PITR.
 
 ---
 

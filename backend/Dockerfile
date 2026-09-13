@@ -13,10 +13,10 @@ WORKDIR /app
 RUN groupadd --system --gid 10001 appuser && \
     useradd --system --uid 10001 --gid 10001 --no-create-home appuser
 
-# Install dependencies
-COPY requirements.txt .
+# Install production-only dependencies (21.2-B: test packages excluded)
+COPY requirements-prod.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements-prod.txt
 
 # Copy application source, migration assets, and entrypoint
 COPY app ./app

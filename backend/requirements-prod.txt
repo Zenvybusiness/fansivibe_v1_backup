@@ -1,0 +1,18 @@
+# Production runtime dependencies — pinned exact versions (21.2-B).
+#
+# These are the versions the 984-passing backend baseline was verified
+# against. The Docker production image installs ONLY this file, so
+# test-only packages (pytest, see requirements.txt) never ship to prod.
+fastapi==0.141.1
+uvicorn[standard]==0.52.0
+pydantic==2.13.4
+pydantic-settings==2.15.0
+httpx==0.28.1
+sqlalchemy==2.0.52
+psycopg[binary]==3.3.4
+alembic==1.19.1
+python-multipart==0.0.32
+# D-AUTH-1 — local email/password provider: bcrypt password hashes +
+# HS256 JWT access tokens (both already verified in the service env).
+bcrypt==5.0.0
+PyJWT==2.14.0
