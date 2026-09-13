@@ -76,6 +76,9 @@ docker build -t fansivibe-api:<tag> backend/
   `--proxy-headers` so `request.url` reflects the external scheme.
 - Redirect HTTP→HTTPS and HSTS at the proxy. The Flutter production
   build refuses non-HTTPS base URLs (`AppConfig.validateOrThrow`).
+- [INFRA] Renew certificates automatically (managed-LB auto-renewal or
+  `certbot renew` on a timer for self-managed proxies); alert on
+  expiry < 14 days and verify renewal on a staging host first.
 
 ## 7. DNS — [INFRA]
 
@@ -164,6 +167,11 @@ flutter build appbundle \
 2. API: `docker run` previous tag (migrations are forward-only — §16).
 3. Flutter: staged rollout halt + promote previous AAB in Play Console.
 4. Verify `/ready`, smoke tests (§17), error-rate dashboards.
+
+- [INFRA] Restart policy: production containers must restart
+  automatically (`restart: unless-stopped` or the orchestrator
+  equivalent); the LB readiness gate stays on `/ready` so a
+  crash-looping replica takes no traffic.
 
 ## 16. Database rollback warning — [INFRA discipline]
 
