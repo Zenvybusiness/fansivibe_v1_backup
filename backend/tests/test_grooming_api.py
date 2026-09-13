@@ -57,26 +57,32 @@ def test_submit_requires_auth():
     assert resp.json()["error"]["code"] == "AUTHENTICATION_ERROR"
 
 
-def test_submit_requires_face_profile_ref():
+def test_submit_profile_only_requires_no_reference(db):
+    # Phase 28: obsolete face_profile_ref removed — empty JSON uses the
+    # authenticated user's style_profile by user_id. Without face_shape
+    # this is honest INSUFFICIENT_USER_DATA.
     resp = client.post("/v1/analysis/grooming", json={}, headers=HEADERS)
     assert resp.status_code == 422
-    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert resp.json()["error"]["code"] == "INSUFFICIENT_USER_DATA"
 
 
-def test_submit_rejects_malformed_profile_ref():
+def test_submit_ignores_obsolete_face_profile_ref(db):
+    # Extra obsolete face_profile_ref is no longer part of the contract
+    # and must not drive validation — it is ignored.
+    _seed_profile(db, {"face_shape": "Oval"})
     resp = client.post(
         "/v1/analysis/grooming",
         json={"face_profile_ref": "not-a-uuid"},
         headers=HEADERS,
     )
-    assert resp.status_code == 422
-    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert resp.status_code == 202
+    assert resp.json()["run_id"]
 
 
 def test_submit_without_profile_returns_insufficient_data():
     resp = client.post(
         "/v1/analysis/grooming",
-        json={"face_profile_ref": str(uuid.uuid4())},
+        json={},
         headers=HEADERS,
     )
     assert resp.status_code == 422
@@ -94,7 +100,7 @@ def test_full_flow_202_then_completed_with_result(db):
     )
     resp = client.post(
         "/v1/analysis/grooming",
-        json={"face_profile_ref": str(uuid.uuid4())},
+        json={},
         headers=HEADERS,
     )
     assert resp.status_code == 202
@@ -123,7 +129,7 @@ def test_round_profile_ranks_goatee(db):
     _seed_profile(db, {"face_shape": "Round"})
     resp = client.post(
         "/v1/analysis/grooming",
-        json={"face_profile_ref": str(uuid.uuid4())},
+        json={},
         headers=HEADERS,
     )
     run_id = resp.json()["run_id"]
@@ -146,7 +152,7 @@ def test_recommendation_failure_marks_run_failed_with_processsing_failure(db, mo
 
     resp = client.post(
         "/v1/analysis/grooming",
-        json={"face_profile_ref": str(uuid.uuid4())},
+        json={},
         headers=HEADERS,
     )
     assert resp.status_code == 202
@@ -182,7 +188,7 @@ def test_list_runs_returns_summaries_without_result(db):
     for _ in range(3):
         run_id = client.post(
             "/v1/analysis/grooming",
-            json={"face_profile_ref": str(uuid.uuid4())},
+            json={},
             headers=HEADERS,
         ).json()["run_id"]
         assert run_id
@@ -200,36 +206,20 @@ def test_list_runs_returns_summaries_without_result(db):
         assert item["status"] == "completed"
 
 
-# --- groom-specific validation ----------------------------------------------
+# --- groom-specific validation (Phase 28: no reference field) ---------------
 
-def test_submit_rejects_empty_face_profile_ref():
+
+def test_submit_empty_json_uses_stored_profile(db):
+    # Empty JSON succeeds when the authenticated user has a stored face
+    # shape — no fake ID required.
+    _seed_profile(db, {"face_shape": "Oval"})
     resp = client.post(
         "/v1/analysis/grooming",
         json={},
         headers=HEADERS,
     )
-    assert resp.status_code == 422
-    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
-
-
-def test_submit_rejects_invalid_uuid_face_profile_ref():
-    resp = client.post(
-        "/v1/analysis/grooming",
-        json={"face_profile_ref": "invalid-uuid"},
-        headers=HEADERS,
-    )
-    assert resp.status_code == 422
-    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
-
-
-def test_submit_rejects_missing_face_profile_ref():
-    resp = client.post(
-        "/v1/analysis/grooming",
-        json={},
-        headers=HEADERS,
-    )
-    assert resp.status_code == 422
-    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert resp.status_code == 202
+    assert resp.json()["run_id"]
 
 
 def test_correct_response_structure_202(db):
@@ -237,7 +227,7 @@ def test_correct_response_structure_202(db):
     _seed_profile(db, {"face_shape": "Oval"})
     resp = client.post(
         "/v1/analysis/grooming",
-        json={"face_profile_ref": str(uuid.uuid4())},
+        json={},
         headers=HEADERS,
     )
     assert resp.status_code == 202
@@ -251,7 +241,7 @@ def test_user_ownership_of_run(db):
     _seed_profile(db, {"face_shape": "Oval"})
     resp = client.post(
         "/v1/analysis/grooming",
-        json={"face_profile_ref": str(uuid.uuid4())},
+        json={},
         headers=HEADERS,
     )
     run_id = resp.json()["run_id"]
@@ -265,7 +255,7 @@ def test_correct_run_status_after_completion(db):
     _seed_profile(db, {"face_shape": "Oval", "skin_tone": "Warm Medium", "style_type": "Modern Classic"})
     resp = client.post(
         "/v1/analysis/grooming",
-        json={"face_profile_ref": str(uuid.uuid4())},
+        json={},
         headers=HEADERS,
     )
     assert resp.status_code == 202

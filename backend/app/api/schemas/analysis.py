@@ -4,7 +4,10 @@ Shapes mirror `FANSIVIBE_API_CONTRACT_V1.md` §4.2/§6.6 and
 `HAIRSTYLE_RECOMMENDATION_API.md` §4.2/§4.3. `AnalysisRun` is bare (no
 envelope); the list endpoint returns summary rows with no `result`/`error`.
 
-Grooming creation endpoint #38 uses a JSON request body (G1).
+Grooming creation endpoint #38 takes no request body (Phase 28: obsolete
+`face_profile_ref` removed — the authenticated user's `style_profile` is
+resolved by `user_id`). The Flutter client still posts empty JSON `{}` to
+preserve the JSON transport.
 Outfit creation endpoint #44 uses multipart form data (S-1).
 """
 
@@ -54,29 +57,20 @@ class AnalysisRunList(BaseModel):
     total: int
 
 
-class CreateGroomingRunRequest(BaseModel):
-    """JSON request body for grooming creation endpoint #38 (G1)."""
-
-    face_profile_ref: str
-
-
 class CreateOutfitScanRequest(BaseModel):
     """Multipart request body for outfit scan creation endpoint #44 (S-1).
 
-    Exactly one of `image` or `faceProfileRef` must be provided; both present
-    is a validation error per catalog §12.11.
+    Image-only pass (S-1); no face-profile reference exists.
     """
 
     image: Optional[dict[str, Any]] = None
-    faceProfileRef: Optional[str] = None
 
 
 class CreateHairstyleScanRequest(BaseModel):
     """Multipart request body for hairstyle scan creation endpoint #43 (S-2).
 
-    Either `image` (image-based pass) or `faceProfileRef` (profile-only pass)
-    must be provided, but not both per catalog §12.11.
+    Either `image` (image-based pass) or the profile-only pass over the
+    authenticated user's stored `style_profile` (no face-profile reference).
     """
 
     image: Optional[dict[str, Any]] = None
-    faceProfileRef: Optional[str] = None

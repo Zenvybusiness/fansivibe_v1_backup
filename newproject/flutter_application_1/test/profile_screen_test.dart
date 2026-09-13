@@ -7,6 +7,7 @@ import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
 import 'package:fansivibe/features/profile/presentation/profile_screen.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/profile_widgets.dart';
+import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 
 class _TestSummaryRepo implements LearningSummaryRepository {
@@ -446,6 +447,29 @@ void main() {
       await tester.pump();
 
       expect(tapped, true);
+    });
+
+    testWidgets('ProfileMenuCard destructive action uses the error token', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: Scaffold(
+            body: ProfileMenuCard(
+              action: ProfileData.mock.menuActions.firstWhere(
+                (action) => action.id == 'sign_out',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Destructive semantics are unchanged; only the raw-red accent moved
+      // to the Fansivibe error token.
+      expect(find.text('Sign Out'), findsOneWidget);
+      final icon = tester.widget<Icon>(find.byIcon(Icons.logout_rounded));
+      expect(icon.color, FansivibeColors.error);
     });
   });
 }

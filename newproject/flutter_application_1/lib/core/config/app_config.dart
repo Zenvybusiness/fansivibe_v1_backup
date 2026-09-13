@@ -89,4 +89,23 @@ abstract final class AppConfig {
     validateOrThrow();
     return apiBaseUrl;
   }
+
+  /// Truthful connection hint for error surfaces (Phase 22, Step 2).
+  ///
+  /// Never changes routing — purely diagnostic copy so a failed API
+  /// connection tells the user what was attempted and how to fix the
+  /// development address. `localhost` reaches the dev machine from
+  /// Chrome, but from an Android emulator/device it points at the
+  /// device itself: use `10.0.2.2` (emulator loopback) or the dev
+  /// machine LAN IP via
+  /// `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000`.
+  static String get connectionHint {
+    if (isLocalhost) {
+      return 'Could not reach $apiBaseUrl. '
+          'On an Android emulator use http://10.0.2.2:8000, '
+          'on a physical device use your computer\u2019s LAN IP '
+          '(--dart-define=ASSISTANT_BASE_URL=http://<host>:8000).';
+    }
+    return 'Could not reach $apiBaseUrl. Check your connection and try again.';
+  }
 }

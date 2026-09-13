@@ -81,11 +81,11 @@ void main() {
       expect(find.text('Adjust posture for better analysis'), findsOneWidget);
     });
 
-    testWidgets('renders Capture Look button', (WidgetTester tester) async {
+    testWidgets('renders Capture Photo button', (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
 
-      expect(find.text('View Analysis'), findsOneWidget);
-      expect(find.byIcon(Icons.dashboard_rounded), findsOneWidget);
+      expect(find.text('Capture Photo'), findsOneWidget);
+      expect(find.byIcon(Icons.camera_alt_rounded), findsWidgets);
     });
 
     testWidgets('gallery picker available', (WidgetTester tester) async {
@@ -94,18 +94,18 @@ void main() {
       expect(find.text('Choose from Gallery'), findsOneWidget);
     });
 
-    testWidgets('rescan button available', (WidgetTester tester) async {
+    testWidgets('switch camera button available', (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
 
-      expect(find.text('Rescan'), findsOneWidget);
+      expect(find.text('Switch Camera'), findsOneWidget);
     });
 
-    testWidgets('capture look navigates to processing screen', (
+    testWidgets('capture photo navigates to processing screen', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(MaterialApp.router(routerConfig: _scanRouter));
 
-      await tester.tap(find.text('View Analysis'));
+      await tester.tap(find.text('Capture Photo'));
       for (var i = 0; i < 30; i++) {
         await tester.pump(const Duration(milliseconds: 16));
       }

@@ -1,18 +1,16 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:camera/camera.dart';
 
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/outfit_scan/data/outfit_scan_client.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
-import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -227,7 +225,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to pick image: $e'),
+          content: Text('Could not open photo library. ${AppConfig.connectionHint} ($e)'),
           backgroundColor: FansivibeColors.error,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -252,7 +250,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Upload failed'),
+            content: Text('Upload failed. ${AppConfig.connectionHint}'),
             backgroundColor: FansivibeColors.error,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -265,7 +263,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Upload error: $e'),
+          content: Text('Upload error. ${AppConfig.connectionHint} ($e)'),
           backgroundColor: FansivibeColors.error,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -610,8 +608,8 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
               ),
               const SizedBox(height: 16),
               FansiButton.primary(
-                label: 'Scan Outfit',
-                icon: Icons.camera_alt_rounded,
+                label: actionLabel,
+                icon: Icons.refresh_rounded,
                 onPressed: onAction,
               ),
             ],
@@ -675,8 +673,8 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
 
   Widget _buildCaptureButton(BuildContext context) {
     return FansiButton.primary(
-      label: 'View Analysis',
-      icon: Icons.dashboard_rounded,
+      label: 'Capture Photo',
+      icon: Icons.camera_alt_rounded,
       onPressed: () => _handleCapture(context),
     );
   }
@@ -694,8 +692,8 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
         const SizedBox(width: 12),
         Expanded(
           child: FansiButton.secondary(
-            label: 'Rescan',
-            icon: Icons.refresh_rounded,
+            label: 'Switch Camera',
+            icon: Icons.cameraswitch_rounded,
             onPressed: _switchCamera,
           ),
         ),

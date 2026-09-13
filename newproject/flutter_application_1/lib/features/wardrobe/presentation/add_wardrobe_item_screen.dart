@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
 /// Screen for filling in item details when adding a new wardrobe item.
 class AddWardrobeItemScreen extends StatefulWidget {
@@ -173,30 +175,30 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                         ),
                         const SizedBox(height: 32),
 
-                        // Error message
+                        // Error message (shared error treatment)
                         if (_errorMessage != null) ...[
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: Colors.red.withValues(alpha: 0.1),
+                              color: FansivibeColors.error.withValues(alpha: 0.1),
                               borderRadius: FansivibeRadius.smdBorder,
                               border: Border.all(
-                                color: Colors.red.withValues(alpha: 0.3),
+                                color: FansivibeColors.error.withValues(alpha: 0.3),
                               ),
                             ),
                             child: Row(
                               children: [
                                 const Icon(
                                   Icons.error_outline_rounded,
-                                  color: Colors.redAccent,
+                                  color: FansivibeColors.error,
                                   size: 18,
                                 ),
-SizedBox(width: 8),
+                                const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     _errorMessage!,
                                     style: textStyle!.copyWith(
-                                      color: Colors.redAccent,
+                                      color: FansivibeColors.error,
                                     ),
                                   ),
                                 ),
@@ -206,39 +208,30 @@ SizedBox(width: 8),
                           const SizedBox(height: 16),
                         ],
 
-                        // Save button
+                        // Save button (shared primary action)
                         SizedBox(
                           width: double.infinity,
                           child: _isSubmitting
-                              ? const CircularProgressIndicator(
-                                  valueColor:
-                                      AlwaysStoppedAnimation<Color>(FansivibeColors.accentGold),
+                              ? const Center(
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 3,
+                                      valueColor:
+                                          AlwaysStoppedAnimation<Color>(
+                                        FansivibeColors.primary,
+                                      ),
+                                    ),
+                                  ),
                                 )
-                              : FilledButton.icon(
+                              : FansiButton.primary(
+                                  label: 'Save Item',
+                                  icon: Icons.save_rounded,
+                                  // Keep enabled so tapping with no
+                                  // selection surfaces the validation
+                                  // message (see _saveItem).
                                   onPressed: _saveItem,
-                                  icon: const Icon(Icons.save_rounded, size: 18),
-                                  label: Text(
-                                    'Save Item',
-                                    style: textStyle!.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color: FansivibeColors.background,
-                                    ),
-                                  ),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: FansivibeColors.accentGold,
-                                    foregroundColor: FansivibeColors.background,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 14,
-                                      horizontal: 16,
-                                    ),
-                                    minimumSize: const Size(0, 48),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: FansivibeRadius.baseBorder,
-                                    ),
-                                    elevation: 4,
-                                    shadowColor: FansivibeColors.accentGold
-                                        .withValues(alpha: 0.3),
-                                  ),
                                 ),
                         ),
                         const SizedBox(height: 32),
@@ -409,14 +402,11 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Text(
       label,
-      style: theme.textTheme.titleMedium?.copyWith(
+      style: FansivibeTypography.titleLargeWithFamily.copyWith(
         fontWeight: FontWeight.w600,
         color: FansivibeColors.textPrimary,
-        fontFamily: 'serif',
         fontSize: 18,
       ),
     );

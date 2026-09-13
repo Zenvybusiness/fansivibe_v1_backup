@@ -377,11 +377,11 @@ ScaffoldMessenger.of(context).showSnackBar(
                 ),
                 errorBorder: OutlineInputBorder(
                   borderRadius: FansivibeRadius.baseBorder,
-                  borderSide: const BorderSide(color: Colors.red),
+                  borderSide: const BorderSide(color: FansivibeColors.error),
                 ),
                 focusedErrorBorder: OutlineInputBorder(
                   borderRadius: FansivibeRadius.baseBorder,
-                  borderSide: const BorderSide(color: Colors.redAccent),
+                  borderSide: const BorderSide(color: FansivibeColors.error),
                 ),
               ),
               validator: (value) {

@@ -141,7 +141,7 @@ def test_successful_recommendation_completes_run():
         user_state=FakeUserState({"face_shape": "Oval", "skin_tone": "Warm Medium"}),
         knowledge=_knowledge_with_catalog(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     assert record.status == "completed"
@@ -165,7 +165,7 @@ def test_pipeline_failure_marks_run_failed_not_stuck_pending():
         user_state=FakeUserState({"face_shape": "Oval"}),
         knowledge=EmptyKnowledge(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     assert record.status == "failed"
@@ -182,7 +182,7 @@ def test_insufficient_profile_raises_typed_error():
         knowledge=_knowledge_with_catalog(),
     )
     with pytest.raises(ApiError) as excinfo:
-        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        use_case(user_id=USER)
     assert excinfo.value.status_code == 422
     assert excinfo.value.code == "INSUFFICIENT_USER_DATA"
     assert excinfo.value.details["missing"] == "face"
@@ -195,7 +195,7 @@ def test_failed_run_is_owner_scoped_read():
         user_state=FakeUserState({"face_shape": "Oval"}),
         knowledge=_knowledge_with_catalog(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     other = uuid4()
     assert runs.get_for_user(user_id=other, run_id=run_id) is None
 
@@ -212,7 +212,7 @@ def test_successful_grooming_run_completes_run():
         user_state=FakeUserState({"face_shape": "Oval", "skin_tone": "Warm Medium", "body_type": "Athletic", "style_type": "Modern Classic"}),
         knowledge=_knowledge_with_catalog(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     assert record.status == "completed"
@@ -236,7 +236,7 @@ def test_pipeline_failure_marks_run_failed_not_stuck_pending():
         user_state=FakeUserState({"face_shape": "Oval"}),
         knowledge=EmptyKnowledge(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     assert record.status == "failed"
@@ -253,7 +253,7 @@ def test_insufficient_profile_raises_typed_error():
         knowledge=_knowledge_with_catalog(),
     )
     with pytest.raises(ApiError) as excinfo:
-        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        use_case(user_id=USER)
     assert excinfo.value.status_code == 422
     assert excinfo.value.code == "INSUFFICIENT_USER_DATA"
     assert excinfo.value.details["missing"] == "face"
@@ -266,7 +266,7 @@ def test_failed_run_is_owner_scoped_read():
         user_state=FakeUserState({"face_shape": "Oval"}),
         knowledge=_knowledge_with_catalog(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     other = uuid4()
     assert runs.get_for_user(user_id=other, run_id=run_id) is None
 
@@ -281,14 +281,14 @@ def test_grooming_run_preserves_historical_data():
     )
 
     # Create first run
-    run_id_1 = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id_1 = use_case(user_id=USER)
     record_1 = runs.get_for_user(user_id=USER, run_id=run_id_1)
     assert record_1 is not None
     assert record_1.status == "completed"
     assert record_1.result is not None
 
     # Create second run - should not overwrite first
-    run_id_2 = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id_2 = use_case(user_id=USER)
     record_2 = runs.get_for_user(user_id=USER, run_id=run_id_2)
     assert record_2 is not None
     assert record_2.status == "completed"
@@ -311,24 +311,26 @@ def test_grooming_run_status_transitions():
         knowledge=_knowledge_with_catalog(),
     )
 
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     # Status should transition from pending to completed
     assert record.status == "completed"
 
 
-def test_grooming_invalid_input():
-    """Invalid faceProfileRef should be handled."""
+def test_grooming_no_reference_required():
+    """Phase 28: no face-profile reference exists — use case resolves
+    style_profile by user_id alone."""
     runs = FakeRuns()
     use_case = CreateGroomingRun(
         runs=runs,
         user_state=FakeUserState({"face_shape": "Oval"}),
         knowledge=_knowledge_with_catalog(),
     )
-    # Invalid UUID should cause validation error before use case
-    # (validated in the router, not in the use case itself)
-    use_case(user_id=USER, face_profile_ref="invalid-uuid")
+    run_id = use_case(user_id=USER)
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
 
 
 def test_grooming_decision_engine_failure():
@@ -344,7 +346,7 @@ def test_grooming_decision_engine_failure():
         user_state=FakeUserState({"face_shape": "Oval"}),
         knowledge=FailingKnowledge(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     assert record.status == "failed"
@@ -360,7 +362,7 @@ def test_grooming_context_snapshot_persistence():
         user_state=FakeUserState({"face_shape": "Oval", "skin_tone": "Warm Medium", "body_type": "Athletic", "style_type": "Modern Classic"}),
         knowledge=_knowledge_with_catalog(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     assert record.result is not None
@@ -382,7 +384,7 @@ def test_existing_hairstyle_regression():
         user_state=FakeUserState({"face_shape": "Oval", "skin_tone": "Warm Medium"}),
         knowledge=_knowledge_with_catalog(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     assert record.status == "completed"
@@ -1160,7 +1162,7 @@ def test_11_2_no_saved_looks_existing_behavior_unchanged():
     """A. No saved looks → existing recommendation behavior (top quiff)."""
     runs = FakeRuns()
     run_id = _hairstyle_use_case(runs, FakeSavedLooks())(
-        user_id=USER, face_profile_ref=str(uuid4())
+        user_id=USER
     )
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
@@ -1174,7 +1176,7 @@ def test_11_2_no_saved_looks_repo_wired_behavior_unchanged():
     """A2. Backward compat: callers without saved_looks still complete."""
     runs = FakeRuns()
     run_id = _hairstyle_use_case(runs)(
-        user_id=USER, face_profile_ref=str(uuid4())
+        user_id=USER
     )
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
@@ -1199,7 +1201,7 @@ def test_11_2_saved_hairstyle_look_populates_preferred():
         return real_recommend(knowledge, appearance, preferences, **kwargs)
 
     with patch.object(analysis_module, "recommend_hairstyle", spy):
-        run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        run_id = use_case(user_id=USER)
 
     prefs = captured["preferences"]
     assert prefs is not None
@@ -1229,7 +1231,7 @@ def test_11_2_other_user_saved_look_cannot_influence():
         return real_recommend(knowledge, appearance, preferences, **kwargs)
 
     with patch.object(analysis_module, "recommend_hairstyle", spy):
-        run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        run_id = use_case(user_id=USER)
 
     assert len(captured["preferences"].preferredLookIds) == 0
     assert len(captured["preferences"].excludedLookIds) == 0
@@ -1261,7 +1263,7 @@ def test_11_2_filtering_ranking_consume_populated_preferences():
         return real_recommend(knowledge, appearance, preferences, **kwargs)
 
     with patch.object(analysis_module, "recommend_hairstyle", spy):
-        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        use_case(user_id=USER)
 
     prefs = captured["preferences"]
     knowledge = _knowledge_with_catalog()
@@ -1295,7 +1297,7 @@ def test_11_2_non_hairstyle_and_unknown_ids_ignored():
         return real_recommend(knowledge, appearance, preferences, **kwargs)
 
     with patch.object(analysis_module, "recommend_hairstyle", spy):
-        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        use_case(user_id=USER)
 
     assert len(captured["preferences"].preferredLookIds) == 0
     assert len(captured["preferences"].excludedLookIds) == 0
@@ -1312,7 +1314,7 @@ def test_11_2_no_schema_migration_required():
     # And it runs entirely against fake repos (no database).
     runs = FakeRuns()
     run_id = _hairstyle_use_case(runs, FakeSavedLooks())(
-        user_id=USER, face_profile_ref=str(uuid4())
+        user_id=USER
     )
     assert runs.get_for_user(user_id=USER, run_id=run_id).status == "completed"
 
@@ -1350,9 +1352,8 @@ def test_11_2_1_router_injects_saved_look_repo_into_create_hairstyle_run(monkeyp
         def __init__(self, **kwargs) -> None:
             captured["kwargs"] = kwargs
 
-        def __call__(self, *, user_id, face_profile_ref):
+        def __call__(self, *, user_id):
             captured["user_id"] = user_id
-            captured["face_profile_ref"] = face_profile_ref
             return run_id
 
     monkeypatch.setattr(analysis_router, "CreateHairstyleRun", SpyCreateHairstyleRun)
@@ -1368,7 +1369,7 @@ def test_11_2_1_router_injects_saved_look_repo_into_create_hairstyle_run(monkeyp
     try:
         client = TestClient(app)
         ref = str(_uuid.uuid4())
-        resp = client.post("/v1/analysis/hairstyle", data={"faceProfileRef": ref})
+        resp = client.post("/v1/analysis/hairstyle", data={})
         assert resp.status_code == 202
         assert resp.json()["run_id"] == str(run_id)
     finally:
@@ -1385,7 +1386,7 @@ def test_11_2_1_router_injects_saved_look_repo_into_create_hairstyle_run(monkeyp
     assert isinstance(saved_looks, SavedLookRepositorySQL)
     assert saved_looks._session is db_session
     assert captured["user_id"] == router_user
-    assert captured["face_profile_ref"] == ref
+    assert "face_profile_ref" not in captured
 
 
 # ============================================================================
@@ -1413,7 +1414,7 @@ def test_11_3_no_saved_looks_existing_behavior_unchanged():
     """A. No saved looks → existing recommendation behavior (top goatee)."""
     runs = FakeRuns()
     run_id = _grooming_use_case(runs, FakeSavedLooks())(
-        user_id=USER, face_profile_ref=str(uuid4())
+        user_id=USER
     )
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
@@ -1427,7 +1428,7 @@ def test_11_3_no_saved_looks_repo_wired_behavior_unchanged():
     """B. Backward compat: callers without saved_looks still complete."""
     runs = FakeRuns()
     run_id = _grooming_use_case(runs)(
-        user_id=USER, face_profile_ref=str(uuid4())
+        user_id=USER
     )
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
@@ -1452,7 +1453,7 @@ def test_11_3_saved_grooming_look_populates_preferred():
         return real_recommend(knowledge, appearance, preferences, **kwargs)
 
     with patch.object(analysis_module, "recommend_grooming", spy):
-        run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        run_id = use_case(user_id=USER)
 
     prefs = captured["preferences"]
     assert prefs is not None
@@ -1484,7 +1485,7 @@ def test_11_3_other_user_saved_look_cannot_influence():
         return real_recommend(knowledge, appearance, preferences, **kwargs)
 
     with patch.object(analysis_module, "recommend_grooming", spy):
-        run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        run_id = use_case(user_id=USER)
 
     assert len(captured["preferences"].preferredLookIds) == 0
     assert len(captured["preferences"].excludedLookIds) == 0
@@ -1510,7 +1511,7 @@ def test_11_3_saved_hairstyle_id_ignored():
         return real_recommend(knowledge, appearance, preferences, **kwargs)
 
     with patch.object(analysis_module, "recommend_grooming", spy):
-        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        use_case(user_id=USER)
 
     assert len(captured["preferences"].preferredLookIds) == 0
     assert len(captured["preferences"].excludedLookIds) == 0
@@ -1535,7 +1536,7 @@ def test_11_3_none_outfit_and_unknown_ids_ignored():
         return real_recommend(knowledge, appearance, preferences, **kwargs)
 
     with patch.object(analysis_module, "recommend_grooming", spy):
-        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        use_case(user_id=USER)
 
     assert len(captured["preferences"].preferredLookIds) == 0
     assert len(captured["preferences"].excludedLookIds) == 0
@@ -1565,7 +1566,7 @@ def test_11_3_filtering_ranking_consume_populated_preferences():
         return real_recommend(knowledge, appearance, preferences, **kwargs)
 
     with patch.object(analysis_module, "recommend_grooming", spy):
-        use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        use_case(user_id=USER)
 
     prefs = captured["preferences"]
     knowledge = _knowledge_with_catalog()
@@ -1599,7 +1600,7 @@ def test_11_3_repository_failure_degrades_to_empty_preferences():
         return real_recommend(knowledge, appearance, preferences, **kwargs)
 
     with patch.object(analysis_module, "recommend_grooming", spy):
-        run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+        run_id = use_case(user_id=USER)
 
     assert len(captured["preferences"].preferredLookIds) == 0
     assert len(captured["preferences"].excludedLookIds) == 0
@@ -1635,9 +1636,8 @@ def test_11_3_router_injects_saved_look_repo_into_create_grooming_run(monkeypatc
         def __init__(self, **kwargs) -> None:
             captured["kwargs"] = kwargs
 
-        def __call__(self, *, user_id, face_profile_ref):
+        def __call__(self, *, user_id):
             captured["user_id"] = user_id
-            captured["face_profile_ref"] = face_profile_ref
             return run_id
 
     monkeypatch.setattr(analysis_router, "CreateGroomingRun", SpyCreateGroomingRun)
@@ -1653,7 +1653,7 @@ def test_11_3_router_injects_saved_look_repo_into_create_grooming_run(monkeypatc
     try:
         client = TestClient(app)
         ref = str(_uuid.uuid4())
-        resp = client.post("/v1/analysis/grooming", json={"face_profile_ref": ref})
+        resp = client.post("/v1/analysis/grooming", json={})
         assert resp.status_code == 202
         assert resp.json()["run_id"] == str(run_id)
     finally:
@@ -1670,7 +1670,7 @@ def test_11_3_router_injects_saved_look_repo_into_create_grooming_run(monkeypatc
     assert isinstance(saved_looks, SavedLookRepositorySQL)
     assert saved_looks._session is db_session
     assert captured["user_id"] == router_user
-    assert captured["face_profile_ref"] == ref
+    assert "face_profile_ref" not in captured
 
 
 # ============================================================================
@@ -2005,7 +2005,7 @@ def test_12_3_hairstyle_run_persists_knowledge_version():
         user_state=FakeUserState({"face_shape": "Oval", "skin_tone": "Warm Medium"}),
         knowledge=_knowledge_with_catalog(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     assert record.knowledge_version == "1.1+1.0"
@@ -2020,7 +2020,7 @@ def test_12_3_grooming_run_persists_knowledge_version():
         user_state=FakeUserState({"face_shape": "Oval"}),
         knowledge=_knowledge_with_catalog(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     assert record.knowledge_version == "1.1+1.0"
@@ -2050,7 +2050,7 @@ def test_12_3_engine_version_remains_separate():
         user_state=FakeUserState({"face_shape": "Oval"}),
         knowledge=_knowledge_with_catalog(),
     )
-    run_id = use_case(user_id=USER, face_profile_ref=str(uuid4()))
+    run_id = use_case(user_id=USER)
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     assert record.engine_version == "rules-v1"

@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/outfit_scan/data/outfit_scan_client.dart';
-import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -117,9 +117,16 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
         Navigator.of(context).popUntil((route) => route.isFirst);
         return;
       } else {
+        // Truthful connection diagnostics (Phase 22, Step 8): status 0 is
+        // offline/unreachable, 429 is rate-limited — never silent retry.
+        final message = result.statusCode == 0
+            ? AppConfig.connectionHint
+            : result.statusCode == 429
+            ? 'Too many requests — please wait a moment and try again.'
+            : 'Server returned ${result.statusCode}, retrying...';
         setState(() {
           _pollAttempts = attempts;
-          _errorMessage = 'Server returned ${result.statusCode}, retrying...';
+          _errorMessage = message;
         });
       }
     } catch (e) {
@@ -210,12 +217,11 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
                         if (_runStatus != null &&
                             _runStatus!['status'] == 'failed')
                           FansiButton.secondary(
-                            label: 'Retry Scan',
+                            label: 'Back to Scan',
                             icon: Icons.refresh_rounded,
                             onPressed: () {
                               if (!mounted) return;
                               context.pop();
-                              context.goNamed('/home');
                             },
                           ),
 

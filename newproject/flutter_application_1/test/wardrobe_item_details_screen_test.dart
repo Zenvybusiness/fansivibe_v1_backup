@@ -6,6 +6,7 @@ import 'package:fansivibe/features/wardrobe/presentation/wardrobe_item_details_s
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
+import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -237,6 +238,36 @@ void main() {
       expect(find.text('Color'), findsOneWidget);
       expect(find.text('Material'), findsNothing);
       expect(find.text('Category'), findsOneWidget);
+    });
+
+    testWidgets('edit-form name field uses the design-system error color', (
+      WidgetTester tester,
+    ) async {
+      final item = WardrobeMockData.items.first;
+      await tester.pumpWidget(_wrapScreen(item));
+
+      await tester.scrollUntilVisible(find.text('Edit Item'), 400);
+      await tester.tap(find.text('Edit Item'));
+      await tester.pump();
+
+      // Validation behavior is unchanged; only the raw-red accents moved to
+      // the Fansivibe error token.
+      final nameField = tester
+          .widgetList<TextField>(find.byType(TextField))
+          .firstWhere(
+            (field) => field.decoration?.labelText == 'Name',
+          );
+      final decoration = nameField.decoration!;
+      expect(
+        (decoration.errorBorder! as OutlineInputBorder).borderSide.color,
+        FansivibeColors.error,
+      );
+      expect(
+        (decoration.focusedErrorBorder! as OutlineInputBorder)
+            .borderSide
+            .color,
+        FansivibeColors.error,
+      );
     });
   });
 }

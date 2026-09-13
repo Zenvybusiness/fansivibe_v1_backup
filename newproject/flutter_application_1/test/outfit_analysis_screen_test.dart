@@ -200,5 +200,27 @@ void main() {
 
       expect(find.text('See Recommendations'), findsOneWidget);
     });
+
+    testWidgets('share button honestly reports the feature is unavailable', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: {
+              'appearance': {'faceShape': 'oval'},
+              'confidence': 0.78,
+              'needs_more_data': false,
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.byIcon(Icons.share_outlined));
+      await tester.pump();
+
+      // No share payload exists: the button must not claim a share occurred.
+      expect(find.text('Share feature coming soon'), findsOneWidget);
+    });
   });
 }

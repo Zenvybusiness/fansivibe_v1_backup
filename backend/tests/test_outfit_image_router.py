@@ -298,12 +298,14 @@ def test_unsupported_media_type_rejected_before_adapter(monkeypatch):
     assert FakeRuns.rows == {}
 
 
-def test_face_profile_ref_rejected_for_outfit(monkeypatch):
+def test_obsolete_face_profile_ref_ignored_for_outfit(monkeypatch):
+    # Phase 28: obsolete faceProfileRef is no longer part of the contract —
+    # extra field is ignored; image branch still returns 202.
     client = _client(monkeypatch)
     resp = client.post(
         "/v1/analysis/outfit",
         data={"faceProfileRef": str(uuid.uuid4())},
         files={"image": ("outfit.jpg", b"bytes", "image/jpeg")},
     )
-    assert resp.status_code == 422
-    assert FakeRuns.rows == {}
+    assert resp.status_code == 202
+    assert resp.json()["run_id"]

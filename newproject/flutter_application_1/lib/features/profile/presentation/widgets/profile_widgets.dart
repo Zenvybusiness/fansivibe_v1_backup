@@ -900,7 +900,7 @@ class ProfileMenuCard extends StatelessWidget {
               _getIconData(action.iconName),
               size: 22,
               color: isDestructive
-                  ? Colors.redAccent
+                  ? FansivibeColors.error
                   : FansivibeColors.accentGold,
             ),
             const SizedBox(width: 14),
@@ -910,7 +910,7 @@ class ProfileMenuCard extends StatelessWidget {
                 style: theme.textTheme.bodyLarge?.copyWith(
                   fontWeight: FontWeight.w500,
                   color: isDestructive
-                      ? Colors.redAccent
+                      ? FansivibeColors.error
                       : FansivibeColors.textPrimary,
                 ),
               ),

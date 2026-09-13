@@ -50,6 +50,7 @@ class FaceScanScreen extends StatefulWidget {
 class _FaceScanScreenState extends State<FaceScanScreen> {
   Uint8List? _imageBytes;
   String? _imageName;
+  ImageSource? _pickedSource;
   bool _consent = false;
 
   bool get _canAnalyze => _imageBytes != null && _imageBytes!.isNotEmpty && _consent;
@@ -64,6 +65,7 @@ class _FaceScanScreenState extends State<FaceScanScreen> {
         // In-memory only: preview bytes, never persisted or logged.
         _imageBytes = bytes;
         _imageName = picked.name.isNotEmpty ? picked.name : 'face_scan.jpg';
+        _pickedSource = source;
       });
     } catch (_) {
       if (!mounted) return;
@@ -79,7 +81,7 @@ class _FaceScanScreenState extends State<FaceScanScreen> {
   void _analyze() {
     if (!_canAnalyze) return;
     (widget.analytics ?? _analytics).emitAppearanceScanStarted(
-      cameraSource: 'camera',
+      cameraSource: _pickedSource == ImageSource.gallery ? 'gallery' : 'camera',
       imageQuality: null,
     );
     context.pushNamed(

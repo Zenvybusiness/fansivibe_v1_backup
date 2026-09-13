@@ -19,10 +19,6 @@ class GroomingService extends ChangeNotifier {
 
   static final int totalStages = 5;
 
-  /// Dev-only face profile reference until profile creation is wired.
-  static const String _devFaceProfileRef =
-      '00000000-0000-0000-0000-000000000001';
-
   final GroomingClient _client;
   LearningRepository? _learning;
   final Random _random = Random();
@@ -74,9 +70,7 @@ class GroomingService extends ChangeNotifier {
     if (faceShape == null || faceShape.isEmpty) {
       resolved = GroomingAnalysisResult.mock;
     } else {
-      final runId = await _client.submitGroomingAnalysis(
-        faceProfileRef: _devFaceProfileRef,
-      );
+      final runId = await _client.submitGroomingAnalysis();
       if (runId == null) {
         resolved = GroomingAnalysisResult.mock;
       } else {

@@ -23,10 +23,6 @@ class HairstyleService extends ChangeNotifier {
 
   static final int totalStages = HairstyleProcessingStage.mockStages.length;
 
-  /// Dev-only face profile reference until profile creation is wired.
-  static const String _devFaceProfileRef =
-      '00000000-0000-0000-0000-000000000001';
-
   final HairstyleClient _client;
   LearningRepository? _learning;
   late final AnalyticsService _analytics;
@@ -113,9 +109,7 @@ class HairstyleService extends ChangeNotifier {
         resolved = HairstyleAnalysisResult.mock;
       } else {
         resolved = await _resolveBackendRun(
-          _client.submitHairstyleAnalysis(
-            faceProfileRef: _devFaceProfileRef,
-          ),
+          _client.submitHairstyleAnalysis(),
         );
       }
     }

@@ -119,6 +119,44 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         SizedBox(height: FansivibeSpacing.lg),
+                        // Phase 22 (Step 6): this onboarding preview shows
+                        // illustrative sample content — never a real backend
+                        // analysis. Real appearance analysis runs post-auth
+                        // in Scan flows via Ollama vision (see analysis
+                        // endpoints) and never fabricates scores.
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(FansivibeSpacing.md),
+                          decoration: BoxDecoration(
+                            color: FansivibeColors.surfaceContainerLow,
+                            borderRadius: FansivibeRadius.mdBorder,
+                            border: Border.all(
+                              color: FansivibeColors.primary.withValues(
+                                alpha: 0.25,
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline_rounded,
+                                size: 18,
+                                color: FansivibeColors.primary,
+                              ),
+                              SizedBox(width: FansivibeSpacing.sm),
+                              Expanded(
+                                child: Text(
+                                  'Sample preview — your personal analysis appears after you add a photo in Scan.',
+                                  style: FansivibeTypography.bodyMediumWithFamily
+                                      .copyWith(
+                                        color: FansivibeColors.secondary,
+                                      ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(height: FansivibeSpacing.lg),
                         _buildScoreSection(),
                         SizedBox(height: FansivibeSpacing.xl),
                         _buildAnimatedSection(

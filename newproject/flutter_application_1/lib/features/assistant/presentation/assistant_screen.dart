@@ -78,7 +78,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
   void _onCardAction(SuggestionCard card) {
     _service.onCardOpened(card);
     final route = AssistantRoutes.routeFor(card.action);
-    if (context.mounted) context.goNamed(route);
+    if (!context.mounted) return;
+    if (route == null) {
+      _showUnsupportedAction();
+      return;
+    }
+    context.goNamed(route);
   }
 
   void _onClarification(ClarificationOption option) {
@@ -88,7 +93,28 @@ class _AssistantScreenState extends State<AssistantScreen> {
   void _onNavigationRequest(NavigationRequest request) {
     _service.onNavigated(request);
     final route = AssistantRoutes.routeFor(request.route);
-    if (context.mounted) context.goNamed(route);
+    if (!context.mounted) return;
+    if (route == null) {
+      _showUnsupportedAction();
+      return;
+    }
+    context.goNamed(route);
+  }
+
+  /// Honest fallback for assistant actions with no app destination.
+  ///
+  /// The tap is still recorded via `onCardOpened`/`onNavigated` above; only
+  /// the navigation is withheld so an unknown action never lands the user
+  /// on an unrelated screen.
+  void _showUnsupportedAction() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text("That suggestion isn't available in this version"),
+        backgroundColor: FansivibeColors.surfaceContainerHighest,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
+      ),
+    );
   }
 
   /// Outfit Save: delegates to the existing service orchestration, which

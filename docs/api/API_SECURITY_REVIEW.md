@@ -407,7 +407,8 @@ accepted fields; server-owned fields (`user_id`, `id`, `createdAt`,
 **Verification result — verified strong; one data-integrity note (F-4).**
 
 - **Verified:** creation DTOs are minimal — analysis submits accept only
-  `image` + typed fields / `faceProfileRef` / `options` (`SCAN_API.md:357-361,415-418,493-501`);
+  `image` + typed fields / `options` (Phase 28: no face-profile reference;
+  `SCAN_API.md:357-361,415-418,493-501`);
   wardrobe create/patch field lists exclude `id/user_id/createdAt/updatedAt`
   (`WARDROBE_API.md:313-322,435-437`); event create/update exclude id/timestamps,
   and `hasOutfitRecommendation` is explicitly **not stored**
@@ -507,7 +508,7 @@ and residual findings.
 ### 6.2 Face data
 
 - **Sensitivity:** CRITICAL (biometric-adjacent) (`SECURITY_PRIVACY_DESIGN.md` §4.1).
-- **Surface:** 37 (hairstyle analysis: image or `faceProfileRef`), profile
+- **Surface:** 37 (hairstyle analysis: image pass or empty-body profile-only pass over `style_profile` by `user_id`, Phase 28), profile
   `styleProfile.faceShape/skinTone/bodyType` (7/10), assistant
   `UserContext.face` (16), run results (39).
 - **Controls present:** attributes are analysis-derived, never client-authored
@@ -643,8 +644,8 @@ media/file validation where applicable. **Rate:** 429 category present.
 | 34 | GET `/v1/learning/summary` | auth | OW-1 | typed labels only, never raw feedback text | — |
 | 35 | POST `/v1/feedback` | auth | OW-1 | **gated (NOT mounted)**; rating vocab pending; Idempotency-Key when live | F-2 |
 | 36 | POST `/v1/analysis/outfit` | auth | OW-1 | inline image; pre-run MIME/size → 413/422; async 202 | F-2, F-3 |
-| 37 | POST `/v1/analysis/hairstyle` | auth | OW-1 | image or `faceProfileRef`; face = CRITICAL; pre-run checks | F-2, F-3 |
-| 38 | POST `/v1/analysis/grooming` | auth | OW-1 | vocab options only, no free text | F-2 |
+| 37 | POST `/v1/analysis/hairstyle` | auth | OW-1 | image pass or empty-body profile-only pass (no reference, Phase 28); face = CRITICAL; pre-run checks | F-2, F-3 |
+| 38 | POST `/v1/analysis/grooming` | auth | OW-1 | empty JSON `{}` profile-only pass (no reference, Phase 28); vocab options only, no free text | F-2 |
 | 39 | GET `/v1/analysis/runs/{run_id}` | auth | OW-1 | UUID; 404-not-403; full immutable result to owner only | — |
 | 40 | GET `/v1/analysis/runs` | auth | OW-1 | summary rows (no `result`); run_type filter | — |
 | 41 | POST `/v1/outfits/generate` | auth | OW-1 | sync rules-based; 204 empty wardrobe; never idempotent | F-2 |

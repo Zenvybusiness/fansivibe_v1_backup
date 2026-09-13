@@ -18,18 +18,15 @@ class _FakeHairstyleClient extends HairstyleClient {
   int listCalls = 0;
   final List<String> savedLookIds = [];
   final List<String> savedTitles = [];
-  String? lastFaceProfileRef;
   Uint8List? lastImageBytes;
 
   @override
   Future<String?> submitHairstyleAnalysis({
-    String? faceProfileRef,
     Uint8List? imageBytes,
     String? imageFilename,
     String? imageContentType,
   }) async {
     submitCalls++;
-    lastFaceProfileRef = faceProfileRef;
     lastImageBytes = imageBytes;
     return submitResult;
   }
@@ -279,7 +276,6 @@ void main() {
 
       expect(client.submitCalls, 1);
       expect(client.lastImageBytes, image);
-      expect(client.lastFaceProfileRef, isNull);
       expect(result.faceShape, 'Oval');
       expect(service.isMockResult, isFalse);
     });

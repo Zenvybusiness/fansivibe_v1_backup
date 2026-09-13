@@ -56,19 +56,28 @@ def test_submit_requires_auth():
     assert resp.json()["error"]["code"] == "AUTHENTICATION_ERROR"
 
 
-def test_submit_requires_face_profile_ref(db):
+def test_submit_profile_only_requires_no_reference(db):
+    # Phase 28: obsolete face_profile_ref removed — empty profile-only
+    # submit uses the authenticated user's style_profile by user_id.
+    # Without a stored face_shape this is honest INSUFFICIENT_USER_DATA,
+    # not a missing-reference validation error.
     resp = client.post("/v1/analysis/hairstyle", data={}, headers=HEADERS)
     assert resp.status_code == 422
-    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert resp.json()["error"]["code"] == "INSUFFICIENT_USER_DATA"
 
 
-def test_submit_rejects_malformed_profile_ref(db):
+def test_submit_ignores_obsolete_face_profile_ref(db):
+    # Extra obsolete faceProfileRef is no longer part of the contract and
+    # must not drive validation — it is ignored; the profile-only pass
+    # still resolves style_profile by user_id.
+    _seed_profile(db, {"face_shape": "Oval"})
     resp = client.post(
         "/v1/analysis/hairstyle",
         data={"faceProfileRef": "not-a-uuid"},
         headers=HEADERS,
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 202
+    assert resp.json()["run_id"]
 
 
 def test_image_upload_reaches_production_image_run(db, monkeypatch):
@@ -171,14 +180,38 @@ def test_hairstyle_image_does_not_route_through_outfit(db, monkeypatch):
     assert resp.json()["run_id"]
 
 
-def test_hairstyle_image_xor_still_rejects_both(db):
+def test_hairstyle_image_ignores_obsolete_ref(db, monkeypatch):
+    # Phase 28: obsolete faceProfileRef is ignored — image + extra field
+    # follows the image branch (202), never a mutual-exclusivity 422.
+    from app.domain.value_objects import AppearanceProfile
+
+    class RecordingVisionPort:
+        adapter_id = "ollama-vision-v1"
+
+        def analyze(self, *, media_ref, user_id, image_bytes=None):
+            return AppearanceProfile(
+                faceShape="oval",
+                skinTone="",
+                bodyType="",
+                styleType="",
+                sourceRunId="",
+            )
+
+        def validate_result(self, result) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.OllamaVisionAppearanceAdapter",
+        RecordingVisionPort,
+    )
     resp = client.post(
         "/v1/analysis/hairstyle",
-        data={"faceProfileRef": str(uuid.uuid4())},
+        data={},
         files={"image": ("face.jpg", b"fakebytes", "image/jpeg")},
         headers=HEADERS,
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 202
+    assert resp.json()["run_id"]
 
 
 def test_hairstyle_image_failed_analyzer_marks_run_failed(db, monkeypatch):
@@ -219,7 +252,7 @@ def test_hairstyle_image_failed_analyzer_marks_run_failed(db, monkeypatch):
 def test_submit_without_profile_returns_insufficient_data(db):
     resp = client.post(
         "/v1/analysis/hairstyle",
-        data={"faceProfileRef": str(uuid.uuid4())},
+        data={},
         headers=HEADERS,
     )
     assert resp.status_code == 422
@@ -238,7 +271,7 @@ def test_full_flow_202_then_completed_with_result(db):
     )
     resp = client.post(
         "/v1/analysis/hairstyle",
-        data={"faceProfileRef": str(uuid.uuid4())},
+        data={},
         headers=HEADERS,
     )
     assert resp.status_code == 202
@@ -267,7 +300,7 @@ def test_round_profile_ranks_pompadour(db):
     _seed_profile(db, {"face_shape": "Round"})
     resp = client.post(
         "/v1/analysis/hairstyle",
-        data={"faceProfileRef": str(uuid.uuid4())},
+        data={},
         headers=HEADERS,
     )
     run_id = resp.json()["run_id"]
@@ -290,7 +323,7 @@ def test_recommendation_failure_marks_run_failed_with_processsing_failure(db, mo
 
     resp = client.post(
         "/v1/analysis/hairstyle",
-        data={"faceProfileRef": str(uuid.uuid4())},
+        data={},
         headers=HEADERS,
     )
     assert resp.status_code == 202
@@ -327,7 +360,7 @@ def test_list_runs_returns_summaries_without_result(db):
     for _ in range(3):
         run_id = client.post(
             "/v1/analysis/hairstyle",
-            data={"faceProfileRef": str(uuid.uuid4())},
+            data={},
             headers=HEADERS,
         ).json()["run_id"]
         assert run_id

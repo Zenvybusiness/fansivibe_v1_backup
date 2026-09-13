@@ -111,7 +111,7 @@ class CreateHairstyleRun:
             preferred.add(look_id)
         return HairstylePreferences(preferredLookIds=frozenset(preferred))
 
-    def __call__(self, *, user_id: UUID, face_profile_ref: str) -> UUID:
+    def __call__(self, *, user_id: UUID) -> UUID:
         profile = self._user_state.get_style_profile(user_id=user_id)
         if not profile or not profile.get("face_shape"):
             raise insufficient_user_data("face")
@@ -585,7 +585,7 @@ class CreateGroomingRun:
             preferred.add(look_id)
         return HairstylePreferences(preferredLookIds=frozenset(preferred))
 
-    def __call__(self, *, user_id: UUID, face_profile_ref: str) -> UUID:
+    def __call__(self, *, user_id: UUID) -> UUID:
         profile = self._user_state.get_style_profile(user_id=user_id)
         if not profile or not profile.get("face_shape"):
             raise insufficient_user_data("face")

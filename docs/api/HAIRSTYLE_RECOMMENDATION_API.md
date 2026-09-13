@@ -146,8 +146,8 @@ not re-defined**.
 - **Regeneration is not a distinct operation.** There is no
   `RegenerateHairstyle` use case (only UC-29 `RegenerateOutfit`, M13). Regenerate
   = a **new** `POST /v1/analysis/hairstyle` (a new run), and the profile-only
-  pass (`faceProfileRef` without an image) is the natural re-rank path over the
-  stored FaceProfile — consistent with re-scan = new run
+  pass (empty body, no reference field — Phase 28) is the natural re-rank path over the
+  stored style_profile (by `user_id`) — consistent with re-scan = new run
   (`HISTORY_AND_VERSIONING.md` §5.7, `SCAN_API.md` §5.6).
 - **The hair *profile* is PLANNED, not data** — the same decision as
   `APPEARANCE_API.md` §3.1: no `hair-profile` resource exists; the run is the
@@ -187,7 +187,7 @@ not re-defined**.
 | H-4 | **Retrieve recommendation details** | **Required — within the run result; no separate endpoint** | A recommendation's full detail (description, reasons, styling tips, maintenance, best-for, score) **is** the result snapshot — the details screen reads the same object (`hairstyle_details_screen.dart`). §5.4. |
 | H-5 | **Save a recommendation** | **Required (referenced)** — `POST /v1/looks/saved` | UC-15, endpoint 23, action 22. Freezes an immutable snapshot + `look_saved` signal (TRX-3); `source_run_id` provenance. Owned by M7 — referenced, not re-defined. §5.5. |
 | H-6 | **Submit feedback** | **Required (referenced, gated)** — `POST /v1/feedback` | UC-32, endpoint 35, action 31. **Not mounted** until a feedback UI is accepted (M11, API-12); `feedback_events` has no table until then. Referenced. §5.6. |
-| H-7 | **Regenerate recommendations** | **Pattern, no endpoint** | No `RegenerateHairstyle` UC exists — regenerate = a **new** submission (new run); the profile-only pass (`faceProfileRef`) is the re-rank path. §5.7. |
+| H-7 | **Regenerate recommendations** | **Pattern, no endpoint** | No `RegenerateHairstyle` UC exists — regenerate = a **new** submission (new run); the profile-only pass (empty body, Phase 28) is the re-rank path. §5.7. |
 | — | **Hair *profile* read/write** | **NOT defined now** | PLANNED domain target, no tables (`APPEARANCE_API.md` §3.1). The run is the history. |
 | — | **Dedicated "recommendation" resource** (`GET /v1/recommendations/…`) | **NOT defined** | No `Recommendation` entity/table — recommendations are regenerable AI output (BAR-0); occurrence = run + save. |
 
@@ -292,7 +292,7 @@ Field-by-field (task item → contract semantics):
 | explanation | `description` (the why-this-suits-you narrative) | **present**, required (Explanation stage) |
 | reasons | `reasons[]` (grounded bullets) | **present**, required |
 | trade-offs (if available) | `tradeOffs` | **not modeled today** — additive, absent until the domain defines a grounded trade-off catalog |
-| relevant profile context | run result `appearance` block + `faceProfileRef` + current `StyleProfile` (R-1) | **present** at the run level (§4.5) |
+| relevant profile context | run result `appearance` block + current `StyleProfile` (R-1, Phase 28: no reference field) | **present** at the run level (§4.5) |
 | model/version metadata | `engine_version` (run), internal `model_version` | **present** at the run level; internals never surfaced raw (§4.5/§4.8) |
 
 **Honesty rule (AI-0):** a field the domain does not compute today is either
@@ -338,8 +338,7 @@ result {
 The **current** accepted profile (the user's style DNA view) is read from
 `GET /v1/users/me` → `ProfileView.styleProfile` (R-1, `APPEARANCE_API.md` §5.5,
 referenced) — it is disjoint from the run's snapshot (§4.4 of
-`APPEARANCE_API.md`). A profile-only request names its source via
-`faceProfileRef`.
+`APPEARANCE_API.md`). A profile-only request carries no reference field (Phase 28); the source is the authenticated user's stored style_profile by user_id.
 
 **Model/version metadata** (provenance, PR-6): the run carries `engine_version`
 (exposed), and the pipeline records an internal `model_version` per capability
@@ -401,17 +400,17 @@ details. A provider being used is never an API fact.
 - **Method / path:** `POST /v1/analysis/hairstyle` (endpoint 37, action 21)
 - **Asynchronous behavior:** **async** — `202 Accepted` + `run_id`; poll H-2
   until `completed | failed`. Each submission is a new run (never idempotent).
-- **Request schema** (`multipart/form-data`) — identical to `APPEARANCE_API.md`
-  §5.1 and `SCAN_API.md` §5.2:
+- **Request schema** (`multipart/form-data`, Phase 28: no face-profile reference — identical to `APPEARANCE_API.md`
+  §5.1 and `SCAN_API.md` §5.2):
 
 ```
-image:            <file>          // required; face photo; the evidence (MediaRef after M16)
-faceProfileRef?:  "…"             // optional; recommendation-only pass over the stored FaceProfile
+image:            <file>          // optional; face photo for the image pass (MediaRef after M16)
+                                 // absent = profile-only pass over the authenticated user's stored style_profile (by user_id)
 ```
 
   - With an image: the run does UC-25 (face analysis → appearance attributes)
     then UC-26 (hairstyle recommendations) — one run, one result.
-  - Without an image (profile-only, `faceProfileRef` present): recommendation
+  - Without an image (profile-only, empty body): recommendation
     pass over the already-stored current profile (no new face attributes) —
     this is the **regenerate** path (§5.7).
 - **Response schema:** `202 Accepted` — `AsyncAccepted { run_id* }` (bare, no
@@ -419,7 +418,9 @@ faceProfileRef?:  "…"             // optional; recommendation-only pass over t
 - **Authentication requirements:** **auth** (Bearer). Authorization: **owner**
   (OW-1); face media is private.
 - **Validation:**
-  - Image required when no `faceProfileRef`; otherwise **422**. Image
+  - Profile-only pass (no image) resolves the authenticated user's stored
+    `style_profile` by `user_id`; missing face data → **422
+    INSUFFICIENT_USER_DATA**. Image
     content-type/size checked pre-run → **413/422 MEDIA_FAILURE**.
   - No face detected / poor image → **422 VALIDATION_ERROR** (UC-25).
   - `run_type` produced = `hairstyle` (the endpoint's run_types code); a
@@ -635,8 +636,8 @@ faceProfileRef?:  "…"             // optional; recommendation-only pass over t
   (`HISTORY_AND_VERSIONING.md` §5.7/§5.8, `SCAN_API.md` §5.6).
 - **Two regenerate forms (both = a new run → 202 {run_id} → poll H-2):**
   1. **Re-submit the image** — the user retakes/refines the face scan.
-  2. **Profile-only re-rank** — `POST /v1/analysis/hairstyle` with
-     `faceProfileRef` (no image): recommendations re-ranked over the stored
+  2. **Profile-only re-rank** — `POST /v1/analysis/hairstyle` with an empty
+     body (no image, no reference field — Phase 28): recommendations re-ranked over the stored
      current profile. This is the natural "recommend again / show alternatives"
      path and the **retry** path after a failure (see `SCAN_API.md` §5.6).
 - **Request/response:** identical to H-1/H-3; each run has its own `run_id`,
@@ -655,12 +656,12 @@ faceProfileRef?:  "…"             // optional; recommendation-only pass over t
 ### 5.8 The hairstyle recommendation flow (a sequence of the above — no new endpoint)
 
 ```
-H-1 submit (image or faceProfileRef) ──202 {run_id}──►  H-2 poll ──► completed
+H-1 submit (image pass, or empty body for profile-only pass — Phase 28) ──202 {run_id}──►  H-2 poll ──► completed
     │ (run pending; TRX-1 media)                            │          │
     │                                                       ▼          ▼ H-3 result: { appearance, recommendations{top,alternatives} }
     │                                        TRX-6 on completion        H-4 details: pick a recommendation by id (same snapshot)
     ▼                                           (face → styleProfile)          │
-H-7 regenerate: new POST (image or faceProfileRef) → NEW run (old result stays immutable)   ▼
+H-7 regenerate: new POST (image pass or empty body for profile-only pass) → NEW run (old result stays immutable)   ▼
 H-5 save: POST /v1/looks/saved (lookId, title, snapshot, source_run_id)  ── TRX-3 frozen snapshot + look_saved signal
 H-6 feedback: POST /v1/feedback (rating, reason, targetLookId)  ── gated (M11) — raw event, never rewrites the run/snapshot
 current profile read: GET /v1/users/me (styleProfile — disjoint from the run snapshot)
@@ -674,8 +675,7 @@ current profile read: GET /v1/users/me (styleProfile — disjoint from the run s
 | --- | --- | --- |
 | `run_type` | `hairstyle` (this surface) | `analysis_runs.run_type` FK |
 | `status` | `pending → completed | failed`; write-once guard | TRX-5, CHECK constraint |
-| `image` | required for H-1 (or `faceProfileRef`); face detectable; size/content-type | API-16, UC-25 |
-| `faceProfileRef` | UUID of the owned current FaceProfile (or absent) | UC-26 profile pass |
+| `image` | optional for H-1 (absent = profile-only pass over `style_profile` by `user_id`, Phase 28); face detectable; size/content-type | API-16, UC-25 |
 | `id` (recommendation) | valid catalog `looks.code` (PR-3) | TABLE_DEFINITIONS `looks` |
 | `matchScore` | `0..1`; derived, never client-authored | Scoring stage |
 | `confidence` / `tradeOffs` | absent today; additive/FUTURE only | AI-0, VALUE_OBJECTS §3.3 |
@@ -745,7 +745,7 @@ hairstyle`), **processing status** and **retrieve recommendations**
 (`GET /v1/analysis/runs/{run_id}`), **recommendation details** (within the run
 result — no separate endpoint, §5.4), **save** (`POST /v1/looks/saved`,
 referenced), **feedback** (`POST /v1/feedback`, referenced and gated), and
-**regenerate** (a new submission; profile-only `faceProfileRef` re-rank — no
+**regenerate** (a new submission; profile-only re-rank over `style_profile` by `user_id`, Phase 28 — no
 endpoint, §5.7). The **recommendation response contract** (§4.3) maps every
 task-required field — ID, hairstyle info, score, confidence, explanation,
 reasons, trade-offs, profile context, model/version metadata — to the frozen

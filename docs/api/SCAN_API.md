@@ -189,8 +189,8 @@ Outfit Scan, Hairstyle, Grooming):
 | Scan type | `run_type` | Endpoint | Input | Produces | Projection |
 | --- | --- | --- | --- | --- | --- |
 | **Outfit scan** | `outfit` | `POST /v1/analysis/outfit` | outfit image | detected items, sections, scores | none (history only) |
-| **Face → hairstyle scan** | `hairstyle` | `POST /v1/analysis/hairstyle` | face image (or `faceProfileRef`) | face attributes + hairstyle recommendations | writes `styleProfile` (TRX-6) |
-| **Grooming scan** | `grooming` | `POST /v1/analysis/grooming` | grooming options (JSON) | grooming recommendations | none unless a style is explicitly saved |
+| **Face → hairstyle scan** | `hairstyle` | `POST /v1/analysis/hairstyle` | face image (image pass) or empty body (profile-only pass over `style_profile` by `user_id`, Phase 28) | face attributes + hairstyle recommendations | writes `styleProfile` (TRX-6) |
+| **Grooming scan** | `grooming` | `POST /v1/analysis/grooming` | empty JSON `{}` (profile-only pass over `style_profile` by `user_id`, Phase 28) | grooming recommendations | none unless a style is explicitly saved |
 
 The `face` code is **reserved, forward-looking** (a dedicated face-only
 analysis, e.g. an onboarding scan producing only `FaceProfile`) — it is seeded
@@ -409,17 +409,17 @@ AnalysisRun.result (run_type "outfit") {
 - **Method / path:** `POST /v1/analysis/hairstyle` (endpoint 37, action 21)
 - **Asynchronous behavior:** **async** — `202 Accepted` + `run_id`; poll S-5.
   Each submission is a new run.
-- **Request schema** (`multipart/form-data`) — identical to `APPEARANCE_API.md`
-  §5.1:
+- **Request schema** (`multipart/form-data`, Phase 28: no face-profile reference — identical to `APPEARANCE_API.md`
+  §5.1):
 
 ```
-image:            <file>          // required; face photo; the evidence (MediaRef after M16)
-faceProfileRef?:  "…"             // optional; run a recommendation-only pass over the stored FaceProfile
+image:            <file>          // optional; face photo for the image pass (MediaRef after M16)
+                                 // absent = profile-only pass over the authenticated user's stored style_profile (by user_id)
 ```
 
   - With an image: the run does UC-25 (face analysis → appearance attributes)
     then UC-26 (hairstyle recommendations) — one run, one result.
-  - Without an image (profile-only, `faceProfileRef` present): recommendation
+  - Without an image (profile-only, empty body): recommendation
     pass over the already-stored current profile (no new face attributes).
 - **Response schema:** `202 Accepted` — `AsyncAccepted { run_id* }`. Completed
   run `result` (run_type `hairstyle`), mirroring `HairstyleAnalysisResult`
@@ -447,7 +447,9 @@ AnalysisRun.result (run_type "hairstyle") {
 - **Authentication requirements:** **auth** (Bearer). Authorization: **owner**
   (OW-1); face media is private.
 - **Validation:**
-  - Image required when no `faceProfileRef`; otherwise **422**. Image
+  - Profile-only pass (no image) resolves the authenticated user's stored
+    `style_profile` by `user_id`; missing face data → **422
+    INSUFFICIENT_USER_DATA**. Image
     content-type/size checked pre-run → **413/422 MEDIA_FAILURE**.
   - No face detected / poor image → **422 VALIDATION_ERROR** (UC-25).
   - `run_type` produced = `hairstyle` (the endpoint's run_types code); a
@@ -745,8 +747,7 @@ S-8 delete: runs append-only (no DELETE); unsaved scan media auto-expires (reten
 | --- | --- | --- |
 | `run_type` | ∈ run_types vocab {`outfit`,`face`,`hairstyle`,`grooming`}; scan endpoints produce `outfit`/`hairstyle`/`grooming` | `analysis_runs.run_type` FK, TABLE_DEFINITIONS |
 | `status` | `pending → completed | failed`; write-once guard | TRX-5, CHECK constraint |
-| `image` | required for S-1; required for S-2 (or `faceProfileRef`); face/clothing detectable; size/content-type | API-16, UC-24/25 |
-| `faceProfileRef` | UUID of the owned current FaceProfile (or absent) | UC-26 profile pass |
+| `image` | required for S-1; optional for S-2 (absent = profile-only pass over `style_profile` by `user_id`, Phase 28); face/clothing detectable; size/content-type | API-16, UC-24/25 |
 | `options.*` | valid `GroomingOption` vocab codes | K9.1 vocab (VALUE_OBJECTS row 8 family) |
 | `run_id` | UUID; owned (404-not-403) | path param, OW-1 |
 | media `purpose` | ∈ allowed set (`scan` allowed); declared size ≤ limit; MIME ∈ allow-list | MEDIA_UPLOAD §4.1–4.4 |

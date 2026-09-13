@@ -392,10 +392,9 @@ class _LookDetailsScreenState extends State<LookDetailsScreen> {
   }
 
   void _handleShare(BuildContext context) {
-    final title = _detail?.title ?? 'this look';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Sharing $title...'),
+        content: const Text('Share feature coming soon'),
         backgroundColor: FansivibeColors.accentGold,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),

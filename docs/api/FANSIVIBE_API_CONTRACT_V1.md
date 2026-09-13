@@ -275,8 +275,8 @@ the inventory abbreviated an error set, the fuller set below is canonical.
 | # | Method + path | Auth | UC | Notes / Errors |
 | --- | --- | --- | --- | --- |
 | 36 | POST `/v1/analysis/outfit` | auth | UC-24 | multipart → `202 {run_id}`; 413/422, 422 (no clothing), 503. **Async; never idempotent.** |
-| 37 | POST `/v1/analysis/hairstyle` | auth | UC-25/26 | multipart (`image` or `faceProfileRef`) → `202 {run_id}`; 413/422, 422, 503. **Async; never idempotent.** |
-| 38 | POST `/v1/analysis/grooming` | auth | UC-27 | `GroomingAnalysisRequest` (options) → `202 {run_id}`; 422, 503. **Async; never idempotent.** |
+| 37 | POST `/v1/analysis/hairstyle` | auth | UC-25/26 | multipart (`image` for image pass; empty body for profile-only pass — no reference field; `style_profile` by `user_id`, Phase 28) → `202 {run_id}`; 413/422, 422, 503. **Async; never idempotent.** |
+| 38 | POST `/v1/analysis/grooming` | auth | UC-27 | empty JSON `{}` (no reference field; `style_profile` by `user_id`, Phase 28) → `202 {run_id}`; 422, 503. **Async; never idempotent.** |
 | 39 | GET `/v1/analysis/runs/{run_id}` | auth | (16/21/23) | 200 `AnalysisRun`; 404 (or 422 malformed id). |
 | 40 | GET `/v1/analysis/runs` | auth | — | 200 list (summary rows, **no `result`**); 422. |
 | 41 | POST `/v1/outfits/generate` | auth | UC-28/29 | 200 `OutfitRecommendation`; 422, 503, 204 (empty wardrobe). Never idempotent. |

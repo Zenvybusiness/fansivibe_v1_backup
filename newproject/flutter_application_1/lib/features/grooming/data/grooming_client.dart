@@ -34,24 +34,28 @@ class GroomingClient {
   static const Duration _timeout = Duration(seconds: 12);
   final Duration _pollInterval;
 
-  /// Submits a grooming analysis for the given face profile reference.
+  /// Submits a grooming analysis for the authenticated user's stored style
+  /// profile (profile-only pass).
+  ///
+  /// Wire contract (endpoint #38): JSON transport is preserved — POST empty
+  /// JSON `{}` with `Content-Type: application/json` (Phase 28: obsolete
+  /// `face_profile_ref` removed; backend resolves `style_profile` by
+  /// `user_id`). Grooming has no image part, unlike the hairstyle/outfit
+  /// multipart endpoints.
   ///
   /// Returns the submitted run id, or null when the backend is unreachable.
-  Future<String?> submitGroomingAnalysis({
-    required String faceProfileRef,
-  }) async {
+  Future<String?> submitGroomingAnalysis() async {
     try {
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$baseUrl/v1/analysis/grooming'),
-      )
-        ..headers['Authorization'] = 'Bearer $_devToken'
-        ..fields['faceProfileRef'] = faceProfileRef;
-
-      final streamed = await _client.send(request).timeout(_timeout);
-      final response = await http.Response.fromStream(
-        streamed,
-      ).timeout(_timeout);
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/analysis/grooming'),
+            headers: {
+              'Content-Type': 'application/json; charset=UTF-8',
+              'Authorization': 'Bearer $_devToken',
+            },
+            body: jsonEncode({}),
+          )
+          .timeout(_timeout);
 
       AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 202) {

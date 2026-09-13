@@ -32,7 +32,8 @@ class _CapturingClient extends http.BaseClient {
 }
 
 void main() {
-  group('HairstyleClient.submitHairstyleAnalysis', () {    test('returns run id on 202', () async {
+  group('HairstyleClient.submitHairstyleAnalysis', () {
+    test('returns run id on 202 for the profile-only pass (no reference field)', () async {
       final client = HairstyleClient(
         client: MockClient((request) async {
           expect(request.url.path, '/v1/analysis/hairstyle');
@@ -41,14 +42,15 @@ void main() {
             request.headers['Content-Type'],
             contains('multipart/form-data'),
           );
-          expect(request.body, contains('faceProfileRef'));
+          // Phase 28: no face-profile reference exists — profile-only pass
+          // sends no faceProfileRef field.
+          expect(request.body, isNot(contains('faceProfileRef')));
+          expect(request.body, isNot(contains('face_profile_ref')));
           return http.Response('{"run_id": "run-123"}', 202);
         }),
       );
 
-      final runId = await client.submitHairstyleAnalysis(
-        faceProfileRef: 'profile-1',
-      );
+      final runId = await client.submitHairstyleAnalysis();
 
       expect(runId, 'run-123');
     });
@@ -60,9 +62,7 @@ void main() {
         ),
       );
 
-      final runId = await client.submitHairstyleAnalysis(
-        faceProfileRef: 'profile-1',
-      );
+      final runId = await client.submitHairstyleAnalysis();
 
       expect(runId, isNull);
     });
@@ -74,9 +74,7 @@ void main() {
         ),
       );
 
-      final runId = await client.submitHairstyleAnalysis(
-        faceProfileRef: 'profile-1',
-      );
+      final runId = await client.submitHairstyleAnalysis();
 
       expect(runId, isNull);
     });
@@ -342,7 +340,7 @@ void main() {
           switch (request.url.path) {
             case '/v1/analysis/hairstyle':
               expect(request.headers['Authorization'], 'Bearer dev');
-              expect(request.body, contains('faceProfileRef'));
+              expect(request.body, isNot(contains('faceProfileRef')));
               return http.Response('{"run_id": "run-1"}', 202);
             case '/v1/analysis/runs/run-1':
               final status = calls
@@ -379,9 +377,7 @@ void main() {
         }),
       );
 
-      final runId = await client.submitHairstyleAnalysis(
-        faceProfileRef: '00000000-0000-0000-0000-000000000001',
-      );
+      final runId = await client.submitHairstyleAnalysis();
       expect(runId, 'run-1');
 
       final run = await client.pollAnalysisRun(runId: runId!);
@@ -415,9 +411,7 @@ void main() {
         }),
       );
 
-      final runId = await client.submitHairstyleAnalysis(
-        faceProfileRef: '00000000-0000-0000-0000-000000000001',
-      );
+      final runId = await client.submitHairstyleAnalysis();
       final run = await client.pollAnalysisRun(runId: runId!);
 
       expect(run, isNotNull);
@@ -475,35 +469,23 @@ void main() {
       expect(runId, 'run-1');
     });
 
-    test('returns null when both image and faceProfileRef are sent', () async {
-      var sent = false;
+    test('sends an empty multipart body for the profile-only pass', () async {
       final client = HairstyleClient(
-        client: MockClient((request) async {
-          sent = true;
-          return http.Response('{"run_id": "run-1"}', 202);
+        client: _CapturingClient((request) async {
+          expect(request.url.path, '/v1/analysis/hairstyle');
+          expect(request.headers['Authorization'], 'Bearer dev');
+          final multipart = request as http.MultipartRequest;
+          // Phase 28: profile-only pass sends no fields and no files;
+          // backend resolves style_profile by user_id.
+          expect(multipart.fields, isEmpty);
+          expect(multipart.files, isEmpty);
+          return http.Response('{"run_id": "run-profile"}', 202);
         }),
       );
 
-      final runId = await client.submitHairstyleAnalysis(
-        faceProfileRef: 'profile-1',
-        imageBytes: Uint8List.fromList([1]),
-      );
+      final runId = await client.submitHairstyleAnalysis();
 
-      expect(runId, isNull);
-      expect(sent, isFalse);
-    });
-
-    test('returns null when neither image nor faceProfileRef is sent', () async {
-      var sent = false;
-      final client = HairstyleClient(
-        client: MockClient((request) async {
-          sent = true;
-          return http.Response('{"run_id": "run-1"}', 202);
-        }),
-      );
-
-      expect(await client.submitHairstyleAnalysis(), isNull);
-      expect(sent, isFalse);
+      expect(runId, 'run-profile');
     });
 
     test('returns null for empty image bytes', () async {

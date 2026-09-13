@@ -54,7 +54,7 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: const Text('Share coming soon'),
+                  content: const Text('Share feature coming soon'),
                   backgroundColor: FansivibeColors.accentGold,
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(

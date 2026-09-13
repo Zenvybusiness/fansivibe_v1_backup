@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id
@@ -21,9 +21,6 @@ from app.api.schemas.analysis import (
     AnalysisRunList,
     AnalysisRunSummary,
     AsyncAccepted,
-    CreateGroomingRunRequest,
-    CreateOutfitScanRequest,
-    CreateHairstyleScanRequest,
 )
 from app.application.analysis import (
     CreateGroomingRun,
@@ -83,16 +80,15 @@ def _run_summary_to_schema(record) -> AnalysisRunSummary:
     responses={422: {"model": dict}, 401: {"model": dict}},
 )
 def create_hairstyle_run(
-    faceProfileRef: str | None = Form(default=None),
     image: UploadFile | None = File(default=None),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> AsyncAccepted:
-    """Submit a hairstyle analysis (image-based or profile-only pass). Returns `run_id`."""
-    if image is not None and faceProfileRef:
-        raise validation(
-            [{"field": "faceProfileRef", "error": "image and faceProfileRef are mutually exclusive"}]
-        )
+    """Submit a hairstyle analysis (image-based or profile-only pass). Returns `run_id`.
+
+    Profile-only pass uses the authenticated user's stored `style_profile`
+    (resolved by `user_id`); no face-profile reference exists (Phase 28).
+    """
     if image is not None:
         if image.content_type not in {"image/jpeg", "image/png", "image/webp"}:
             raise validation(
@@ -119,24 +115,13 @@ def create_hairstyle_run(
         )
         run_id = use_case(user_id=user_id, image=image)
         return AsyncAccepted(run_id=run_id)
-    if not faceProfileRef:
-        raise validation(
-            [{"field": "faceProfileRef", "error": "required when no image is submitted"}]
-        )
-    try:
-        UUID(faceProfileRef)
-    except (ValueError, AttributeError):
-        raise validation(
-            [{"field": "faceProfileRef", "error": "must be a valid uuid"}]
-        )
-
     use_case = CreateHairstyleRun(
         runs=AnalysisRunRepositorySQL(db),
         user_state=UserStateRepositorySQL(db),
         knowledge=CatalogKnowledgeSource(),
         saved_looks=SavedLookRepositorySQL(db),
     )
-    run_id = use_case(user_id=user_id, face_profile_ref=faceProfileRef)
+    run_id = use_case(user_id=user_id)
     return AsyncAccepted(run_id=run_id)
 
 
@@ -185,29 +170,23 @@ def list_analysis_runs(
     responses={422: {"model": dict}, 401: {"model": dict}},
 )
 def create_grooming_run(
-    request: CreateGroomingRunRequest,
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> AsyncAccepted:
-    """Submit a grooming analysis (profile-only pass). Returns `run_id`."""
-    face_profile_ref = request.face_profile_ref
-    if not face_profile_ref:
-        raise validation(
-            [{"field": "face_profile_ref", "error": "required"}]
-        )
-    try:
-        UUID(face_profile_ref)
-    except (ValueError, AttributeError):
-        raise validation(
-            [{"field": "face_profile_ref", "error": "must be a valid uuid"}]
-        )
+    """Submit a grooming analysis (profile-only pass). Returns `run_id`.
+
+    Uses the authenticated user's stored `style_profile` (resolved by
+    `user_id`); no face-profile reference exists (Phase 28). Transport
+    remains JSON: clients POST empty JSON `{}` with
+    `Content-Type: application/json`.
+    """
     use_case = CreateGroomingRun(
         runs=AnalysisRunRepositorySQL(db),
         user_state=UserStateRepositorySQL(db),
         knowledge=CatalogKnowledgeSource(),
         saved_looks=SavedLookRepositorySQL(db),
     )
-    run_id = use_case(user_id=user_id, face_profile_ref=face_profile_ref)
+    run_id = use_case(user_id=user_id)
     return AsyncAccepted(run_id=run_id)
 
 
@@ -224,15 +203,10 @@ def create_grooming_run(
 )
 def create_outfit_run(
     image: UploadFile = File(...),
-    faceProfileRef: str | None = Form(default=None),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> AsyncAccepted:
     """Submit an outfit/appearance analysis (image-based pass, S-1). Returns `run_id`."""
-    if faceProfileRef:
-        raise validation(
-            [{"field": "faceProfileRef", "error": "faceProfileRef not supported for outfit scan; use image only"}]
-        )
     if image.content_type not in {"image/jpeg", "image/png", "image/webp"}:
         raise validation(
             [{"field": "image", "error": "unsupported media type, must be JPEG, PNG or WebP"}]

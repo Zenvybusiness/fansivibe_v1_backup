@@ -1,66 +1,133 @@
-import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
+/// Onboarding photo capture (Phase 22, Step 3).
+///
+/// Real camera/gallery flow — no simulated capture:
+///
+/// UI → [ImagePicker] (camera or gallery) → bytes → preview → validation
+/// → Continue to onboarding analysis preview.
+///
+/// The image is held in memory only (never persisted, never logged).
+/// An empty/cancelled pick stays on this screen with a truthful message;
+/// it never fabricates a capture. Backend analysis happens post-auth in
+/// the real scan flows — the onboarding preview that follows is labeled
+/// as a sample (see [YourAnalysisScreen]).
 class PhotoCaptureScreen extends StatefulWidget {
   final String? source;
-  const PhotoCaptureScreen({this.source, super.key});
+
+  /// Injectable picker for tests (defaults to [ImagePicker]).
+  final Future<XFile?> Function(ImageSource source)? pickImage;
+
+  const PhotoCaptureScreen({this.source, this.pickImage, super.key});
 
   @override
   State<PhotoCaptureScreen> createState() => _PhotoCaptureScreenState();
 }
 
-class _PhotoCaptureScreenState extends State<PhotoCaptureScreen>
-    with SingleTickerProviderStateMixin {
-  bool _captured = false;
-  bool _showGuide = false;
+class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
+  static const int _maxBytes = 20 * 1024 * 1024;
 
-  late AnimationController _previewController;
-  late Animation<double> _previewAnim;
+  Uint8List? _imageBytes;
+  String? _errorMessage;
+  bool _isPicking = false;
+  bool _autoAttempted = false;
+
+  Future<XFile?> _defaultPick(ImageSource source) {
+    return ImagePicker().pickImage(
+      source: source,
+      maxWidth: 1024,
+      maxHeight: 1024,
+    );
+  }
 
   @override
   void initState() {
     super.initState();
-    _previewController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _previewAnim = CurvedAnimation(
-      parent: _previewController,
-      curve: Curves.easeOut,
-    );
-
+    // Honor the incoming source once (camera-permission screen passes
+    // 'camera' or 'gallery'): attempt the real OS picker instead of
+    // showing a fake viewfinder.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      setState(() => _showGuide = true);
+      if (_autoAttempted || !mounted) return;
+      _autoAttempted = true;
+      final source = widget.source;
+      if (source == 'camera') {
+        _pick(ImageSource.camera);
+      } else if (source == 'gallery') {
+        _pick(ImageSource.gallery);
+      }
     });
   }
 
-  @override
-  void dispose() {
-    _previewController.dispose();
-    super.dispose();
-  }
-
-  void _onCapture() {
-    setState(() => _captured = true);
-    _previewController.forward();
-    Timer(const Duration(seconds: 2), () {
+  Future<void> _pick(ImageSource source) async {
+    if (_isPicking) return;
+    setState(() {
+      _isPicking = true;
+      _errorMessage = null;
+    });
+    try {
+      final picker = widget.pickImage ?? _defaultPick;
+      final picked = await picker(source);
       if (!mounted) return;
-      context.pushNamed(
-        RouteNames.aiAnalysis,
-        extra: {'photoPath': 'captured'},
-      );
-    });
+      if (picked == null) {
+        // User cancelled the OS picker — truthful empty state, no fake.
+        setState(() {
+          _isPicking = false;
+          _errorMessage = 'No photo selected. Take a photo or choose one from your gallery.';
+        });
+        return;
+      }
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+      if (bytes.isEmpty) {
+        setState(() {
+          _isPicking = false;
+          _errorMessage = 'Could not read that photo. Please try another.';
+        });
+        return;
+      }
+      if (bytes.lengthInBytes > _maxBytes) {
+        setState(() {
+          _isPicking = false;
+          _errorMessage = 'That photo is too large (max 20 MB). Please choose a smaller one.';
+        });
+        return;
+      }
+      setState(() {
+        _isPicking = false;
+        _imageBytes = bytes;
+        _errorMessage = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      final message = e.toString().toLowerCase();
+      final denied = message.contains('denied') || message.contains('permission');
+      setState(() {
+        _isPicking = false;
+        _errorMessage = denied
+            ? 'Photo access was denied. Enable camera/photos permission in system settings, then try again.'
+            : 'Could not load that photo. Please try another. ($e)';
+      });
+    }
   }
 
   void _onRetake() {
     setState(() {
-      _captured = false;
+      _imageBytes = null;
+      _errorMessage = null;
     });
-    _previewController.reverse();
+  }
+
+  void _onContinue() {
+    if (_imageBytes == null) return;
+    context.pushNamed(RouteNames.aiAnalysis);
   }
 
   void _onSkip() {
@@ -69,249 +136,162 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen>
 
   @override
   Widget build(BuildContext context) {
+    final hasPhoto = _imageBytes != null && _imageBytes!.isNotEmpty;
+
     return Scaffold(
       backgroundColor: FansivibeColors.surface,
-      body: Stack(
-        children: [
-          Container(
-            color: FansivibeColors.surfaceContainerLow,
-            child: Center(
-              child: Icon(
-                Icons.image_outlined,
-                size: 80,
-                color: FansivibeColors.surfaceContainerHighest,
-              ),
-            ),
-          ),
-          if (_showGuide && !_captured)
-            Center(
-              child: Container(
-                width: 240,
-                height: 360,
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.3),
-                    width: 1.5,
-                  ),
-                  borderRadius: FansivibeRadius.mdBorder,
-                ),
-                child: CustomPaint(
-                  painter: _SilhouettePainter(
-                    color: Colors.white.withValues(alpha: 0.15),
-                  ),
-                ),
-              ),
-            ),
-          if (_captured)
-            AnimatedBuilder(
-              animation: _previewAnim,
-              builder: (context, _) {
-                return Center(
-                  child: Container(
-                    width: 240 + (60 * (1 - _previewAnim.value)),
-                    height: 360 + (90 * (1 - _previewAnim.value)),
-                    decoration: BoxDecoration(
-                      color: FansivibeColors.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(
-                        FansivibeRadius.md + (8 * (1 - _previewAnim.value)),
-                      ),
-                      border: Border.all(
-                        color: FansivibeColors.primary.withValues(alpha: 0.4),
-                        width: 2,
-                      ),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(
-                        FansivibeRadius.md + (8 * (1 - _previewAnim.value)) - 1,
-                      ),
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Icon(
-                            Icons.image_rounded,
-                            size: 40,
-                            color: FansivibeColors.primary.withValues(
-                              alpha: 0.3,
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 16,
-                            child: Text(
-                              'Looks great!',
-                              style: TextStyle(
-                                color: FansivibeColors.primary,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          Positioned(
-            bottom: 48,
-            left: 0,
-            right: 0,
-            child: _captured
-                ? Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _CaptureButton(
-                        icon: Icons.refresh_rounded,
-                        onPressed: _onRetake,
-                        label: 'Retake',
-                      ),
-                    ],
-                  )
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _CaptureButton(
-                        icon: Icons.circle_rounded,
-                        onPressed: _onCapture,
-                        label: '',
-                        isPrimary: true,
-                      ),
-                    ],
-                  ),
-          ),
-          Positioned(
-            top: 16,
-            right: 16,
-            child: SafeArea(
-              child: TextButton(
-                onPressed: _onSkip,
-                child: Text(
-                  'Skip',
-                  style: TextStyle(
-                    color: FansivibeColors.secondary.withValues(alpha: 0.7),
-                    fontSize: 14,
-                  ),
-                ),
+      appBar: AppBar(
+        title: const Text('Add Your Photo'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _onSkip,
+            child: Text(
+              'Skip',
+              style: TextStyle(
+                color: FansivibeColors.secondary.withValues(alpha: 0.7),
+                fontSize: 14,
               ),
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _CaptureButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onPressed;
-  final String label;
-  final bool isPrimary;
-
-  const _CaptureButton({
-    required this.icon,
-    required this.onPressed,
-    required this.label,
-    this.isPrimary = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: isPrimary ? 72 : 48,
-            height: isPrimary ? 72 : 48,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isPrimary
-                  ? Colors.white
-                  : Colors.white.withValues(alpha: 0.2),
-              border: isPrimary
-                  ? Border.all(color: FansivibeColors.primary, width: 3)
-                  : null,
-            ),
-            child: Center(
-              child: isPrimary
-                  ? Container(
-                      width: 62,
-                      height: 62,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
-                      ),
-                    )
-                  : Icon(icon, size: 20, color: Colors.white),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 8),
+                _buildPreview(hasPhoto),
+                const SizedBox(height: 20),
+                if (_errorMessage != null) _buildError(),
+                if (_isPicking)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                if (!hasPhoto) ...[
+                  FansiButton.primary(
+                    label: 'Take Photo',
+                    icon: Icons.camera_alt_rounded,
+                    onPressed: _isPicking ? null : () => _pick(ImageSource.camera),
+                  ),
+                  const SizedBox(height: 12),
+                  FansiButton.secondary(
+                    label: 'Choose from Gallery',
+                    icon: Icons.photo_library_outlined,
+                    onPressed: _isPicking ? null : () => _pick(ImageSource.gallery),
+                  ),
+                ] else ...[
+                  FansiButton.primary(
+                    label: 'Continue',
+                    icon: Icons.arrow_forward_rounded,
+                    onPressed: _onContinue,
+                  ),
+                  const SizedBox(height: 12),
+                  FansiButton.secondary(
+                    label: 'Retake Photo',
+                    icon: Icons.refresh_rounded,
+                    onPressed: _onRetake,
+                  ),
+                ],
+                const SizedBox(height: 32),
+              ],
             ),
           ),
-          if (label.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPreview(bool hasPhoto) {
+    if (hasPhoto) {
+      return ClipRRect(
+        borderRadius: FansivibeRadius.baseBorder,
+        child: AspectRatio(
+          aspectRatio: 3 / 4,
+          child: Image.memory(
+            _imageBytes!,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+          ),
+        ),
+      );
+    }
+    return Container(
+      height: 360,
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
+        border: Border.all(
+          color: FansivibeColors.accentGold.withValues(alpha: 0.15),
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.image_outlined,
+              size: 80,
+              color: FansivibeColors.surfaceContainerHighest,
+            ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                'Take a photo or choose one from your gallery to continue.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: FansivibeColors.textSecondary,
+                    ),
+              ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildError() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: FansivibeColors.error.withValues(alpha: 0.1),
+        borderRadius: FansivibeRadius.smdBorder,
+        border: Border.all(
+          color: FansivibeColors.error.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.error_outline_rounded,
+            color: FansivibeColors.error,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _errorMessage!,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: FansivibeColors.error,
+                  ),
+            ),
+          ),
         ],
       ),
     );
   }
-}
-
-class _SilhouettePainter extends CustomPainter {
-  final Color color;
-  _SilhouettePainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-
-    final path = Path()
-      ..moveTo(size.width * 0.5, size.height * 0.08)
-      ..quadraticBezierTo(
-        size.width * 0.75,
-        size.height * 0.08,
-        size.width * 0.75,
-        size.height * 0.22,
-      )
-      ..quadraticBezierTo(
-        size.width * 0.78,
-        size.height * 0.35,
-        size.width * 0.75,
-        size.height * 0.48,
-      )
-      ..lineTo(size.width * 0.8, size.height * 0.55)
-      ..lineTo(size.width * 0.72, size.height * 0.6)
-      ..lineTo(size.width * 0.68, size.height * 0.5)
-      ..lineTo(size.width * 0.62, size.height * 0.5)
-      ..lineTo(size.width * 0.62, size.height * 0.88)
-      ..lineTo(size.width * 0.38, size.height * 0.88)
-      ..lineTo(size.width * 0.38, size.height * 0.5)
-      ..lineTo(size.width * 0.32, size.height * 0.5)
-      ..lineTo(size.width * 0.28, size.height * 0.6)
-      ..lineTo(size.width * 0.2, size.height * 0.55)
-      ..lineTo(size.width * 0.25, size.height * 0.48)
-      ..quadraticBezierTo(
-        size.width * 0.22,
-        size.height * 0.35,
-        size.width * 0.25,
-        size.height * 0.22,
-      )
-      ..quadraticBezierTo(
-        size.width * 0.25,
-        size.height * 0.08,
-        size.width * 0.5,
-        size.height * 0.08,
-      )
-      ..close();
-
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

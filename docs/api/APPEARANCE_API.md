@@ -350,16 +350,16 @@ responses or errors — only the `MediaRef` travels (MS10.3, ER-4).
 - **Method / path:** `POST /v1/analysis/hairstyle` (endpoint 37, action 21)
 - **Asynchronous behavior:** **async** — `202 Accepted` + `run_id`; poll A-3
   until `completed | failed`. Each submission is a new run (never idempotent).
-- **Request schema** (`multipart/form-data`):
+- **Request schema** (`multipart/form-data`, Phase 28: no face-profile reference):
 
 ```
-image:            <file>          // required; face photo; the evidence (MediaRef after M16)
-faceProfileRef?:  "…"             // optional; run a recommendation-only pass over the stored FaceProfile
+image:            <file>          // optional; face photo for the image pass (MediaRef after M16)
+                                 // absent = profile-only pass over the authenticated user's stored style_profile (by user_id)
 ```
 
   - With an image: the run does UC-25 (face analysis → appearance attributes)
     then UC-26 (hairstyle recommendations) — one run, one result.
-  - Without an image (profile-only, `faceProfileRef` present): recommendation
+  - Without an image (profile-only, empty body): recommendation
     pass over the already-stored current profile (no new face attributes).
 - **Response schema:** `202 Accepted` — `AsyncAccepted { run_id* }` (bare, no
   envelope). The completed run's `result` (immutable, typed snapshot):
@@ -385,7 +385,9 @@ AnalysisRun.result (run_type "hairstyle") {
 - **Authentication requirements:** **auth** (Bearer). Authorization: **owner**
   (OW-1); face media is private.
 - **Validation:**
-  - Image required when no `faceProfileRef`; otherwise **422**. Image
+  - Profile-only pass (no image) resolves the authenticated user's stored
+    `style_profile` by `user_id`; missing face data → **422
+    INSUFFICIENT_USER_DATA**. Image
     content-type/size checked pre-run → **413/422 MEDIA_FAILURE** (`details.
     maxBytes`).
   - No face detected / poor image → **422 VALIDATION_ERROR** (UC-25
@@ -621,7 +623,7 @@ capability progress: client-computed config × own data (§3.2)
 | --- | --- | --- |
 | `run_type` | ∈ run_types vocab {`outfit`,`face`,`hairstyle`,`grooming`} | `analysis_runs.run_type` FK, TABLE_DEFINITIONS |
 | `status` | `pending → completed | failed`; write-once guard | TRX-5, CHECK constraint |
-| image | required for A-1 (or `faceProfileRef`); face detectable; size/content-type | API-16, UC-25 |
+| image | optional for A-1 (absent = profile-only pass over `style_profile` by `user_id`, Phase 28); face detectable; size/content-type | API-16, UC-25 |
 | `options.*` | valid `GroomingOption` vocab codes | K9.1 vocab (VALUE_OBJECTS row 8 family) |
 | `run_id` | UUID; owned (404-not-403) | path param, OW-1 |
 | `sourceRunId` | UUID of an owned, **completed** run; required for derived fields on R-2 | C-16, PROFILE_ONBOARDING §5.2 |

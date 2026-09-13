@@ -4,7 +4,8 @@
 `CreateHairstyleImageRun` with the production `OllamaVisionAppearanceAdapter`
 (never the development/hash adapter), return `202 {run_id}`, deliver the
 actual bytes to the analyzer, and surface analyzer failure as a terminal
-`failed` run. `faceProfileRef`-only and XOR behavior must be unchanged.
+`failed` run. Profile-only (empty multipart, no reference field — Phase 28)
+behavior is covered below.
 
 Runs entirely on in-memory fakes (SQL repos + auth + adapter are patched in
 the router namespace), so these execute with no PostgreSQL.
@@ -265,9 +266,10 @@ def test_failed_analyzer_produces_terminal_failed_run(monkeypatch):
 
 
 def test_face_profile_only_behavior_unchanged(monkeypatch):
+    # Phase 28: profile-only pass sends no reference field — empty multipart
+    # resolves style_profile by user_id.
     client = _client(monkeypatch)
-    ref = str(uuid.uuid4())
-    resp = client.post("/v1/analysis/hairstyle", data={"faceProfileRef": ref})
+    resp = client.post("/v1/analysis/hairstyle", data={})
     assert resp.status_code == 202
     run_id = resp.json()["run_id"]
     # Profile-only path never constructs the vision adapter.
@@ -280,22 +282,42 @@ def test_face_profile_only_behavior_unchanged(monkeypatch):
     assert body["input_media"] is None
 
 
-def test_xor_both_rejected(monkeypatch):
+def test_obsolete_ref_ignored(monkeypatch):
+    # Extra obsolete faceProfileRef is ignored — still 202 via the
+    # profile-only path.
+    client = _client(monkeypatch)
+    ref = str(uuid.uuid4())
+    resp = client.post("/v1/analysis/hairstyle", data={"faceProfileRef": ref})
+    assert resp.status_code == 202
+    assert resp.json()["run_id"]
+    assert RecordingVisionPort.instances == []
+
+
+def test_image_with_obsolete_ref_follows_image_branch(monkeypatch):
+    # Image + obsolete extra field follows the image branch (extra ignored).
     client = _client(monkeypatch)
     resp = client.post(
         "/v1/analysis/hairstyle",
         data={"faceProfileRef": str(uuid.uuid4())},
         files={"image": ("face.jpg", b"bytes", "image/jpeg")},
     )
-    assert resp.status_code == 422
-    assert FakeRuns.rows == {}
+    assert resp.status_code == 202
+    assert resp.json()["run_id"]
+    assert len(RecordingVisionPort.instances) == 1
 
 
-def test_neither_rejected(monkeypatch):
+def test_empty_profile_only_without_stored_face_returns_insufficient(monkeypatch):
+    from app.api.deps import get_current_user_id
+    from app.infrastructure.db.session import get_db
+    from app.main import app
+
+    FakeUserState.profile = None
     client = _client(monkeypatch)
+    # _client resets profile to Oval; clear again to simulate missing face data.
+    FakeUserState.profile = None
     resp = client.post("/v1/analysis/hairstyle", data={})
     assert resp.status_code == 422
-    assert FakeRuns.rows == {}
+    assert resp.json()["error"]["code"] == "INSUFFICIENT_USER_DATA"
 
 
 def test_unsupported_media_type_rejected_before_adapter(monkeypatch):

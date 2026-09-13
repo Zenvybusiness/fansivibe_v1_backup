@@ -1,7 +1,1746 @@
 # Fansivibe Current State
 
 Last Updated: 2026-09-13
-Updated By: opencode agent (Phase 21.4-A provider decision + infra preparation, uncommitted)
+Updated By: opencode agent (Phase 32 real Android+backend+Ollama E2E, uncommitted)
+
+---
+
+## PHASE 32 — REAL FANSIVIBE ANDROID + BACKEND + OLLAMA E2E — GATE BLOCKED (disk still 2.2G; no adb/device; no Ollama; backend ready; zero product changes, uncommitted)
+
+Task: execute genuine end-to-end validation on REAL Android →
+Flutter → backend → PostgreSQL → Ollama → llama3.2-vision. Real
+execution ONLY: every E2E PASS must come from an actually executed
+flow; missing prerequisites → BLOCKED/NOT TESTED, never fabricated.
+No commit/push/reset/stash/discard; all pre-existing modifications
+preserved exactly; no mocks/fakes; no model substitution; no
+fail-closed weakening; no face_profile_ref reintroduction.
+Skills: `.agents/skills/` inspected (21 entries) — none loaded
+(environment-gate + honesty-audit turn, zero product code touched; all
+21 skills are Dart/Flutter code skills, none applicable — Phase
+29/30/31 precedent).
+
+Baseline: HEAD `56a5e13` (`56a5e136b6ecfa279076a1b7e6bdb0facfde37f1`,
+21.4-A docs); 37 modified + 3 untracked preserved exactly at start;
+`git diff --check` clean at start.
+Preserved modified (37): `CURRENT_STATE.md`, `backend/app/api/routers/
+analysis.py`, `backend/app/api/schemas/analysis.py`, `backend/app/
+application/analysis.py`, `backend/tests/test_analysis_api.py`,
+`test_analysis_use_case.py`, `test_grooming_api.py`,
+`test_hairstyle_image_router.py`, `test_outfit_image_router.py`,
+`docs/api/API_SECURITY_REVIEW.md`, `APPEARANCE_API.md`,
+`FANSIVIBE_API_CONTRACT_V1.md`, `HAIRSTYLE_RECOMMENDATION_API.md`,
+`SCAN_API.md`, `app_config.dart`, `assistant_routes.dart`,
+`assistant_screen.dart`, `look_details_screen.dart`,
+`grooming_client.dart`, `grooming_service.dart`, `hairstyle_client.dart`,
+`hairstyle_service.dart`, `face_scan_screen.dart`,
+`photo_capture_screen.dart`, `your_analysis_screen.dart`,
+`outfit_analysis_screen.dart`, `outfit_processing_screen.dart`,
+`outfit_scan_screen.dart`, `profile_widgets.dart`,
+`add_wardrobe_item_screen.dart`, `wardrobe_item_details_screen.dart`,
+`hairstyle_client_test.dart`, `hairstyle_service_test.dart`,
+`outfit_analysis_screen_test.dart`, `outfit_scan_screen_test.dart`,
+`profile_screen_test.dart`, `wardrobe_item_details_screen_test.dart`.
+Preserved untracked (3): `test/assistant_routes_test.dart`,
+`test/grooming_client_test.dart`, `test/grooming_service_test.dart`
+(Phase-28/29/30/31 set intact).
+
+### 1. STEP 1 — Environment gate (fresh evidence this phase, 2026-09-13).
+- Disk: `/dev/sda2` 49G total, 45G used, **2.2G avail, 96% used** —
+  byte-identical to Phase 29/30/31. ≥10GB required for SDK +
+  platform + build-tools + Gradle cache + Ollama + vision model → NO.
+- Android SDK/toolchain: NOT HEALTHY. `ANDROID_HOME`/
+  `ANDROID_SDK_ROOT` empty; `~/Android`, `/opt/android*`,
+  `/usr/lib/android*`, `~/.android` absent; `adb`, `sdkmanager`,
+  `avdmanager`, `emulator` all absent. `flutter doctor -v`: every
+  category green EXCEPT `[✗] Android toolchain — Unable to locate
+  Android SDK`. Flutter 3.44.7 stable (Dart 3.12.2).
+- adb/device: NO DEVICE. `flutter devices`: Linux (desktop) + Chrome
+  (web) only. `lsusb`: only Linux Foundation root hubs + VirtualBox
+  USB Tablet — no physical Android device. No KVM (`/dev/kvm` absent,
+  no `vmx`/`svm` flag) → hardware emulator impossible in this VM; no
+  emulator fabricated.
+- Backend: RUNNING (undisturbed pre-existing operator server, uvicorn
+  PID 10948 + worker, `0.0.0.0:8000` via `ss -tlnp`). `GET /health` →
+  200 `{"status":"ok"}`; `GET /ready` → 200
+  `{"status":"ready","database":"connected"}`. Probes read-only.
+- PostgreSQL: CONNECTED (port 5432 listening; `/ready` reports
+  `database connected`). No migrations run, no rows written.
+- Ollama: NOT RUNNING. `ollama` = NO_OLLAMA_BINARY; process =
+  NO_OLLAMA_PROCESS; `curl -m 5 http://localhost:11434/api/tags` →
+  exit 7 (refused). `FANSIVIBE_VISION_HOST`/`FANSIVIBE_VISION_MODEL`
+  unset.
+- Vision model: NOT INSTALLED. `llama3.2-vision` absent (no binary to
+  list/pull with). No substitute pulled.
+- Backend→Ollama: NO (11434 refused).
+- Android→backend: NOT VERIFIABLE (no device). Backend binds
+  `0.0.0.0:8000`; host primary IP `10.0.2.15` behind gateway `10.0.2.2`
+  (VirtualBox NAT) — physical phone cannot reach it without host
+  port-forward/bridged networking. No IP invented; no production URL
+  changed. Verified backend address for future runs: emulator =
+  `http://10.0.2.2:8000`; physical device =
+  `http://<host-LAN-IP>:8000` via
+  `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000`.
+- Gate checklist: SDK healthy NO; adb NO; device/emulator NO; backend
+  8000 YES; `/health` 200 YES; `/ready` ready YES; PG connected YES;
+  Ollama running NO; 11434 reachable NO; model installed NO; backend→
+  Ollama NO; Android→backend NOT VERIFIABLE.
+- REAL E2E GATE = BLOCKED. Per the brief, Steps 2–16 device/vision
+  flows STOP here. NO REAL E2E WAS EXECUTED. NO FLOW MARKED PASS.
+
+### 2. STEPS 2–16 — Real-E2E matrix (nothing executed on a real target).
+
+| Flow | Device | Backend | Ollama | Result | Evidence |
+| Auth (register/login/me/logout/re-login, persistence) | none | ready (not exercised from device) | n/a | BLOCKED | no adb/device; no `flutter run` attempted |
+| Wardrobe (add/view/details/edit/delete) | none | ready (not exercised from device) | n/a | BLOCKED | no device target |
+| Camera (real capture→preview→bytes) | none | — | n/a | BLOCKED | no device; no mocked ImagePicker result fabricated |
+| Gallery (real picker→preview→bytes) | none | — | n/a | BLOCKED | no device |
+| Outfit analysis (image→POST /v1/analysis/outfit→Ollama→poll→UI) | none | — | down (11434 refused) | BLOCKED | no device AND no model; no mock shown as success |
+| Hairstyle analysis (no face_profile_ref, style_profile by user) | none | — | down | BLOCKED | same; Phase-28 removal left intact, not re-proven live |
+| Grooming analysis (POST /v1/analysis/grooming `{}` JSON → 202 → poll) | none | — | down | BLOCKED | Phase-25/28 contract untouched, not re-proven live |
+| Ollama failure honesty (kill Ollama → honest fail) | none | — | already down | NOT TESTED | safe fault injection moot with no device; nothing fabricated; Ollama left untouched |
+| >20MB rejection | none | — | — | NOT TESTED | no device; no asset added to repo |
+| 429 rate limit | none | — | — | NOT TESTED | limiter not exercised/weakened from this phase |
+| Backend 500 handling | none | — | — | NOT TESTED | no controlled injection available |
+| User isolation (A vs B wardrobe/looks/analysis) | none | — | — | NOT TESTED | no test users created (zero DB writes) |
+| Saved outfit / Today's Look / Assistant (save/get/delete, routes) | none | — | — | BLOCKED | no device; Share stays `Share feature coming soon` (untouched) |
+| UI loading/error/retry honesty | none | — | — | NOT TESTED | no flows ran, so no observations recorded |
+
+Device/model/API level: NONE (no Android target). Backend URL type:
+`http://localhost:8000` verified live; bind `0.0.0.0:8000` permits
+device access (emulator `10.0.2.2`, physical via host LAN IP — NAT
+caveat above); no secrets committed. Ollama/model:
+`llama3.2-vision` required, not installed. Run date: 2026-09-13.
+
+### 3. STEP 17 — Focused validation (no product code to regress).
+- `flutter analyze` (fresh this phase,
+  `newproject/flutter_application_1`): **39 issues, ZERO errors** —
+  byte-identical to the Phase-23/24/25/26/27/28 baseline. No new
+  failures.
+- Focused Flutter/backend suites: NOT re-run (tree identical to the
+  Phase-28-analyzed state except this markdown; zero product files
+  touched — nothing to regress; per-brief "only where useful").
+- `git diff --check`: clean (start; re-verified end — see §5).
+- Baseline pre-existing failures stand (not relabeled): 2
+  grooming-processing copy assertions; 7 outfit use-case/environmental
+  (`CreateOutfitRun` dev-adapter + cwd-path); analyze 39
+  infos/warnings. NEW failures: ZERO.
+
+### 4. Product-code changes: NONE.
+- Zero Flutter/backend/product files modified this phase. Phase-28
+  face_profile_ref removal remains in effect (not re-audited line by
+  line this turn — tree untouched since Phase 31); grooming JSON `{}`
+  transport intact by preservation; Share still honestly unavailable
+  (untouched); fail-closed vision untouched; no mocks/fakes added; no
+  model substitution; no limiter weakening.
+
+### 5. STEP 19 — Final safety check.
+- `git status --short`: 37 modified + 3 untracked identical
+  before/after except this entry (listed above).
+- `git diff --check`: clean.
+- Confirmed: no commit, no push, no reset, no stash, no discarded
+  work, no secrets added, no production credentials added. Backend
+  probes read-only (`/health`, `/ready` — zero DB writes, zero users).
+  No installation attempted, no files deleted, no artifacts cleaned.
+
+### 6. Exact remaining actions (operator, out-of-band; unchanged).
+1. Free ≥10GB on `/` (`df -h /`; now 2.2G, 96%) + relieve swap
+   (~16M free) before SDK/model work.
+2. Install cmdline-tools; `export ANDROID_HOME=~/Android/Sdk`,
+   `flutter config --android-sdk ~/Android/Sdk`,
+   `yes | sdkmanager --licenses`,
+   `sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"`,
+   `flutter doctor --android-licenses`, `adb version`.
+3. Attach PHYSICAL device (no KVM here): USB debugging + VirtualBox
+   USB passthrough; `adb devices` + `flutter devices`; fix NAT
+   (bridged adapter or host port-forward of 8000) so
+   `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000` reaches it.
+4. Install Ollama, `ollama serve`, `ollama pull llama3.2-vision` (no
+   text-only substitute); verify `curl :11434/api/tags` + `ollama
+   list`.
+5. Re-run gate; only when Android + backend + Ollama + vision model
+   are ALL reachable does GATE turn OPEN — then run ONLY the NOT
+   TESTED/BLOCKED device flows above (one live image E2E per analysis
+   type, notably first live grooming 202→completed on the ID-free
+   JSON contract).
+
+### Files changed (this phase, uncommitted)
+- `CURRENT_STATE.md` (this entry only).
+
+PHASE 32 RESULT = ENVIRONMENT BLOCKED (BACKEND READY; DISK STILL 2.2G BLOCKS SDK+MODEL INSTALL; ANDROID + OLLAMA MISSING; ZERO E2E PASS CLAIMED)
+
+---
+
+## PHASE 31 — RECHECK AND PROVISION REAL E2E ENVIRONMENT — GATE BLOCKED (disk still 2.2G; no adb/device; no Ollama; backend ready; zero product changes, uncommitted)
+
+Task: re-check the environment after the owner freed disk space and, ONLY
+if prerequisites are viable, provision Android tooling + Ollama for
+genuine Fansivibe E2E. Environment recheck + gate ONLY: no fake/mock E2E,
+no product-contract changes, no fail-closed weakening, no text-only model
+substitution. No commit/push/reset/stash/discard; all pre-existing
+modifications preserved exactly.
+Skills: `.agents/skills/` inspected (21 entries) — none loaded
+(environment-recheck-only turn, zero product code touched; all 21 skills
+are Dart/Flutter code skills, none applicable — Phase 30 precedent).
+
+Baseline: HEAD `56a5e13` (`56a5e136b6ecfa279076a1b7e6bdb0facfde37f1`,
+21.4-A docs); 37 modified + 3 untracked preserved exactly at start;
+`git diff --check` clean at start.
+Preserved modified (37): `CURRENT_STATE.md`, `backend/app/api/routers/
+analysis.py`, `backend/app/api/schemas/analysis.py`, `backend/app/
+application/analysis.py`, `backend/tests/test_analysis_api.py`,
+`test_analysis_use_case.py`, `test_grooming_api.py`,
+`test_hairstyle_image_router.py`, `test_outfit_image_router.py`,
+`docs/api/API_SECURITY_REVIEW.md`, `APPEARANCE_API.md`,
+`FANSIVIBE_API_CONTRACT_V1.md`, `HAIRSTYLE_RECOMMENDATION_API.md`,
+`SCAN_API.md`, `app_config.dart`, `assistant_routes.dart`,
+`assistant_screen.dart`, `look_details_screen.dart`,
+`grooming_client.dart`, `grooming_service.dart`, `hairstyle_client.dart`,
+`hairstyle_service.dart`, `face_scan_screen.dart`,
+`photo_capture_screen.dart`, `your_analysis_screen.dart`,
+`outfit_analysis_screen.dart`, `outfit_processing_screen.dart`,
+`outfit_scan_screen.dart`, `profile_widgets.dart`,
+`add_wardrobe_item_screen.dart`, `wardrobe_item_details_screen.dart`,
+`hairstyle_client_test.dart`, `hairstyle_service_test.dart`,
+`outfit_analysis_screen_test.dart`, `outfit_scan_screen_test.dart`,
+`profile_screen_test.dart`, `wardrobe_item_details_screen_test.dart`.
+Preserved untracked (3): `test/assistant_routes_test.dart`,
+`test/grooming_client_test.dart`, `test/grooming_service_test.dart`
+(Phase-28/29/30 set intact).
+
+### 1. Disk status: INSUFFICIENT — provisioning STOPPED per Step 2.
+- `df -h /`: `/dev/sda2` 49G total, 45G used, **2.2G avail, 96% used** —
+  byte-identical to Phase 29/30 (owner-freed space is NOT visible on `/`;
+  `df -BG /` rounds the same value to 3G). `/tmp` (tmpfs): 2.1G avail
+  (irrelevant for SDK/model install target).
+- RAM: 5.3G total / ~1.9G available; swap 4.0G total / ~14M free
+  (swap still effectively exhausted — tight for any emulator or an
+  ~8GB model pull).
+- Required-but-missing footprint unchanged: cmdline-tools (~150MB) +
+  `platform-tools` + `platforms;android-36` + `build-tools;36.0.0`
+  (~350MB more) + Gradle caches + Ollama binary + `llama3.2-vision`
+  (~7–8GB) — does NOT fit in 2.2G alongside safe OS headroom.
+- Action taken: NO installation attempted, NO files deleted, NO project
+  artifacts cleaned, NO repo workaround. Exactly what must be freed
+  (operator, out-of-band): ≥10GB free on `/` (`df -h /`).
+
+### 2. Android SDK status: MISSING (nothing installed, nothing changed).
+- `ANDROID_HOME`/`ANDROID_SDK_ROOT` both empty; `~/Android`,
+  `/opt/android*`, `/usr/lib/android*`, `~/.android` all absent; `adb`,
+  `sdkmanager`, `avdmanager`, `emulator` all absent (`command -v` =
+  NO_ADB_BINARY / NO_SDKMANAGER_STACK). Host JDK 21.0.12 present
+  (satisfies AGP 8.x JDK 17+). Install set if disk allows (unchanged):
+  `platform-tools`, `platforms;android-36`, `build-tools;36.0.0`.
+- `flutter doctor -v`: every category green EXCEPT `[✗] Android
+  toolchain — Unable to locate Android SDK` (unchanged from Phase 30).
+  Flutter 3.44.7 stable (Dart 3.12.2) at `/home/tony/flutter`.
+- Host virt constraints reconfirmed (no remediation attempted): NO
+  `/dev/kvm`, NO `vmx`/`svm` CPU flag → hardware-accelerated emulator
+  impossible in this VM; emulator NOT created per the brief.
+
+### 3. adb/device status: NO DEVICE (nothing modified on any phone).
+- `adb devices`: NOT RUNNABLE (no binary). `flutter devices`: Linux
+  (desktop) + Chrome (web) only.
+- `lsusb`: only `Linux Foundation` root hubs + `VirtualBox USB
+  Tablet` — no physical Android device attached. Flutter detects NO
+  real phone. Per the brief, no emulator was fabricated as a
+  substitute.
+- ANDROID DEVICE = BLOCKED — a physical device is required (no KVM
+  for an emulator in this guest).
+
+### 4. Flutter Android-toolchain status: NOT HEALTHY.
+- No `android-sdk` configured; `flutter doctor --android-licenses`
+  NOT runnable (no SDK). Toolchain healthy = NO.
+
+### 5. Ollama status: NOT INSTALLED (nothing faked, vision code untouched).
+- `ollama`: NO_OLLAMA_BINARY; process: NO_OLLAMA_PROCESS; port 11434:
+  refused (`curl -m 5 http://localhost:11434/api/tags`, exit 7).
+- `FANSIVIBE_VISION_HOST`/`FANSIVIBE_VISION_MODEL` unset in shell.
+  Install NOT attempted (2.2G free cannot hold the ~8GB model
+  download; needs explicit operator approval + free space anyway). No
+  text-only substitution made; fail-closed vision behavior unchanged.
+
+### 6. Vision model status: NOT INSTALLED.
+- `llama3.2-vision`: absent (no Ollama binary to pull/list with). No
+  model list obtainable. No image-input verification possible. No
+  substitute model pulled.
+
+### 7. Backend status: READY (verified live, zero writes, zero restarts).
+- The pre-existing operator dev server is STILL running undisturbed
+  (uvicorn PID 10948 + reload worker, `0.0.0.0:8000`, confirmed via
+  `ss -tlnp`). It was NOT started, stopped, restarted, or otherwise
+  disturbed by this phase (read-only `curl` probes only).
+- Live probes: `GET /health` → 200 `{"status":"ok"}`; `GET /ready` →
+  200 `{"status":"ready","database":"connected"}`.
+- PostgreSQL listening on 127.0.0.1:5432 (dev DB connected per
+  `/ready`). No migrations run, no rows written, no users created.
+- No production configuration changed.
+
+### 8. Network path status: DETERMINED (backend side ready, device side missing).
+- Backend binds `0.0.0.0:8000` → permits Android access: emulator =
+  `http://10.0.2.2:8000`; physical device =
+  `http://<host-LAN-IP>:8000` via
+  `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000`. No IP
+  invented: this machine's primary IP is `10.0.2.15` behind gateway
+  `10.0.2.2` (VirtualBox NAT guest) — a physical phone on the real
+  LAN CANNOT reach `10.0.2.15` without host port-forwarding or
+  bridged networking. No production URLs changed.
+- Android→backend reachability: NOT VERIFIABLE (no device).
+  Backend→Ollama reachability: NO (11434 refused).
+
+### 9. REAL E2E GATE = BLOCKED.
+- [ ] >=10 GB disk available — NO (2.2G avail, 96% used).
+- [ ] Android SDK installed — NO.
+- [ ] adb works — NO (no binary).
+- [ ] Flutter Android toolchain healthy — NO (no SDK).
+- [ ] Real Android device/emulator visible — NO (Linux + Chrome only).
+- [ ] Backend healthy — YES (`/health` ok, `/ready` ready, dev DB
+  connected).
+- [ ] Android can reach backend — NOT VERIFIABLE (no device; NAT
+  caveat above).
+- [ ] Ollama running — NO.
+- [ ] llama3.2-vision installed — NO.
+- [ ] Backend can reach Ollama — NO (11434 refused).
+- NO REAL E2E WAS EXECUTED. NO E2E FLOW WAS MARKED PASS. NO E2E
+  RESULT WAS FABRICATED.
+
+### 10. Exact remaining manual actions (operator, out-of-band).
+1. Free disk: ≥10GB on `/` (`df -h /`; currently 2.2G avail, 96%
+   used) — SDK + platform + build-tools + Gradle cache + Ollama +
+   vision model do not fit otherwise. Also relieve swap pressure
+   (~14M free) before any emulator/model work.
+2. Install Android cmdline-tools, then (versions pinned to this
+   project): `export ANDROID_HOME=~/Android/Sdk`,
+   `flutter config --android-sdk ~/Android/Sdk`,
+   `yes | sdkmanager --licenses`,
+   `sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"`,
+   `flutter doctor --android-licenses`, `adb version`.
+3. Prefer a PHYSICAL device (no KVM/nested-virt here): enable USB
+   debugging, attach via VirtualBox USB passthrough, verify with
+   `adb devices` + `flutter devices`; resolve NAT networking
+   (bridged adapter or host port-forward of 8000) so the device
+   reaches the backend at `http://<host-LAN-IP>:8000` via
+   `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000`.
+4. Install Ollama per https://ollama.com/download
+   (`curl -fsSL https://ollama.com/install.sh | sh`), start the
+   service (`ollama serve`), pull the CONFIGURED vision model
+   (`ollama pull llama3.2-vision` — do NOT substitute a text-only
+   model), verify with `curl http://localhost:11434/api/tags` and
+   `ollama list`.
+5. Re-run this phase's gate checks (`flutter devices`, `adb
+   devices`, `curl :11434/api/tags`, `curl :8000/health`, `curl
+   :8000/ready`); only when Android + backend + Ollama + real vision
+   model are ALL reachable does REAL E2E GATE turn OPEN.
+
+### Validation
+- `git diff --check`: clean (start; re-verified at end — see below).
+- `git status`: 37 modified + 3 untracked identical before/after
+  except this entry (listed above).
+- Project files changed this phase: NONE except this entry. Backend
+  probes were read-only (`/health`, `/ready` — zero DB writes, zero
+  users created). No product-code changes; no secrets touched.
+
+### Files changed (this phase, uncommitted)
+- `CURRENT_STATE.md` (this entry only).
+
+PHASE 31 RESULT = ENVIRONMENT BLOCKED (BACKEND READY; DISK STILL 2.2G BLOCKS SDK+MODEL INSTALL; ANDROID + OLLAMA MISSING)
+
+---
+
+## PHASE 30 — REAL E2E ENVIRONMENT PROVISIONING + GATE — GATE BLOCKED (disk 96%/2.2G blocks SDK+model install; no adb/device; no Ollama; backend ready; zero product changes, uncommitted)
+
+Task: provision the machine for genuine Fansivibe Android + backend +
+Ollama E2E. Environment provisioning + gate ONLY: no fake/mock E2E, no
+product-contract changes, no fail-closed weakening, no text-only model
+substitution. No commit/push/reset/stash/discard; all pre-existing
+modifications preserved exactly.
+Skills: `.agents/skills/` inspected (21 entries) — none loaded
+(environment-provisioning-only turn, zero product code touched; all 21
+skills are Dart/Flutter code skills, none applicable — Phase 29 precedent).
+
+Baseline: HEAD `56a5e13` (`56a5e136b6ecfa279076a1b7e6bdb0facfde37f1`,
+21.4-A docs); 37 modified + 3 untracked preserved exactly at start;
+`git diff --check` clean at start.
+Preserved modified (37): `CURRENT_STATE.md`, `backend/app/api/routers/
+analysis.py`, `backend/app/api/schemas/analysis.py`, `backend/app/
+application/analysis.py`, `backend/tests/test_analysis_api.py`,
+`test_analysis_use_case.py`, `test_grooming_api.py`,
+`test_hairstyle_image_router.py`, `test_outfit_image_router.py`,
+`docs/api/API_SECURITY_REVIEW.md`, `APPEARANCE_API.md`,
+`FANSIVIBE_API_CONTRACT_V1.md`, `HAIRSTYLE_RECOMMENDATION_API.md`,
+`SCAN_API.md`, `app_config.dart`, `assistant_routes.dart`,
+`assistant_screen.dart`, `look_details_screen.dart`,
+`grooming_client.dart`, `grooming_service.dart`, `hairstyle_client.dart`,
+`hairstyle_service.dart`, `face_scan_screen.dart`,
+`photo_capture_screen.dart`, `your_analysis_screen.dart`,
+`outfit_analysis_screen.dart`, `outfit_processing_screen.dart`,
+`outfit_scan_screen.dart`, `profile_widgets.dart`,
+`add_wardrobe_item_screen.dart`, `wardrobe_item_details_screen.dart`,
+`hairstyle_client_test.dart`, `hairstyle_service_test.dart`,
+`outfit_analysis_screen_test.dart`, `outfit_scan_screen_test.dart`,
+`profile_screen_test.dart`, `wardrobe_item_details_screen_test.dart`.
+Preserved untracked (3): `test/assistant_routes_test.dart`,
+`test/grooming_client_test.dart`, `test/grooming_service_test.dart`
+(Phase-28/29 set intact).
+
+### 1. Disk status: INSUFFICIENT — provisioning STOPPED per Step 2.
+- `/dev/sda2` (mounted on `/` and `/home`): 49G total, 45G used, 2.2G
+  avail, 96% used — byte-identical to Phase 29. `/tmp` (tmpfs): 2.1G
+  avail (irrelevant for SDK/model install target).
+- RAM: 5.3G total / ~2.0G available; swap 4.0G total / ~4M free
+  (swap exhausted — tight for emulator or an 8GB model pull).
+- Required-but-missing footprint: cmdline-tools (~150MB) +
+  `platform-tools` + `platforms;android-36` + `build-tools;36.0.0`
+  (~350MB more) + Gradle caches + Ollama binary + `llama3.2-vision`
+  (~7–8GB) — does NOT fit in 2.2G alongside safe OS headroom.
+- Action taken: NO installation attempted, NO files deleted, NO project
+  artifacts cleaned, NO repo workaround. Exactly what must be freed
+  (operator, out-of-band): ≥10GB free on `/` (`df -h /`), same
+  threshold as Phase 29 (SDK + platform + build-tools + Gradle cache +
+  Ollama + vision model).
+
+### 2. Android SDK status: MISSING (nothing installed, nothing changed).
+- Project targets reconfirmed from existing files (not invented): AGP
+  8.9.1 + Kotlin 2.1.0
+  (`newproject/flutter_application_1/android/settings.gradle.kts`);
+  `compileSdk = flutter.compileSdkVersion` / `minSdk` / `targetSdk`
+  via Flutter extension
+  (`newproject/flutter_application_1/android/app/build.gradle.kts`);
+  Java 11 bytecode target; host JDK 21.0.12 present (satisfies AGP 8.x
+  JDK 17+). Required install set if disk allows: `platform-tools`,
+  `platforms;android-36`, `build-tools;36.0.0`.
+- Evidence: `ANDROID_HOME`/`ANDROID_SDK_ROOT` both empty; `~/Android`,
+  `/opt/android*`, `/usr/lib/android*` all absent; `adb`,
+  `sdkmanager`, `avdmanager`, `emulator` all absent
+  (`command -v` = NO_ADB_BINARY / NO_SDKMANAGER_STACK).
+- `flutter doctor -v`: every category green EXCEPT `[✗] Android
+  toolchain — Unable to locate Android SDK` (unchanged from Phase 29).
+  Flutter 3.44.7 stable (Dart 3.12.2) at `/home/tony/flutter`;
+  OS Ubuntu 26.04.1 LTS (kernel 7.0.0-31-generic, VirtualBox guest).
+- Host virt constraints reconfirmed (no remediation attempted): NO
+  `/dev/kvm`, NO `vmx`/`svm` CPU flag → hardware-accelerated emulator
+  impossible in this VM; emulator NOT created per the brief.
+
+### 3. adb/device status: NO DEVICE (nothing modified on any phone).
+- `adb devices`: NOT RUNNABLE (no binary). `flutter emulators`: no
+  sources. `flutter devices`: Linux (desktop) + Chrome (web) only.
+- `lsusb`: only `Linux Foundation` root hubs + `VirtualBox USB
+  Tablet` — no physical Android device attached. Flutter detects NO
+  real phone. Per the brief, no emulator was fabricated as a
+  substitute.
+
+### 4. Flutter Android-toolchain status: NOT HEALTHY.
+- `flutter config --list`: no `android-sdk` configured
+  (`enable-android: (Not set)` line only). `flutter doctor
+  --android-licenses` NOT runnable (no SDK). Toolchain healthy = NO.
+
+### 5. Ollama status: NOT INSTALLED (nothing faked, vision code untouched).
+- `ollama`: NO_OLLAMA_BINARY; process: NO_OLLAMA_PROCESS; port 11434:
+  refused (`curl -m 5 http://localhost:11434/api/tags`, exit 7).
+- `FANSIVIBE_VISION_HOST`/`FANSIVIBE_VISION_MODEL` unset in shell;
+  backend code defaults (`settings.py:66-70`) remain
+  `http://localhost:11434` / `llama3.2-vision` (defaults, not a live
+  service); `backend/.env.example` holds placeholders only; no
+  `backend/.env` file exists (correct — never committed).
+- Install NOT attempted (2.2G free cannot hold the ~8GB model
+  download; needs explicit operator approval + free space anyway). No
+  text-only substitution made; fail-closed vision behavior unchanged.
+
+### 6. Vision model status: NOT INSTALLED.
+- `llama3.2-vision`: absent (no Ollama binary to pull/list with). No
+  model list obtainable. No image-input verification possible. No
+  substitute model pulled.
+
+### 7. Backend status: READY (verified live, zero writes, zero restarts).
+- The pre-existing operator dev server is STILL running undisturbed
+  (PID 10948, started 12:26 before Phase 29): `uvicorn app.main:app
+  --host 0.0.0.0 --port 8000 --reload` from `backend/.venv`. It was
+  NOT started, stopped, restarted, or otherwise disturbed by this
+  phase (read-only `curl` probes only).
+- Live probes: `GET /health` → 200 `{"status":"ok"}`; `GET /ready` →
+  200 `{"status":"ready","database":"connected"}`; `ss -tlnp` confirms
+  `0.0.0.0:8000` listening (uvicorn PID 10948 + reload worker).
+- PostgreSQL 18 cluster `main` online, port 5432; dev-credential probe
+  (`fansivibe:fansivibe_dev@localhost:5432/fansivibe`, `SELECT 1`) →
+  OK. No migrations run, no rows written, no users created.
+
+### 8. Network path status: DETERMINED (backend side ready, device side missing).
+- Backend binds `0.0.0.0:8000` → permits Android access: emulator =
+  `http://10.0.2.2:8000`; physical device =
+  `http://<host-LAN-IP>:8000` via
+  `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000`. No IP
+  invented: this machine's primary IP is `10.0.2.15` behind gateway
+  `10.0.2.2` (VirtualBox NAT guest) — a physical phone on the real
+  LAN CANNOT reach `10.0.2.15` without host port-forwarding or
+  bridged networking. No production URLs changed. Device→backend
+  reachability NOT verifiable (no device); backend→Ollama
+  reachability = NO (11434 refused).
+
+### 9. Build smoke: NOT RUN (gate STOP per Step 8).
+- Prerequisites missing (no toolchain, no device), so NO `flutter
+  build apk` / `flutter run` was attempted. No full E2E flows started.
+
+### 10. REAL E2E GATE = BLOCKED.
+- [x] Backend running and ready — YES (`/health` ok, `/ready` ready,
+  dev DB connected).
+- [ ] Flutter Android toolchain healthy — NO (no SDK).
+- [ ] Real Android device/emulator visible to Flutter — NO
+  (Linux + Chrome only; no adb; no USB device).
+- [ ] Android can reach backend — NOT VERIFIABLE (no device; NAT
+  caveat above).
+- [ ] Ollama running — NO.
+- [ ] llama3.2-vision installed — NO.
+- [ ] Backend can reach Ollama — NO (11434 refused).
+- [ ] Real vision request can be processed — NO.
+- NO REAL E2E WAS EXECUTED. NO E2E FLOW WAS MARKED PASS.
+
+### 11. Exact remaining manual actions (operator, out-of-band).
+1. Free disk: ≥10GB on `/` (`df -h /`; currently 2.2G avail, 96%
+   used) — SDK + platform + build-tools + Gradle cache + Ollama +
+   vision model do not fit otherwise. Also relieve swap pressure
+   (4M free) before any emulator/model work.
+2. Install Android cmdline-tools, then (versions pinned to this
+   project): `export ANDROID_HOME=~/Android/Sdk`,
+   `flutter config --android-sdk ~/Android/Sdk`,
+   `yes | sdkmanager --licenses`,
+   `sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"`,
+   `flutter doctor --android-licenses`, `adb version`.
+3. Prefer a PHYSICAL device (no KVM/nested-virt here): enable USB
+   debugging, attach via VirtualBox USB passthrough, verify with
+   `adb devices` + `flutter devices`; resolve NAT networking
+   (bridged adapter or host port-forward of 8000) so the device
+   reaches the backend at `http://<host-LAN-IP>:8000` via
+   `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000`.
+4. Install Ollama per https://ollama.com/download
+   (`curl -fsSL https://ollama.com/install.sh | sh`), start the
+   service (`ollama serve`), pull the CONFIGURED vision model
+   (`ollama pull llama3.2-vision` — do NOT substitute a text-only
+   model), verify with `curl http://localhost:11434/api/tags` and
+   `ollama list`.
+5. Re-run this phase's gate checks (`flutter devices`, `adb
+   devices`, `curl :11434/api/tags`, `curl :8000/health`, `curl
+   :8000/ready`); only when Android + backend + Ollama + real vision
+   model are ALL reachable does REAL E2E GATE turn OPEN.
+
+### Validation
+- `git diff --check`: clean (start; re-verified at end — see below).
+- `git status`: 37 modified + 3 untracked identical before/after
+  except this entry (listed above).
+- Project files changed this phase: NONE except this entry. No
+  `flutter analyze` re-run (tree identical to the Phase-28-analyzed
+  state except markdown, same as Phase 29). Backend probes were
+  read-only (`/health`, `/ready`, `SELECT 1` — zero DB writes, zero
+  users created). No product-code changes; no secrets touched.
+
+### Files changed (this phase, uncommitted)
+- `CURRENT_STATE.md` (this entry only).
+
+PHASE 30 RESULT = ENVIRONMENT BLOCKED (BACKEND READY; DISK BLOCKS SDK+MODEL INSTALL; ANDROID + OLLAMA MISSING)
+
+---
+
+## PHASE 29 — PREPARE REAL E2E ENVIRONMENT — GATE BLOCKED (no Android SDK, no Ollama; backend ready; zero product changes, uncommitted)
+
+Task: prepare the local dev environment for the first genuine Fansivibe
+Android + backend + Ollama E2E run. Environment preparation ONLY: no
+application behavior invented, no product contracts modified, no fake/mock
+E2E evidence. No commit/push/reset/stash/discard; all pre-existing
+modifications preserved exactly; fail-closed vision untouched.
+Skills: `.agents/skills/` inspected (21 entries) — none loaded
+(environment-discovery-only turn, zero product code touched; all 21 skills
+are Dart/Flutter code skills, none applicable — Phase 26/27 precedent).
+
+Baseline: HEAD `56a5e13` (`56a5e136b6ecfa279076a1b7e6bdb0facfde37f1`,
+21.4-A docs); 37 modified + 3 untracked preserved exactly at start and
+end; `git diff --check` clean at start and end.
+Preserved modified (37): `CURRENT_STATE.md`, `backend/app/api/routers/
+analysis.py`, `backend/app/api/schemas/analysis.py`, `backend/app/
+application/analysis.py`, `backend/tests/test_analysis_api.py`,
+`test_analysis_use_case.py`, `test_grooming_api.py`,
+`test_hairstyle_image_router.py`, `test_outfit_image_router.py`,
+`docs/api/API_SECURITY_REVIEW.md`, `APPEARANCE_API.md`,
+`FANSIVIBE_API_CONTRACT_V1.md`, `HAIRSTYLE_RECOMMENDATION_API.md`,
+`SCAN_API.md`, `app_config.dart`, `assistant_routes.dart`,
+`assistant_screen.dart`, `look_details_screen.dart`,
+`grooming_client.dart`, `grooming_service.dart`, `hairstyle_client.dart`,
+`hairstyle_service.dart`, `face_scan_screen.dart`,
+`photo_capture_screen.dart`, `your_analysis_screen.dart`,
+`outfit_analysis_screen.dart`, `outfit_processing_screen.dart`,
+`outfit_scan_screen.dart`, `profile_widgets.dart`,
+`add_wardrobe_item_screen.dart`, `wardrobe_item_details_screen.dart`,
+`hairstyle_client_test.dart`, `hairstyle_service_test.dart`,
+`outfit_analysis_screen_test.dart`, `outfit_scan_screen_test.dart`,
+`profile_screen_test.dart`, `wardrobe_item_details_screen_test.dart`.
+Preserved untracked (3): `test/assistant_routes_test.dart`,
+`test/grooming_client_test.dart`, `test/grooming_service_test.dart`
+(Phase-28 set intact).
+
+### 1. Android environment: NOT AVAILABLE (nothing installed, nothing changed).
+- Flutter 3.44.7 stable (Dart 3.12.2) at `/home/tony/flutter`; `flutter
+  doctor -v`: every category green EXCEPT `[✗] Android toolchain —
+  Unable to locate Android SDK`.
+- `ANDROID_HOME`/`ANDROID_SDK_ROOT` both empty; `~/Android`,
+  `/opt/android*`, `/usr/lib/android*` all absent; `adb` and
+  `sdkmanager` absent; `~/.android/avd` absent; `flutter emulators` =
+  no sources; `flutter devices` = Linux + Chrome only; no physical
+  device.
+- Project minimums (from existing project, NOT invented): AGP 8.9.1 +
+  Kotlin 2.1.0 (`android/settings.gradle.kts`); Flutter-default SDK
+  levels compileSdk 36 / minSdk 24 / targetSdk 36
+  (`FlutterExtension.kt`: 36/24/36); Java 11 bytecode target
+  (`build.gradle.kts`); host JDK 21 present (satisfies AGP 8.x JDK 17+
+  requirement). Required install set therefore: `platform-tools`,
+  `platforms;android-36`, `build-tools;36.0.0`, plus emulator +
+  `system-images;android-36;google_apis;x86_64` for an AVD.
+- Host constraints found (no remediation attempted): NO `/dev/kvm` and
+  NO CPU virt flag (`vmx`/`svm` absent) → hardware-accelerated emulator
+  impossible in this VM (software rendering only, likely unusable);
+  disk 96% full (2.2G avail on `/`) → SDK + system image (~10GB needed)
+  will NOT fit without freeing space; RAM 5.3G total / ~2G available
+  (tight for an emulator). Realistic Android path on THIS machine is a
+  physical device over adb, not an emulator. Per the brief, no emulator
+  was created and no SDK was installed (disk + nested-virt make blind
+  installation unsafe).
+- Android release signing untouched per the brief (out of scope).
+
+### 2. Ollama environment: NOT INSTALLED (nothing faked, backend vision code untouched).
+- `ollama`: NO_OLLAMA_BINARY; process: NO_OLLAMA_PROCESS; port 11434:
+  refused (curl exit 7).
+- `FANSIVIBE_VISION_HOST`/`FANSIVIBE_VISION_MODEL` unset in shell;
+  backend code defaults (`settings.py:67,70`) are
+  `http://localhost:11434` / `llama3.2-vision` (defaults, not a live
+  service); `backend/.env.example` holds placeholders only; no
+  `backend/.env` file exists (correct — never committed). No model list
+  obtainable (no service). No text-only substitution made; fail-closed
+  vision behavior unchanged. Model download NOT attempted (no binary to
+  pull with; ~8GB download needs explicit operator approval).
+
+### 3. Backend local E2E readiness: READY (verified live, zero writes, zero config changes).
+- PostgreSQL 18 cluster `main` online, port 5432 accepting connections;
+  dev-credential probe (`fansivibe:fansivibe_dev@localhost:5432/
+  fansivibe`, `SELECT 1`) → OK. No migrations run, no rows written.
+- A pre-existing operator dev server is ALREADY running (PID 10948,
+  started 12:26 before this phase): `uvicorn app.main:app --host
+  0.0.0.0 --port 8000 --reload` from `backend/.venv`. It was NOT
+  started, stopped, restarted, or otherwise disturbed by this phase (my
+  probe instance failed to bind as expected and exited; /tmp probe
+  files removed). Live probes against it: `GET /health` → 200 `ok`;
+  `GET /ready` → 200 `ready` + `database connected`.
+- Dev auth behavior (unchanged): settings load as `env development`,
+  `allow_dev_token False`; `Authorization: Bearer dev` probe →
+  `AUTHENTICATION_ERROR` 401 (dev token correctly rejected; real JWT
+  required). No test users created; dev DB untouched. Vision config:
+  `vision_host http://localhost:11434`, `vision_model llama3.2-vision`,
+  `disable_vision False` — adapter will attempt a real connection and
+  fail closed (11434 refused), consistent with Phase 23; no analysis
+  runs submitted this phase.
+- No development configuration was converted into production
+  configuration; no secrets touched.
+
+### 4. Network path: DETERMINED (backend side ready, device side missing).
+- Backend binds `0.0.0.0:8000` (pre-existing server) → permits Android
+  access: emulator = `http://10.0.2.2:8000`; physical device =
+  `http://<host-LAN-IP>:8000` via
+  `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000`
+  (`AppConfig.connectionHint` already surfaces this in-app).
+- Caveat: this machine's primary IP is `10.0.2.15` behind gateway
+  `10.0.2.2` (VirtualBox NAT guest) — a physical phone on the real LAN
+  CANNOT reach `10.0.2.15` without host port-forwarding or bridged
+  networking. Operator must resolve host networking when a device is
+  attached. No production configuration changed.
+
+### 5. REAL E2E GATE = BLOCKED.
+Genuinely available: backend (running, `/health` ok, `/ready` ready, dev
+DB connected). Genuinely missing: Android SDK/adb/emulator/device +
+reachable Ollama + real vision model. Per the brief, Step 8 stopped at
+the environment gate: NO camera/gallery/analysis flow executed, NO flow
+labeled PASS. Prior Phase-23 backend-reachable proof stands and is NOT
+re-proven here.
+
+### 6. Exact manual actions required (operator, out-of-band).
+1. Free disk: ≥10GB on `/` (`df -h /`; currently 2.2G avail, 96% used)
+   — SDK + platform + build-tools + system image do not fit otherwise.
+2. Install Android cmdline-tools, then (versions pinned to this project):
+   `export ANDROID_HOME=~/Android/Sdk`,
+   `flutter config --android-sdk ~/Android/Sdk`,
+   `yes | sdkmanager --licenses`,
+   `sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"`,
+   `flutter doctor --android-licenses`.
+3. Prefer a PHYSICAL device (no KVM/nested-virt here): enable USB
+   debugging, attach, verify with `adb devices` + `flutter devices`;
+   resolve VirtualBox USB passthrough + NAT networking (bridged adapter
+   or port-forward 8000) so the device reaches the backend.
+   (Emulator fallback only if KVM becomes available:
+   `sdkmanager "emulator" "system-images;android-36;google_apis;x86_64"`,
+   `avdmanager create avd -n fansivibe -k
+   "system-images;android-36;google_apis;x86_64" -d pixel`,
+   `flutter emulators --launch fansivibe`; expect software-rendering
+   slowness without KVM.)
+4. Install Ollama per https://ollama.com/download
+   (`curl -fsSL https://ollama.com/install.sh | sh`), start the service
+   (`ollama serve`), pull the CONFIGURED vision model
+   (`ollama pull llama3.2-vision` — do NOT substitute a text-only
+   model), verify with `curl http://localhost:11434/api/tags` and
+   `ollama list`.
+5. Re-run this phase's gate checks (`flutter devices`, `adb devices`,
+   `curl :11434/api/tags`, `curl :8000/health`, `curl :8000/ready`);
+   only when Android + backend + Ollama + real vision model are ALL
+   reachable does REAL E2E GATE turn OPEN — then run ONLY the NOT TESTED
+   device flows (camera/gallery, one live image E2E per analysis type —
+   notably first live grooming 202→completed on the ID-free Phase-28
+   JSON contract — offline-mock honesty, analyzer_unavailable honesty,
+   >20MB/429/500, cross-user leakage). Do NOT re-prove green contracts.
+
+### Validation
+- `git diff --check`: clean (start and end). `git status`: 37 modified
+  + 3 untracked identical before/after (listed above).
+- Project files changed this phase: NONE except this entry. Per the
+  brief, `flutter analyze` was NOT re-run solely for this phase (tree
+  identical to the Phase-28-analyzed state except markdown).
+- Backend probes were read-only (`/health`, `/ready`, `SELECT 1`, one
+  rejected-auth probe — zero DB writes, zero users created).
+- New failures: ZERO. Incidental note (no action): historical doc
+  `docs/validation/FANSIVIBE_STAGE_11_8_E2E_VALIDATION_REPORT.md` §2.1
+  still describes the pre-Phase-28 `faceProfileRef` contract — it is an
+  explicitly historical record and was intentionally left untouched per
+  the no-unrelated-rewrite rule.
+
+### Files changed (this phase, uncommitted)
+- `CURRENT_STATE.md` (this entry only).
+
+PHASE 29 RESULT = ENVIRONMENT BLOCKED (BACKEND READY; ANDROID + OLLAMA MISSING)
+
+---
+
+## PHASE 28 — IMPLEMENT APPROVED OWNER DECISIONS: FACE-PROFILE REMOVED, SHARE DEFERRED — IMPLEMENTED (uncommitted)
+
+Task: implement the explicit owner authorization from the brief (REMOVE
+obsolete `face_profile_ref` end-to-end; DO NOT implement Share; no
+entity/table/minting endpoint/fake ID). No commit/push/reset/stash/discard;
+all pre-existing modifications preserved; DECISIONS.md untouched.
+Skills: `.agents/skills/` inspected (21 entries) —
+`flutter-use-http-package`, `dart-run-static-analysis`, `dart-add-unit-test`,
+`flutter-add-widget-test` read.
+
+Baseline: HEAD `56a5e13` (`56a5e136b6ecfa279076a1b7e6bdb0facfde37f1`,
+21.4-A docs); 19 modified + 2 untracked preserved exactly at start;
+`git diff --check` clean at start and end.
+Preserved modified (19): `CURRENT_STATE.md`, `app_config.dart`,
+`assistant_routes.dart`, `assistant_screen.dart`, `look_details_screen.dart`,
+`grooming_client.dart` (Phase-25 JSON fix intact, extended here),
+`face_scan_screen.dart`, `photo_capture_screen.dart`,
+`your_analysis_screen.dart`, `outfit_analysis_screen.dart`,
+`outfit_processing_screen.dart`, `outfit_scan_screen.dart`,
+`profile_widgets.dart`, `add_wardrobe_item_screen.dart`,
+`wardrobe_item_details_screen.dart`, `outfit_analysis_screen_test.dart`,
+`outfit_scan_screen_test.dart`, `profile_screen_test.dart`,
+`wardrobe_item_details_screen_test.dart`.
+Preserved untracked (2): `test/assistant_routes_test.dart`,
+`test/grooming_client_test.dart` (extended here, still untracked).
+
+### 1. FACE-PROFILE = IMPLEMENTED / REMOVED (no entity/table/endpoint/fake ID).
+Traced end-to-end before editing (Step 2): Flutter `FaceProfile`
+(local-only, no id) → `hairstyle_service.dart:27,117` +
+`grooming_service.dart:23,78` (`_devFaceProfileRef`
+`00000000-0000-0000-0000-000000000001`) → `hairstyle_client.dart`
+(multipart `faceProfileRef`) / `grooming_client.dart` (JSON
+`face_profile_ref`, Phase-25 transport intact) → routers
+`analysis.py:86-139` (hairstyle Form) + `:193-210` (grooming JSON,
+UUID-shape only) → `CreateHairstyleRun:114` + `CreateGroomingRun:588`
+(both ignored the ref, read `get_style_profile(user_id)` by authed
+user) → tests/docs. Verified no table/model/repository/minting endpoint
+exists; backend tests passed arbitrary `uuid4()`, proving contract noise.
+Removed ONLY the obsolete contract; preserved auth (Bearer
+session-first), OW-1 owner scoping, real `style_profile` lookup,
+analysis behavior, run creation, polling (30×600ms), failure handling
+(`failed` + `PROCESSING_FAILURE` + `details.run_id`), fail-closed vision,
+and image/multipart behavior for image flows. Grooming remains JSON
+(empty `{}` with `Content-Type: application/json`) per the Phase-25 fix —
+no multipart regression.
+
+Exact files/contracts changed (Phase 28 only; baseline 19 untouched
+except `grooming_client.dart` extended + this entry):
+- Flutter: `hairstyle_client.dart` (removed `faceProfileRef` param/XOR/
+  field; profile-only = empty multipart, image = real `image` part);
+  `hairstyle_service.dart` (removed `_devFaceProfileRef`, profile call now
+  no-arg); `grooming_client.dart` (removed `faceProfileRef` param; POST
+  empty JSON `{}`); `grooming_service.dart` (removed `_devFaceProfileRef`,
+  call now no-arg).
+- Backend: `app/api/schemas/analysis.py` (deleted
+  `CreateGroomingRunRequest`; removed `faceProfileRef` from the two unused
+  scan schemas; docstring notes Phase-28 removal); `app/api/routers/
+  analysis.py` (hairstyle: removed Form field + XOR + required + UUID
+  checks, `use_case(user_id)`; grooming: removed body model + required +
+  UUID checks, `use_case(user_id)`, JSON transport preserved; outfit:
+  removed reject-`faceProfileRef` guard — extra field now ignored;
+  removed `Form` + dead schema imports); `app/application/analysis.py`
+  (`CreateHairstyleRun` + `CreateGroomingRun` signatures now
+  `__call__(user_id)` only; bodies unchanged — still read
+  `style_profile` by `user_id`).
+- Tests: `test/grooming_client_test.dart` (untracked, rewritten: empty
+  JSON, no `face_profile_ref`/`faceProfileRef` keys); `test/
+  hairstyle_client_test.dart` (profile-only no-field, empty-multipart
+  body, image-path no-field, obsolete-ignored); `test/
+  hairstyle_service_test.dart` (fake signature no-ref); `test/
+  grooming_service_test.dart` (NEW untracked: no-submit without face
+  shape, submit-no-ref with stored profile, submit-fail fallback);
+  `backend/tests/test_analysis_api.py` (profile-no-ref +
+  obsolete-ignored + image+obsolete→202); `test_grooming_api.py`
+  (empty-JSON + obsolete-ignored); `test_analysis_use_case.py` (all
+  `face_profile_ref` args removed; spy `__call__(user_id)`; obsolete
+  assertions → `not in captured`; invalid-UUID test → no-ref success);
+  `test_hairstyle_image_router.py` (empty-multipart profile-only +
+  obsolete-ignored + image+obsolete→image-branch + missing-face→
+  INSUFFICIENT); `test_outfit_image_router.py`
+  (obsolete-rejected → obsolete-ignored→202).
+- Docs (current contracts only): `FANSIVIBE_API_CONTRACT_V1.md` #37/#38,
+  `APPEARANCE_API.md` §5.1 + validation row, `SCAN_API.md` §3 table +
+  §5.2 + validation, `HAIRSTYLE_RECOMMENDATION_API.md` §§1/4.3/4.5/5.1/
+  5.7/5.8/6/9, `API_SECURITY_REVIEW.md` §§6.2/table. All now state:
+  profile-only = empty body / empty JSON, `style_profile` by `user_id`,
+  no reference field (Phase 28). Historical implementation/stage/domain/
+  validation docs intentionally untouched — explicitly historical (see §5).
+
+### 2. Tests and results (focused; no unrelated fixes).
+- Flutter: `grooming_client + grooming_service (new) + hairstyle_client
+  + hairstyle_service` → 43 passed (was 40; +3 new grooming-service).
+- Backend (from `backend/`): `test_grooming_api + test_analysis_api` →
+  31 passed; `test_hairstyle_image_router + test_outfit_image_router` →
+  19 passed; `test_analysis_use_case -k "hairstyle or grooming …"` → 31
+  passed. Full `test_analysis_use_case` file: 51 passed, 7 failed —
+  all 7 are pre-existing/environmental outfit-adapter + cwd-path
+  failures untouched by this phase (`CreateOutfitRun` development-adapter
+  `failed`-vs-`completed`, `pathlib app/application/analysis.py` when run
+  from repo root; outfit use cases never took the removed param).
+- Broader Flutter: `grooming_input + grooming_processing +
+  hairstyle_scan + hairstyle_processing` → 26 passed, 2 failed — both
+  are the known pre-existing `grooming_processing_screen` copy assertions
+  (byte-identical on pristine HEAD per Phase 25/26).
+- `flutter analyze`: 39 issues, ZERO errors (== Phase-23/24/25/26/27
+  baseline). `git diff --check`: clean.
+- New failures: ZERO. Pre-existing: the 2 grooming-processing copy
+  failures + 7 outfit use-case/environmentals above + analyze 39
+  infos/warnings. Environmental: Android + Ollama still blocked (below).
+
+### 3. Contract sweep (Step 5).
+Runtime (`lib`/`app`/`tests`): NO stale runtime dependency. Remaining
+hits are intentional Phase-28 artifacts only: removal-explaining comments
+(`grooming_client.dart:42`, `schemas/analysis.py:8`), negative assertions
+(`isFalse`/`isNot(contains(...))`/`not in captured`), and
+obsolete-ignored tests (send extra field to prove it is ignored, still
+202). Zero `_devFaceProfileRef` definitions; zero request fields; zero
+UUID checks for the removed field; zero `FaceProfile` ID assumptions
+(`FaceProfile` model itself is local-only, no id — untouched per brief).
+Docs: the 5 current-contract files above are clean; all other `docs/`
+hits (domain blueprints, `GROOMING_*`/`APPEARANCE_SCAN_*` plans/reports,
+`STEP_7_*`, validation reports) are explicitly HISTORICAL records of the
+pre-28 contract and were not rewritten per the no-unrelated-reformat rule.
+
+### 4. Share = intentionally NOT implemented (Step 6).
+Verified: exactly the 3 honest entry points, byte-identical —
+`daily_outfit_screen:1242`, `look_details_screen:397`,
+`outfit_analysis_screen:57`, each `Share feature coming soon`; zero
+success claims. `pubspec.yaml`: no `share_plus` (only
+`shared_preferences` matched); no payload/link/deep-link/share-sheet
+wiring added. Documented as separate product decision still required:
+exact payload, text vs image/card, deep-link/public-content behavior,
+native share-sheet behavior, supported platforms.
+
+### 5. Validation (Step 7).
+- Focused Flutter/backend suites above; `flutter analyze` 39/0;
+  `git diff --check` clean. No commit/push/reset/stash/discard performed;
+  `git status` shows baseline 19 + Phase-28 18 modified (=37) + 3
+  untracked (`assistant_routes_test`, `grooming_client_test` preserved;
+  `grooming_service_test` new). DECISIONS.md untouched.
+
+### Files changed (this phase, uncommitted; baseline 19 preserved)
+Modified (18 new + `grooming_client.dart` extended + this entry):
+`backend/app/api/routers/analysis.py`, `backend/app/api/schemas/
+analysis.py`, `backend/app/application/analysis.py`, `backend/tests/
+test_analysis_api.py`, `test_analysis_use_case.py`, `test_grooming_api.py`,
+`test_hairstyle_image_router.py`, `test_outfit_image_router.py`,
+`docs/api/API_SECURITY_REVIEW.md`, `APPEARANCE_API.md`,
+`FANSIVIBE_API_CONTRACT_V1.md`, `HAIRSTYLE_RECOMMENDATION_API.md`,
+`SCAN_API.md`, `…/grooming/data/grooming_client.dart`, `…/grooming/data/
+grooming_service.dart`, `…/hairstyle/data/hairstyle_client.dart`,
+`…/hairstyle/domain/hairstyle_service.dart`, `test/
+hairstyle_client_test.dart`, `test/hairstyle_service_test.dart`,
+`CURRENT_STATE.md` (this entry).
+Untracked: `test/grooming_client_test.dart` (rewritten, was already
+untracked), `test/grooming_service_test.dart` (new).
+
+### Remaining blockers / next recommended phase
+FACE-PROFILE = DONE (removed). SHARE = product decision still required
+(payload, text-vs-image/card, deep-link/public behavior, share-sheet,
+platforms + dependency choice). Remaining major blocker is real
+environment E2E only: Android device/emulator + reachable Ollama vision
+model. Do NOT claim Android or Ollama E2E PASS — neither was provisioned
+here (no `adb`, no emulator, port 11434 not probed this phase; prior
+Phase-26 gates stand). Next: provision (1) Android SDK+adb+AVD/hardware
+and (2) Ollama vision service + model at configured host, then run ONLY
+the NOT TESTED device flows (camera/gallery, one live image E2E per
+analysis type — notably first live grooming 202→completed on the
+ID-free JSON contract — offline-mock honesty, analyzer_unavailable
+honesty, >20MB/429/500, cross-user leakage). Do NOT re-prove green
+contracts.
+
+PHASE 28 RESULT = IMPLEMENTED (FACE-PROFILE REMOVED; SHARE DEFERRED)
+
+---
+
+## PHASE 27 — OWNER CONTRACT DECISIONS: FACE-PROFILE + SHARE — OWNER-DECISION BLOCKED (zero code changes, uncommitted)
+
+Task: resolve/document the two remaining product/contract blockers
+without inventing requirements. No push/commit/reset/stash/discard;
+all pre-existing modified + untracked files preserved exactly;
+DECISIONS.md untouched; no invented entity/API/UUID-lifecycle/sharing;
+no Android/Ollama E2E claims from this phase.
+Skills: `.agents/skills/` inspected (21 entries) — none loaded
+(decision-audit-only turn, zero product code touched; all 21 skills are
+Dart/Flutter code skills, none applicable — Phase 21.4 precedent).
+
+Baseline: HEAD `56a5e13` (`56a5e136b6ecfa279076a1b7e6bdb0facfde37f1`,
+21.4-A docs); 19 modified + 2 untracked preserved exactly at start and
+end; `git diff --check` clean at start and end.
+Preserved modified (19): `CURRENT_STATE.md`, `app_config.dart`,
+`assistant_routes.dart`, `assistant_screen.dart`, `look_details_screen.dart`,
+`grooming_client.dart` (Phase-25 JSON fix intact), `face_scan_screen.dart`,
+`photo_capture_screen.dart`, `your_analysis_screen.dart`,
+`outfit_analysis_screen.dart`, `outfit_processing_screen.dart`,
+`outfit_scan_screen.dart`, `profile_widgets.dart`,
+`add_wardrobe_item_screen.dart`, `wardrobe_item_details_screen.dart`,
+`outfit_analysis_screen_test.dart`, `outfit_scan_screen_test.dart`,
+`profile_screen_test.dart`, `wardrobe_item_details_screen_test.dart`.
+Preserved untracked (2): `test/assistant_routes_test.dart`,
+`test/grooming_client_test.dart`.
+
+### 1. Face-profile decision: BLOCKED — DECISION C (no code change).
+Reconfirmed live from code (read-only, this phase):
+- Flutter `FaceProfile` (`learning/data/models.dart:50`) is local-only:
+  fields `faceShape/skinTone/bodyType/styleType` only — NO id field.
+- `hairstyle_service.dart:27,117` + `grooming_service.dart:23,78` gate
+  on local `faceShape`, then send `_devFaceProfileRef`
+  (`00000000-0000-0000-0000-000000000001`).
+- Backend `analysis.py:86-139` (hairstyle multipart Form) +
+  `:193-210` (grooming JSON body) validate UUID shape only
+  (`must be a valid uuid`); schemas `analysis.py:60-82` carry the field.
+- `CreateHairstyleRun` (`application/analysis.py:114`) +
+  `CreateGroomingRun` (`:588`) accept `face_profile_ref` but NEVER read
+  it — both load `get_style_profile(user_id=user_id)` by authenticated
+  user. Backend tests pass arbitrary `uuid4()`, proving any UUID yields
+  identical results.
+- Repo-wide backend grep (`class FaceProfile|face_profiles|mint|…
+  Repository|face_profile_id`) = NO files: no table, model, repository,
+  or minting endpoint exists.
+- Owner-decision search: DECISIONS.md contains NO removal or entity
+  authorization. The sole `faceProfileRef` hit is DEC-009 D2
+  ("Analysis submits `faceProfileRef` only"), which ASSUMES the field —
+  evidence against silent removal, not authorization for it.
+  `APPEARANCE_API.md` §3.1 / `SCAN_API.md:784` ("no endpoint today") are
+  scope statements, not owner authorization. All other hits are prior
+  agent notes in CURRENT_STATE.md (agent preference ≠ owner
+  authorization).
+- Verdict: DECISION C — contract NOT modified; field kept;
+  `_devFaceProfileRef` kept; FACE_PROFILE_CONTRACT_BLOCKED.
+- Exact authorization still required (unchanged): (a) REMOVE — owner
+  explicitly authorizes deleting `faceProfileRef`/`face_profile_ref`
+  end-to-end (backend Form+schema+UUID checks, Flutter 2 services +
+  2 clients, ~15 backend tests, contract docs `FANSIVIBE_API_CONTRACT_V1`
+  #37 + grooming §G1, `APPEARANCE_API`, `SCAN_API`,
+  `HAIRSTYLE_RECOMMENDATION_API`); OR (b) ENTITY — owner supplies the
+  documented design (schema, lifecycle, ownership, endpoints) and only
+  that design is implemented.
+
+### 2. Share decision: UNAVAILABLE-HONEST — DECISION B (no code change).
+Audit live from code (read-only, this phase):
+- Exactly 3 entry points, all honest, unchanged:
+  `daily_outfit_screen:1239-1242`, `outfit_analysis_screen:57`,
+  `look_details_screen:394-397` — each shows
+  `Share feature coming soon`; zero success claims. Remaining `Share`
+  hits are `SharedPreferences`/storage identifiers and one doc comment,
+  not share actions.
+- `pubspec.yaml`: only `shared_preferences: ^2.3.3` matches `share` —
+  NO `share_plus`/platform-share infrastructure installed.
+- Product-requirement search: NO explicit Share spec anywhere.
+  DECISIONS.md `share` hits are all false positives (chat history,
+  ledger row, shared DTO/state/views). Only future-mentions exist
+  (`SCREEN_DATA_INVENTORY.md:333` "real share sheet", deep-link gap
+  notes) — not a requirement.
+- Verdict: DECISION B — `share_plus` NOT added; arbitrary sharing NOT
+  implemented; honest unavailable state kept;
+  SHARE_PRODUCT_DECISION_REQUIRED.
+- Exact missing decisions (unchanged): payload (text vs image vs both),
+  payload contents, deep link vs content, native share-sheet behavior,
+  error/cancel behavior, supported platforms (Android/iOS/web scope),
+  dependency choice.
+
+### 3. Contract consistency: nothing to trace (no implementation).
+No decision was implemented, so no Flutter→HTTP→schema→use-case→
+persistence→poll→UI chain changed. Green contracts (grooming JSON,
+hairstyle/outfit multipart, auth, wardrobe, outfit generation, saved
+looks, assistant routing, routeFor-null, fail-closed vision) untouched;
+nothing reopened.
+
+### Validation
+- Code changes this phase: ZERO → per the brief, no focused tests run,
+  no suite re-run (documentation/decision-blocked phase). `flutter
+  analyze` not re-run (tree identical to Phase-26-analyzed state except
+  this markdown entry). `git diff --check`: clean.
+- New failures: ZERO. Pre-existing/environmental: unchanged from Phase
+  26 (2 grooming-processing copy assertions; analyze 39 infos/warnings;
+  Android + Ollama E2E still environment-blocked — not claimed ready
+  from this phase).
+
+### Files changed (this phase, uncommitted)
+- `CURRENT_STATE.md` (this entry only).
+
+### Remaining blockers / next exact action
+OWNER DECISIONS STILL REQUIRED:
+- Face-profile: remove obsolete field vs define real persisted
+  face-profile entity/lifecycle.
+- Share: define payload, link/content behavior, native share-sheet
+  behavior, and platform scope.
+Next: owner answers the two authorizations above (no environment
+needed). Only after (a)/(b) lands does implementation + focused
+regression + doc updates happen; only after Android device/emulator +
+Ollama vision provisioning does real E2E happen.
+
+PHASE 27 RESULT = OWNER-DECISION BLOCKED
+
+---
+
+## PHASE 26 — REAL E2E GATE + OWNER-DECISION BLOCKERS ONLY — BLOCKED (no Android, no Ollama; face-profile/Share contract-blocked, zero code changes, uncommitted)
+
+Task: determine whether real Android + Ollama E2E can actually execute;
+if not, resolve only owner-decision contract blockers without inventing
+product requirements. No push/commit/reset/stash/restore/discard/checkout;
+all pre-existing modified + untracked files preserved exactly;
+DECISIONS.md untouched; no invented contracts/IDs/entities/creds; no
+simulated/mocked E2E; no redesign; no re-proof of green contracts.
+Skills: `.agents/skills/` inspected (21 entries) — none loaded
+(gate-check + contract-review turn, zero product code touched; all 21
+skills are Dart/Flutter code skills, none applicable — Phase 21.4
+precedent).
+
+Baseline: HEAD `56a5e13` (`56a5e136b6ecfa279076a1b7e6bdb0facfde37f1`,
+21.4-A docs); 19 modified + 2 untracked preserved exactly at start and
+end; `git diff --check` clean at start and end.
+Preserved modified (19): `CURRENT_STATE.md`, `app_config.dart`,
+`assistant_routes.dart`, `assistant_screen.dart`, `look_details_screen.dart`,
+`grooming_client.dart` (Phase-25 JSON fix intact), `face_scan_screen.dart`,
+`photo_capture_screen.dart`, `your_analysis_screen.dart`,
+`outfit_analysis_screen.dart`, `outfit_processing_screen.dart`,
+`outfit_scan_screen.dart`, `profile_widgets.dart`,
+`add_wardrobe_item_screen.dart`, `wardrobe_item_details_screen.dart`,
+`outfit_analysis_screen_test.dart`, `outfit_scan_screen_test.dart`,
+`profile_screen_test.dart`, `wardrobe_item_details_screen_test.dart`.
+Preserved untracked (2): `test/assistant_routes_test.dart`,
+`test/grooming_client_test.dart`.
+
+### 1. Android environment gate: BLOCKED (environment, exact evidence).
+- `flutter devices` = Linux (desktop) + Chrome (web) only; no emulator,
+  no physical device (`Run "flutter emulators" to list and start any
+  available device emulators`).
+- `flutter doctor -v`: `[✗] Android toolchain — Unable to locate Android
+  SDK` (only failing category); Chrome/Linux/Network all green.
+- `adb`: NO_ADB_BINARY (`command -v adb` absent).
+- SDK locations: `ANDROID_SDK_ROOT`/`ANDROID_HOME` both empty;
+  `~/Android`, `/opt/android*`, `/usr/lib/android*` all absent.
+- Decision: gate B — ANDROID E2E BLOCKED. No infrastructure
+  installed/changed to manufacture a PASS. All 12 device flows
+  (auth/camera/gallery/outfit/hairstyle/grooming image bytes,
+  offline-mock honesty, analyzer_unavailable honesty, >20MB, 429, 500,
+  cross-user leakage) marked NOT TESTED — never PASS.
+
+### 2. Ollama environment gate: BLOCKED (environment, exact evidence).
+- `ollama`: NO_OLLAMA_BINARY (no `--version`, no `list`).
+- Process: NO_OLLAMA_PROCESS (`ps aux | grep -i ollama` empty).
+- Port 11434: refused (`curl :11434/api/tags` exit 7).
+- Env: `FANSIVIBE_VISION_HOST`/`FANSIVIBE_VISION_MODEL` both unset in
+  shell; `backend/.env.example` holds placeholders only
+  (`http://<ollama-host>:11434`, `<vision-capable-model>`); code defaults
+  in `backend/app/config/settings.py:67,70` are
+  `http://localhost:11434` / `llama3.2-vision` (defaults, not a live
+  service).
+- Decision: gate B — OLLAMA E2E BLOCKED. No fake vision responses
+  created; fail-closed behavior untouched. No Ollama analysis marked
+  PASS; affected flows BLOCKED.
+
+### REAL E2E BLOCKED — REQUIRED ENVIRONMENT NOT AVAILABLE.
+Step 4 (real device flows §1–12) NOT EXECUTED — both gates failed, so
+per the brief no flow ran and none is labeled PASS. Backend-reachable
+proof from Phase 23 (live auth/wardrobe/outfit/isolation/fail-closed
+against the real API) stands and is NOT re-proven here.
+
+### 3. Face-profile contract: CONTRACT BLOCKED — no code change (per brief).
+- Reconfirmed read-only: Flutter `FaceProfile` (local-only, NO id) →
+  `HairstyleService`/`GroomingService` gate on local `faceShape`, send
+  `_devFaceProfileRef` (`00000000-0000-0000-0000-000000000001`) →
+  hairstyle multipart `faceProfileRef` / grooming JSON `face_profile_ref`
+  (Phase-25 transport fix intact) → routers validate UUID shape only →
+  `CreateHairstyleRun`/`CreateGroomingRun` IGNORE the ref and read
+  `user_state.style_profile` by authed `user_id`. No face-profile
+  table/model/repository/minting endpoint exists.
+- Owner-decision search: DECISIONS.md contains NO face-profile entity,
+  lifecycle, ownership, minting, or field-removal decision (grep
+  `share|face-profile entity|face_profile_table|minting` = only
+  chat-history/ledger/false positives; DEC-009 D2 assumes the
+  `faceProfileRef` field exists; `APPEARANCE_API.md` §3.1 confirms no
+  hair/grooming/color profile resource exists and creating one is out of
+  scope — not a removal authorization).
+- Exact owner decision required (unchanged): (a) define a real
+  face-profile entity + lifecycle/ownership/endpoints, OR (b) formally
+  authorize removing the unused `faceProfileRef`/`face_profile_ref`
+  field from backend (hairstyle Form field + grooming schema + UUID
+  checks), Flutter (2 services + 2 clients), ~15 backend tests, and
+  contract docs (`FANSIVIBE_API_CONTRACT_V1.md` #37 + grooming §G1,
+  `APPEARANCE_API.md`, `SCAN_API.md`,
+  `HAIRSTYLE_RECOMMENDATION_API.md`). Field NOT removed, entity NOT
+  invented.
+
+### 4. Share contract: UNAVAILABLE (honest, no code change).
+- Re-audited: exactly 3 entry points, all byte-identical honest —
+  `daily_outfit_screen:1242`, `outfit_analysis_screen:57`,
+  `look_details_screen:397`, each `Share feature coming soon`; zero
+  success claims. No product requirement exists in repo docs (only
+  `SCREEN_DATA_INVENTORY.md:333` "real share sheet" as future + deep-link
+  gap notes); DECISIONS.md has no Share decision.
+- Exact owner decision required (unchanged): text vs image payload,
+  share payload contents, deep link vs content, native share-sheet
+  behavior, Android/iOS/web scope (+ `share_plus`-class dependency
+  choice). NOT implemented.
+
+### 5. Green contracts: NOT reopened.
+Grooming JSON transport (Phase-25 fix), hairstyle/outfit multipart,
+auth, wardrobe, outfit generation, saved looks, assistant routing,
+routeFor unsupported→null, fail-closed vision — untouched; no
+speculative changes.
+
+### Validation
+- Code changes this phase: ZERO (gate checks + doc grep + this entry
+  only) → zero relevant unit/widget tests to run; no green contract
+  re-proven (per brief).
+- `flutter analyze` (Flutter app scope): 39 issues, ZERO errors (==
+  Phase-23/24/25 baseline). `git diff --check`: clean.
+- Newly introduced failures: ZERO. Pre-existing: unchanged from Phase
+  25 (2 `grooming_processing_screen` copy assertions; analyze 39
+  infos/warnings). Environmental: Android + Ollama gates above.
+
+### Files changed (this phase, uncommitted)
+- `CURRENT_STATE.md` (this entry only).
+
+### Remaining blockers / recommended Phase 27
+- OWNER DECISIONS (no environment needed): (a) face-profile entity vs
+  field-removal authorization (removal plan ready in Phase 25 §2);
+  (b) Share product spec + dependency authorization.
+- ENVIRONMENT (real E2E, device + Ollama host ONLY): provision (1) an
+  Android emulator or physical device (SDK + adb + AVD/hardware), and
+  (2) a reachable Ollama vision service + required model at the
+  configured `FANSIVIBE_VISION_HOST`/`FANSIVIBE_VISION_MODEL`. Then run
+  ONLY the NOT TESTED items: camera/gallery flows, one real image
+  end-to-end per analysis type (notably the FIRST live grooming
+  202→completed on the Phase-25 JSON contract), offline-mock honesty,
+  analyzer_unavailable honesty, >20MB / 429 / 500 fault-injection, and
+  cross-user leakage on device. Do NOT re-prove already-green contracts.
+
+---
+
+## PHASE 25 — FINAL CONTRACT RECONCILIATION BEFORE REAL E2E — PARTIAL (grooming MISMATCH fixed+tested, face-profile contract-blocked, Share unavailable, uncommitted)
+
+Task: final Flutter/backend contract reconciliation before real E2E. No
+push/commit/reset/stash/restore/discard/checkout; all 18 pre-existing
+modified + 1 untracked file preserved; DECISIONS.md untouched; no invented
+contracts/IDs/entities/creds; no fabricated Android/Ollama results; no
+redesign; no backend re-proof except the contract the fix aligns to.
+Skills: `.agents/skills/` inspected (21 entries) — `flutter-use-http-package`,
+`dart-run-static-analysis`, `dart-add-unit-test`, `flutter-add-widget-test` read.
+
+Baseline: HEAD `56a5e13` (21.4-A docs); 18 modified + 1 untracked preserved
+exactly; `git diff --check` clean at start and end.
+
+### 1. Grooming transport: MISMATCH — CONFIRMED AND FIXED (Flutter side).
+Full chain: `GroomingService.runAnalysis` (`grooming_service.dart:77`,
+sends `_devFaceProfileRef` constant) → `GroomingClient.
+submitGroomingAnalysis` (BEFORE: `http.MultipartRequest` POST to
+`/v1/analysis/grooming` with form field `faceProfileRef` camelCase) →
+backend `create_grooming_run` (`analysis.py:187`, takes
+`CreateGroomingRunRequest` Pydantic model = JSON body
+`{"face_profile_ref": "<uuid>"}` snake_case) → `CreateGroomingRun`
+(`application/analysis.py:588`, ignores ref value, reads
+`user_state.style_profile` by authed `user_id`) → `GET
+/v1/analysis/runs/{run_id}` poll. A multipart/form-data POST against a
+JSON-body endpoint yields 422 (missing `face_profile_ref`), so the live
+grooming submit could never reach 202 — every grooming attempt silently
+fell back to the offline mock. Evidence: schema docstring "JSON request
+body for grooming creation endpoint #38 (G1)"; all 16 backend grooming
+tests use `json={"face_profile_ref": …}`; hairstyle/outfit use multipart
+only because they carry real `image` file parts (grooming is a
+profile-only pass, `input_media=None`, MS10.3 sealed — multipart buys
+nothing). Fix (smallest architecture-preserving, Flutter-only, 1 file):
+`grooming_client.dart:40-72` now `POST` JSON with
+`Content-Type: application/json` + `jsonEncode({'face_profile_ref':
+faceProfileRef})`; method signature, auth (`Bearer` session-first),
+async run_id/polling semantics, fail-closed handling all preserved;
+backend untouched. New `test/grooming_client_test.dart` (6 tests: exact
+JSON wire shape + snake_case + no `faceProfileRef` key, 422→null,
+network→null, get completed/500→null, poll stops on failed) — all pass.
+
+### 2. Face-profile: FACE_PROFILE CONTRACT BLOCKED — OWNER DECISION REQUIRED.
+Reconfirmed end-to-end, unchanged by the grooming fix (transport fixed,
+semantics untouched): Flutter `FaceProfile` (`learning/data/models.dart`,
+local-only, NO id) → `HairstyleService:117`/`GroomingService:78` (gate on
+local `faceShape`, send `_devFaceProfileRef`
+`00000000-0000-0000-0000-000000000001` constant) → hairstyle multipart
+`faceProfileRef` / grooming JSON `face_profile_ref` → routers validate
+UUID shape only → `CreateHairstyleRun`/`CreateGroomingRun` IGNORE the ref
+and read `user_state.style_profile.face_shape` by authed `user_id`. No
+face-profile table/model/repository/minting endpoint exists (repo-wide
+grep: only router + use-case + tests reference the string; backend tests
+pass arbitrary `uuid4()`, proving any UUID yields identical results given
+the same `style_profile`). Consumers of the reference: exactly the 2
+service call sites + 2 router validators + 2 use-case params — it changes
+zero runtime behavior (recommendations identical for any UUID). Removal
+plan (NOT executed — wire-contract change needing owner sign-off):
+backend (`analysis.py` hairstyle Form field + grooming schema field +
+UUID checks), Flutter (2 services + 2 clients), ~15 backend tests using
+the field, contract docs (`FANSIVIBE_API_CONTRACT_V1.md` #37 + grooming
+§G1, `APPEARANCE_API.md`, `SCAN_API.md`, `HAIRSTYLE_RECOMMENDATION_API.md`).
+`APPEARANCE_API.md` §3.1 already states no hair/grooming/color profile
+resource exists and creating one is out of scope — but per the brief the
+A/B choice is not made silently here.
+
+### 3. Share: UNAVAILABLE (honest, no new dependency).
+Re-audited: 3 entry points (`daily_outfit_screen:1242`,
+`look_details_screen:397`, `outfit_analysis_screen:57`) all show the
+honest `Share feature coming soon` snackbar; zero success claims;
+`pubspec.yaml` has no `share_plus`/platform-share package (only
+`shared_preferences` matched); no share payload, deep link, or share-sheet
+wiring exists anywhere. No code change (Phase-24 copy already honest).
+Product decision required before implementation (owner): text vs image
+payload, deep link vs content, share-sheet behavior, platform support —
+documented here, not guessed. No dependency added.
+
+### 4. Other contract mismatches: exactly ONE (grooming, fixed above).
+Swept method+URL+body-shape+field-names+enums+UUID+status+auth across
+hairstyle/grooming/outfit-analysis/wardrobe/outfit-generation/saved-looks/
+assistant vs backend routers+schemas: hairstyle multipart
+`image|faceProfileRef` ↔ Form+File MATCH; outfit multipart `image` ↔
+File MATCH; outfit generate/save `/v1/outfits/generate|saved` MATCH;
+saves (`hairstyle/grooming/assistant` → `POST /v1/looks/saved`
+`{lookId,title,sourceContext,snapshot}` camelCase + `Idempotency-Key`)
+↔ `SaveLookRequest` MATCH; assistant chat (in `main.py`, frozen F-13/F-5)
++ `POST /v1/assistant/feedback` camelCase ↔ `AssistantCardFeedback`
+MATCH; `POST /v1/feedback` MATCH; events `POST/GET/PUT/DELETE
+/v1/events[/{id}]` + `POST /v1/events/{id}/outfit` MATCH; wardrobe
+`GET/POST /v1/wardrobe/items`, `PATCH /items/{id}`, `DELETE`,
+`GET /insight`, `POST /v1/wardrobe/wears`, `GET /wear-summary` MATCH;
+polling `GET /v1/analysis/runs[/{run_id}]` + `run_id` snake_case MATCH;
+401/422/404/204/201/202 semantics MATCH. No other fix, no working
+contract rewritten.
+
+### Validation
+- New: `grooming_client_test` 6/6 pass. Focused:
+  `grooming_client + hairstyle_client + hairstyle_service +
+  grooming_input + grooming_processing + assistant_routes` → 57 passed,
+  2 failed — both `grooming_processing_screen_test` copy assertions
+  (`Analyzing Features` text / progress indicator) proven byte-identical
+  PRE-EXISTING on pristine-HEAD worktree `56a5e13` (worktree removed
+  after; test file untouched by this phase).
+- Backend: `test_grooming_api.py` → 16 passed (backend files unchanged;
+  run only to prove the JSON contract the Flutter fix now matches).
+- `flutter analyze`: 39 issues, ZERO errors (== Phase-23/24 baseline);
+  scope `grooming_client.dart + grooming_client_test.dart`: No issues
+  found. `git diff --check`: clean.
+- Newly introduced failures: ZERO. Pre-existing: the 2 grooming
+  processing-screen copy failures above. Environmental: Android/Ollama
+  (below).
+
+### Device statuses (unchanged, environment verified this phase)
+ANDROID E2E = BLOCKED (`flutter devices`: Linux + Chrome only; `adb`
+absent; no emulator). OLLAMA E2E = BLOCKED (no `ollama` binary, port
+11434 refused exit 7). NOT TESTED live: >20MB / 429 burst / 500
+injection (unchanged from Phase 23/24).
+
+### Files changed (this phase, uncommitted)
+- `…/grooming/data/grooming_client.dart` (multipart → JSON submit)
+- `test/grooming_client_test.dart` (new, 6 wire-contract tests)
+- `CURRENT_STATE.md` (this entry).
+
+### Remaining blockers / recommended Phase 26
+- OWNER DECISIONS: (a) face-profile field removal vs real entity
+  (removal plan ready above); (b) real Share (payload + dependency).
+- ENVIRONMENT (real E2E, device + Ollama host ONLY): camera/gallery
+  flows, one real image end-to-end per analysis type (notably the FIRST
+  live grooming 202→completed now that the transport matches), >20MB /
+  429 / 500 fault-injection. Do NOT re-prove already-green contracts.
+
+---
+
+## PHASE 24 — RESOLVE REMAINING CODE-SIDE BLOCKERS — PARTIAL (routeFor/Share/error-UI resolved, face-profile contract-blocked, uncommitted)
+
+Task: resolve the 4 Phase-23 code-side blockers with small explicit testable
+changes. No push/commit/reset/stash/discard; all 10 pre-existing uncommitted
+files preserved; DECISIONS.md untouched; no invented IDs/contracts/creds;
+no backend re-proof; no Android/Ollama claims.
+Skills: `.agents/skills/` inspected (21 entries) — `dart-run-static-analysis`,
+`dart-add-unit-test`, `flutter-add-widget-test` read.
+
+Baseline: HEAD `56a5e13` (21.4-A docs); 10 uncommitted files preserved
+exactly; `git diff --check` clean at start.
+
+### 1. Face-profile blocker: FACE_PROFILE_CONTRACT_BLOCKED — code unchanged.
+Full chain traced: Flutter `FaceProfile` (`learning/data/models.dart:50`,
+local-only, NO id field) → `HairstyleService:117` /
+`GroomingService:78` (gate on local `faceShape`, then send constant) →
+`HairstyleClient`/`GroomingClient` (multipart `faceProfileRef` field) →
+`POST /v1/analysis/hairstyle` (`analysis.py:86`, Form field, UUID-shape
+check only) / `POST /v1/analysis/grooming` (`analysis.py:193`, JSON
+`face_profile_ref`, UUID-shape check only) →
+`CreateHairstyleRun`/`CreateGroomingRun` (`application/analysis.py:114,588`).
+Both use cases IGNORE the ref value entirely and read
+`user_state.style_profile.face_shape` by authenticated `user_id`. No
+face-profile table, model, repository, minting endpoint, or ID source
+exists anywhere (repo-wide grep: only router + use-case + tests reference
+the string; backend tests pass arbitrary `uuid4()` proving any UUID works).
+All three available moves are explicitly forbidden (random UUID, another
+hardcoded UUID, user-ID-as-profile-ID) and inventing a store/endpoint
+would violate the no-invented-contract rule. Missing decision (owner):
+(a) define a real face-profile entity + lifecycle/ownership endpoints, or
+(b) formally remove the unused `faceProfileRef` field from the contract
+(backend + Flutter + contract docs + ~15 backend tests). Incidental find
+(out of scope, NOT fixed): `GroomingClient` sends multipart to a JSON-body
+endpoint — suspected shape mismatch needing live verification.
+
+### 2. routeFor fallback: RESOLVED — explicit unsupported policy.
+`AssistantRoutes.routeFor` unknown/malformed/null/empty no longer falls
+back to Stylist; it returns `null` (+ new `isSupported` helper). Both
+`assistant_screen.dart` callers keep their analytics signals, then show an
+honest `"That suggestion isn't available in this version"` SnackBar
+(existing `FansivibeColors`/`FansivibeRadius` pattern) instead of
+navigating. Known 16-id vocabulary behavior unchanged (backend
+`NAVIGATION_MAP` + offline assistant emit only known ids today, so the
+fallback never fired for real traffic — it guarded future/malformed
+actions). New `test/assistant_routes_test.dart` (7 tests: open_* known,
+bare-name known, unknown→null, malformed→null, null/empty→null,
+isSupported true/false) — all pass.
+
+### 3. Share audit: HONESTLY UNAVAILABLE (no new dependency).
+3 Share entry points, zero share infrastructure: `daily_outfit_screen`
+(link → `Share feature coming soon`), `look_details_screen` (FansiButton →
+`Share feature coming soon`, Phase-23 fix), `outfit_analysis_screen`
+(icon → `Share coming soon`). No share payload, no deep-link, no
+`share_plus`/platform share package in `pubspec.yaml` (only
+`shared_preferences` matched); `camera_permission_screen` "share" hits are
+privacy copy, not actions. Change: standardized the third string to
+`Share feature coming soon` (1 line) so all three honestly match; no
+success claims anywhere. New widget test (tap share icon → snackbar copy)
+passes. Real sharing needs a product + dependency decision (owner).
+
+### 4. Error style: RESOLVED — 4 lines, 2 files, tokens only.
+`wardrobe_item_details_screen.dart:380,384`: `Colors.red`/`redAccent`
+error/focused-error borders → `FansivibeColors.error` (same 0xFFF44336
+value for the base border; semantics unchanged). `profile_widgets.dart:
+903,913`: destructive sign-out icon/label `Colors.redAccent` →
+`FansivibeColors.error`. Both files already imported the token. Same-area
+sweep: remaining `Color(0x…)`/`Colors.black` hits are garment-color
+swatches (`_colorFromName`), not error styling — left as-is, no pixel
+churn. Tests: new wardrobe edit-form token assertion (blocked by
+pre-existing file-wide widget failure, see below) + new ProfileMenuCard
+destructive-token assertion (passes).
+
+### Validation
+- `flutter analyze`: 39 issues, ZERO errors (== Phase-23 baseline; zero
+  findings on any Phase-24-touched line). `git diff --check`: clean.
+- New/affected: `assistant_routes` (7) + `outfit_analysis_screen` (8) →
+  15 passed. `discover_screens + daily_outfit_screen` → 26 passed.
+  Profile destructive-token test → passes.
+- Pre-existing/environmental (proven byte-identical on pristine-HEAD
+  worktree `56a5e13`, worktree removed after): `wardrobe_item_details`
+  file-wide failures (even untouched `renders visual placeholder` fails
+  solo), 3 `profile_screen` content failures, 4 assistant failures
+  (`assistant_screen_test: empty suggestion prompt` as in Phase 23 +
+  2 wiring + 1 offline-labeling needing live backend). Zero introduced.
+- Backend: zero files changed → no backend tests re-run (brief Step 7).
+
+### Device statuses (unchanged, no environment available)
+ANDROID CAMERA/GALLERY: NOT TESTED / BLOCKED. LIVE OLLAMA: BLOCKED.
+NOT TESTED live: >20MB transfer, 429 burst, 500 injection.
+
+### Files changed (this phase, uncommitted)
+- `…/assistant/presentation/assistant_routes.dart` (nullable + helper)
+- `…/assistant/presentation/assistant_screen.dart` (honest fallback ×2)
+- `…/outfit_scan/presentation/outfit_analysis_screen.dart` (Share copy)
+- `…/wardrobe/presentation/wardrobe_item_details_screen.dart` (2 token lines)
+- `…/profile/presentation/widgets/profile_widgets.dart` (2 token lines)
+- `test/assistant_routes_test.dart` (new, 7 tests)
+- `test/outfit_analysis_screen_test.dart` (+1 Share test)
+- `test/wardrobe_item_details_screen_test.dart` (+1 token test)
+- `test/profile_screen_test.dart` (+1 token test)
+- `CURRENT_STATE.md` (this entry).
+
+### Remaining blockers / recommended Phase 25
+- CODE-SIDE (owner decisions): face-profile entity vs field-removal (a);
+  real Share (product + `share_plus`-class dependency decision);
+  suspected grooming multipart-vs-JSON mismatch (verify live, then fix).
+- ENVIRONMENT: Android device/emulator runs; Ollama vision provisioning;
+  live >20MB/429/500 fault-injection. Phase 25 should be E2E on a real
+  device + Ollama host ONLY if both exist; otherwise the contract
+  decisions above.
+
+---
+
+## PHASE 23 — REAL ANDROID + REAL BACKEND + REAL OLLAMA E2E — PARTIAL (backend proven live, Android/Ollama unavailable, 1 honest-copy fix, uncommitted)
+
+Task: prove/repair actual user flows on Android hardware/emulator with the
+real local FastAPI backend + real Ollama vision. No push/commit/reset/stash/
+discard; preserve working tree; no invented infra/results; minimal
+production-oriented changes; DECISIONS.md untouched.
+Skills: `.agents/skills/` inspected (21 entries) — `flutter-use-http-package`,
+`flutter-fix-layout-issues`, `dart-run-static-analysis`,
+`flutter-apply-architecture-best-practices` read.
+
+Baseline: HEAD `56a5e13` (21.4-A docs); 9 uncommitted Phase-22 files
+preserved exactly (nothing staged/committed/pushed/reset/stashed/discarded).
+Devices: Linux + Chrome only — NO Android SDK (`flutter doctor`: Android
+toolchain missing, no emulator sources, `adb` absent), NO physical device.
+Backend: real dev server live at `http://localhost:8000` (`/health ok`,
+`/ready ready`, DB connected). Ollama: binary absent, no process, port
+11434 refused; backend vision ENABLED (`FANSIVIBE_VISION_HOST=
+http://localhost:11434`, `FANSIVIBE_VISION_MODEL=llama3.2-vision`,
+timeout 20s) — i.e. adapter will attempt a real connection and fail.
+
+### Verdict: ANDROID_DEVICE_UNAVAILABLE + OLLAMA_UNAVAILABLE (both
+### environment-side). Every backend-reachable flow proven LIVE against the
+### real API with real test accounts (created, exercised, fully cleaned —
+### dev DB back to 0 users / 0 runs). No device/Ollama result fabricated.
+
+### Step 1 — Android: BLOCKED (environment). `flutter devices` = Linux +
+Chrome only; `flutter emulators` = none; no SDK/AVD/adb. No camera/gallery/
+permission run claimed. Emulator URL rule (`10.0.2.2:8000`) + LAN-IP rule
+noted for the operator; `AppConfig.connectionHint` (Phase 22) already
+surfaces this in-app. NOT TESTED on Android — all device statuses below
+are NOT TESTED, never PASS.
+
+### Step 2 — backend: PASS (live). `/health` 200 `ok`, `/ready` 200 `ready`
+without code/contract changes. Auth guard honest: no token / `Bearer dev` /
+tampered / malformed → 401 (`allow_dev_token=False`); CORS preflight on
+reported paths → 200 with correct `access-control-*`. No fake backend.
+
+### Steps 4–6, 9–11 — live backend E2E (4 real accounts, all cleaned after):
+- Auth: register 201 → login 200 → `GET /v1/users/me` 200 (session
+  persistence) → logout 204 → token reuse 401 → re-login 200. Invalid/
+  missing token → 401. Register without `Idempotency-Key` → honest 422.
+  No client-supplied user ID anywhere (server derives identity from
+  Bearer JWT; Flutter clients send Bearer only).
+- Wardrobe: add 201 (valid vocab e.g. tops/charcoal/wool; invalid
+  color+material honestly 422) → list 200 → get 200 → patch 200 →
+  delete 204 → list confirms removal. Every button label==action (per
+  static audit of wardrobe screens, unchanged from Phase 22).
+- Outfit: generate 200 — real derived outfit from real wardrobe (empty
+  wardrobe → honest 204; partial payload → honest 422). Save 201 with
+  the generate body verbatim + fresh `Idempotency-Key`; same-key replay
+  → same id (no duplicate); conflicting use verified by suite. Save with
+  hand-built minimal snapshot → honest 422 (missing name), with foreign
+  lookId → honest 404 (matches Flutter client, which omits null lookId).
+  Saved list shows the save; delete 204; reload confirms removal.
+- Today's Look `GET /v1/looks/today` → 200 real wardrobe-derived look.
+  Assistant chat → 200. Discover `GET /v1/looks` → 200. Events: add 201
+  → list 200 → delete 204. Feedback `POST /v1/feedback` → 204. Prefs
+  `PATCH /v1/users/me` → 200, `GET /me` reflects it.
+- Isolation (User B): B wardrobe/saved/events empty while A holds data;
+  B `GET`/`DELETE` A's wardrobe item → 404; B `GET` A's analysis run →
+  404; B `POST /v1/outfits/saved` with A's component IDs → 404 (OW-1
+  404-not-403 throughout). B creates independent rows. Event-list content
+  check: B's list contains zero A bytes (`EVENT LEAK: False`). ZERO leakage.
+- Failures: 401/422/404/405 all typed and honest; vision runs terminate
+  `failed` with `PROCESSING_FAILURE` + `details.run_id` (never "success",
+  never fake scores). Retry semantics verified in client code (retry
+  re-issues the same call). NOT TESTED live: >20MB upload (requires
+  20MB+ transfer; server-side 20MB guard + client pre-check verified in
+  code), HTTP 429 burst and 500 fault-injection (contracts + limiter
+  covered by `test_rate_limit`).
+
+### Step 7 — Ollama vision: OLLAMA_UNAVAILABLE, fail-closed PROVEN live.
+`POST /v1/analysis/outfit` (real 1x1 PNG bytes) → 202 + run_id; poll →
+terminal `failed` in one interval, `error.details.reason=
+analyzer_unavailable`, analyzer `ollama-vision-v1`, real SHA-256 + media
+key persisted. Same for hairstyle image branch. Unsupported media
+(`text/plain`) → honest 422. Missing exact piece: Ollama process/model —
+no binary, no daemon, `curl :11434` refused (exit 7). Scan NEVER marked
+PASS; no fake analysis data created (fail-closed path already correct,
+no code change needed).
+
+### Step 8 — hairstyle/face: BLOCKER DOCUMENTED, no code change (per
+brief). `_devFaceProfileRef` (`0000...0001`) still hardcoded in
+`hairstyle_service.dart:27` + `grooming_service.dart:23`. Backend truth:
+`POST /v1/analysis/hairstyle` accepts `faceProfileRef` as UUID-shape only
+— `CreateHairstyleRun` never resolves it against any profile store (it
+reads `user_state.style_profile.face_shape`); NO endpoint mints a real
+face-profile UUID. So there is no correct source to wire — replacing the
+constant with another ID would invent a contract. Live: profile-only pass
+with the dev constant on a fresh user → honest 422 (insufficient face
+data); image pass → 202 → `failed`/`analyzer_unavailable` (Ollama down).
+Image path (`FaceScan` bytes → multipart → poll → result/failed UI) is
+correctly wired; the offline-mock fallback on unreachable/failed is the
+documented Stage 6-7 design decision (failure still surfaced via
+`analysisError`). Missing contract: face-profile creation/retrieval
+endpoint (or a decision that profile-shape comes only from image scans).
+
+### Step 3 — camera: NOT TESTED (no Android). Static trace stands per
+Phase 22: outfit scan (camera pkg + ImagePicker + bytes upload), face
+scan (ImagePicker + consent + bytes), onboarding PhotoCapture (real
+picker, validation, no Timer fake) all use real bytes paths; Android
+manifest permissions present. No fake capture code exists in the tree.
+
+### Step 9 — button audit (static, 2 read-only sweeps): nearly all PASS —
+Today (`Try Again` retries same call; `Save Look` only on 201; `Generate
+Another` keeps look on failure), Assistant (offline badge honest; save
+only on 200/201), Discover (filters/refresh/load-more/pagination all
+truthful), Events (add/edit/delete/generate all hit labeled endpoints,
+optimistic-nothing), Preferences (sync states explicit incl.
+device-only labeling), Feedback (fresh idempotency key per tap, no fake
+ack). FIXED (1-line honest copy): Discover `look_details_screen.dart`
+`Share` showed `Sharing $title...` while performing no share (implies
+success) → now `Share feature coming soon`, matching the established
+honest pattern (`daily_outfit_screen`, `outfit_analysis_screen`). LEFT
+AS-IS (documented): Assistant `routeFor` unknown-action fallback lands
+on Stylist — graceful degradation for future server actions, changing it
+is product behavior; Discover `Show results` dismiss-only (borderline
+but harmless); raw `Colors.red/redAccent` error/destructive accents in
+`wardrobe_item_details_screen` + `profile_widgets` (error semantics, not
+random palette — pixel churn without a device to verify is out of scope).
+
+### Step 12 — UI consistency: no redesign, no new tokens. Discover card
+proportions follow shared `FansiHeroCard` (65/35); screens use
+`FansiButton`/`FansiChip`/loading/error views. Only change is the Share
+copy above. 65/35 rule, nav, app bars, bottom-nav untouched.
+
+### Validation
+- `flutter analyze`: 39 issues, zero errors (== Phase-22 baseline; scope
+  file `look_details_screen.dart`: No issues found). `git diff --check`:
+  clean.
+- Flutter: `app_config + router_auth_guard + secure_token_storage` → 19
+  passed. Discover/Today/Assistant screens+API suites → 78 passed, 1
+  failed: `assistant_screen_test: empty suggestion prompt triggers a
+  reply` — pre-existing/environmental (HttpClient-in-widget-test 400
+  pattern, same class as Phase-22 wardrobe flakes; assistant files are
+  byte-identical to HEAD, my diff cannot cause it).
+- Backend: vision+select-index+hardening → 64 passed; auth_api+auth_unit
+  → 46 passed; analysis_api+outfit/ hairstyle-image routers → 35 passed
+  (one transient `test_image_upload_reaches_production_image_run` fail
+  under load passes solo); wardrobe+m13-outfits+events+feedback → 130+
+  passed with transient PG-slot errors (`remaining connection slots
+  reserved`) — all pass solo/file-wise. Zero backend files modified, so
+  zero introduced failures; transients match the known 21.2 PG-slot
+  environmental class.
+- Live probes: 4 test users + all their rows (sessions/state/runs/items/
+  events/signals/feedback) deleted via email-scoped SQL; dev DB verified
+  0 users / 0 runs / 0 items after. `git status`: 10 modified
+  (9 Phase-22 + 1 Phase-23 line), staged 0. NOTHING committed/pushed.
+  Secret scan: clean (no tokens/keys/keystores/env).
+
+### Files changed (this phase, uncommitted)
+- `newproject/flutter_application_1/lib/features/discover/presentation/look_details_screen.dart`
+  (Share snackbar `Sharing $title...` → `Share feature coming soon`;
+  removed now-unused `title` local).
+- `CURRENT_STATE.md` (this entry).
+
+### Remaining blockers (code-side vs environment-side)
+- ENVIRONMENT: Android device/emulator (camera/gallery/permission/retake/
+  cancel/denied/corrupt/>20MB runs); Ollama process + vision model
+  provisioning (`FANSIVIBE_VISION_HOST/MODEL` decision per runbook §12);
+  >20MB/429/500 live fault-injection.
+- CODE-SIDE (needs owner/contract decision, not a silent fix):
+  (a) face-profile ID contract missing (`_devFaceProfileRef` × 2);
+  (b) Assistant unknown-action → Stylist fallback (keep vs honest message);
+  (c) Share actions unimplemented app-wide (all now honestly labeled).
+
+### Recommendation for Phase 24
+On a machine with (1) Android emulator or hardware + (2) Ollama serving
+a vision model at the configured host: re-run ONLY the NOT TESTED /
+BLOCKED items — camera flows (Step 3), router auth-guard + session
+restore on device (Step 4 UI half), and one real image end-to-end
+(Flutter bytes → 202 → poll → completed → result UI). Everything
+backend-side is already proven; do NOT re-prove auth/wardrobe/outfit/
+isolation/fail-closed from scratch. If no device/Ollama exists, do NOT
+start Phase 24 as E2E — run it as the face-profile contract decision
+(Step 8-a) instead.
+
+---
+
+## PHASE 22 — REAL APP FUNCTIONALITY + CAMERA + API INTEGRATION + UI CONSISTENCY — PASS, MINIMAL SAFE SCOPE (uncommitted)
+
+Task: make the CURRENT app actually work on a real device without
+redesign-from-scratch, feature invention, arch reset, commit, or push.
+Skills: `.agents/skills/` inspected (21 entries) — `flutter-use-http-package`
+(multipart/401/429/timeout patterns), `flutter-fix-layout-issues`,
+`dart-run-static-analysis`, `flutter-apply-architecture-best-practices` read.
+DECISIONS.md untouched.
+
+Baseline: HEAD `56a5e13` (21.4-A docs); working tree CLEAN at start
+(`git status` empty, `git diff --check` exit 0); devices available
+Linux + Chrome only (no Android emulator/device — real-device camera
+NOT claimed tested); `flutter analyze` 43 infos/warnings zero errors.
+
+### Step 0 — safety + baseline: clean tree preserved, no stash/reset/discard.
+
+### Step 1 — flow audit (compact, UI → client → API → backend → UI)
+
+- Auth (register/login/logout/restore): labels match; clients use
+  `AppConfig.apiBaseUrl` + `AuthSession.effectiveToken`; 401 clears +
+  redirects via `auth_guard`; backend JWT/session/ownership proven (D-AUTH-1).
+- Home/Today, Wardrobe(list/add), Outfits(generate/save/saved),
+  Assistant chat, Discover, Events, Preferences, Feedback: all clients
+  centralized, Bearer attached, 401/429/timeout/empty/error/loading
+  states present; no client-supplied user IDs; no random URLs.
+- Outfit scan: UI camera/gallery → XFile bytes → multipart
+  `POST /v1/analysis/outfit` → 202 run_id → `GET /v1/analysis/runs/*`
+  poll → result UI. Hairstyle scan: FaceScan (camera/gallery+consent)
+  → bytes → multipart `POST /v1/analysis/hairstyle` → poll → result.
+  Both authed, both Web-safe (Image.memory, no dart:io).
+- Onboarding photo (BEFORE fix): CameraPermission Allow/Gallery only
+  pushed to PhotoCapture with `source` extra; PhotoCapture showed a fake
+  viewfinder + Timer auto-advance (no ImagePicker/camera) → AiAnalysis
+  fake timer → YourAnalysis hardcoded score 82 + mock palette/insights
+  presented as real analysis. Verdict: demo/placeholder path.
+- OutfitScan buttons (BEFORE fix): error-card button hardcoded
+  `Scan Outfit` while `onPressed` retried camera init (label≠action);
+  primary `View Analysis` called takePicture+upload (label≠action);
+  `Rescan` called switch-camera (label≠action).
+- Processing: `Retry Scan` called pop()+goNamed('/home') — goNamed with
+  a path is wrong (expects route name); 0/429 mapped to generic retry
+  text with no diagnostics.
+
+### Step 2 — API connection: verified, diagnostics added (no contract change)
+
+- All 15 clients already use centralized `AppConfig.apiBaseUrl` +
+  `Authorization: Bearer AuthSession.effectiveToken`; secure storage,
+  401 (`noteStatus`→clear+redirect), 429 (typed per-feature), 12s
+  timeouts, multipart via `fromBytes` verified. Production guards
+  (`PRODUCTION=true` + https + non-localhost) unchanged.
+- ADDED `AppConfig.connectionHint` (diagnostic copy only): localhost
+  works on Chrome but points at the device on Android — emulator needs
+  `http://10.0.2.2:8000`, physical device needs LAN IP via
+  `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000`. Surfaced in
+  outfit-scan pick/upload failures + polling status-0 (offline).
+- Production validation NOT weakened; no fake domain hardcoded.
+
+### Step 3 — camera + picking: onboarding faked path replaced; scan kept real
+
+- `PhotoCaptureScreen` rewritten (injectable `pickImage` for tests):
+  honors `source` with a real `ImagePicker` attempt, Take Photo /
+  Choose-from-Gallery buttons, in-memory preview (`Image.memory`),
+  validation (cancel→truthful empty, empty-bytes→corrupt, >20MB→too
+  large matching backend, denied→permission message), Retake/Continue/
+  Skip. No Timer fake, no fabricated capture.
+- OutfitScan (camera pkg + ImagePicker) + FaceScan (ImagePicker +
+  consent + bytes handoff) already real — preserved; only labels +
+  diagnostics fixed (below). AndroidManifest already has
+  CAMERA/READ_MEDIA_IMAGES/READ_EXTERNAL_STORAGE(max32) + camera
+  features required=false; pubspec camera ^0.12 + image_picker ^1.0.7
+  unchanged. No real-device run available — Android behavior NOT
+  claimed verified beyond code + widget tests + Chrome-safe bytes path.
+
+### Step 4 — Ollama/vision: traced, correct, untouched
+
+- Path: Flutter bytes → FastAPI `POST /v1/analysis/outfit|hairstyle`
+  → `CreateOutfitRun`/`CreateHairstyleImageRun` →
+  `OllamaVisionAppearanceAdapter` (settings `FANSIVIBE_VISION_HOST`/
+  `MODEL`/`TIMEOUT_S`, `FANSIVIBE_DISABLE_VISION` fail-closed
+  `analyzer_unavailable`) → Ollama `/api/chat` vision → structured
+  face-shape → run result → Flutter poll → real result UI. Flutter
+  never calls Ollama directly. Backend returns honest terminal
+  `failed` (never fake scores); Flutter shows failed + retry.
+  `FANSIVIBE_DISABLE_VISION=true` in `.env.example` = honest
+  degraded mode. No new AI system, no rewrite. Live Ollama NOT
+  available here — end-to-end vision NOT claimed proven; backend
+  adapter + router suites green (see validation).
+
+### Step 5 — buttons: LABEL==ACTION==RESULT restored (minimal)
+
+- OutfitScan error card now uses its `actionLabel` (`Retry`) instead
+  of hardcoded `Scan Outfit`.
+- Primary `View Analysis` → `Capture Photo` (takePicture + upload).
+- `Rescan` → `Switch Camera` (switch-camera only).
+- Processing `Retry Scan` (broken pop+goNamed('/home')) → `Back to
+  Scan` (pop only). FaceScan Take/Gallery/Analyze/Skip already
+  correct; FaceScan analytics now reports the actual picked source
+  (was hardcoded `camera`).
+- Tests in `outfit_scan_screen_test.dart` updated to the truthful labels.
+
+### Step 6 — demo/fake: only production-path fakes removed
+
+- PhotoCapture Timer fake deleted. YourAnalysis now carries a
+  `Sample preview — your personal analysis appears after you add a
+  photo in Scan` banner so the illustrative score/palette/insights
+  are never mistaken for a real backend result (onboarding is
+  pre-auth by design; wiring it to authed analysis would invent a
+  contract — explicitly not done).
+- Hairstyle offline-mock fallback + grooming mocks + test fixtures
+  intentionally left (offline/labels/tests depend on them; Face
+  failures already surface honest error UI via `analysisError`).
+  No tests/fixtures deleted.
+
+### Step 7-9 — UI/UX/nav consistency: tokens only, no redesign
+
+- `AddWardrobeItemScreen`: raw `FilledButton.icon` + `Colors.red` +
+  `fontFamily: 'serif'` → shared `FansiButton.primary` +
+  `FansivibeColors.error` + `FansivibeTypography`; loading uses the
+  shared gold spinner pattern; validation-on-tap preserved (button
+  stays enabled so empty-tap still explains). 65/35 card rule,
+  Digital Atelier tokens, bottom-nav, app bars, chips/dialogs
+  otherwise untouched.
+- UX states: pick/upload/poll failures now show connectionHint /
+  429-specific / permission / cancel / too-large messages with retry;
+  401 still clears+redirects; empty stays designed-empty. No new
+  navigation stacks; `auth_guard` + named routes unchanged except the
+  one broken `goNamed('/home')` removal.
+
+### Validation
+
+- `git diff --check`: clean.
+- `flutter analyze` scope: 9 infos (all pre-existing in touched
+  files); full `flutter analyze`: 39 issues (was 43 — 4 unused-import
+  warnings removed), zero errors.
+- Flutter: `outfit_scan_screen + app_config + outfit_scan_client +
+  hairstyle_scan` → 36 passed. `add_wardrobe_item` → validation fixed;
+  remaining 3 failures identical to pre-existing network-in-widget-test
+  baseline (HttpClient 400). `wardrobe_screen` 5 failures likewise
+  pre-existing/environmental (untouched file).
+- Backend: `test_vision_appearance_adapter +
+  test_select_index_empty + test_production_hardening` → 64 passed;
+  `test_analysis_api + test_outfit_image_router +
+  test_hairstyle_image_router` → 35 passed.
+- Real-device testing: NOT performed (no device/emulator attached);
+  Chrome used only for code-safe bytes reasoning, not as camera proof.
+- `git status`: 8 modified (7 lib + 1 test), staged 0. NOTHING
+  committed/pushed.
+
+### Files changed (uncommitted)
+
+- `newproject/flutter_application_1/lib/core/config/app_config.dart`
+  (+connectionHint).
+- `newproject/flutter_application_1/lib/features/outfit_scan/presentation/outfit_scan_screen.dart`
+  (labels, diagnostics, import cleanup).
+- `newproject/flutter_application_1/lib/features/outfit_scan/presentation/outfit_processing_screen.dart`
+  (Back-to-Scan nav fix, 0/429 diagnostics, import cleanup).
+- `newproject/flutter_application_1/lib/features/onboarding/presentation/screens/photo_capture_screen.dart`
+  (real picker rewrite).
+- `newproject/flutter_application_1/lib/features/onboarding/presentation/screens/your_analysis_screen.dart`
+  (+sample-preview banner).
+- `newproject/flutter_application_1/lib/features/wardrobe/presentation/add_wardrobe_item_screen.dart`
+  (FansiButton/error/typography tokens).
+- `newproject/flutter_application_1/lib/features/hairstyle/presentation/face_scan_screen.dart`
+  (actual camera/gallery source in analytics).
+- `newproject/flutter_application_1/test/outfit_scan_screen_test.dart`
+  (truthful labels).
+
+### Remaining blockers / prod infra (unchanged from 21.4-A)
+
+- No provider/domain/TLS/Postgres/secrets/keystore/sinks/edge-limits;
+  no live Ollama host+model decision; no Android device/emulator run;
+  onboarding preview still illustrative (needs authed Scan for real
+  results); hairstyle `_devFaceProfileRef` still dev-constant (needs
+  real profile-ID wiring — larger contract task, not done here).
 
 ---
 

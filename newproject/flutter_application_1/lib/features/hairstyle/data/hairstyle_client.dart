@@ -35,33 +35,27 @@ class HairstyleClient {
   static const Duration _timeout = Duration(seconds: 12);
   final Duration _pollInterval;
 
-  /// Submits a hairstyle analysis, either for a face profile reference or
-  /// for a real captured/selected image — never both (XOR, enforced here
-  /// and authoritatively by the backend).
+  /// Submits a hairstyle analysis, either for the authenticated user's
+  /// stored style profile (profile-only pass, no request field) or for a
+  /// real captured/selected image — never both at the transport level.
   ///
   /// Image upload sends the actual file bytes as a real multipart `image`
   /// part (`POST /v1/analysis/hairstyle`, `multipart/form-data`), never as a
-  /// string/path field. The backend remains authoritative for media
+  /// string/path field. The profile-only pass sends an empty multipart body
+  /// (no fields); the backend resolves the authenticated user's
+  /// `style_profile` by `user_id` (Phase 28: no face-profile reference).
+  /// The backend remains authoritative for media
   /// validation (JPEG/PNG/WebP, 20 MB max, content checks); this client only
   /// derives the part content type from the filename for transport.
   ///
   /// Returns the submitted run id, or null when the backend is unreachable
   /// or rejects the request.
   Future<String?> submitHairstyleAnalysis({
-    String? faceProfileRef,
     Uint8List? imageBytes,
     String? imageFilename,
     String? imageContentType,
   }) async {
-    final hasRef = faceProfileRef != null && faceProfileRef.isNotEmpty;
     final bytes = imageBytes;
-    final hasImage = bytes != null;
-    if (hasImage == hasRef) {
-      debugPrint(
-        'Hairstyle submit requires exactly one of imageBytes or faceProfileRef.',
-      );
-      return null;
-    }
     if (bytes != null && bytes.isEmpty) {
       debugPrint('Hairstyle submit refused empty image bytes.');
       return null;
@@ -85,9 +79,9 @@ class HairstyleClient {
             contentType: MediaType.parse(contentType),
           ),
         );
-      } else {
-        request.fields['faceProfileRef'] = faceProfileRef!;
       }
+      // Profile-only pass: empty multipart body; backend resolves the
+      // authenticated user's style_profile by user_id (no reference field).
 
       final streamed = await _client.send(request).timeout(_timeout);
       final response = await http.Response.fromStream(
