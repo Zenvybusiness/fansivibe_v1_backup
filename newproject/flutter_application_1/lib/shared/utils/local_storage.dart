@@ -7,10 +7,14 @@ class LocalStorage {
 
   static SharedPreferences? _prefs;
 
+  /// Whether LocalStorage has been initialized with a SharedPreferences instance.
+  static bool get isInitialized => _prefs != null;
+
   /// Initialize storage with [prefs] instance (typically in app startup).
   static void init({required SharedPreferences prefs}) {
     _prefs = prefs;
   }
+
 
   /// ----- Onboarding & Session -----
 

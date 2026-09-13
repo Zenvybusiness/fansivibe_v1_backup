@@ -244,10 +244,11 @@ def create_outfit_run(
     use_case = CreateOutfitRun(
         runs=AnalysisRunRepositorySQL(db),
         knowledge=CatalogKnowledgeSource(),
-        appearance_port=DevelopmentAppearanceAnalysisAdapter(),
+        appearance_port=OllamaVisionAppearanceAdapter(),
         user_state=UserStateRepositorySQL(db),
         learning_signal=LearningSignalRepositorySQL(db),
         activity_days=ActivityDayRepositorySQL(db),
     )
     run_id = use_case(user_id=user_id, image=image)
     return AsyncAccepted(run_id=run_id)
+

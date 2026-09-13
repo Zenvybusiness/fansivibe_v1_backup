@@ -22,12 +22,16 @@ class FansivibeApp extends StatelessWidget {
     AuthSession.onSessionExpired = () {
       (router ?? appRouter).goNamed(RouteNames.entry);
     };
-    // Initialize local storage early via post-frame callback
-    // SharedPreferences.getInstance() is async, so we use addPostFrameCallback
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final prefs = await SharedPreferences.getInstance();
-      LocalStorage.init(prefs: prefs);
-    });
+    // Initialize local storage fallback if not already initialized before runApp
+    if (!LocalStorage.isInitialized) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!LocalStorage.isInitialized) {
+          final prefs = await SharedPreferences.getInstance();
+          LocalStorage.init(prefs: prefs);
+        }
+      });
+    }
+
 
     return MaterialApp.router(
       title: 'Fansivibe',

@@ -345,7 +345,33 @@ def test_list_runs_returns_summaries_without_result(db):
         assert item["status"] == "completed"
 
 
-def test_create_outfit_run_success_db(db):
+def test_create_outfit_run_success_db(db, monkeypatch):
+    from app.domain.value_objects import AppearanceProfile
+
+    seen: dict = {}
+
+    class RecordingOutfitVisionPort:
+        adapter_id = "ollama-vision-v1"
+
+        def analyze(self, *, media_ref, user_id, image_bytes=None):
+            seen["image_bytes"] = image_bytes
+            seen["media_ref"] = media_ref
+            return AppearanceProfile(
+                faceShape="oval",
+                skinTone="",
+                bodyType="",
+                styleType="",
+                sourceRunId="",
+            )
+
+        def validate_result(self, result) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.OllamaVisionAppearanceAdapter",
+        RecordingOutfitVisionPort,
+    )
+
     image_bytes = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 50
     files = {"image": ("outfit.jpg", image_bytes, "image/jpeg")}
     resp = client.post("/v1/analysis/outfit", files=files, headers=HEADERS)
@@ -353,6 +379,7 @@ def test_create_outfit_run_success_db(db):
     body = resp.json()
     assert "run_id" in body
     run_id = body["run_id"]
+    assert seen["image_bytes"] == image_bytes
 
     # Verify GET /v1/analysis/runs/{run_id}
     got = client.get(f"/v1/analysis/runs/{run_id}", headers=HEADERS)
@@ -360,7 +387,7 @@ def test_create_outfit_run_success_db(db):
     run_data = got.json()
     assert run_data["run_id"] == run_id
     assert run_data["run_type"] == "outfit"
-    assert run_data["status"] in ("pending", "completed")
+    assert run_data["status"] == "completed"
 
     # Verify GET /v1/analysis/runs lists the outfit run
     runs_resp = client.get("/v1/analysis/runs", headers=HEADERS)
@@ -369,4 +396,5 @@ def test_create_outfit_run_success_db(db):
     matching = [r for r in runs_data["items"] if r["run_id"] == run_id]
     assert len(matching) == 1
     assert matching[0]["run_type"] == "outfit"
+
 

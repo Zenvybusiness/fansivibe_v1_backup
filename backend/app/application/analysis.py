@@ -219,7 +219,10 @@ class CreateOutfitRun:
         # Construct MediaRef from the actual received bytes (real SHA-256).
         content = read_image_bytes(image)
         media_ref = build_media_ref(
-            user_id=user_id, content_type=content_type, content=content
+            user_id=user_id,
+            content_type=content_type,
+            content=content,
+            analyzer=getattr(self._appearance_port, "adapter_id", "unknown"),
         )
 
         # Step 1: Create analysis run (pending)
@@ -234,8 +237,19 @@ class CreateOutfitRun:
         # Step 2: Run appearance analysis adapter
         try:
             appearance_profile = self._appearance_port.analyze(
-                media_ref=media_ref, user_id=user_id
+                media_ref=media_ref, user_id=user_id, image_bytes=content
             )
+        except AppearanceAnalysisError as exc:
+            self._runs.fail(
+                run_id=run_id,
+                user_id=user_id,
+                error={
+                    "code": "PROCESSING_FAILURE",
+                    "message": "We couldn't finish this request. Please try again.",
+                    "details": {"run_id": str(run_id), "reason": exc.reason},
+                },
+            )
+            return run_id
         except Exception:
             # Adapter failure → honest `failed` run (PROCESSING_FAILURE,
             # details.run_id) per §5.1/§7 — never a stuck pending run.
