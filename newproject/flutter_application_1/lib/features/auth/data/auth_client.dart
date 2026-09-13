@@ -202,6 +202,8 @@ class AuthClient {
         return AuthStatus.emailTaken;
       case 422:
         return AuthStatus.invalidInput;
+      case 429:
+        return AuthStatus.rateLimited;
       case 502:
         return AuthStatus.providerUnavailable;
       default:

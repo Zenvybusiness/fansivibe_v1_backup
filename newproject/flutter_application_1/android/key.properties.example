@@ -1,0 +1,9 @@
+# EXAMPLE ONLY — copy to `key.properties` (same directory) with real values.
+# NEVER commit `key.properties`, `*.jks`, `*.keystore`, or `*.p12`.
+# Generate the keystore out-of-band, e.g.:
+#   keytool -genkeypair -v -keystore fansivibe-release.jks -alias fansivibe \
+#     -keyalg RSA -keysize 2048 -validity 10000
+storePassword=<your-store-password>
+keyPassword=<your-key-password>
+keyAlias=<your-key-alias>
+storeFile=<path-to-your-keystore-file>

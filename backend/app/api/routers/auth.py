@@ -41,6 +41,7 @@ from app.api.schemas.auth import (
 )
 from app.application.auth import RegisterAccount, SignIn, SignOut, resolve_session
 from app.application.users import GetProfile
+from app.api.rate_limit import auth_rate_limit
 from app.config.settings import get_settings
 from app.infrastructure.db.repositories import (
     AuthRepositorySQL,
@@ -83,6 +84,7 @@ def register_account(
     request: RegisterRequest,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     db: Session = Depends(get_db),
+    _: None = Depends(auth_rate_limit),
 ) -> AuthResponse:
     """Create an account + first session (UC-1, 201 `AuthResponse`)."""
     if not idempotency_key:
@@ -114,6 +116,7 @@ def register_account(
 def sign_in(
     request: LoginRequest,
     db: Session = Depends(get_db),
+    _: None = Depends(auth_rate_limit),
 ) -> AuthResponse:
     """Verify credentials and issue one session (UC-3, 200 `AuthResponse`)."""
     settings = get_settings()

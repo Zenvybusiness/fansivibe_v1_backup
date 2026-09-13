@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -43,7 +43,11 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   _CameraUiState _uiState = _CameraUiState.initial;
   String? _errorMessage;
 
-  File? _selectedImage;
+  // Web-safe selection: the picked/captured XFile plus in-memory bytes for
+  // preview (`Image.memory`, never `Image.file`/`dart:io`) so Chrome Web
+  // works from localhost. Mobile camera behavior is preserved.
+  XFile? _selectedImage;
+  Uint8List? _selectedImageBytes;
   bool get _isTestMode {
     final bindingType = WidgetsBinding.instance.runtimeType.toString();
     return bindingType.contains('TestWidgetsFlutterBinding');
@@ -201,11 +205,24 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
 
       if (pickedFile == null) return;
 
-      final File imageFile = File(pickedFile.path);
-      setState(() => _selectedImage = imageFile);
+      // Web-safe: keep the XFile and its bytes for preview/upload.
+      // On Web this avoids `dart:io File`; on mobile `XFile` works too.
+      // Browser permission/cancel is handled: null means user cancelled.
+      final bytes = await pickedFile.readAsBytes();
+      if (!mounted || bytes.isEmpty) return;
+      setState(() {
+        _selectedImage = XFile.fromData(
+          bytes,
+          name: pickedFile.name.isNotEmpty
+              ? pickedFile.name
+              : 'outfit_scan.jpg',
+          mimeType: 'image/jpeg',
+        );
+        _selectedImageBytes = bytes;
+      });
 
       // Upload to backend immediately
-      await _uploadImageAndNavigate(context, imageFile);
+      await _uploadImageAndNavigate(context, _selectedImage!);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -221,7 +238,10 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     }
   }
 
-  Future<void> _uploadImageAndNavigate(BuildContext context, File imageFile) async {
+  Future<void> _uploadImageAndNavigate(
+    BuildContext context,
+    XFile imageFile,
+  ) async {
     try {
       final runId = await _client.submitOutfitAnalysis(imageFile);
 
@@ -280,10 +300,23 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     try {
       final xFile = await controller.takePicture();
 
-      final String? localPath = xFile.path.isNotEmpty ? xFile.path : null;
+      // Web-safe: camera_web returns an object URL / bytes-backed XFile.
+      // Read bytes for preview (Image.memory) and upload via bytes.
+      // Handles permission denied / unavailable via the outer CameraException
+      // mapping; empty bytes are treated as a capture failure.
+      final bytes = await xFile.readAsBytes();
+      if (!mounted) return;
+      if (bytes.isEmpty) {
+        context.pushNamed(RouteNames.scanProcessing);
+        return;
+      }
+      setState(() {
+        _selectedImage = xFile;
+        _selectedImageBytes = bytes;
+      });
 
       // Upload captured image to backend
-      await _uploadImageAndNavigate(context, File(localPath!));
+      await _uploadImageAndNavigate(context, xFile);
     } catch (e) {
       // If capture fails, still continue to existing processing flow.
       context.pushNamed(RouteNames.scanProcessing);
@@ -466,16 +499,24 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   }
 
   Widget _buildSelectedImagePreview(BuildContext context) {
+    final bytes = _selectedImageBytes;
+    // Web-safe preview: in-memory bytes (Chrome + mobile). If bytes are
+    // missing (e.g. failed read), fall back to the placeholder instead of
+    // crashing on `Image.file` (which is unsupported on Web).
+    if (bytes == null || bytes.isEmpty) {
+      return const CameraPreviewPlaceholder();
+    }
     return ClipRRect(
       borderRadius: FansivibeRadius.baseBorder,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Image.file(
-            _selectedImage!,
+          Image.memory(
+            bytes,
             fit: BoxFit.cover,
             width: double.infinity,
             height: double.infinity,
+            gaplessPlayback: true,
           ),
           Positioned(
             top: 12,

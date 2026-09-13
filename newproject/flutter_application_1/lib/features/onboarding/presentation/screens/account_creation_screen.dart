@@ -137,6 +137,8 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
           'Check your email and password — they don\'t look quite right.',
         AuthStatus.providerUnavailable =>
           'Social sign-in isn\'t available yet. Use email instead.',
+        AuthStatus.rateLimited =>
+          'Too many attempts. Wait a moment and try again.',
         AuthStatus.networkError =>
           'Couldn\'t reach the sign-in service. Check your connection and try again.',
         AuthStatus.authenticated || AuthStatus.signedOut => null,

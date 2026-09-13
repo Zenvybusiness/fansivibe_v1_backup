@@ -203,6 +203,24 @@ def test_disabled_vision_maps_to_unavailable(monkeypatch):
     assert excinfo.value.reason == "analyzer_unavailable"
 
 
+def test_typed_disable_vision_setting_maps_to_unavailable(monkeypatch):
+    """21.2 (H5): the typed `disable_vision` setting fails closed too."""
+    from app.config.settings import clear_settings_cache
+
+    monkeypatch.setenv("FANSIVIBE_DISABLE_VISION", "true")
+    clear_settings_cache()
+    try:
+        adapter = _adapter(chat_fn=_chat_ok())
+        assert adapter._disabled is True
+        with pytest.raises(AppearanceAnalysisError) as excinfo:
+            adapter.analyze(
+                media_ref=_media_ref(), user_id=USER, image_bytes=MARKER
+            )
+        assert excinfo.value.reason == "analyzer_unavailable"
+    finally:
+        clear_settings_cache()
+
+
 @pytest.mark.parametrize(
     "bad_response",
     [

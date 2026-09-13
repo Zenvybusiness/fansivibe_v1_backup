@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/app/router/router_shell.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/app/router/auth_guard.dart';
 import 'package:fansivibe/shared/components/fansi_error_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/splash_screen.dart';
@@ -476,4 +478,11 @@ GoRoute(
 final GoRouter appRouter = GoRouter(
   initialLocation: '/entry',
   routes: appRoutes,
+  // 21.2 (M1) declarative auth guard: unauthenticated deep links into
+  // the shell land on entry; authenticated users are never forced away
+  // (no loops, no network on navigation — see auth_guard.dart).
+  redirect: (context, state) => authRedirect(
+    state.uri.path,
+    isAuthenticated: AuthSession.isAuthenticated,
+  ),
 );

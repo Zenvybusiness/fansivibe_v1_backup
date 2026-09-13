@@ -113,7 +113,14 @@ def _select_index(count: int, key: Optional[str]) -> int:
     Absent key → rank 0 (the winner). Supplied key → stable SHA-256
     index into the ranked list: identical inputs repeat byte-identically,
     different keys vary best-effort over the bounded candidate space.
+
+    Empty candidate space (`count <= 0`) is a caller error: the derivation
+    guards `if not ranked: return None` before selecting, so this raises
+    `ValueError` instead of crashing with `ZeroDivisionError` (`% 0`) —
+    the Python analog of Dart `Random.nextInt(0)` (`RangeError: max ... was 0`).
     """
+    if count <= 0:
+        raise ValueError("no candidates to select from")
     if key is None:
         return 0
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()

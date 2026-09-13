@@ -73,3 +73,17 @@ def test_dockerfile_does_not_bypass_migrations():
     assert not re.search(r'^CMD\s+\["uvicorn"', text, re.MULTILINE), (
         "Dockerfile must not CMD uvicorn directly; migrations run via ENTRYPOINT"
     )
+
+
+def test_entrypoint_workers_configurable_with_safe_default():
+    """21.2 — concurrency: UVICORN_WORKERS env, default 1 (small-instance safe)."""
+    text = _read(ENTRYPOINT)
+    assert "UVICORN_WORKERS" in text
+    assert '"${UVICORN_WORKERS:-1}"' in text or "${UVICORN_WORKERS:-1}" in text
+    assert "--workers" in text
+
+
+def test_entrypoint_workers_invalid_value_fails_safe():
+    """21.2 — a non-numeric UVICORN_WORKERS must fall back to 1, never crash."""
+    text = _read(ENTRYPOINT)
+    assert "WORKERS=1" in text

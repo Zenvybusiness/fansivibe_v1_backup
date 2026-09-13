@@ -10,8 +10,10 @@ __pycache__/
 key.properties
 *.jks
 *.keystore
+*.p12
 local.properties
 
 # 21.2-A — local virtualenvs and logs
 .venv/
+venv/
 *.log

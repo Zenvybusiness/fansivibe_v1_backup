@@ -72,15 +72,50 @@ class Settings(BaseSettings):
     vision_timeout_s: float = Field(
         default=20.0, alias="FANSIVIBE_VISION_TIMEOUT_S"
     )
+    # 21.2 (H5) — typed kill-switch for vision in production: when true,
+    # scans fail closed with `analyzer_unavailable` (no network I/O, no
+    # fake AI result). Accepts 1/true/yes/on (case-insensitive).
+    # The adapter also honors the legacy `FANSIVIBE_DISABLE_VISION=1`
+    # process env for backwards compatibility.
+    disable_vision: bool = Field(
+        default=False, alias="FANSIVIBE_DISABLE_VISION"
+    )
 
     # CORS configuration (P2-9): explicit origins list, never wildcard in prod.
     cors_origins: list[str] = Field(
         default_factory=list, alias="FANSIVIBE_CORS_ORIGINS"
     )
 
+    # Optional origin regex (e.g. local Flutter Web dev servers on any port).
+    # Explicit env override; when unset, non-production defaults to a
+    # loopback-only pattern (see `effective_cors_origin_regex`).
+    cors_origin_regex: str | None = Field(
+        default=None, alias="FANSIVIBE_CORS_ORIGIN_REGEX"
+    )
+
+    # Whether browsers may send credentials (cookies / client certs).
+    # Fansivibe auth is Bearer-token based (no cookies), so this defaults
+    # to False. Enable only with explicit non-wildcard origins.
+    cors_allow_credentials: bool = Field(
+        default=False, alias="FANSIVIBE_CORS_ALLOW_CREDENTIALS"
+    )
+
     # API Documentation (/docs, /redoc, /openapi.json) exposure (P2-9).
     # None means auto: enabled in dev/test, disabled by default in production.
     enable_docs: bool | None = Field(default=None, alias="FANSIVIBE_ENABLE_DOCS")
+
+    # Local rate limiting (21.2): sliding-window guard for credential
+    # endpoints (register/login). Single-process only — distributed
+    # enforcement (Redis/edge) is Phase 21.3 infrastructure work.
+    rate_limit_enabled: bool = Field(
+        default=True, alias="FANSIVIBE_RATE_LIMIT_ENABLED"
+    )
+    rate_limit_auth_per_minute: int = Field(
+        default=60, alias="FANSIVIBE_RATE_LIMIT_AUTH_PER_MINUTE"
+    )
+    rate_limit_window_s: int = Field(
+        default=60, alias="FANSIVIBE_RATE_LIMIT_WINDOW_S"
+    )
 
     @property
     def is_production(self) -> bool:
@@ -91,6 +126,22 @@ class Settings(BaseSettings):
         if self.enable_docs is not None:
             return self.enable_docs
         return not self.is_production
+
+    @property
+    def effective_cors_origin_regex(self) -> str | None:
+        """Regex allowing local Flutter Web dev servers (any port).
+
+        - Explicit `FANSIVIBE_CORS_ORIGIN_REGEX` always wins when set.
+        - Otherwise non-production defaults to loopback-only
+          `https?://(localhost|127.0.0.1)(:<port>)?` so `flutter run -d chrome`
+          works on any ephemeral port without hardcoding one.
+        - Production with no explicit regex returns None (no regex CORS).
+        """
+        if self.cors_origin_regex:
+            return self.cors_origin_regex
+        if not self.is_production:
+            return r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+        return None
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -119,6 +170,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_invariants(self) -> typing.Self:
+        if self.rate_limit_auth_per_minute < 1:
+            raise ValueError(
+                "FANSIVIBE_RATE_LIMIT_AUTH_PER_MINUTE must be at least 1."
+            )
+        if self.rate_limit_window_s < 1:
+            raise ValueError("FANSIVIBE_RATE_LIMIT_WINDOW_S must be at least 1.")
         if self.is_production:
             # 1. DATABASE_URL must not use default dev credentials or dev URL
             if (
@@ -141,6 +198,14 @@ class Settings(BaseSettings):
             if self.allow_dev_token:
                 raise ValueError(
                     "FANSIVIBE_ALLOW_DEV_TOKEN cannot be enabled in production."
+                )
+            # 4. Never allow wildcard origins together with credentials.
+            if self.cors_allow_credentials and any(
+                origin.strip() == "*" for origin in self.cors_origins
+            ):
+                raise ValueError(
+                    'Production CORS must not use allow_origins=["*"] together '
+                    "with allow_credentials=True."
                 )
         return self
 

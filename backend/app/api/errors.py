@@ -120,6 +120,25 @@ def database_failure() -> ApiError:
     )
 
 
+def rate_limited(retry_after_s: int = 60) -> ApiError:
+    """Truthful 429 for the local rate limiter (21.2).
+
+    `retry_after_s` travels in `details` (non-sensitive, allow-listed
+    shape) so honest clients can back off. Never carries identity,
+    token, or request-body material.
+    """
+    try:
+        retry = max(1, int(retry_after_s))
+    except (TypeError, ValueError):
+        retry = 60
+    return ApiError(
+        status_code=429,
+        code="RATE_LIMITED",
+        message="Too many requests. Please slow down and try again shortly.",
+        details={"retry_after": retry},
+    )
+
+
 def internal_error() -> ApiError:
     return ApiError(
         status_code=500,

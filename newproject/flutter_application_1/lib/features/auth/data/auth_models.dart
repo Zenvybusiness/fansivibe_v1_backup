@@ -23,6 +23,11 @@ enum AuthStatus {
   /// configured in this instantiation (honest 502, never a bypass).
   providerUnavailable,
 
+  /// The backend rate limiter refused the attempt (truthful 429 with
+  /// a `retry_after` hint). The caller should back off, never retry
+  /// in a tight loop.
+  rateLimited,
+
   /// Backend unreachable or unexpected shape/status.
   networkError,
 

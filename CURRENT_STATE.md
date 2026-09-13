@@ -1,7 +1,269 @@
 # Fansivibe Current State
 
 Last Updated: 2026-09-13
-Updated By: opencode agent
+Updated By: opencode agent (Phase 21.2 production hardening, uncommitted)
+
+---
+
+## PHASE 21.2 — PRODUCTION HARDENING — PASS WITH EXTERNAL BLOCKERS (uncommitted)
+
+Task: turn the repo into a production-deployable baseline without
+inventing infrastructure. No push, no commit, no new features, no UI
+redesign, no speculative upgrades. Skills: `.agents/skills/` inspected
+(21 entries) — `dart-run-static-analysis`, `dart-add-unit-test`,
+`flutter-setup-declarative-routing` read. DECISIONS.md untouched.
+
+Baseline note: task stated HEAD `1200e06`, actual HEAD is `de0c796`
+("Update project", one commit ahead — already contains 21.2-A/B:
+gitignore guardrails + pinned `requirements-prod.txt`). Pre-existing
+uncommitted LOCAL-WEB-E2E + WEB-AUTH-401 work preserved untouched.
+
+### Verdict: PASS WITH EXTERNAL BLOCKERS — all repo-side hardening done;
+### deploy still needs out-of-band infra (domain/TLS/Postgres/backups/
+### Ollama/keystore/secret-manager/sinks). Nothing is claimed deployed.
+
+1. Guardrails (M2 + venv/*.p12 gaps): root + backend `.gitignore` now
+   cover `.env`, `.env.*`, `!.env.example`, `key.properties`, `*.jks`,
+   `*.keystore`, `*.p12`, `local.properties`, `.venv/`, `venv/`,
+   `*.log`. Zero tracked secrets/keystores/service-account JSON; no
+   private keys in tree. `fansivibe_dev` appears ONLY in the dev-default
+   constant + its production-rejection validator + docs/tests (by design).
+2. Deps (H1): unchanged — `requirements-prod.txt` pins verified against
+   the brief (Docker installs prod-only; system-env uvicorn/PyJWT drift
+   is the host env, not the image; no upgrades performed).
+3. Docker (H4): `entrypoint.sh` keeps non-root/migrations-first/exec/
+   set-e/healthcheck/proxy-headers; adds `UVICORN_WORKERS` (default 1,
+   invalid fails safe to 1). Documented strategy: single-worker
+   container + horizontal replicas behind the LB. 2 tests appended.
+4. Rate limiting (H3): new `app/api/rate_limit.py` — in-memory sliding
+   window on register/login only, per-IP, truthful 429 `RATE_LIMITED`
+   + `retry_after` (new `errors.rate_limited`), env-tunable
+   (`FANSIVIBE_RATE_LIMIT_ENABLED/_AUTH_PER_MINUTE/_WINDOW_S`),
+   fail-open, bounded (10k buckets, oldest evicted), no secret logging.
+   `conftest.py` disables it suite-wide (deterministic tests); new
+   `tests/test_rate_limit.py` (12 tests) enables per-test. Broader +
+   distributed enforcement marked Phase 21.3 (runbook §9). Flutter:
+   `AuthStatus.rateLimited` + 429 mapping + login-screen copy.
+5. Secure tokens (H2): `flutter_secure_storage ^11.1.1` added;
+   `SecureTokenStorage` (secure-first, prefs fallback, one-time
+   migration, no duplication, never logs) wired through `AuthSession`
+   (API preserved) + `main()` warm-up. New
+   `test/secure_token_storage_test.dart` (8 tests: mocked-platform
+   secure path + no-platform fallback). Auth suites unaffected.
+6. Router guard (M1): new `app/router/auth_guard.dart` pure
+   `authRedirect()` (no network, one-directional — unauth shell →
+   `/entry`, authenticated never forced away, unknown paths untouched)
+   wired as `appRouter.redirect`; no `refreshListenable` (explicit
+   navigation already covers login/logout/expiry). New
+   `test/router_auth_guard_test.dart`; cold-start/entry suites green.
+7. Vision (H5): typed `Settings.disable_vision`
+   (`FANSIVIBE_DISABLE_VISION`, legacy `=1` env still honored);
+   adapter fails closed `analyzer_unavailable` either way; new settings
+   test. No Ollama host invented.
+8. DB: single head `0021` asserted DB-free
+   (`TestMigrationReadiness`); production URL/secret/dev-token
+   validators unchanged and green; zero migration edits, zero
+   destructive runs.
+9. Env template: `backend/.env.example` (placeholders only, committable
+   via `!.env.example`). Runbook: `docs/PRODUCTION_DEPLOYMENT.md`
+   (17 sections + backlog; every infra item labeled INFRA/Phase 21.3).
+10. Android: signing already strict (fails without key.properties under
+    CI/REQUIRE_RELEASE_SIGNING/prodRelease); added
+    `android/key.properties.example` (placeholders). No keystore made.
+11. Crash/logs: verified, no code change — backend `errors.py`
+    sanitizes (Bearer/JWT/DB-password/credential-params) + `X-Request-Id`
+    on all errors; Flutter `ErrorSanitizer` + sink abstraction
+    provider-agnostic (runbook §10–11, provider is Phase 21.3).
+12. Mocks (M6): audit found every mock file live-imported EXCEPT
+    `daily_outfit_mock_data.dart` (zero Dart importers) — deleted
+    (1 file); all others left (offline/labels/tests depend on them).
+13. Social/account-deletion (M5): verified honest — backend social
+    validates shape → 502, mints nothing; Flutter maps to
+    `providerUnavailable`; no account-deletion route or UI exists
+    (backlog in runbook, no scope expansion). H6 (1h JWT, no refresh)
+    documented as product decision for owner approval.
+
+### Validation
+
+- Backend focused: `test_rate_limit + test_docker_entrypoint +
+  test_production_hardening + test_auth_unit +
+  test_vision_appearance_adapter + test_select_index_empty +
+  test_auth_api` → 129 passed (live local Postgres).
+- Backend full: 578 passed; 8 failed + 437 errors ALL proven
+  pre-existing/environmental (identical on pristine `de0c796`
+  worktree: 7 `test_analysis_use_case` outfit-run failures +
+  downstream M10a + M9 slot flake; PG-slot exhaustion under full-suite
+  load — files pass solo).
+- Flutter focused (11 files: config/cold-start/chat-auth/auth-api/
+  guard/secure/persistence/outfit-scan-client/entry/prefs-sync/
+  assistant-save): 88 passed, 2 failed — both
+  `preferences_sync_test` P2-6 widget flakes proven identical on
+  pristine worktree. `auth_screens` (4) + `crash_reporting` (1) failures
+  likewise proven pre-existing on pristine.
+- New tests: 8 secure-storage + guard-matrix + 12 rate-limit + 2
+  entrypoint-workers + 2 migration-readiness + 1 vision-setting —
+  all green.
+- `flutter analyze`: 43 issues, zero errors — none in any
+  Phase-21.2-touched file (own scope: No issues found).
+- `git diff --check`: clean (exit 0). Staged 0. NOTHING
+  committed/pushed. Registrant churn (linux/macos/windows) is the
+  mechanical `flutter pub add` side effect, uncommitted.
+- Remaining external: domain/DNS, TLS/reverse-proxy, managed
+  Postgres + backups/PITR, Ollama (if scans on), Android keystore,
+  secret manager, log/crash sinks, edge rate limiting.
+
+---
+
+## WEB AUTH 401 DIAGNOSIS — NO PRODUCT BUG, TESTS-ONLY HARDENING — PASS (uncommitted)
+
+Task: authenticated Flutter Web 401s on 5 endpoints with CORS already 200.
+Scope: auth/session flow only. No CORS change, no auth weakening, no fake
+tokens, no commits/pushes. Skills: `.agents/skills/` inspected (21 entries) —
+`flutter-use-http-package`, `dart-add-unit-test`, `dart-run-static-analysis`
+read. DECISIONS.md untouched. No token printed anywhere (lengths/statuses only).
+
+### Verdict: backend correct, all clients attach the header — 401s are
+### missing/stale session tokens, not a code defect. Tests-only change.
+
+1. Backend ground truth (live :8000, test user created + cleaned after):
+   - register 201, login 200; token = 3-part JWT (sub/jti/iat/exp only,
+     no iss/aud applicable), exp-iat = 3600, verifies with server secret,
+     wrong secret rejected, logout 204 then reuse 401.
+   - Fresh token: GET /v1/looks, /v1/events, /v1/wardrobe/items,
+     /v1/learning/summary, /v1/looks/saved, /v1/users/me → 200;
+     POST /v1/outfits/generate (empty wardrobe) → honest 204.
+   - Missing header / `Bearer dev` / tampered / malformed → 401 (correct,
+     allow_dev_token=False on the dev server, so the `dev` fallback can
+     never authenticate).
+2. Flutter header wiring (all 5 endpoints): DiscoverClient, OutfitBuilderClient,
+   EventsClient, WardrobeClient, LearningSummaryClient each send
+   `Authorization: Bearer <AuthSession.effectiveToken('dev')>` — verified per
+   file; no screen issues raw `http` (only pre-existing unused import in
+   outfit_scan_screen); no hardcoded wrong URL; login response key
+   `accessToken` matches backend `AuthResponse.accessToken`.
+3. Persistence race ruled out: `shared_preferences` 2.5.5 `_setValue`
+   updates its in-memory cache synchronously before the platform write, and
+   Web writes go to per-origin localStorage — save→immediate-read is safe
+   in-isolate (source-verified). `main()` awaits `getInstance()` + init
+   before `runApp()`; `validateSession` unused at startup by design
+   (presence check → home → first 401 clears + redirects, graceful).
+4. Token-loss vectors (all environmental, each yields exactly the observed
+   401s): (a) never logged in on this Chrome origin — skipped onboarding
+   (Maybe Later/Explore) or fresh `flutter run` port = new localStorage
+   origin → `Bearer dev`; (b) stale token — DB-backed pytest suites
+   `TRUNCATE users/user_sessions` on the SAME dev DATABASE_URL (DB read
+   0/0/0 during diagnosis), or expired >3600s, or logged-out/revoked.
+5. Fix: tests-only. New `test/web_auth_persistence_test.dart` (6 tests):
+   logged-out → `Bearer dev` on all five clients; logged-in → session
+   token (never dev) on all five; logout → fallback; simulated Chrome
+   reload (drop + re-open prefs) restores token + header; login-body →
+   storage → header chain; 401 on looks clears once. Fake tokens only.
+
+### Validation
+
+- New file: 6/6 pass; `flutter analyze` on it: clean.
+- Auth subset (`web_auth_persistence + auth_api + app_config +
+  outfit_scan_client`): 38 passed.
+- Full `flutter test`: 794 passed, 57 failed — all pre-existing and
+  unrelated (spot-verified `add_wardrobe_item_screen_test` fails in
+  isolation on a file byte-identical to HEAD; this turn changed no `lib/`
+  behavior, only added one test file).
+- `flutter analyze`: 43 pre-existing infos/warnings, zero errors (unchanged).
+- `flutter build web`: PASS. Backend
+  `test_auth_api + test_auth_unit + test_production_hardening +
+  test_select_index_empty`: 72 passed.
+- Operator action required (not code): re-register/login on the exact
+  Chrome origin after any DB-backed pytest run or >1h idle; confirm
+  DevTools Network shows `Authorization: Bearer <token>` (not `dev`) —
+  with it, all five endpoints answer 200/204 per the live proof.
+- `git diff --check`: clean. Staged 0. NOTHING committed/pushed.
+
+---
+
+## LOCAL WEB E2E HARDENING — CORS + CAMERA-WEB + EMPTY-SELECTION — PASS (uncommitted)
+
+Task: make `flutter run -d chrome` + `uvicorn :8000` work end-to-end on Ubuntu.
+No push, no commit, no arch rewrite, no fake auth/camera, no `*`+credentials,
+no DB wipe. Skills: `.agents/skills/` inspected (21 entries) —
+`flutter-use-http-package` (null-on-failure kept over throw guidance),
+`dart-run-static-analysis`, `dart-add-unit-test`, `dart-fix-runtime-errors` read.
+DECISIONS.md untouched.
+
+### Diagnostic (before fix)
+
+- CORS: `settings.cors_origins` default `[]` → `main.py` skipped
+  `CORSMiddleware` entirely → every browser preflight `OPTIONS` hit the
+  router → `405 METHOD_NOT_ALLOWED` (all 10 reported paths). No
+  `FANSIVIBE_CORS_ORIGINS` in env, no `.env`, compose passes no CORS var.
+- Flutter URLs: `AppConfig.apiBaseUrl` (`ASSISTANT_BASE_URL`, default
+  `http://localhost:8000`, prod guards) + all 13 clients use it — no
+  hardcoded wrong URL in `lib/`. Failure was backend-only.
+- Auth: `AuthSession` + `shared_preferences` (Web-safe) + Bearer clients
+  correct; social honest `502`/`providerUnavailable` preserved.
+- Camera-Web: `camera ^0.12.0+1` (has `camera_web`) + `image_picker` OK, but
+  `outfit_scan_client.dart` + `outfit_scan_screen.dart` used `dart:io File`
+  + `Platform.pathSeparator` + `Image.file` → breaks `flutter build web`
+  (dart:io unavailable). `FaceScanScreen` already Web-safe (XFile+bytes).
+- RangeError: `grep nextInt` in `lib/` finds only fixed `256` / `1<<32`
+  (UUID + id suffixes, safe). Backend has zero `random` in `app/`. Analog is
+  deterministic hash pick `_select_index(count,key)` (`% count`) in
+  `today.py:122` + `outfits.py:120`: `count==0` → `ZeroDivisionError`
+  (Python analog of Dart `nextInt(0)` RangeError). Callers guard
+  `if not ranked: return None`, helper itself unguarded.
+- DB: `/health 200`, `/ready ready`, `alembic heads/current 0021 (head)`.
+  Venv `uvicorn` + Docker `postgres:5432` is the working local workflow
+  (compose `api` uses `postgres:5432`/`ollama:11434`, venv uses localhost —
+  both valid, venv chosen to avoid switching arch).
+- Docker: `docker compose ps` → permission denied (user not in `docker`
+  group, `sudo -n` needs password). Postgres healthy via `/ready`.
+- Env: no `.env` / `.env.example`; dev defaults safe, prod must set secrets.
+
+### Fixes (minimum safe)
+
+- Backend CORS (`settings.py` + `main.py`): added `cors_origin_regex`
+  (`FANSIVIBE_CORS_ORIGIN_REGEX`) + `cors_allow_credentials`
+  (`FANSIVIBE_CORS_ALLOW_CREDENTIALS`, default False — Bearer needs no
+  cookies) + `effective_cors_origin_regex` (explicit wins; else non-prod
+  `https?://(localhost|127\.0\.0\.1)(:\d+)?` for any Flutter port; prod
+  None) + prod validator rejecting `*`+credentials. `main.py` always adds
+  `CORSMiddleware` when origins or regex present, with
+  `GET,POST,PUT,PATCH,DELETE,OPTIONS` and explicit
+  `Authorization,Content-Type,Idempotency-Key,X-Request-Id,Accept,Origin`.
+  No `*` with credentials. Live `OPTIONS` on all 10 reported paths now
+  `200` with correct `access-control-*` for arbitrary ports.
+- Camera-Web (`outfit_scan_client.dart` + `outfit_scan_screen.dart`):
+  removed `dart:io`, use `XFile` (via `image_picker`) + `readAsBytes` +
+  `MultipartFile.fromBytes` + `Image.memory` + `XFile.fromData` for gallery;
+  camera capture reads bytes for preview/upload; empty bytes fail closed;
+  permissionDenied/unavailable/error states preserved; mobile preserved
+  (`XFile` cross-platform). `flutter build web` now passes.
+- Empty-selection (`today.py` + `outfits.py` `_select_index`): guard
+  `if count <= 0: raise ValueError("no candidates...")` instead of
+  `ZeroDivisionError`; derivations keep honest `None` → `204/404`.
+  New `tests/test_select_index_empty.py` (5 tests) proves empty raises
+  `ValueError`, normal picks in-range/deterministic, empty generation →
+  `[]`, empty selection → `None`.
+- Tests: fixed pre-existing `outfit_scan_client_test.dart` setup (missing
+  `SharedPreferences.setMockInitialValues` + `LocalStorage.init` → session
+  token never persisted → `Bearer dev` mismatch); added bytes/empty cases.
+
+### Validation
+
+- `pytest test_production_hardening + test_select_index_empty + test_auth_unit`: 45 passed.
+- `pytest test_wardrobe_api + test_auth_api`: 76 passed.
+- `flutter test outfit_scan_client`: 8 passed. `flutter test app_config+auth_api`: 24 passed.
+- `flutter analyze`: 43 pre-existing infos/warnings, zero errors (outfit_scan
+  scope: pre-existing unused imports + BuildContext gaps, no new issues).
+- `flutter build web`: PASS (55.8s).
+- Live: `/health ok`, `/ready ready`, `OPTIONS x10 → 200`, register→login→
+  `GET /v1/looks 200` + CORS header, unauth `401`, wardrobe/events/learning/
+  saved empty `200`, outfit-generate empty `204` + CORS, insight empty `204`,
+  assistant chat `200`, `422`/`404` typed. Test users cleaned by
+  `auth_provider/subject` only (remaining users 0, no data loss).
+- `git diff --check`: clean. Staged 0. NOTHING committed/pushed.
+- Remaining: `docker` group/`sudo` for compose ps, prod secrets/TLS/proxy,
+  real-device camera/media permissions + ATS, Ollama provisioning, manual
+  Chrome click-through (`flutter run -d chrome`) still required by operator.
 
 ---
 

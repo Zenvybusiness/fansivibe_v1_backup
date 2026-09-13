@@ -1,18 +1,27 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fansivibe/features/outfit_scan/data/outfit_scan_client.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 
+Future<void> _initPrefs() async {
+  SharedPreferences.setMockInitialValues({});
+  LocalStorage.init(prefs: await SharedPreferences.getInstance());
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() async {
+    await _initPrefs();
     AuthSession.resetForTest();
     await AuthSession.clearSession();
   });
@@ -52,10 +61,12 @@ void main() {
         () async {
       await AuthSession.saveSession('active-jwt-token');
 
-      // Create a temporary test file
+      // Web-safe: XFile backed by temp bytes (client reads bytes, no dart:io
+      // File in lib). Temp dir creation stays test-only (VM).
       final tempDir = Directory.systemTemp.createTempSync('scan_test_');
       final testFile = File('${tempDir.path}/test_outfit.jpg')
         ..writeAsBytesSync([1, 2, 3, 4]);
+      final xFile = XFile(testFile.path);
 
       final client = OutfitScanClient(
         client: MockClient((request) async {
@@ -75,8 +86,22 @@ void main() {
         }),
       );
 
-      final runId = await client.submitOutfitAnalysis(testFile);
+      final runId = await client.submitOutfitAnalysis(xFile);
       expect(runId, equals('run-outfit-abc'));
+
+      // Web-safe bytes path also works (Chrome Web upload).
+      final bytesRunId = await client.submitOutfitAnalysisBytes(
+        Uint8List.fromList([1, 2, 3, 4]),
+        filename: 'test_outfit.jpg',
+      );
+      expect(bytesRunId, equals('run-outfit-abc'));
+
+      // Empty bytes fail closed without network.
+      final emptyRunId = await client.submitOutfitAnalysisBytes(
+        Uint8List(0),
+        filename: 'empty.jpg',
+      );
+      expect(emptyRunId, isNull);
 
       // Cleanup
       tempDir.deleteSync(recursive: true);
@@ -86,6 +111,7 @@ void main() {
       final tempDir = Directory.systemTemp.createTempSync('scan_test_');
       final testFile = File('${tempDir.path}/test_outfit.jpg')
         ..writeAsBytesSync([1, 2, 3, 4]);
+      final xFile = XFile(testFile.path);
 
       final errorClient = OutfitScanClient(
         client: MockClient((request) async {
@@ -93,7 +119,7 @@ void main() {
         }),
       );
 
-      final runId = await errorClient.submitOutfitAnalysis(testFile);
+      final runId = await errorClient.submitOutfitAnalysis(xFile);
       expect(runId, isNull);
 
       tempDir.deleteSync(recursive: true);

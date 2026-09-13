@@ -40,6 +40,7 @@ dependencies:
   http_parser: ^4.1.2
   image_picker: ^1.0.7
   shared_preferences: ^2.3.3
+  flutter_secure_storage: ^11.1.1
 
 dev_dependencies:
   flutter_test:

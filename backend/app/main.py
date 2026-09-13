@@ -49,13 +49,28 @@ app = FastAPI(
     openapi_url="/openapi.json" if settings.is_docs_enabled else None,
 )
 
-if settings.cors_origins:
+_CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+_CORS_ALLOW_HEADERS = [
+    "Authorization",
+    "Content-Type",
+    "Idempotency-Key",
+    "X-Request-Id",
+    "Accept",
+    "Origin",
+]
+
+_cors_allow_origins = list(settings.cors_origins)
+_cors_allow_origin_regex = settings.effective_cors_origin_regex
+if _cors_allow_origins or _cors_allow_origin_regex:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
+        allow_origins=_cors_allow_origins,
+        allow_origin_regex=_cors_allow_origin_regex,
+        # Bearer-token auth needs no cookies; credentials stay False unless
+        # explicitly enabled with non-wildcard origins (see settings).
+        allow_credentials=settings.cors_allow_credentials,
+        allow_methods=_CORS_ALLOW_METHODS,
+        allow_headers=_CORS_ALLOW_HEADERS,
     )
 
 errors.register_error_handlers(app)

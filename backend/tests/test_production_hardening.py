@@ -234,3 +234,30 @@ class TestHealthAndReadinessEndpoints:
             }
         finally:
             app.dependency_overrides.pop(get_db, None)
+
+
+class TestMigrationReadiness:
+    """21.2 — migration safety: single head, linear upgrade path (DB-free)."""
+
+    def _script(self):
+        import pathlib
+
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        backend = pathlib.Path(__file__).resolve().parents[1]
+        config = Config(str(backend / "alembic.ini"))
+        config.set_main_option("script_location", str(backend / "alembic"))
+        return ScriptDirectory.from_config(config)
+
+    def test_single_alembic_head(self):
+        heads = self._script().get_heads()
+        assert len(heads) == 1, f"production requires one head, found: {heads}"
+
+    def test_upgrade_path_reaches_head(self):
+        script = self._script()
+        (head,) = script.get_heads()
+        # Every revision must be an ancestor of head (linear history).
+        revisions = list(script.walk_revisions())
+        assert len(revisions) > 0
+        assert head in {rev.revision for rev in revisions}

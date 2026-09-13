@@ -184,6 +184,9 @@ class OllamaVisionAppearanceAdapter(AppearanceAnalysisPort):
         self._host = host or settings.vision_host
         self._model = model or settings.vision_model
         self._timeout_s = timeout_s or settings.vision_timeout_s
+        # 21.2 (H5): typed settings kill-switch first, legacy process-env
+        # `FANSIVIBE_DISABLE_VISION=1` second (backwards compatible).
+        self._disabled = bool(getattr(settings, "disable_vision", False))
         # Injectable transport boundary: tests supply a fake, production
         # uses Ollama over httpx. Signature:
         #   chat_fn(*, host, model, timeout_s, image_b64, prompt) -> dict
@@ -201,7 +204,7 @@ class OllamaVisionAppearanceAdapter(AppearanceAnalysisPort):
             # Programming error: without bytes there is nothing to measure,
             # and this adapter refuses to derive from the media key.
             raise ValueError("OllamaVisionAppearanceAdapter requires image_bytes")
-        if os.environ.get("FANSIVIBE_DISABLE_VISION") == "1":
+        if self._disabled or os.environ.get("FANSIVIBE_DISABLE_VISION") == "1":
             raise AppearanceAnalysisError("analyzer_unavailable")
         image_b64 = base64.b64encode(bytes(image_bytes)).decode("ascii")
         try:

@@ -21,6 +21,10 @@ import os
 # import because settings are cached at first access.
 os.environ.setdefault("FANSIVIBE_ALLOW_DEV_TOKEN", "true")
 os.environ.setdefault("FANSIVIBE_AUTH_SECRET", "test-only-auth-secret")
+# 21.2: the local auth rate limiter stays OFF for the historical suite
+# (deterministic tests must never 429); dedicated rate-limit tests
+# enable it explicitly per-test.
+os.environ.setdefault("FANSIVIBE_RATE_LIMIT_ENABLED", "false")
 
 import pytest
 from alembic import command

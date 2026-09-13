@@ -1,4 +1,4 @@
-import 'package:fansivibe/shared/utils/local_storage.dart';
+import 'package:fansivibe/shared/auth/secure_token_storage.dart';
 
 /// Canonical auth/session mechanism (D-AUTH-1).
 ///
@@ -8,9 +8,9 @@ import 'package:fansivibe/shared/utils/local_storage.dart';
 /// supplies its historical dart-define fallback (so logged-out and
 /// test behavior is unchanged).
 ///
-/// - [saveSession]/[clearSession] persist through [LocalStorage]
-///   (the project's supported platform mechanism); tokens are never
-///   logged.
+/// - [saveSession]/[clearSession] persist through [SecureTokenStorage]
+///   (platform secure storage with a `LocalStorage` fallback in tests
+///   and on unsupported platforms); tokens are never logged.
 /// - [notifyUnauthorized] is invoked by clients on HTTP 401: it clears
 ///   the dead session and fires [onSessionExpired] once so the app
 ///   layer can redirect to login. No fake identity is ever produced —
@@ -25,7 +25,7 @@ class AuthSession {
   static bool _expiryNotified = false;
 
   /// The persisted session token, or null when signed out.
-  static String? get token => LocalStorage.authToken;
+  static String? get token => SecureTokenStorage.currentToken;
 
   /// True when a session token is persisted.
   static bool get isAuthenticated => token != null && token!.isNotEmpty;
@@ -43,21 +43,21 @@ class AuthSession {
   /// Persists a new session after register/login.
   static Future<void> saveSession(String accessToken) async {
     _expiryNotified = false;
-    LocalStorage.authToken = accessToken;
+    await SecureTokenStorage.writeToken(accessToken);
   }
 
   /// Clears the session (logout). Local journey state is preserved —
   /// only the credential is removed.
   static Future<void> clearSession() async {
     _expiryNotified = false;
-    LocalStorage.authToken = null;
+    await SecureTokenStorage.deleteToken();
   }
 
   /// Handles an HTTP 401 from any authenticated client: drops the dead
   /// session and notifies once. Safe to call repeatedly and safe
   /// without init (no-op navigation when no handler is set).
   static void notifyUnauthorized() {
-    LocalStorage.authToken = null;
+    SecureTokenStorage.clearSync();
     if (_expiryNotified) return;
     _expiryNotified = true;
     onSessionExpired?.call();
@@ -74,5 +74,6 @@ class AuthSession {
   static void resetForTest() {
     onSessionExpired = null;
     _expiryNotified = false;
+    SecureTokenStorage.resetForTest();
   }
 }

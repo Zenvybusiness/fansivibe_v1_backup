@@ -1,9 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
@@ -42,23 +42,51 @@ class OutfitScanClient {
   final http.Client _client;
   static const Duration _timeout = Duration(seconds: 12);
 
-  /// Submits an outfit image file for analysis (`POST /v1/analysis/outfit`).
+  /// Submits an outfit image for analysis (`POST /v1/analysis/outfit`).
+  ///
+  /// Web-safe: takes a cross-platform [XFile] (camera, gallery, or picked
+  /// file) and uploads its bytes via multipart `fromBytes` — no `dart:io`
+  /// `File` or `Platform` usage, so Chrome Web works from localhost
+  /// (browser camera permission via `camera_web` / file input). Mobile
+  /// behavior is preserved (`XFile` works on Android/iOS).
   ///
   /// Returns the accepted [run_id] on 202, or null when the backend rejects
   /// or is unreachable.
-  Future<String?> submitOutfitAnalysis(File imageFile) async {
+  Future<String?> submitOutfitAnalysis(XFile imageFile) async {
+    try {
+      final bytes = await imageFile.readAsBytes();
+      final filename = imageFile.name.isNotEmpty
+          ? imageFile.name
+          : 'outfit_scan.jpg';
+      return submitOutfitAnalysisBytes(bytes, filename: filename);
+    } catch (error) {
+      debugPrint('Outfit scan backend unreachable during submit: $error');
+      return null;
+    }
+  }
+
+  /// Web-safe bytes upload (used by [submitOutfitAnalysis] and directly
+  /// by callers holding in-memory bytes, e.g. camera capture on Web).
+  Future<String?> submitOutfitAnalysisBytes(
+    Uint8List bytes, {
+    String filename = 'outfit_scan.jpg',
+  }) async {
+    if (bytes.isEmpty) {
+      debugPrint('Outfit scan submit refused empty image bytes.');
+      return null;
+    }
     try {
       final uri = Uri.parse('$baseUrl/v1/analysis/outfit');
       final request = http.MultipartRequest('POST', uri)
         ..headers['Authorization'] = 'Bearer $devToken';
 
-      final filename = imageFile.path.split(Platform.pathSeparator).last;
       final contentType = _contentTypeForFilename(filename);
 
       request.files.add(
-        await http.MultipartFile.fromPath(
+        http.MultipartFile.fromBytes(
           'image',
-          imageFile.path,
+          bytes,
+          filename: filename,
           contentType: MediaType.parse(contentType),
         ),
       );

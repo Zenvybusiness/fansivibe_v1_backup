@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'app/app.dart';
 import 'core/config/app_config.dart';
+import 'shared/auth/secure_token_storage.dart';
 import 'shared/crash_reporting/crash_reporting_service.dart';
 import 'shared/crash_reporting/global_error_handler.dart';
 import 'shared/utils/local_storage.dart';
@@ -13,6 +14,9 @@ void main() {
     GlobalErrorHandler.initialize();
     final prefs = await SharedPreferences.getInstance();
     LocalStorage.init(prefs: prefs);
+    // 21.2 (H2): warm the secure token cache (migrates a legacy
+    // preferences token once). Never throws — falls back to LocalStorage.
+    await SecureTokenStorage.init();
     // P0-4: fail fast with a clear error when a production build is
     // misconfigured (missing/localhost/non-HTTPS) instead of silently
     // issuing unusable network requests. Development keeps working.
