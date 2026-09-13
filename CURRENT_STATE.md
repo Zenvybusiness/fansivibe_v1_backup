@@ -1,7 +1,205 @@
 # Fansivibe Current State
 
 Last Updated: 2026-09-13
-Updated By: opencode agent (Phase 21.2 production hardening, uncommitted)
+Updated By: opencode agent (Phase 21.4-A provider decision + infra preparation, uncommitted)
+
+---
+
+## PHASE 21.4-A — DEPLOYMENT PROVIDER DECISION + INFRASTRUCTURE PREPARATION — COMPLETE, OWNER DECISIONS REQUIRED (uncommitted)
+
+Task: preparation-only turn — produce a precise infrastructure checklist
+so the owner can provision the real production environment. No code fix,
+no provisioning, no invented infra/credentials/domains, no commit/push/
+reset/stash/restore/discard. Skills: `.agents/skills/` inspected (21
+entries) — none loaded (checklist-only turn, zero product code touched;
+all 21 skills are Dart/Flutter code skills, none applicable).
+DECISIONS.md untouched.
+
+Baseline: HEAD `0e5a57c`; working tree preserved exactly (21.3 pair +
+21.4 entry, all uncommitted). All 8 required files re-read
+(`CURRENT_STATE.md`, `docs/PRODUCTION_DEPLOYMENT.md`, `backend/
+Dockerfile`, `backend/entrypoint.sh`, `app/config/settings.py`,
+`app/main.py`, `AppConfig`, `android/app/build.gradle.kts`) plus
+`backend/.env.example` (placeholder shapes confirmed).
+
+### Verdict: repository information COMPLETE — nothing missing repo-side.
+### Checklist delivered in chat (11 sections: architecture, provider/
+### domain/database/secret/vision/observability/edge-Android requirements,
+### owner decision form, ordered next actions). No secrets generated, no
+### files besides this entry touched, `git diff --check` clean.
+
+---
+
+## PHASE 21.4 — FIRST PRODUCTION DEPLOY — BLOCKED, EXTERNAL INFRASTRUCTURE REQUIRED (uncommitted)
+
+Task: execute the first real production deployment only if required
+external infrastructure/credentials actually exist. No push, no commit,
+no reset, no stash, no discarded changes, no invented provider or
+credentials. Skills: `.agents/skills/` inspected (21 entries) — none
+loaded (infra-discovery-only turn, zero product code touched).
+DECISIONS.md untouched.
+
+Baseline note: task stated HEAD `0e5a57c` — matches actual HEAD
+(`feat: add secure token storage, route auth guards, and backend rate
+limiting`). Working tree at start: 2 uncommitted files from Phase 21.3
+(`CURRENT_STATE.md`, `docs/PRODUCTION_DEPLOYMENT.md`) — preserved
+exactly, nothing staged/committed/pushed/reset/stashed/discarded.
+
+### Verdict: PHASE 21.4 BLOCKED — EXTERNAL INFRASTRUCTURE REQUIRED.
+### Zero deployment actions taken. Nothing is claimed deployed.
+
+1. Provider (Step 2): NONE. No authenticated session anywhere — no
+   `~/.aws`, `~/.config/gcloud`, `~/.azure`, `~/.fly`, `~/.render`;
+   no provider CLI installed (only the `docker` client binary);
+   no provider env vars; no deploy manifest in repo (`render.yaml` /
+   `fly.toml` / `railway.toml` / `Procfile` / `app.yaml` / `.do.yml`
+   all absent). Repo-wide grep for provider/real-host strings returns
+   only test-fixture false positives (`api.fansivibe.com` in
+   `crash_reporting_test.dart`, `fansivibe.com` CORS examples in
+   `test_production_hardening.py`) — no real infrastructure referenced.
+   Result: NO_PROVIDER.
+2. Domain/TLS (Step 2): no real production domain exists (runbook §7
+   confirms "No production hostname exists yet"). Nothing to resolve,
+   nothing to verify. Result: DOMAIN_REQUIRED + NO_TLS.
+3. PostgreSQL (Step 3): no managed PostgreSQL 16 exists; no
+   DATABASE_URL outside dev defaults; no backups/PITR/retention (all
+   [INFRA] per runbook §§1–2). Result: NO_POSTGRES.
+4. Secrets (Step 4): no secret manager exists; no production secrets
+   created (never print/inject what does not exist). Only placeholders
+   tracked (`backend/.env.example`, `android/key.properties.example`);
+   `android/key.properties` + any `*.jks`/`*.keystore` absent;
+   `git ls-files` secret scan = only the two `.example` placeholders.
+   Result: NO_SECRET_MANAGER.
+5. Docker build (Step 5): BLOCKED by environment, not code —
+   `docker info`/`docker ps` fail: `permission denied ... /var/run/
+   docker.sock`; user `tony` is not in the `docker` group (groups:
+   tony/adm/cdrom/sudo/dip/plugdev/users/lpadmin/lxd). No image
+   built, no Dockerfile/entrypoint change made (weakening security or
+   config to bypass this was explicitly out of scope).
+   Result: NO_DOCKER_ACCESS.
+6. Deploy/health/security-smoke/user-journeys (Steps 6–9): NOT
+   ATTEMPTED — preconditions (Postgres + secrets + domain/TLS) all
+   missing. No traffic sent anywhere; no test accounts created.
+7. Vision (Step 10): no product decision in repo (same as 21.3) — owner
+   must still choose A (provision Ollama + model + host/model env) or B
+   (`FANSIVIBE_DISABLE_VISION=true`). Result: NO_OLLAMA_DECISION.
+8. Backups (Step 11): nothing to verify — no provider DB exists.
+9. Observability (Step 12): repo-side format/sanitization exists
+   (runbook §§10–11); no log/crash provider selected or wired.
+   Result: NO_OBSERVABILITY.
+10. Edge rate limiting (Step 13): app-level limiter unchanged from
+    21.2; no LB/WAF exists to evaluate. Result:
+    EDGE_RATE_LIMITING_REQUIRED.
+11. Flutter prod URL (Step 14): no real HTTPS host exists, so no URL
+    injected, no release/AAB built (explicitly deferred per brief).
+    `AppConfig` prod guards (`https://` + non-localhost) verified
+    unchanged in code; `build.gradle.kts` still strict-signing without
+    keystore.
+
+### Validation (this turn, read-only + git plumbing only)
+
+- Reads: `CURRENT_STATE.md`, `docs/PRODUCTION_DEPLOYMENT.md`,
+  `backend/Dockerfile`, `backend/entrypoint.sh`,
+  `backend/docker-compose.yml`, `backend/requirements-prod.txt`,
+  `app/config/settings.py`, `app/main.py`, `AppConfig`,
+  `android/app/build.gradle.kts`.
+- `git status --short` = only the 2 pre-existing 21.3 modifications;
+  `git diff --check` clean; `git log --oneline -5` head `0e5a57c`;
+  `git stash list` empty; zero tracked secrets/keystores.
+- No backend/Flutter tests re-run (nothing changed in product code;
+  21.3 validation stands). No network probes sent (no target exists).
+
+---
+
+## PHASE 21.3 — DEPLOY BACKEND + POSTGRESQL — REPOSITORY READY FOR EXTERNAL DEPLOYMENT (uncommitted)
+
+Task: move from repo-side hardening to the real production deployment
+baseline without pushing, committing, inventing infra, or discarding
+work. Skills: `.agents/skills/` inspected (21 entries) —
+`dart-run-static-analysis` read. DECISIONS.md untouched.
+
+Baseline note: task stated HEAD `de0c796` with uncommitted 21.2 work;
+actual HEAD is `0e5a57c` ("feat: add secure token storage, route auth
+guards, and backend rate limiting") — the 21.2 work is already
+committed on `main`. Working tree was CLEAN at start (`git status`
+empty, `git diff --check` exit 0); nothing was reset/stashed/discarded.
+
+### Verdict: REPOSITORY READY FOR EXTERNAL DEPLOYMENT — EXTERNAL
+### INFRASTRUCTURE REQUIRED. No real provider/domain/database/TLS/
+### credentials exist or were invented. Nothing is claimed deployed.
+
+1. Docker (static audit — `docker build` BLOCKED: user not in `docker`
+   group, `sudo -n` needs password; same environmental block as prior
+   phases): `Dockerfile` verified — `python:3.12-slim-bookworm`,
+   non-root `appuser` (10001), installs ONLY `requirements-prod.txt`
+   (11 pins byte-match the live venv: fastapi 0.141.1, uvicorn 0.52.0,
+   pydantic 2.13.4, pydantic-settings 2.15.0, httpx 0.28.1, sqlalchemy
+   2.0.52, psycopg 3.3.4, alembic 1.19.1, python-multipart 0.0.32,
+   bcrypt 5.0.0, PyJWT 2.14.0; pytest excluded), `alembic upgrade head`
+   before `exec uvicorn`, `set -e`, `HEALTHCHECK /health`, respects
+   `PORT` + `UVICORN_WORKERS` (invalid fails safe to 1),
+   `--proxy-headers`, no dev-only behavior (docs gated by settings).
+2. PostgreSQL: single head `0021` (`alembic heads` + live `current`
+   both `0021`); history linear 0001→0021; `alembic check` shows ONLY
+   the known metadata drift (4 ORM-only label CHECKs, 2 DB-only
+   indexes, comment noise — no structural drift, same as 19.29/19.31).
+   PG16-compatible (JSONB + built-in `gen_random_uuid()`, zero
+   extensions, zero PG-version-specific SQL). Empty-DB replay NOT
+   re-runnable here: `fansivibe` role lacks CREATEDB and docker is
+   unavailable (environmental, not a code blocker — chain is linear,
+   single-head, dev DB sits at head, prior audits proved round-trip).
+3. Production env (all proven in fresh processes, zero fakes):
+   valid prod env boots with docs OFF; dev DATABASE_URL / dev secret /
+   short secret / `ALLOW_DEV_TOKEN=true` each REJECTED; prod CORS =
+   no origins + no regex (mobile-only default); `/docs` + `/openapi`
+   routes ABSENT in prod, `/health` + `/ready` + `/health/ready`
+   present.
+4. Smoke (live :8000 dev server, read-only + TestClient, no prod data
+   touched): `/health` 200 `ok` without DB; `/ready` +
+   `/health/ready` 200 `ready` when connected, 503 `not_ready` on a
+   realistic outage (unreachable host — fails inside the endpoint as
+   real outages do). `/docs` 200 in dev (correct). Unknown route =
+   typed `NOT_FOUND`.
+5. Rate limiting: register/login sliding-window verified green
+   (`test_rate_limit` 12/12); single-process limitation + edge/Redis
+   requirement already documented in runbook §9 (unchanged).
+6. Vision: NO launch decision exists in repo — reported as REQUIRED
+   product decision (Option A needs real Ollama host+model; Option B
+   is `FANSIVIBE_DISABLE_VISION=true`, proven honest:
+   `analyzer_unavailable`, zero network I/O, zero fake results).
+7. Provider: NO provider specified anywhere (grep over md/py/yml =
+   only false positives). No domain/DNS/TLS/Postgres/secret-manager/
+   observability vendor exists — all 7 external decisions reported.
+8. Backups/operability: runbook §§2,10,11,15–17 cover backups/PITR/
+   restore drill/retention/rollback/monitoring-smoke; ADDED this phase
+   (§6 TLS auto-renewal + expiry alert; §15 restart policy +
+   `/ready` LB gate) — the only 2 code-adjacent gaps found.
+9. Flutter prod config: `PRODUCTION=true` + `https://` + non-localhost
+   enforced (`validateOrThrow`, called in `main()`); all 15 clients
+   use centralized `AppConfig.apiBaseUrl`; secure storage + router
+   guard suites green. No API host invented, no release built.
+
+### Validation
+
+- Backend: `test_docker_entrypoint + test_production_hardening +
+  test_rate_limit + test_vision_appearance_adapter +
+  test_select_index_empty` → 83 passed; `test_auth_api +
+  test_auth_unit` → 46 passed (total 129, matches 21.2 baseline).
+- Flutter: `app_config + router_auth_guard + secure_token_storage`
+  → 19 passed (`flutter test`, "All tests passed!").
+- `git diff --check`: clean. Full backend suite NOT re-run (known
+  21.2 PG-slot environmental failures documented; no reason to
+  re-prove). No new failures introduced.
+- External (unchanged from 21.2): provider, domain/DNS, TLS certs,
+  managed Postgres + backups/PITR drill, Ollama decision, Android
+  keystore, secret manager, log/crash sinks, edge rate limiting,
+  docker-group access for image builds.
+
+### Files changed (uncommitted, nothing staged/committed/pushed)
+
+- `docs/PRODUCTION_DEPLOYMENT.md` (+8 lines: §6 TLS renewal/alerting,
+  §15 restart policy + `/ready` gate — both [INFRA]-labeled).
+- `CURRENT_STATE.md` (this entry).
 
 ---
 
