@@ -1,7 +1,294 @@
 # Fansivibe Current State
 
 Last Updated: 2026-09-13
-Updated By: opencode agent (Phase 32 real Android+backend+Ollama E2E, uncommitted)
+Updated By: opencode agent (Phase 32 real-E2E gate, toolchain-now-healthy/backend-down, uncommitted)
+
+---
+
+## PHASE 32 — REAL FANSIVIBE ANDROID + BACKEND + OLLAMA E2E — GATE BLOCKED (toolchain healthy; NO device; backend DOWN; NO Ollama; zero product changes, uncommitted)
+
+Task: genuine end-to-end validation on REAL Android → Flutter →
+backend → PostgreSQL → Ollama → llama3.2-vision. Real execution ONLY:
+every E2E PASS must come from an actually executed flow; missing
+prerequisites → BLOCKED/NOT TESTED, never fabricated. No
+commit/push/reset/stash/discard; pre-existing working-tree changes
+preserved exactly; no mocks/fakes; no model substitution; no
+fail-closed weakening; no face_profile_ref reintroduction.
+Skills: `.agents/skills/` inspected (20 entries) — none loaded
+(environment-gate + honesty-audit turn, zero product code touched; all
+skills are Dart/Flutter code skills, none applicable — Phase
+29/30/31/32.2-C precedent).
+
+Baseline (fresh evidence this run): `pwd` →
+`/home/tony/fansivibe_02/fansivibe_v1_backup`; HEAD `15e408b` (NOT
+`56a5e13` — tree has moved on since the Phase-32 brief was written:
+`15e408b feat: integrate real image picker in onboarding photo capture
+and associated tests` sits on top of `56a5e13`); `git status --short`
+at start AND end: `M CURRENT_STATE.md` + `M
+newproject/flutter_application_1/android/gradle.properties` + `??
+newproject/flutter_application_1/android/.kotlin/` (only);
+`git diff --check` clean at start and end. Protected paths verified
+present and untouched at end: `gradle.properties` 348 bytes (mtime Sep
+13 18:47, pre-existing); `.kotlin/sessions/` intact.
+
+### STEP 1 — Environment gate (fresh evidence this run, 2026-09-13).
+- Disk: `/dev/sda2` 106G total, 51G used, **51G avail, 50% used** —
+  RESOLVED since Phase 29/30/31 (was 2.2G/96%; VM disk evidently
+  expanded). SDK + model footprint now fits.
+- Android SDK/toolchain: HEALTHY (new since Phase 32.2-C).
+  `ANDROID_HOME`/`ANDROID_SDK_ROOT` = `/home/tony/Android/Sdk`;
+  `adb` (`1.0.41`, `37.0.1-15733141`) + `sdkmanager` present;
+  `flutter doctor -v` → **No issues found**, `[✓] Android toolchain
+  (SDK 36.0.0)`, platforms `android-35` + `android-36`, build-tools
+  `35.0.0` + `36.0.0`, all licenses accepted, JDK 21.0.12.
+  Missing: `emulator` binary + `system-images` absent; `flutter
+  emulators` → no sources; no `~/.android/avd`.
+- adb/device: NO DEVICE. `adb devices -l` → `List of devices attached`
+  + EMPTY. `flutter devices` → Linux (desktop) + Chrome (web) ONLY.
+  `lsusb` → two Linux Foundation root hubs ONLY — no Android vendor
+  ID. No `/dev/kvm`, no `vmx`/`svm` CPU flag → hardware emulator
+  impossible in this VM; physical device required but absent
+  (VirtualBox USB passthrough still the apparent blocker — operator,
+  out of band).
+- Backend: DOWN (changed since Phase 29/30/31/32 — the pre-existing
+  operator uvicorn server is GONE: no `uvicorn`/`app.main` process,
+  port 8000 NOT listening, `GET /health` → curl exit 7/H000, `GET
+  /ready` → curl exit 7/HTTP 000). Backend was NOT started by this
+  phase (starting a server that touches auth/data storage needs
+  explicit operator approval; per the brief, the affected flows STOP
+  instead). Zero DB writes, zero users created.
+- PostgreSQL: LISTENING (`127.0.0.1:5432`, `pg_isready` → accepting
+  connections) but `/ready` unverifiable while backend is down →
+  "connected" NOT confirmable this run.
+- Ollama: NOT RUNNING. `ollama` = NO_OLLAMA_BINARY; process =
+  NO_OLLAMA_PROCESS; `curl -m 5 http://localhost:11434/api/tags` →
+  exit 7 (refused). `FANSIVIBE_VISION_HOST`/`FANSIVIBE_VISION_MODEL`
+  unset.
+- Vision model: NOT INSTALLED (`llama3.2-vision` absent; no binary to
+  pull/list with). No substitute pulled.
+- Backend→Ollama: NO (11434 refused; backend down regardless).
+- Android→backend: NOT VERIFIABLE (no device). Network path
+  reconfirmed: primary IP `10.0.2.15/24` (VirtualBox NAT) — emulator
+  future address `http://10.0.2.2:8000`; physical device needs host
+  port-forward/bridged networking to `http://<host-LAN-IP>:8000` via
+  `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000`. No IP
+  invented; no production URL changed; no `localhost` assumed for any
+  physical device.
+- Gate checklist: SDK healthy YES; adb YES; device/emulator NO;
+  backend 8000 NO (down); `/health` 200 NO; `/ready` ready NO; PG
+  connected UNVERIFIABLE (port open, backend down); Ollama running
+  NO; 11434 reachable NO; model installed NO; backend→Ollama NO;
+  Android→backend NOT VERIFIABLE.
+- REAL E2E GATE = BLOCKED. Per the brief, Steps 2–16 STOP here. NO
+  REAL E2E WAS EXECUTED. NO FLOW MARKED PASS. No `flutter run`/`flutter
+  build` attempted (no target exists).
+
+### STEPS 2–16 — Real-E2E matrix (nothing executed on a real target).
+
+| Flow | Device | Backend | Ollama | Result | Evidence |
+| Auth (register/login/me/logout/re-login, persistence) | none | down (not exercised) | n/a | BLOCKED | no adb/device; no `flutter run` attempted |
+| Wardrobe (add/view/details/edit/delete) | none | down | n/a | BLOCKED | no device target |
+| Camera (real capture→preview→bytes) | none | — | n/a | BLOCKED | no device; no mocked ImagePicker result fabricated |
+| Gallery (real picker→preview→bytes) | none | — | n/a | BLOCKED | no device |
+| Outfit analysis (image→POST /v1/analysis/outfit→Ollama→poll→UI) | none | down | down (11434 refused) | BLOCKED | no device AND no model; no mock shown as success |
+| Hairstyle analysis (no face_profile_ref, style_profile by user) | none | down | down | BLOCKED | Phase-28 removal verified intact by grep (comment-only refs), not re-proven live |
+| Grooming analysis (POST /v1/analysis/grooming `{}` JSON → 202 → poll) | none | down | down | BLOCKED | Phase-25/28 contract untouched, not re-proven live |
+| Ollama failure honesty (kill Ollama → honest fail) | none | down | already down | NOT TESTED | fault injection moot with no device/backend; nothing fabricated; Ollama left untouched |
+| >20MB rejection | none | — | — | NOT TESTED | no device; no asset added to repo |
+| 429 rate limit | none | — | — | NOT TESTED | limiter not exercised/weakened |
+| Backend 500 handling | none | — | — | NOT TESTED | backend down; no controlled injection available |
+| User isolation (A vs B wardrobe/looks/analysis) | none | — | — | NOT TESTED | no test users created (zero DB writes) |
+| Saved outfit / Today's Look / Assistant (save/get/delete, routes) | none | down | — | BLOCKED | no device; Share stays `Share feature coming soon` (untouched) |
+| UI loading/error/retry honesty | none | — | — | NOT TESTED | no flows ran, so no observations recorded |
+
+Device/model/API level: NONE (no Android target). Backend URL type:
+nothing verified live this run (previously `http://localhost:8000`;
+bind address unverifiable while server down); no secrets committed.
+Ollama/model: `llama3.2-vision` required, not installed. Run date:
+2026-09-13.
+
+### STEP 17 — Focused validation (no product code to regress).
+- `flutter analyze` (fresh this phase,
+  `newproject/flutter_application_1`): **39 issues, ZERO errors** —
+  identical count/severity profile to the Phase-23→32 baseline (all
+  warnings/infos: `inference_failure_on_collection_literal`,
+  `unused_import`, `unused_local_variable`; zero `error •` lines).
+  No new failures.
+- Focused Flutter/backend suites: NOT re-run (zero product files
+  touched — nothing to regress; per-brief "only where useful").
+- Contract grep (read-only): `face_profile_ref`/`faceProfileRef`
+  appears ONLY in two removal comments
+  (`grooming_client.dart:42`, `backend/app/api/schemas/analysis.py:8`)
+  — Phase-28 removal still in effect, nothing reintroduced.
+- `git diff --check`: clean (start; re-verified end).
+- Baseline pre-existing failures stand (not relabeled): analyze 39
+  infos/warnings; historical suites per prior phases. NEW failures:
+  ZERO.
+
+### Product-code changes: NONE.
+- Zero Flutter/backend/product files modified. Grooming JSON `{}`
+  transport intact by preservation; Share honestly unavailable
+  (untouched); fail-closed vision untouched; no mocks/fakes added; no
+  model substitution; no limiter weakening; no backend started,
+  stopped, or reconfigured; no SDK/emulator/Ollama installed.
+
+### STEP 19 — Final safety check.
+- `git status --short`: `M CURRENT_STATE.md` + `M .../gradle.properties`
+  + `?? .../.kotlin/` identical before/after except this entry.
+- `git diff --check`: clean.
+- Confirmed: no commit, no push, no reset, no stash, no discarded
+  work, no secrets added, no production credentials added. All probes
+  read-only (doctor/devices/lsusb/ss/curl/pg_isready/grep/analyze —
+  zero DB writes, zero users, zero installs, zero deletions).
+
+### Exact remaining actions (operator, out-of-band).
+1. Start/verify backend: launch the dev server (`0.0.0.0:8000`) and
+   confirm `GET /health` → 200 `ok` + `GET /ready` → `ready` +
+   `database connected` (it was ready in Phases 29–31; currently down
+   — likely VM reboot after disk expansion).
+2. Attach PHYSICAL device (no KVM here): USB debugging + VirtualBox
+   USB passthrough; verify `adb devices` + `flutter devices`; resolve
+   NAT (bridged adapter or host port-forward of 8000) so
+   `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000` reaches it.
+3. Install Ollama, `ollama serve`, `ollama pull llama3.2-vision` (no
+   text-only substitute); verify `curl :11434/api/tags` + `ollama
+   list`. (Disk now allows it: 51G avail.)
+4. Re-run gate; only when Android + backend + Ollama + vision model
+   are ALL reachable does GATE turn OPEN — then run ONLY the NOT
+   TESTED/BLOCKED device flows (one live image E2E per analysis type,
+   notably first live grooming 202→completed on the ID-free JSON
+   contract).
+
+### Files changed (this phase, uncommitted)
+- `CURRENT_STATE.md` (this entry only).
+
+PHASE 32 RESULT = ENVIRONMENT BLOCKED (TOOLCHAIN NOW HEALTHY + DISK FIXED; NO DEVICE; BACKEND DOWN; OLLAMA + MODEL MISSING; ZERO E2E PASS CLAIMED)
+
+---
+
+## PHASE 32.2-C RE-EXECUTION — PHYSICAL ANDROID DEVICE CONNECTION GATE — GATE BLOCKED (no USB device visible; adb empty; flutter Linux+Chrome only; zero product changes)
+
+Task: re-execute the physical Android device connection gate inside the
+Ubuntu VM. Verification ONLY: no `flutter build`, no Gradle build, no SDK
+installs, no emulator, no reset/clean/checkout/stash/commit/push, no
+deletion of `gradle.properties` / `.kotlin/`, no backend/Ollama restart.
+Skills: `.agents/skills/` inspected (21 entries) — none loaded
+(verification-gate-only turn, zero product code touched; all 21 skills are
+Dart/Flutter code skills, none applicable).
+
+Baseline (STEP 0, fresh evidence this run): `pwd` →
+`/home/tony/fansivibe_02/fansivibe_v1_backup`; `git status --short` at
+start: `M CURRENT_STATE.md` (prior phase's uncommitted entry) + `M
+newproject/flutter_application_1/android/gradle.properties` + `??
+newproject/flutter_application_1/android/.kotlin/` (only); `adb version`
+→ `Android Debug Bridge version 1.0.41`, `Version 37.0.1-15733141`,
+`Installed as /home/tony/Android/Sdk/platform-tools/adb` — matches brief;
+`flutter --version` → Flutter 3.44.7 stable, Dart 3.12.2. Nothing altered.
+
+### STEP 1 — USB check from Ubuntu (fresh evidence this run).
+- `lsusb` → `Bus 001 Device 001: ID 1d6b:0001 Linux Foundation 1.1 root
+  hub` + `Bus 002 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub`
+  ONLY — no Android vendor ID, no phone entry.
+- `adb devices -l` → `List of devices attached` + EMPTY (zero entries).
+- `flutter devices` → Linux (desktop) + Chrome (web) ONLY; no Android
+  device. Phone NOT visible → proceeded to STEP 2 per brief.
+
+### STEP 2 — VirtualBox USB handoff → device STILL absent → STOP per brief.
+- Host-side USB attach is operator-only (out of band — NOT performed from
+  this VM, NOT fabricated): connect/unlock phone with data cable,
+  Developer options → USB debugging on, VirtualBox Manager → Ubuntu VM →
+  Settings → USB (controller enabled + phone filter), then Devices → USB
+  → attach phone to guest, then accept `Allow USB debugging?` on phone.
+- Re-ran `lsusb` + `adb devices -l` + `flutter devices` after the handoff
+  checkpoint: byte-identical to STEP 1 (two root hubs only; adb empty;
+  Linux + Chrome only). USB device is NOT reaching Ubuntu.
+- Per brief: STOPPED here. No system modification, no USB drivers/packages
+  installed, no `adb kill-server`/`start-server` (nothing to authorize),
+  nothing built.
+
+### STEPS 3–5 — NOT RUN (no USB device; phone untouched; no auth bypass attempted).
+
+### STEP 6 — Final verdict.
+- A. USB device visible to Ubuntu: FAIL
+- B. Android phone visible in lsusb: FAIL
+- C. ADB detects physical phone: FAIL
+- D. ADB authorization: FAIL (no device; no `unauthorized` state observed)
+- E. adb devices -l state: `List of devices attached` (empty)
+- F. Flutter detects physical Android device: FAIL (Linux + Chrome only)
+- G. Device: unavailable (no authorized device; getprop NOT run)
+- H. Application source files modified: NO
+- I. Android build performed: NO
+- J. APK build gate: BLOCKED
+- Safety: `git status --short` identical before/after (listed above);
+  `git diff --check` clean; `gradle.properties` present (348 bytes,
+  untouched); `.kotlin/sessions/` intact. Zero product files modified.
+
+PHASE 32.2-C RE-EXECUTION RESULT = GATE BLOCKED (DEVICE ABSENT AT USB LEVEL; NOTHING BUILT, NOTHING INSTALLED, NOTHING MODIFIED EXCEPT THIS ENTRY)
+
+---
+
+## PHASE 32.2-C — PHYSICAL ANDROID DEVICE CONNECTION GATE — GATE BLOCKED (no USB device visible; adb empty; flutter Linux+Chrome only; zero product changes)
+
+Task: connect and verify a REAL physical Android device inside the Ubuntu
+VM. Verification/configuration ONLY: no `flutter build`, no Gradle build,
+no SDK installs, no emulator, no reset/clean/checkout/stash/commit/push,
+no deletion of `gradle.properties` / `.kotlin/`, no backend/Ollama restart.
+Skills: `.agents/skills/` inspected (21 entries) — none loaded
+(verification-gate-only turn, zero product code touched; all 21 skills are
+Dart/Flutter code skills, none applicable).
+
+Baseline: HEAD `15e408b`; `git status --short` at start: `M
+newproject/flutter_application_1/android/gradle.properties` + `??
+newproject/flutter_application_1/android/.kotlin/` (only); `git diff
+--check` clean at start and end. Both protected paths verified present at
+end (gradle.properties 348 bytes; `.kotlin/sessions/` intact). Zero
+application source files modified.
+
+### STEP 1 — Host-side device discovery (fresh evidence this phase).
+- `adb version` → `Android Debug Bridge version 1.0.41`,
+  `Version 37.0.1-15733141`, `Installed as
+  /home/tony/Android/Sdk/platform-tools/adb` — PASS (matches brief).
+- `adb devices -l` → `List of devices attached` + EMPTY (no entries).
+- `flutter devices` → Linux (desktop) + Chrome (web) ONLY; no Android
+  device. (`flutter emulators` not run — emulator install forbidden.)
+- `lsusb` → `Bus 001 Device 001: ID 1d6b:0001 Linux Foundation 1.1 root
+  hub` + `Bus 002 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub`
+  ONLY — no Android vendor ID (no `18d1`/`04e8`/`0bb4`/`2a70`/etc.), no
+  VirtualBox USB Tablet entry this turn.
+- `ANDROID_HOME=/home/tony/Android/Sdk`,
+  `ANDROID_SDK_ROOT=/home/tony/Android/Sdk` (set).
+
+### STEP 2 — Device NOT visible → STOP per brief (no broad system changes).
+- Exact adb output: `List of devices attached` with zero lines after it.
+- Exact lsusb output: two Linux Foundation root hubs only (quoted above).
+- Visible to Ubuntu: NO.
+- VirtualBox USB passthrough appears to be the blocker: YES (apparent —
+  no USB device reaches the guest at all, so there is nothing for the
+  adb server to authorize; `adb kill-server`/`start-server` + Step 3/4
+  phone-side steps NOT run per the gate — nothing to authorize or query).
+- Host-side action required (operator, out of band — NOT executed from
+  this VM): power on + unlock the phone, enable Developer options → USB
+  debugging, connect it to the HOST with a data cable, then in the
+  VirtualBox Manager for this VM attach the phone via Devices → USB →
+  select the phone entry (install the VirtualBox Extension Pack + Guest
+  Additions USB support on the host first if the phone entry is absent;
+  USB 2.0/3.0 controller setting must match the phone/port), then on the
+  phone accept the `Allow USB debugging?` RSA prompt, then re-run this
+  gate (`adb devices -l`, `flutter devices`) inside the VM. No guest-side
+  workaround was attempted; nothing was guessed beyond this standard
+  passthrough path.
+
+### STEPS 3–4 — NOT RUN (no device to authorize or query; phone untouched).
+
+### STEP 5 — Final verdict.
+- A. Physical device visible to Ubuntu: FAIL
+- B. ADB authorization: FAIL (no device; no `unauthorized` state observed)
+- C. adb devices -l: FAIL (empty)
+- D. flutter devices detects Android phone: FAIL (Linux + Chrome only)
+- E. Device model/API: unavailable (no authorized device)
+- F. APK build gate: BLOCKED
+
+PHASE 32.2-C RESULT = GATE BLOCKED (DEVICE ABSENT AT USB LEVEL; NOTHING BUILT, NOTHING INSTALLED, NOTHING MODIFIED EXCEPT THIS ENTRY)
 
 ---
 
