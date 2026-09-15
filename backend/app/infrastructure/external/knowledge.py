@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Optional
 
 from app.data import catalog
-from app.domain.ports.external import KnowledgeError, KnowledgeSource
+from app.domain.ports.external import KnowledgeError
 from app.domain.value_objects import HairstyleRecommendation
 
 
@@ -224,8 +224,3 @@ class CatalogKnowledgeSource:
         once authoritative content is supplied; nothing is invented here.
         """
         return [_validate_item_reference(dict(entry)) for entry in catalog.ITEM_REFERENCES]
-
-
-def build_knowledge_source() -> KnowledgeSource:
-    """Default adapter factory for the application layer."""
-    return CatalogKnowledgeSource()

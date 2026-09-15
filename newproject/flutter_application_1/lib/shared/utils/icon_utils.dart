@@ -1,58 +1,33 @@
 import 'package:flutter/material.dart';
 
-IconData iconFromName(String name) {
-  switch (name) {
-    case 'lightbulb_outline_rounded':
-      return Icons.lightbulb_outline_rounded;
-    case 'trending_up_rounded':
-      return Icons.trending_up_rounded;
-    case 'insights_rounded':
-      return Icons.insights_rounded;
-    case 'psychology_rounded':
-      return Icons.psychology_rounded;
-    case 'auto_awesome_rounded':
-      return Icons.auto_awesome_rounded;
-    case 'checkroom_rounded':
-      return Icons.checkroom_rounded;
-    case 'person_rounded':
-      return Icons.person_rounded;
-    case 'accessibility_rounded':
-      return Icons.accessibility_rounded;
-    case 'directions_walk_rounded':
-      return Icons.directions_walk_rounded;
-    case 'diamond_rounded':
-      return Icons.diamond_rounded;
-    case 'camera_alt_outlined':
-      return Icons.camera_alt_outlined;
-    case 'checkroom_outlined':
-      return Icons.checkroom_outlined;
-    case 'refresh_rounded':
-      return Icons.refresh_rounded;
-    case 'auto_awesome_outlined':
-      return Icons.auto_awesome_outlined;
-    case 'event_outlined':
-      return Icons.event_outlined;
-    case 'local_fire_department_rounded':
-      return Icons.local_fire_department_rounded;
-    case 'emoji_events_rounded':
-      return Icons.emoji_events_rounded;
-    case 'star_rounded':
-      return Icons.star_rounded;
-    case 'explore_rounded':
-      return Icons.explore_rounded;
-    case 'tune_rounded':
-      return Icons.tune_rounded;
-    case 'bookmark_rounded':
-      return Icons.bookmark_rounded;
-    case 'workspace_premium_rounded':
-      return Icons.workspace_premium_rounded;
-    case 'help_outline_rounded':
-      return Icons.help_outline_rounded;
-    case 'settings_rounded':
-      return Icons.settings_rounded;
-    case 'logout_rounded':
-      return Icons.logout_rounded;
-    default:
-      return Icons.circle_rounded;
-  }
-}
+// ponytail: const map lookup, add entries here instead of new branches.
+const _iconsByName = <String, IconData>{
+  'lightbulb_outline_rounded': Icons.lightbulb_outline_rounded,
+  'trending_up_rounded': Icons.trending_up_rounded,
+  'insights_rounded': Icons.insights_rounded,
+  'psychology_rounded': Icons.psychology_rounded,
+  'auto_awesome_rounded': Icons.auto_awesome_rounded,
+  'checkroom_rounded': Icons.checkroom_rounded,
+  'person_rounded': Icons.person_rounded,
+  'accessibility_rounded': Icons.accessibility_rounded,
+  'directions_walk_rounded': Icons.directions_walk_rounded,
+  'diamond_rounded': Icons.diamond_rounded,
+  'camera_alt_outlined': Icons.camera_alt_outlined,
+  'checkroom_outlined': Icons.checkroom_outlined,
+  'refresh_rounded': Icons.refresh_rounded,
+  'auto_awesome_outlined': Icons.auto_awesome_outlined,
+  'event_outlined': Icons.event_outlined,
+  'local_fire_department_rounded': Icons.local_fire_department_rounded,
+  'emoji_events_rounded': Icons.emoji_events_rounded,
+  'star_rounded': Icons.star_rounded,
+  'explore_rounded': Icons.explore_rounded,
+  'tune_rounded': Icons.tune_rounded,
+  'bookmark_rounded': Icons.bookmark_rounded,
+  'workspace_premium_rounded': Icons.workspace_premium_rounded,
+  'help_outline_rounded': Icons.help_outline_rounded,
+  'settings_rounded': Icons.settings_rounded,
+  'logout_rounded': Icons.logout_rounded,
+};
+
+IconData iconFromName(String name) =>
+    _iconsByName[name] ?? Icons.circle_rounded;

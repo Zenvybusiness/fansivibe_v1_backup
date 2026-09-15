@@ -1,7 +1,115 @@
 # Fansivibe Current State
 
-Last Updated: 2026-09-13
-Updated By: opencode agent (Phase 32 real-E2E gate, toolchain-now-healthy/backend-down, uncommitted)
+Last Updated: 2026-09-15
+Updated By: opencode agent (local run: backend + DB + web app live, uncommitted)
+
+---
+
+## LOCAL RUN — BACKEND + POSTGRES + FLUTTER WEB LIVE (user-requested)
+
+Postgres: already running, `pg_isready` accepting, dev DB `fansivibe`
+reachable (`SELECT 1` → 1). No cluster changes.
+Backend: `alembic upgrade head` (already at head) + uvicorn on `:8000`
+(PID 20081, log `/tmp/opencode/fansivibe_backend.log`):
+`GET /health` → 200 `ok`, `GET /ready` → 200 `ready` + `database connected`.
+Auth smoke (then cleaned): `POST /v1/auth/register` → 201 + JWT,
+`GET /v1/users/me` → 200 profile, `POST /v1/auth/logout` → 204;
+smoke row deleted via `users.auth_subject` (FK cascades), `users` = 0 rows.
+App: `flutter run -d chrome --web-port 8080` with
+`ASSISTANT_BASE_URL=http://localhost:8000` (log
+`/tmp/opencode/fansivibe_web.log`): debug service connected, app started
+from main, `GET /` → 200, zero app errors. Linux desktop build NOT viable
+here (missing system `libsecret-1`, no passwordless sudo to install it).
+Ollama/vision still absent (unchanged); vision paths fail closed per design.
+Uncommitted dead-code-sweep changes preserved untouched; no commit/push.
+
+### Processes (background, survive this turn)
+- Backend: PID 20081, `http://localhost:8000`
+- App (Chrome): PID 20590, `http://localhost:8080`
+- Stop: `kill 20081 20590` (backend) + `q` in run shell / kill chrome child.
+
+---
+
+## DEAD-CODE SWEEP — VERIFIED DELETIONS ONLY (uncommitted, zero behavior change)
+
+Task: user-approved scope "dead-code sweep only" — no arch/UI changes.
+Every candidate verified with repo-wide grep (lib + test + backend + docs
+as code refs); test-covered classes KEPT even when unused by screens
+(home StyleScoreCard/StyleStreakCard/AIInsightCard/StreakDayIndicator,
+profile ProfileHeader/StylistLevelBadge/ProfileStatRow/
+StyleProgressIndicator/AchievementGrid/StyleDnaCard, wardrobe
+WardrobeHeader/WardrobeDashboardHeader — all live in widget tests).
+Skills: `dart-run-static-analysis` loaded (analyze workflow);
+`.agents/skills/` inspected (20 entries).
+
+Deleted (verified zero code/test refs, docs mentions are spec text only):
+- `CURRENT_STATE.md.bak` (6424 lines), `.../assistant/data/models.dart.bak`
+  (295 lines), `.../onboarding/.../glass_container.dart` (46 lines).
+- `HomeStatItem` + `HomeProgressRing` in `home_widgets.dart` (−177 lines).
+- `ProfileHeroCard` (−262) + `AchievementBar` incl. its private
+  `_iconFromName` (−130) + orphaned `fansivibe_card.dart` import in
+  `profile_widgets.dart` (−395 total).
+- `build_knowledge_source()` dead factory + now-unused `KnowledgeSource`
+  import in `backend/.../infrastructure/external/knowledge.py` (routers +
+  tests construct `CatalogKnowledgeSource()` directly).
+- Shrinks (prior turn, kept): `icon_utils.dart` switch→map, `substring(0)`
+  no-op fix.
+
+Validation:
+- `flutter analyze` on all touched Dart files: zero issues (2 pre-existing
+  outfit-card infos untouched).
+- `dart format --set-exit-if-changed`: profile/icon clean; home flag is
+  pre-existing SDK drift (HEAD version flags identically) — left untouched.
+- Backend `pytest tests/test_knowledge.py`: 19/19 pass.
+- Flutter profile+wardrobe+learning suites: +47/−8 identical to HEAD
+  baseline (temp worktree at `98602ee`); home suite +9/−14 identical —
+  zero new failures.
+- `git diff HEAD --check`: clean.
+
+### Files changed (this phase, uncommitted)
+- `CURRENT_STATE.md` (this entry).
+- Staged deletions: `CURRENT_STATE.md.bak`, `models.dart.bak`,
+  `glass_container.dart`.
+- Modified: `home_widgets.dart`, `profile_widgets.dart`, `knowledge.py`,
+  `icon_utils.dart`, `outfit_recommendation_card.dart`.
+
+DEAD-CODE RESULT = −7331 NET PRODUCT LINES, ZERO BEHAVIOR CHANGE; REMAINING AUDIT ITEMS (REPOS/PROTOCOLS/BARRELS/DEPS) NEED ARCH APPROVAL + DEVICE TESTS
+
+---
+
+## PONYTAIL CUTS — MINIMAL SAFE SET (uncommitted, zero behavior change)
+
+Task: apply ponytail-audit cuts with smallest safe diff (no arch migration
+without approval, no UI changes, no dep removals needing device tests).
+Skills: `dart-run-static-analysis` loaded (analyze + format workflow);
+`.agents/skills/` inspected (20 entries).
+
+Changed (5 files, net -6790 lines):
+- Deleted `CURRENT_STATE.md.bak` (6424 lines stale snapshot, tracked, zero refs).
+- Deleted `newproject/flutter_application_1/lib/features/assistant/data/models.dart.bak` (295 lines, Dart-ignored, zero refs).
+- Deleted `.../onboarding/presentation/widgets/glass_container.dart` (46 lines, `GlassContainer` zero code imports — docs spec mention only).
+- Shrank `lib/shared/utils/icon_utils.dart` (58→33 lines): 26-case switch → const map + 1 lookup, same API/behavior for 3 call sites.
+- Fixed `.../assistant/presentation/widgets/outfit_recommendation_card.dart:27`: `category.substring(0).toUpperCase()` → `category.toUpperCase()` (1 line, identical behavior).
+
+Deferred (need explicit approval or device testing — NOT touched):
+- 9x `*_repository.dart` passthroughs + backend `ports/repositories.py` 1:1 Protocols + barrels (arch migration, needs approval).
+- Onboarding single-use widgets inline, `user_session.dart` facade, UUID 6x copies (deliberate feature-first boundary per code comments).
+- Deps `camera`/`cupertino_icons`/`http_parser` pin (camera swap needs device-tested picker flow).
+- `home_widgets.dart`/`profile_widgets.dart` dead-class claims (grep suggests dead but needs screen-by-screen verification + widget tests).
+
+Validation:
+- `dart format` on edited files (reverted format-noise on outfit card to keep 1-line diff).
+- `flutter analyze` on 2 edited files: 2 pre-existing issues only (`unused_element_parameter:89`, `unnecessary_to_list_in_spreads:287`), zero new.
+- `flutter test` outfit_analysis + hairstyle_service: 21/21 pass.
+- `flutter test` home/profile/assistant wiring: failures identical at HEAD baseline (verified via temp worktree at `98602ee`, e.g. `LocalStorage.displayName=` null in home_screen_test) — pre-existing, zero new failures.
+- `git diff --check`: clean (whitespace only via edit tool).
+
+### Files changed (this phase, uncommitted)
+- `CURRENT_STATE.md` (this entry only, plus below).
+- Deletions staged: `CURRENT_STATE.md.bak`, `.../assistant/data/models.dart.bak`, `.../onboarding/.../glass_container.dart`.
+- Modified: `lib/shared/utils/icon_utils.dart`, `.../outfit_recommendation_card.dart`.
+
+PONYTAIL RESULT = MINIMAL SAFE CUTS APPLIED (-6790 NET LINES, ZERO BEHAVIOR CHANGE; ARCH/DEPS CUTS DEFERRED FOR APPROVAL)
 
 ---
 

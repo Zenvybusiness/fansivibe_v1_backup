@@ -1,8 +1,6 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-
 import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -24,7 +22,7 @@ String _resolveCategory(String category) {
     case 'accessories':
       return 'Accessories';
     default:
-      return category.substring(0).toUpperCase();
+      return category.toUpperCase();
   }
 }
 
