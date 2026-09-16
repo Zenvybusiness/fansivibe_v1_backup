@@ -1,7 +1,47 @@
 # Fansivibe Current State
 
-Last Updated: 2026-09-15
-Updated By: opencode agent (local run: backend + DB + web app live, uncommitted)
+Last Updated: 2026-09-16
+Updated By: Antigravity agent (FINAL Windows readiness verification complete)
+
+---
+
+## FINAL WINDOWS READINESS VERIFICATION — COMPLETE CHAIN VERIFIED LIVE
+
+- Date: 2026-09-16
+- Scope: End-to-end verification: Flutter Web (Microsoft Edge) → FastAPI (port 8000) → PostgreSQL 18.6 (port 5432, container `fansivibe-postgres18`, volume `backend_postgres18`).
+- PostgreSQL 18.6 Status: Container `fansivibe-postgres18` UP on port 5432; Alembic version `0021` (project HEAD); 8 catalog looks; all 20 tables & 177 constraints active.
+- FastAPI Status: Running on `http://127.0.0.1:8000` (Uvicorn reload worker); `/health` -> 200 `{"status":"ok"}`; `/ready` -> 200 `{"status":"ready","database":"connected"}`.
+- Flutter Environment: Flutter 3.47.4 (Dart 3.12.2) on Windows 11; `flutter pub get` completed cleanly; connected device: Microsoft Edge (web-javascript).
+- Flutter Launch: Launched with `flutter run -d edge --web-port 8080 --dart-define=ASSISTANT_BASE_URL=http://127.0.0.1:8000`. Debug service and DDS connected on ws://127.0.0.1:63561, Edge running on remote debugging port 63550, serving on `http://localhost:8080/#/entry`.
+- End-to-End Live Flows Tested & Verified:
+  1. Startup & Web UI: Entry screen rendered with zero compilation errors, full typography, dark theme tokens, and animations.
+  2. Browser CORS & Reachability: Edge browser origin `http://localhost:8080` verified connecting to FastAPI endpoints with 200 responses.
+  3. Authentication Flow: `POST /v1/auth/register` called from browser context with fresh Idempotency-Key -> 201 Created with JWT access token + profile. Verified user inserted into PostgreSQL `users` table (`auth_provider='email'`). `GET /v1/users/me` returned 200 OK.
+  4. Wardrobe Flow: `POST /v1/wardrobe/items` with Bearer auth created `Classic Oxford Shirt` (category: `tops`, color: `navy`, material: `cotton`) -> 201 Created in PostgreSQL `wardrobe_items` table. `GET /v1/wardrobe/items` returned 200 OK with 1 item.
+  5. Looks / Catalog Flow: `GET /v1/looks` returned 200 OK with 8 authoritative catalog looks. `POST /v1/looks/saved` saved look `textured_quiff` -> 201 Created in PostgreSQL `saved_looks` table. `GET /v1/looks/saved` returned 200 OK with 1 saved look.
+  6. Analysis Flow: `POST /v1/analysis/hairstyle` with user style profile returned 202 Accepted (`run_id`). Polling `GET /v1/analysis/runs/{run_id}` returned 200 OK `completed` with full structured recommendations (Top match: Textured Quiff, matchScore 1.0; 3 alternatives). Row stored in PostgreSQL `analysis_runs` table.
+  7. Cleanup: Smoke test user deleted via `users.auth_subject`, FK cascades verified clean. All user tables (`users`, `wardrobe_items`, `saved_looks`, `analysis_runs`) returned to pristine 0-count baseline while catalog `looks` remains at 8.
+- Validation:
+  - `flutter analyze`: 40 issues (all pre-existing warnings/infos; ZERO errors; matches Phase 23-32 baseline).
+  - `flutter test`: 47/47 passed across `app_config_test.dart`, `auth_api_test.dart`, and `wardrobe_client_test.dart`.
+- Verdict: Fansivibe Windows environment is ready for development and end-to-end testing.
+
+---
+
+## AUTHORITATIVE UBUNTU DB RESTORE TO POSTGRESQL 18 (Windows)
+
+- Authoritative DB Source: Ubuntu VirtualBox VM dump (`fansivibe_backup.dump`, PostgreSQL 18.6 custom format, TOC entries: 110).
+- New Target Container: `fansivibe-postgres18` (`postgres:18-alpine`), Volume: `backend_postgres18`.
+- Old Windows Volume: `backend_postgres` preserved untouched as rollback safety copy.
+- Restore: Executed `pg_restore -U fansivibe -d fansivibe --no-owner --verbose /tmp/fansivibe_backup.dump` cleanly (0 errors).
+- Alembic Version: Restored `alembic_version` is `0021` (already at project HEAD; no migrations needed or executed).
+- Restored Schema & Tables (20 tables verified):
+  - Catalog / Reference: `looks` (8), `colors` (17), `materials` (16), `wardrobe_categories` (5), `event_types` (8), `run_types` (3), `signal_types` (5).
+  - User / State tables (clean): `users`, `user_state`, `wardrobe_items`, `saved_looks`, `analysis_runs`, `feedback_events`, `learning_signals`, `user_events`, `user_sessions`, `wardrobe_wear_events`, `wardrobe_wear_groups`, `activity_days`.
+  - Functions: `complete_analysis_run`, `fail_analysis_run`.
+  - Constraints & Indexes: All 177 constraints (PKs, FKs, UQs, CKs, Not Null) verified intact.
+- Docker Compose: Updated `backend/docker-compose.yml` to use `container_name: fansivibe-postgres18`, mount `/var/lib/postgresql` (per PG 18 structure), and map volume `postgres` to `backend_postgres18`.
+- Backend Connection: Tested FastAPI backend connecting via `postgresql+psycopg://fansivibe:fansivibe_dev@localhost:5432/fansivibe`. Probes `/health` (200) and `/ready` (200 connected) verified. Backend test suites pass cleanly.
 
 ---
 
