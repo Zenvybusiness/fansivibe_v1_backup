@@ -56,8 +56,16 @@ class AuthSession {
   /// Handles an HTTP 401 from any authenticated client: drops the dead
   /// session and notifies once. Safe to call repeatedly and safe
   /// without init (no-op navigation when no handler is set).
+  ///
+  /// Expiry navigation fires only when a session actually existed: a 401
+  /// answered to the logged-out `dev` fallback (no session) still clears
+  /// state but never ejects navigation — only a stale/expired/revoked
+  /// session sends the user to entry.
   static void notifyUnauthorized() {
+    final current = SecureTokenStorage.currentToken;
+    final hadSession = current != null && current.isNotEmpty;
     SecureTokenStorage.clearSync();
+    if (!hadSession) return;
     if (_expiryNotified) return;
     _expiryNotified = true;
     onSessionExpired?.call();

@@ -96,6 +96,46 @@ class DiscoverClient {
     }
   }
 
+  /// Fetches one cursor page of the For You feed (M12 P1
+  /// `GET /v1/looks/for-you`).
+  ///
+  /// [cursor] is the opaque token from the previous page (null for the
+  /// first page); [limit] is the page size when set (backend bounds
+  /// 1..50). The backend `personalized` flag travels verbatim —
+  /// never inferred here. Never throws; failures carry no mock
+  /// fallback and never substitute the `/v1/looks` feed.
+  Future<ForYouFeedResult> getForYouFeed({String? cursor, int? limit}) async {
+    try {
+      final query = <String, String>{
+        if (cursor != null) 'cursor': cursor,
+        if (limit != null) 'limit': '$limit',
+      };
+      final uri = Uri.parse(
+        '$baseUrl/v1/looks/for-you',
+      ).replace(queryParameters: query.isEmpty ? null : query);
+      final response = await _client
+          .get(uri, headers: _headers)
+          .timeout(_timeout);
+      if (response.statusCode == 200) {
+        try {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+          return ForYouFeedResult.page(ForYouFeedPage.fromJson(decoded));
+        } catch (error) {
+          debugPrint('For You feed: malformed 200 body: $error');
+          return const ForYouFeedResult.failure(DiscoverFailure.networkError);
+        }
+      }
+      final failure = _failureFor(response.statusCode);
+      debugPrint(
+        'For You feed responded ${response.statusCode}: ${response.body}',
+      );
+      return ForYouFeedResult.failure(failure);
+    } catch (error) {
+      debugPrint('Discover backend unreachable during for-you fetch: $error');
+      return const ForYouFeedResult.failure(DiscoverFailure.networkError);
+    }
+  }
+
   /// Fetches one catalog look by its backend code (#44).
   ///
   /// [lookId] travels verbatim as the path segment (never translated to

@@ -164,9 +164,11 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
     if (!mounted) return;
     setState(() {
       _submitting = false;
-      _authError = result.status == AuthStatus.providerUnavailable
-          ? 'Social sign-in isn\'t available yet. Use email instead.'
-          : null;
+      // No identity provider is configured, so every social attempt fails:
+      // always say so instead of clearing the error silently.
+      _authError = result.isAuthenticated
+          ? null
+          : 'Social sign-in isn\'t available yet. Use email instead.';
     });
   }
 

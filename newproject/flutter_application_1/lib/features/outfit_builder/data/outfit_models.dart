@@ -233,6 +233,14 @@ enum OutfitFailure {
   unknown,
 }
 
+/// M11 P4 typed empty reasons (`X-Outfit-Empty-Reason` on 204).
+/// Verbatim backend codes — never inferred locally.
+class OutfitEmptyReason {
+  static const String emptyWardrobe = 'empty_wardrobe';
+  static const String missingRequiredCategory = 'missing_required_category';
+  static const String noLegalCandidate = 'no_legal_candidate';
+}
+
 /// Outcome of `POST /v1/outfits/generate`.
 ///
 /// 200 carries the outfit; 204 ([noneAvailable]) is a truthful "no
@@ -240,7 +248,7 @@ enum OutfitFailure {
 /// outfit. [failure] means the request itself failed and is safe to
 /// retry.
 class OutfitResult {
-  const OutfitResult._({this.outfit, this.failure})
+  const OutfitResult._({this.outfit, this.failure, this.emptyReason})
     : available = outfit != null,
       noneAvailable = outfit == null && failure == null;
 
@@ -249,7 +257,14 @@ class OutfitResult {
     : this._(outfit: outfit);
 
   /// Backend answered 204: no outfit is derivable right now.
-  const OutfitResult.noneAvailable() : this._();
+  /// [emptyReason] is the verbatim `X-Outfit-Empty-Reason` header when
+  /// present (null for older responses) — unknown future codes pass
+  /// through untouched so the screen can fall back to generic copy.
+  const OutfitResult.noneAvailable({this.emptyReason})
+    : outfit = null,
+      failure = null,
+      available = false,
+      noneAvailable = true;
 
   /// The request failed ([failure] describes how). Safe to retry.
   const OutfitResult.failure(OutfitFailure failure) : this._(failure: failure);
@@ -265,4 +280,7 @@ class OutfitResult {
 
   /// How the request failed, when neither [available] nor [noneAvailable].
   final OutfitFailure? failure;
+
+  /// Verbatim backend empty reason, when [noneAvailable].
+  final String? emptyReason;
 }

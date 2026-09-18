@@ -153,6 +153,36 @@ class LookFeedPage {
   };
 }
 
+/// One cursor page of the For You feed (M12 P1 envelope + backend flag).
+class ForYouFeedPage extends LookFeedPage {
+  const ForYouFeedPage({
+    required super.items,
+    required super.nextCursor,
+    required super.hasMore,
+    required this.personalized,
+  });
+
+  /// Backend `personalized` verbatim — never inferred locally. False is
+  /// the honest cold start (catalog order, not posed as personal).
+  final bool personalized;
+
+  factory ForYouFeedPage.fromJson(Map<String, dynamic> json) =>
+      ForYouFeedPage(
+        items: (json['items'] as List)
+            .map((e) => LookSummary.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        nextCursor: json['next_cursor'] as String?,
+        hasMore: json['has_more'] as bool,
+        personalized: json['personalized'] as bool,
+      );
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    'personalized': personalized,
+  };
+}
+
 /// Typed failures for the Discover surface.
 enum DiscoverFailure {
   /// Missing/invalid auth (401).
@@ -179,6 +209,19 @@ class DiscoverFeedResult {
   const DiscoverFeedResult.failure(this.failure) : page = null;
 
   final LookFeedPage? page;
+  final DiscoverFailure? failure;
+
+  bool get isPage => page != null;
+}
+
+/// Result of a For You fetch (M12 P1): a page carrying the backend
+/// `personalized` flag, or a typed failure (safe to retry, rows kept).
+/// Failures never fall back to `/v1/looks` or mock content.
+class ForYouFeedResult {
+  const ForYouFeedResult.page(this.page) : failure = null;
+  const ForYouFeedResult.failure(this.failure) : page = null;
+
+  final ForYouFeedPage? page;
   final DiscoverFailure? failure;
 
   bool get isPage => page != null;

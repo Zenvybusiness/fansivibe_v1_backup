@@ -55,5 +55,25 @@ void main() {
 
       expect(find.byType(GroomingOptionChip), findsNWidgets(21));
     });
+
+    testWidgets('analyze without selections asks to choose, never defaults', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(MaterialApp(home: const GroomingInputScreen()));
+
+      await tester.ensureVisible(find.text('Analyze Style'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Analyze Style'));
+      await tester.pump();
+
+      expect(
+        find.text(
+          'Select your face shape, beard style, density and color to continue.',
+        ),
+        findsOneWidget,
+      );
+      // Still on the input screen — no silent 'oval' navigation happened.
+      expect(find.text('Grooming Profile'), findsOneWidget);
+    });
   });
 }

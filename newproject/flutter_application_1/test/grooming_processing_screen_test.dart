@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fansivibe/features/grooming/data/grooming_service.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_processing_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
+
+class _ProcessingGroomingService extends GroomingService {
+  @override
+  bool get isProcessing => true;
+}
 
 void main() {
   testWidgets('renders app bar with analyzing title', (
@@ -9,11 +15,12 @@ void main() {
       ) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: const GroomingProcessingScreen(
+        home: GroomingProcessingScreen(
           faceShape: 'Oval',
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          service: _ProcessingGroomingService(),
         ),
       ),
     );
@@ -42,11 +49,12 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: const GroomingProcessingScreen(
+        home: GroomingProcessingScreen(
           faceShape: 'Oval',
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          service: _ProcessingGroomingService(),
         ),
       ),
     );

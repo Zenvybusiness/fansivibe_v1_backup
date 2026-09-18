@@ -6,6 +6,7 @@ import 'package:fansivibe/features/grooming/data/grooming_service.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/components/fansi_error_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
@@ -30,7 +31,43 @@ class GroomingResultScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final resultThis = result ?? GroomingAnalysisResult.mock;
+    // Missing result is an explicit error, never mock content: without a
+    // backend result there is nothing truthful to render.
+    final resultThis = result;
+    if (resultThis == null) {
+      return Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        appBar: AppBar(
+          title: const Text('Grooming Results'),
+          leading: IconButton(
+            icon: Icon(
+              Icons.arrow_back_rounded,
+              color: FansivibeColors.textPrimary,
+            ),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.goNamed(RouteNames.grooming);
+              }
+            },
+          ),
+        ),
+        body: SafeArea(
+          child: FansiErrorView(
+            message:
+                'No grooming analysis available. Please run a scan first.',
+            onRetry: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.goNamed(RouteNames.grooming);
+              }
+            },
+          ),
+        ),
+      );
+    }
 
     // Automatically attach learning service if not provided
     final effectiveService = service ?? GroomingService()..attachLearning(LearningService.instance);
@@ -584,8 +621,9 @@ class GroomingResultScreen extends StatelessWidget {
             label: 'Save Look',
             icon: Icons.favorite_rounded,
             onPressed: () async {
-              final rec = result?.topRecommendation ??
-                  GroomingAnalysisResult.mock.topRecommendation;
+              // Reachable only when a real result exists (null returns the
+              // error state above), so the bang never fires on missing data.
+              final rec = result!.topRecommendation;
               final ok = await service.saveGroomingLook(
                 recommendation: rec,
                 title: rec.name,

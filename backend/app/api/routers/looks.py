@@ -18,7 +18,7 @@ from uuid import UUID
 
 from app.api.deps import get_current_user_id
 from app.api.errors import not_found, validation
-from app.api.schemas.discover import LookDetail, LookFeed, LookSummary
+from app.api.schemas.discover import ForYouFeed, LookDetail, LookFeed, LookSummary
 from app.api.schemas.saved_looks import SaveLookRequest, SavedLook, SavedLookList
 from app.api.schemas.today import (
     TodayLook,
@@ -32,7 +32,7 @@ from app.application.saved_looks import (
     ListSavedLooks,
     SaveRecommendation,
 )
-from app.application.discover import GetLookDetail, GetLookFeed
+from app.application.discover import GetForYouFeed, GetLookDetail, GetLookFeed
 from app.application.today import GetTodayLook, RegenerateTodayLook
 from app.domain.ports.repositories import TodayLookRecommendation
 from app.infrastructure.db.repositories import (
@@ -338,6 +338,46 @@ def get_look_feed(
         items=[LookSummary(**item) for item in items],
         next_cursor=next_cursor,
         has_more=has_more,
+    )
+
+
+@router.get(
+    "/for-you",
+    response_model=ForYouFeed,
+    responses={401: {"model": dict}, 422: {"model": dict}},
+)
+def get_for_you_feed(
+    cursor: str | None = Query(
+        default=None,
+        description="Opaque page cursor from a previous for-you response.",
+    ),
+    limit: int = Query(default=20, ge=1, le=50, description="Items per page, max 50"),
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> ForYouFeed:
+    """Serve the personalized look feed (M12 P1, read-only).
+
+    Registered BEFORE `/{look_id}` (route-ordering guard): the param
+    route must never shadow this fixed path. Catalog-grounded reorder
+    of the owner's saved-look signal (+0.03 precedent); `personalized`
+    is False on cold start (honest catalog order). Cursor envelope
+    `{items, next_cursor, has_more}` with no `total`, paged
+    identically to `GET /v1/looks`. No side effects.
+    """
+    use_case = GetForYouFeed(
+        knowledge=CatalogKnowledgeSource(),
+        saved_looks=SavedLookRepositorySQL(db),
+    )
+    items, next_cursor, has_more, personalized = use_case(
+        user_id=user_id,
+        cursor=cursor,
+        limit=limit,
+    )
+    return ForYouFeed(
+        items=[LookSummary(**item) for item in items],
+        next_cursor=next_cursor,
+        has_more=has_more,
+        personalized=personalized,
     )
 
 

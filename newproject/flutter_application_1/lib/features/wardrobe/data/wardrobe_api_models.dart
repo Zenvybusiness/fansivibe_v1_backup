@@ -11,6 +11,7 @@ class MediaRef {
     this.contentHash,
     this.isGenerated,
     this.uploadedAt,
+    this.sourceRunId,
   });
 
   final String objectKey;
@@ -22,6 +23,11 @@ class MediaRef {
   final bool? isGenerated;
   final DateTime? uploadedAt;
 
+  /// Producing analysis run id (M11 provenance: garment run ↔ wardrobe
+  /// item traceability). Stored verbatim in `imageRef`; unknown keys are
+  /// ignored by readers, so older rows without it still parse.
+  final String? sourceRunId;
+
   MediaRef copyWith({
     String? objectKey,
     String? mediaType,
@@ -31,6 +37,7 @@ class MediaRef {
     String? contentHash,
     bool? isGenerated,
     DateTime? uploadedAt,
+    String? sourceRunId,
   }) =>
       MediaRef(
         objectKey: objectKey ?? this.objectKey,
@@ -41,6 +48,7 @@ class MediaRef {
         contentHash: contentHash ?? this.contentHash,
         isGenerated: isGenerated ?? this.isGenerated,
         uploadedAt: uploadedAt ?? this.uploadedAt,
+        sourceRunId: sourceRunId ?? this.sourceRunId,
       );
 
   factory MediaRef.fromJson(Map<String, dynamic> json) => MediaRef(
@@ -54,6 +62,7 @@ class MediaRef {
         uploadedAt: json['uploadedAt'] != null
             ? DateTime.tryParse(json['uploadedAt'] as String)
             : null,
+        sourceRunId: json['sourceRunId'] as String?,
       );
 
 Map<String, dynamic> toJson() => {
@@ -65,6 +74,7 @@ Map<String, dynamic> toJson() => {
         'contentHash': contentHash,
         'isGenerated': isGenerated,
         if (uploadedAt != null) 'uploadedAt': uploadedAt!.toIso8601String(),
+        if (sourceRunId != null) 'sourceRunId': sourceRunId,
       };
 }
 

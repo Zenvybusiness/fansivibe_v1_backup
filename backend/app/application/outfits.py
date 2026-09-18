@@ -57,6 +57,16 @@ from app.domain.services.analysis_rules import (
 # same order as the M8-C event outfit and M9 adapters).
 _OUTFIT_SLOT_ORDER = ("tops", "bottoms", "outerwear", "footwear", "accessories")
 
+# M11 P4 typed empty reasons (endpoint #41 204 `X-Outfit-Empty-Reason`).
+# Stable machine-readable codes proven by backend state only — never
+# inferred from text, never ranked by an LLM. `no_legal_candidate` is
+# defensive: tops+bottoms always pair today, so it is currently
+# unreachable (pragma-marked at the return site).
+EMPTY_WARDROBE = "empty_wardrobe"
+MISSING_REQUIRED_CATEGORY = "missing_required_category"
+NO_LEGAL_CANDIDATE = "no_legal_candidate"
+EMPTY_OUTFIT_REASON_HEADER = "X-Outfit-Empty-Reason"
+
 _SLOT_ATTRS = {
     "tops": "top_ids",
     "bottoms": "bottom_ids",
@@ -285,6 +295,33 @@ class GenerateOutfit:
         color_palette: object,
         seed: object = None,
     ) -> Optional[OutfitRecommendation]:
+        record, _ = self.derive_with_reason(
+            user_id=user_id,
+            occasion=occasion,
+            mood=mood,
+            fit=fit,
+            color_palette=color_palette,
+            seed=seed,
+        )
+        return record
+
+    def derive_with_reason(
+        self,
+        *,
+        user_id: UUID,
+        occasion: object,
+        mood: object,
+        fit: object,
+        color_palette: object,
+        seed: object = None,
+    ) -> tuple[Optional[OutfitRecommendation], Optional[str]]:
+        """Derive one outfit plus the M11 P4 typed empty reason.
+
+        Returns `(record, None)` on success; `(None, reason)` when no
+        legal candidate exists (the router maps this to 204 with
+        `X-Outfit-Empty-Reason`). `__call__` stays record-only so
+        existing callers are byte-identical.
+        """
         clean_occasion = _validate_preference("occasion", occasion)
         clean_mood = _validate_preference("mood", mood)
         clean_fit = _validate_preference("fit", fit)
@@ -318,13 +355,18 @@ def _derive_outfit(
 ) -> Optional[OutfitRecommendation]:
     """Shared derivation for UC-28 (no seed) and UC-29 (seeded).
 
-    Returns the honest `OutfitRecommendation`, or `None` when the owner
-    has no legal candidate (empty wardrobe / tops+bottoms missing) —
-    the router maps `None` to 204 ("no matching wardrobe", #41).
+    Returns `(record, None)` on success, or `(None, reason)` when the
+    owner has no legal candidate — the router maps `None` to 204
+    ("no matching wardrobe", #41) with the reason as
+    `X-Outfit-Empty-Reason`. Reasons come from the same deterministic
+    backend state that produced zero candidates (no LLM, no text
+    parsing): empty owner wardrobe → `empty_wardrobe`; tops or bottoms
+    absent → `missing_required_category`; ranked empty despite both
+    present → `no_legal_candidate`.
     """
     wardrobe = _load_owner_wardrobe(wardrobe_items=wardrobe_items, user_id=user_id)
     if not wardrobe:
-        return None
+        return None, EMPTY_WARDROBE
 
     occasions = [occasion]
     occasions.extend(
@@ -354,21 +396,27 @@ def _derive_outfit(
     except Exception as exc:
         raise _DerivationFailed from exc
     if not ranked:
-        return None
+        categories = {item.category for item in adapted}
+        if "tops" not in categories or "bottoms" not in categories:
+            return None, MISSING_REQUIRED_CATEGORY
+        return None, NO_LEGAL_CANDIDATE  # pragma: no cover — defensive; tops+bottoms always pair today.
     if key is None:
         winner = select_best_outfit_candidate(ranked)
     else:
         winner = ranked[_select_index(len(ranked), key)]
     if winner is None:  # pragma: no cover — defensive; ranked non-empty.
-        return None
+        return None, NO_LEGAL_CANDIDATE
     by_record = {str(record.id): record for record in wardrobe}
-    return _to_recommendation(
-        occasion=occasion,
-        mood=mood,
-        fit=fit,
-        color_palette=color_palette,
-        winner=winner,
-        by_record=by_record,
+    return (
+        _to_recommendation(
+            occasion=occasion,
+            mood=mood,
+            fit=fit,
+            color_palette=color_palette,
+            winner=winner,
+            by_record=by_record,
+        ),
+        None,
     )
 
 

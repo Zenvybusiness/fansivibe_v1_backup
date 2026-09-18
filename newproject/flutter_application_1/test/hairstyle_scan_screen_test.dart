@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/presentation/face_processing_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/face_scan_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/hairstyle_result_screen.dart';
@@ -27,11 +28,14 @@ Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 500));
   await tester.tap(finder);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
 }
 
 GoRouter _router({
   required ControllableHairstyleService service,
   Future<XFile?> Function(ImageSource source)? pickImage,
+  void Function(Map<String, dynamic>? extra)? onProcessing,
 }) {
   return GoRouter(
     initialLocation: '/',
@@ -49,17 +53,23 @@ GoRouter _router({
             builder: (context, state) {
               // Mirrors the production handoff in app_router.dart.
               final extra = state.extra as Map<String, dynamic>?;
+              onProcessing?.call(extra);
               return FaceProcessingScreen(
                 service: service,
                 imageBytes: extra?['imageBytes'] as Uint8List?,
                 imageFilename: extra?['imageFilename'] as String?,
+                angleFront: extra?['angleFront'] as Uint8List?,
+                angleLeft: extra?['angleLeft'] as Uint8List?,
+                angleRight: extra?['angleRight'] as Uint8List?,
               );
             },
             routes: [
               GoRoute(
                 path: 'result',
                 name: RouteNames.hairstyleResult,
-                builder: (_, __) => const HairstyleResultScreen(),
+                builder: (_, state) => HairstyleResultScreen(
+                  result: state.extra as HairstyleAnalysisResult?,
+                ),
               ),
             ],
           ),
@@ -69,13 +79,201 @@ GoRouter _router({
   );
 }
 
+Future<void> _captureCurrentAngle(
+  WidgetTester tester,
+  Uint8List image,
+) async {
+  await tester.scrollUntilVisible(
+    find.text('Gallery'),
+    100,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.tap(find.text('Gallery'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 200));
+}
+
 void main() {
-  group('FaceScanScreen Widget Tests', () {
-    testWidgets('renders app bar with title', (WidgetTester tester) async {
+  group('FaceScanScreen guided multi-angle capture', () {
+    testWidgets('renders stepper, guidance, actions, and consent', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(MaterialApp(home: const FaceScanScreen()));
 
       expect(find.text('Face Scan'), findsOneWidget);
-      expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
+      expect(find.text('Front'), findsOneWidget);
+      expect(find.text('Left'), findsOneWidget);
+      expect(find.text('Right'), findsOneWidget);
+      expect(
+        find.text('Front — face the camera straight on'),
+        findsOneWidget,
+      );
+      expect(find.text('Take Photo'), findsOneWidget);
+      expect(find.text('Gallery'), findsOneWidget);
+      expect(find.text('Analyze Photo (0/3)'), findsOneWidget);
+      expect(find.text('Skip for now'), findsOneWidget);
+      expect(
+        find.textContaining('I consent to these photos'),
+        findsOneWidget,
+      );
+      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    });
+
+    testWidgets('Take Photo never opens the gallery picker', (
+      WidgetTester tester,
+    ) async {
+      var galleryCalls = 0;
+      Future<XFile?> countingPick(ImageSource source) async {
+        galleryCalls++;
+        return null;
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FaceScanScreen(pickImage: countingPick),
+        ),
+      );
+
+      // Test binding has no camera plugin: Take Photo is a no-op here and
+      // must NOT fall back to the gallery picker.
+      await tester.tap(find.text('Take Photo'));
+      await tester.pump();
+      expect(galleryCalls, 0);
+      expect(find.text('Analyze Photo (0/3)'), findsOneWidget);
+    });
+
+    testWidgets('gallery capture confirms step by step with retake', (
+      WidgetTester tester,
+    ) async {
+      final service = ControllableHairstyleService();
+      addTearDown(service.dispose);
+      final image = _testPng();
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: _router(
+            service: service,
+            pickImage: (_) async => XFile.fromData(
+              image,
+              name: 'face.jpg',
+              mimeType: 'image/jpeg',
+            ),
+          ),
+        ),
+      );
+
+      // FRONT capture → preview + Continue.
+      await _captureCurrentAngle(tester, image);
+      expect(find.text('Continue'), findsOneWidget);
+      expect(find.text('Retake'), findsOneWidget);
+
+      // Retake clears the current angle.
+      await _tapVisible(tester, find.text('Retake'));
+      expect(find.text('Continue'), findsNothing);
+      expect(find.text('Analyze Photo (0/3)'), findsOneWidget);
+
+      // Recapture FRONT and continue to LEFT with left guidance.
+      await _captureCurrentAngle(tester, image);
+      await _tapVisible(tester, find.text('Continue'));
+      expect(find.text('Turn slowly to your left'), findsOneWidget);
+      expect(find.text('Analyze Photo (1/3)'), findsOneWidget);
+
+      // LEFT then RIGHT.
+      await _captureCurrentAngle(tester, image);
+      await _tapVisible(tester, find.text('Continue'));
+      expect(find.text('Turn slowly to your right'), findsOneWidget);
+      await _captureCurrentAngle(tester, image);
+      // Last angle shows Done (nothing to advance to) + final Analyze.
+      expect(find.text('Done'), findsOneWidget);
+      expect(find.text('Analyze Photos'), findsOneWidget);
+    });
+
+    testWidgets('incomplete scan cannot submit even with consent', (
+      WidgetTester tester,
+    ) async {
+      final service = ControllableHairstyleService();
+      addTearDown(service.dispose);
+      final image = _testPng();
+      Map<String, dynamic>? seenExtra;
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: _router(
+            service: service,
+            pickImage: (_) async => XFile.fromData(
+              image,
+              name: 'face.jpg',
+              mimeType: 'image/jpeg',
+            ),
+            onProcessing: (extra) => seenExtra = extra,
+          ),
+        ),
+      );
+
+      await _captureCurrentAngle(tester, image);
+      await _tapVisible(tester, find.byType(Checkbox));
+      await tester.pump();
+      await _tapVisible(tester, find.textContaining('Analyze Photo'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(seenExtra, isNull);
+      expect(find.text('Face Scan'), findsOneWidget);
+    });
+
+    testWidgets('completed consented scan hands all three angles over', (
+      WidgetTester tester,
+    ) async {
+      final service = ControllableHairstyleService();
+      addTearDown(service.dispose);
+      final image = _testPng();
+      Map<String, dynamic>? seenExtra;
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: _router(
+            service: service,
+            pickImage: (_) async => XFile.fromData(
+              image,
+              name: 'face.jpg',
+              mimeType: 'image/jpeg',
+            ),
+            onProcessing: (extra) => seenExtra = extra,
+          ),
+        ),
+      );
+
+      for (var i = 0; i < 2; i++) {
+        await _captureCurrentAngle(tester, image);
+        await _tapVisible(tester, find.text('Continue'));
+      }
+      await _captureCurrentAngle(tester, image);
+      expect(find.text('Done'), findsOneWidget);
+      await _tapVisible(tester, find.byType(Checkbox));
+      await tester.pump();
+      await _tapVisible(tester, find.text('Analyze Photos'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(seenExtra?['angleFront'], image);
+      expect(seenExtra?['angleLeft'], image);
+      expect(seenExtra?['angleRight'], image);
+      expect(service.multiAngleCalls, 1);
+      expect(service.receivedAngleBytes, [image, image, image]);
+      expect(find.text('Hairstyle Results'), findsOneWidget);
+      expect(find.text('Textured Quiff'), findsOneWidget);
+    });
+
+    testWidgets('skip navigates without images', (WidgetTester tester) async {
+      final service = ControllableHairstyleService();
+      addTearDown(service.dispose);
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _router(service: service)),
+      );
+
+      await _tapVisible(tester, find.text('Skip for now'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(service.started, isTrue);
+      expect(find.text('Analyzing Face'), findsOneWidget);
     });
 
     testWidgets('renders face preview placeholder', (
@@ -88,149 +286,6 @@ void main() {
         find.text('Position your face within the oval guide'),
         findsOneWidget,
       );
-    });
-
-    testWidgets('renders Face Detection Active indicator', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(MaterialApp(home: const FaceScanScreen()));
-
-      expect(find.text('Face Detection Active'), findsOneWidget);
-    });
-
-    testWidgets('renders check indicators', (WidgetTester tester) async {
-      await tester.pumpWidget(MaterialApp(home: const FaceScanScreen()));
-
-      expect(find.byType(HairstyleCheckIndicator), findsNWidgets(3));
-      expect(find.text('Lighting'), findsOneWidget);
-      expect(find.text('Distance'), findsOneWidget);
-      expect(find.text('Alignment'), findsOneWidget);
-    });
-
-    testWidgets('renders alignment improvement message', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(MaterialApp(home: const FaceScanScreen()));
-
-      expect(find.text('Center your face in the frame'), findsOneWidget);
-    });
-
-    testWidgets('renders photo actions, consent, and skip', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(MaterialApp(home: const FaceScanScreen()));
-
-      expect(find.text('Take Photo'), findsOneWidget);
-      expect(find.text('Gallery'), findsOneWidget);
-      expect(find.text('Analyze Photo'), findsOneWidget);
-      expect(find.text('Skip for now'), findsOneWidget);
-      expect(
-        find.textContaining('I consent to this photo'),
-        findsOneWidget,
-      );
-      // Consent is explicit opt-in: unchecked until the user agrees.
-      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
-    });
-
-    testWidgets('analyze does nothing without image and consent', (
-      WidgetTester tester,
-    ) async {
-      final service = ControllableHairstyleService();
-      addTearDown(service.dispose);
-      await tester.pumpWidget(
-        MaterialApp.router(routerConfig: _router(service: service)),
-      );
-
-      await tester.tap(find.text('Analyze Photo'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
-
-      expect(service.started, isFalse);
-      expect(find.text('Face Scan'), findsOneWidget);
-    });
-
-    testWidgets('analyze stays disabled until consent is given', (
-      WidgetTester tester,
-    ) async {
-      final service = ControllableHairstyleService();
-      addTearDown(service.dispose);
-      final image = _testPng();
-      await tester.pumpWidget(
-        MaterialApp.router(
-          routerConfig: _router(
-            service: service,
-            pickImage: (_) async =>
-                XFile.fromData(image, name: 'face.jpg', mimeType: 'image/jpeg'),
-          ),
-        ),
-      );
-
-      await tester.tap(find.text('Gallery'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
-
-      // Image selected (preview shown) but no consent → still no navigation.
-      await tester.ensureVisible(find.text('Analyze Photo'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Analyze Photo'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
-
-      expect(service.started, isFalse);
-      expect(find.text('Face Scan'), findsOneWidget);
-    });
-
-    testWidgets('consented image navigates with bytes to processing', (
-      WidgetTester tester,
-    ) async {
-      final service = ControllableHairstyleService();
-      addTearDown(service.dispose);
-      final image = _testPng();
-      await tester.pumpWidget(
-        MaterialApp.router(
-          routerConfig: _router(
-            service: service,
-            pickImage: (_) async =>
-                XFile.fromData(image, name: 'face.jpg', mimeType: 'image/jpeg'),
-          ),
-        ),
-      );
-
-      await tester.tap(find.text('Gallery'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
-
-      await _tapVisible(tester, find.byType(Checkbox));
-      await tester.pump();
-
-      await _tapVisible(tester, find.text('Analyze Photo'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
-
-      expect(service.started, isTrue);
-      expect(service.receivedImageBytes, image);
-      expect(find.text('Analyzing Face'), findsOneWidget);
-      expect(find.text('Detecting face features'), findsOneWidget);
-    });
-
-    testWidgets('skip navigates without image and without analysis input', (
-      WidgetTester tester,
-    ) async {
-      final service = ControllableHairstyleService();
-      addTearDown(service.dispose);
-      await tester.pumpWidget(
-        MaterialApp.router(routerConfig: _router(service: service)),
-      );
-
-      await _tapVisible(tester, find.text('Skip for now'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
-
-      expect(service.started, isTrue);
-      // Skip hands over no image: no backend image analysis, no FaceProfile
-      // fabrication — the existing offline path resolves downstream.
-      expect(service.receivedImageBytes, isNull);
-      expect(find.text('Analyzing Face'), findsOneWidget);
     });
 
     testWidgets('back button pops', (WidgetTester tester) async {

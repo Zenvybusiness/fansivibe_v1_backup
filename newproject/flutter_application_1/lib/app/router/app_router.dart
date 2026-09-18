@@ -213,7 +213,16 @@ GoRoute(
               GoRoute(
                 path: 'build-outfit',
                 name: RouteNames.buildOutfit,
-                builder: (context, state) => const BuildOutfitScreen(),
+                builder: (context, state) {
+                  // Optional event handoff from the event flow; absent on
+                  // the direct stylist path (then all prefs are manual).
+                  final extra = state.extra as Map<String, String>?;
+                  return BuildOutfitScreen(
+                    eventId: extra?['eventId'],
+                    eventTitle: extra?['eventTitle'],
+                    initialOccasion: extra?['occasion'],
+                  );
+                },
                 routes: [
                   GoRoute(
                     path: 'generation',
@@ -230,6 +239,10 @@ GoRoute(
                         mood: data['mood']!,
                         fit: data['fit']!,
                         colorPalette: data['colorPalette']!,
+                        // ponytail: event context rides along for display
+                        // only; the backend derive call stays prefs-only.
+                        eventId: data['eventId'],
+                        eventTitle: data['eventTitle'],
                       );
                     },
                     routes: [
@@ -272,11 +285,20 @@ GoRoute(
                 builder: (context, state) {
                   // Optional real-scan image handoff from FaceScanScreen
                   // (in-memory bytes only; absent on skip/profile-only path).
+                  // Guided multi-angle captures travel as angleFront/Left/
+                  // Right triples; the legacy single imageBytes is kept for
+                  // the profile-only/test path.
                   final extra = state.extra as Map<String, dynamic>?;
                   return FaceProcessingScreen(
                     imageBytes: extra?['imageBytes'] as Uint8List?,
                     imageFilename: extra?['imageFilename'] as String?,
                     imageContentType: extra?['imageContentType'] as String?,
+                    angleFront: extra?['angleFront'] as Uint8List?,
+                    angleFrontName: extra?['angleFrontName'] as String?,
+                    angleLeft: extra?['angleLeft'] as Uint8List?,
+                    angleLeftName: extra?['angleLeftName'] as String?,
+                    angleRight: extra?['angleRight'] as Uint8List?,
+                    angleRightName: extra?['angleRightName'] as String?,
                   );
                 },
                     routes: [

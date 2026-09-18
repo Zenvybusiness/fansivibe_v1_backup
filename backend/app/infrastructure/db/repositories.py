@@ -7,7 +7,7 @@ All reads are owner-scoped (`user_id`) — OW-1. `complete` uses the server-side
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from sqlalchemy import and_, cast, func, select, update
@@ -576,6 +576,7 @@ class WardrobeItemRepositorySQL:
         color: str,
         material: Optional[str],
         isFavorite: bool,
+        image_ref: Optional[dict[str, Any]] = None,
     ) -> "WardrobeItemRecord":
         row = WardrobeItems(
             user_id=user_id,
@@ -584,7 +585,7 @@ class WardrobeItemRepositorySQL:
             color_id=color,
             material_id=material,
             is_favorite=isFavorite,
-            image_ref=None,
+            image_ref=image_ref,
         )
         self._session.add(row)
         self._session.flush()
@@ -602,6 +603,8 @@ class WardrobeItemRepositorySQL:
         material: Optional[str],
         material_set: bool = False,
         isFavorite: Optional[bool],
+        image_ref: Optional[dict[str, Any]] = None,
+        image_ref_set: bool = False,
     ) -> Optional["WardrobeItemRecord"]:
         row = self._session.execute(
             select(WardrobeItems).where(
@@ -622,6 +625,10 @@ class WardrobeItemRepositorySQL:
             row.material_id = material
         if isFavorite is not None:
             row.is_favorite = isFavorite
+        if image_ref_set:
+            # Explicit null clears the image reference; an omitted field
+            # never reaches here (the use case passes image_ref_set=False).
+            row.image_ref = image_ref
         # W-4 contract: the server refreshes updatedAt on every update.
         row.updated_at = func.now()
         self._session.flush()

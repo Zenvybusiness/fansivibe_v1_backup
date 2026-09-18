@@ -32,11 +32,17 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
   String? _errorMessage;
   Timer? _pollTimer;
 
+  /// Poll clock for safe timing diagnostics (metadata only: run_id,
+  /// HTTP status, state transitions, elapsed time — never image data).
+  late final DateTime _pollStart;
+
   @override
   void initState() {
     super.initState();
     _client = widget.client ?? OutfitScanClient();
     _runId = widget.runId;
+    _pollStart = DateTime.now();
+    debugPrint('Outfit analysis polling started: run_id=$_runId');
     _pollRunStatus();
   }
 
@@ -79,12 +85,28 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
 
         if (result.isCompleted) {
           if (!mounted) return;
-          context.pushNamed(RouteNames.scanAnalysis, extra: data);
+          debugPrint(
+            'Outfit analysis polling completed: run_id=$_runId, '
+            'elapsed_ms=${DateTime.now().difference(_pollStart).inMilliseconds}',
+          );
+          // The run envelope carries status metadata; the analysis UI
+          // reads the `result` snapshot (appearance/confidence/
+          // recommendations). Forward the snapshot, never the envelope.
+          final snapshot = data?['result'] as Map<String, dynamic>?;
+          context.pushNamed(
+            RouteNames.scanAnalysis,
+            extra: snapshot ?? data,
+          );
           return;
         }
 
         if (result.isFailed) {
           if (!mounted) return;
+          debugPrint(
+            'Outfit analysis polling failed: run_id=$_runId, '
+            'error=${result.error}, '
+            'elapsed_ms=${DateTime.now().difference(_pollStart).inMilliseconds}',
+          );
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -97,8 +119,12 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
               ),
             ),
           );
+          // Stay inside the authenticated flow: the inline failed state
+          // below (Back to Scan) owns recovery — never pop to entry.
           if (!mounted) return;
-          Navigator.of(context).popUntil((route) => route.isFirst);
+          setState(() {
+            _isLoading = false;
+          });
           return;
         }
       } else if (result.statusCode == 401) {
@@ -113,16 +139,24 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
             ),
           ),
         );
+        // True session expiry already routes to entry through
+        // AuthSession; use the shell-safe GoRouter destination explicitly
+        // instead of popping to the first route.
         if (!mounted) return;
-        Navigator.of(context).popUntil((route) => route.isFirst);
+        context.goNamed(RouteNames.entry);
         return;
       } else {
         // Truthful connection diagnostics (Phase 22, Step 8): status 0 is
         // offline/unreachable, 429 is rate-limited — never silent retry.
+        // Past ~20 s (cold-model inference) say so instead of spinning
+        // silently; still indeterminate, never a fake percentage.
+        final elapsed = DateTime.now().difference(_pollStart);
         final message = result.statusCode == 0
             ? AppConfig.connectionHint
             : result.statusCode == 429
             ? 'Too many requests — please wait a moment and try again.'
+            : elapsed > const Duration(seconds: 20)
+            ? 'Still analyzing — this can take a little longer on the first scan.'
             : 'Server returned ${result.statusCode}, retrying...';
         setState(() {
           _pollAttempts = attempts;
@@ -207,9 +241,12 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
                             icon: Icons.check_circle_outline,
                             onPressed: () {
                               if (!mounted) return;
+                              final snapshot =
+                                  _runStatus?['result']
+                                      as Map<String, dynamic>?;
                               context.pushNamed(
                                 RouteNames.scanAnalysis,
-                                extra: _runStatus,
+                                extra: snapshot ?? _runStatus,
                               );
                             },
                           ),
@@ -224,6 +261,30 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
                               context.pop();
                             },
                           ),
+
+                        // Null run id (camera capture failed before upload):
+                        // the spinner above never resolves, so surface the
+                        // truthful error with a way back instead of a dead
+                        // end. Happy-path polling is untouched.
+                        if (_runId == null && !_isLoading) ...[
+                          Text(
+                            _errorMessage ?? 'No run ID available',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: FansivibeColors.textSecondary,
+                                ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 24),
+                          FansiButton.secondary(
+                            label: 'Back to Scan',
+                            icon: Icons.refresh_rounded,
+                            onPressed: () {
+                              if (!mounted) return;
+                              context.pop();
+                            },
+                          ),
+                        ],
 
                         const SizedBox(height: 32),
                       ],

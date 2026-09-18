@@ -23,6 +23,7 @@ from app.api.schemas.analysis import (
     AsyncAccepted,
 )
 from app.application.analysis import (
+    CreateGarmentRun,
     CreateGroomingRun,
     CreateHairstyleImageRun,
     CreateHairstyleRun,
@@ -31,6 +32,7 @@ from app.application.analysis import (
     ListAnalysisRuns,
 )
 from app.ai.vision_appearance_adapter import OllamaVisionAppearanceAdapter
+from app.ai.vision_garment_adapter import OllamaVisionGarmentAdapter
 from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.ai.appearance_adapter import DevelopmentAppearanceAnalysisAdapter
 from app.domain.ports.repositories import AnalysisRunRecord, LearningSignalRepository
@@ -222,6 +224,45 @@ def create_outfit_run(
         user_state=UserStateRepositorySQL(db),
         learning_signal=LearningSignalRepositorySQL(db),
         activity_days=ActivityDayRepositorySQL(db),
+    )
+    run_id = use_case(user_id=user_id, image=image)
+    return AsyncAccepted(run_id=run_id)
+
+
+@router.post(
+    "/garment",
+    response_model=AsyncAccepted,
+    status_code=202,
+    responses={
+        401: {"model": dict},
+        413: {"model": dict},
+        422: {"model": dict},
+        503: {"model": dict},
+    },
+)
+def create_garment_run(
+    image: UploadFile = File(...),
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> AsyncAccepted:
+    """Submit a garment analysis for a wardrobe photo (M11, image-based).
+
+    Returns `run_id`; poll `GET /v1/analysis/runs/{run_id}`. A completed
+    run's `result` is the observed garment snapshot (nullable attributes
+    stay null — the user confirms values before any wardrobe save).
+    Analyzer failure → terminal `failed` run with `details.reason`.
+    """
+    if image.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise validation(
+            [{"field": "image", "error": "unsupported media type, must be JPEG, PNG or WebP"}]
+        )
+    if image.size is not None and image.size > 20 * 1024 * 1024:
+        raise validation(
+            [{"field": "image", "error": f"image too large ({image.size} bytes), max 20 MB"}]
+        )
+    use_case = CreateGarmentRun(
+        runs=AnalysisRunRepositorySQL(db),
+        garment_port=OllamaVisionGarmentAdapter(),
     )
     run_id = use_case(user_id=user_id, image=image)
     return AsyncAccepted(run_id=run_id)

@@ -27,6 +27,11 @@ abstract class DiscoverRepository {
   ///
   /// [lookId] is the backend code verbatim — never a local mock ID.
   Future<LookDetailResult> getLookDetail({required String lookId});
+
+  /// Returns one cursor page of the For You feed (M12 P1).
+  ///
+  /// Server order and the `personalized` flag travel verbatim.
+  Future<ForYouFeedResult> getForYouFeed({String? cursor, int? limit});
 }
 
 /// Backend implementation of [DiscoverRepository].
@@ -62,5 +67,12 @@ class DiscoverRepositoryImpl implements DiscoverRepository {
     // Verbatim passthrough of the backend code: no ID translation, no
     // local mock IDs, no fabrication on failure.
     return _client.getLookDetail(lookId: lookId);
+  }
+
+  @override
+  Future<ForYouFeedResult> getForYouFeed({String? cursor, int? limit}) {
+    // Verbatim passthrough: personalization stays server-authoritative.
+    // Failures travel typed — never the /v1/looks feed, never mocks.
+    return _client.getForYouFeed(cursor: cursor, limit: limit);
   }
 }

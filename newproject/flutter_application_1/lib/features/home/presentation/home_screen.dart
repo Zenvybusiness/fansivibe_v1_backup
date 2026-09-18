@@ -12,6 +12,7 @@ import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -107,9 +108,13 @@ class _HomeScreenState extends State<HomeScreen> {
     return null;
   }
 
+  // Authenticated users always enter the real shell: the first-time/mock
+  // branch is onboarding-only (logged-out Maybe-Later / cached preview).
+  // A login/register extra must never trap a session into mock content.
   bool get _isFirstVisit =>
-      widget.onboardingData != null ||
-      _onboardingDataFromLocalStorage() != null;
+      !AuthSession.isAuthenticated &&
+      (widget.onboardingData != null ||
+          _onboardingDataFromLocalStorage() != null);
   bool get _hasAnalysis =>
       widget.onboardingData?.containsKey('onboarding_complete') == true ||
       (_onboardingDataFromLocalStorage()?.containsKey('onboarding_complete') ==

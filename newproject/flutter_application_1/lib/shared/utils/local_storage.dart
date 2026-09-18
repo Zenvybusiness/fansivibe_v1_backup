@@ -32,6 +32,7 @@ class LocalStorage {
   static String? get displayName =>
       _prefs?.getString('display_name');
   static set displayName(String? value) {
+    if (_prefs == null) return;
     if (value != null) {
       _prefs!.setString('display_name', value);
     } else {
@@ -42,6 +43,7 @@ class LocalStorage {
   static String? get vibe =>
       _prefs?.getString('vibe');
   static set vibe(String? value) {
+    if (_prefs == null) return;
     if (value != null) {
       _prefs!.setString('vibe', value);
     } else {

@@ -386,6 +386,53 @@ void main() {
       expect(find.text('OUTFIT RECOMMENDATION'), findsNothing);
     });
 
+    testWidgets('typed empty reasons map to truthful copy', (
+      WidgetTester tester,
+    ) async {
+      final cases = {
+        'empty_wardrobe': 'Add some wardrobe items to build an outfit.',
+        'missing_required_category':
+            'Add the missing clothing category to build an outfit.',
+        'no_legal_candidate':
+            'No compatible outfit is available from your wardrobe right now.',
+      };
+      for (final entry in cases.entries) {
+        final repo = ScriptedOutfitRepository()
+          ..genHandler = () async =>
+              OutfitResult.noneAvailable(emptyReason: entry.key);
+        // Fresh key per case: the screen fetches in initState, so the
+        // state tree must reset to observe each reason.
+        await tester.pumpWidget(
+          KeyedSubtree(
+            key: ValueKey(entry.key),
+            child: _generationWith(repo),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('No matching outfit'), findsOneWidget);
+        expect(find.text(entry.value), findsOneWidget);
+      }
+    });
+
+    testWidgets('unknown empty reason falls back to generic copy', (
+      WidgetTester tester,
+    ) async {
+      final repo = ScriptedOutfitRepository()
+        ..genHandler = () async =>
+            const OutfitResult.noneAvailable(emptyReason: 'future_code');
+      await tester.pumpWidget(_generationWith(repo));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No matching outfit'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'doesn\'t have the pieces for this combination yet',
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('error state is truthful with retry', (
       WidgetTester tester,
     ) async {

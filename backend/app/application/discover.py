@@ -53,6 +53,14 @@ from uuid import UUID
 
 from app.api.errors import validation
 from app.domain.ports.external import KnowledgeSource
+from app.domain.ports.repositories import SavedLookRepository
+
+# M12 P1 saved-look boost: the proven +0.03 precedent
+# (`analysis_rules._PREFERENCE_BOOST` / `saved_look_boost`). No other
+# signal has a proven catalog-grounded weight (preferred_occasions →
+# lookIds mapping is explicitly unimplemented), so no other weight
+# exists here.
+_FOR_YOU_SAVED_LOOK_BOOST = 0.03
 
 # Cursor pagination bounds (frozen: default 20, max 50 — feeds carry heavy
 # DTOs, so the tighter max keeps a page small; `PAGINATION_FILTERING` §5).
@@ -133,6 +141,62 @@ def _strip_internal(item: dict) -> dict:
     return {key: value for key, value in item.items() if not key.startswith("_")}
 
 
+def _paginate(
+    ranked: list[dict],
+    *,
+    cursor: Optional[object],
+    limit: Optional[object],
+) -> tuple[list[dict], Optional[str], bool]:
+    """Shared cursor window over an engine-ranked list (API-21, §5.2–5.3).
+
+    Limit bounds (default 20, max 50), malformed/unknown cursors → 422
+    (never silently reset). Extracted verbatim from `GetLookFeed` so
+    every feed surface pages identically — no second pagination.
+    """
+    clean_limit = _FEED_DEFAULT_LIMIT if limit is None else limit
+    if (
+        isinstance(clean_limit, bool)
+        or not isinstance(clean_limit, int)
+        or not (1 <= clean_limit <= _FEED_MAX_LIMIT)
+    ):
+        _feed_error(
+            "limit",
+            f"limit must be between 1 and {_FEED_MAX_LIMIT}",
+        )
+        raise AssertionError("unreachable")
+
+    if cursor is not None and (not isinstance(cursor, str) or not cursor):
+        _feed_error("cursor", "cursor is malformed or expired")
+
+    start = 0
+    if cursor is not None:
+        assert isinstance(cursor, str)
+        score, code = _decode_cursor(cursor)
+        position = next(
+            (
+                index
+                for index, item in enumerate(ranked)
+                if item["_sortScore"] == score and item["id"] == code
+            ),
+            None,
+        )
+        if position is None:
+            _feed_error("cursor", "cursor is malformed or expired")
+            raise AssertionError("unreachable")
+        start = position + 1
+
+    window = ranked[start : start + clean_limit]
+    items = [_strip_internal(item) for item in window]
+    remaining = len(ranked) - (start + len(window))
+    has_more = remaining > 0
+    next_cursor = (
+        _encode_cursor(score=window[-1]["_sortScore"], code=window[-1]["id"])
+        if has_more
+        else None
+    )
+    return items, next_cursor, has_more
+
+
 class GetLookFeed:
     """Serve the ranked look feed page (endpoint #43 `GET /v1/looks`,
     UC-31).
@@ -185,49 +249,8 @@ class GetLookFeed:
         if field_errors:
             raise validation(field_errors)
 
-        clean_limit = _FEED_DEFAULT_LIMIT if limit is None else limit
-        if (
-            isinstance(clean_limit, bool)
-            or not isinstance(clean_limit, int)
-            or not (1 <= clean_limit <= _FEED_MAX_LIMIT)
-        ):
-            _feed_error(
-                "limit",
-                f"limit must be between 1 and {_FEED_MAX_LIMIT}",
-            )
-            raise AssertionError("unreachable")
-
-        if cursor is not None and (not isinstance(cursor, str) or not cursor):
-            _feed_error("cursor", "cursor is malformed or expired")
-
         ranked = _ranked_catalog(self._knowledge)
-        start = 0
-        if cursor is not None:
-            assert isinstance(cursor, str)
-            score, code = _decode_cursor(cursor)
-            position = next(
-                (
-                    index
-                    for index, item in enumerate(ranked)
-                    if item["_sortScore"] == score and item["id"] == code
-                ),
-                None,
-            )
-            if position is None:
-                _feed_error("cursor", "cursor is malformed or expired")
-                raise AssertionError("unreachable")
-            start = position + 1
-
-        window = ranked[start : start + clean_limit]
-        items = [_strip_internal(item) for item in window]
-        remaining = len(ranked) - (start + len(window))
-        has_more = remaining > 0
-        next_cursor = (
-            _encode_cursor(score=window[-1]["_sortScore"], code=window[-1]["id"])
-            if has_more
-            else None
-        )
-        return items, next_cursor, has_more
+        return _paginate(ranked, cursor=cursor, limit=limit)
 
 
 class GetLookDetail:
@@ -258,3 +281,79 @@ class GetLookDetail:
             "maintenance": look.maintenance,
             "bestFor": look.bestFor,
         }
+
+
+class GetForYouFeed:
+    """Serve the personalized look feed (M12 P1 `GET /v1/looks/for-you`).
+
+    Catalog-grounded reorder of `_ranked_catalog`: the owner's saved
+    look codes (resolving in the hairstyle or grooming catalog, outfit
+    saves and unknown codes ignored — the `analysis.py` precedent)
+    each gain the proven +0.03 boost, capped at 1.0; ties break by
+    code ascending. Same inputs → same order; no randomness, no clock,
+    no LLM, no invented rows/fields/reasons.
+
+    `personalized` is True iff at least one saved look contributed;
+    otherwise the order is the honest catalog order (cold start —
+    never posed as personal). Pagination reuses `_paginate`
+    identically. Read-only: `list_for_user` only, no session, no
+    commit. Owner scoping is the repository's (`list_for_user`), OW-1.
+    """
+
+    def __init__(
+        self, *, knowledge: KnowledgeSource, saved_looks: SavedLookRepository
+    ) -> None:
+        self._knowledge = knowledge
+        self._saved_looks = saved_looks
+
+    def _preferred_codes(self, *, user_id: UUID) -> frozenset:
+        """Owner's saved catalog codes (failures degrade to none)."""
+        try:
+            rows, _ = self._saved_looks.list_for_user(
+                user_id=user_id, page=1, page_size=100
+            )
+        except Exception:
+            return frozenset()
+        preferred: set[str] = set()
+        for row in rows or []:
+            look_id = row.look_id
+            if not look_id:
+                continue
+            try:
+                if self._knowledge.lookup_hairstyle_look(look_id) is None:
+                    if self._knowledge.lookup_grooming_look(look_id) is None:
+                        continue
+            except Exception:
+                continue
+            preferred.add(look_id)
+        return frozenset(preferred)
+
+    def __call__(
+        self,
+        *,
+        user_id: UUID,
+        cursor: Optional[object] = None,
+        limit: Optional[object] = None,
+    ) -> tuple[list[dict], Optional[str], bool, bool]:
+        """Returns `(items, next_cursor, has_more, personalized)`."""
+        preferred = self._preferred_codes(user_id=user_id)
+        ranked = _ranked_catalog(self._knowledge)
+        if preferred:
+            boosted = []
+            for item in ranked:
+                score = item["_sortScore"] / 100
+                if item["id"] in preferred:
+                    score = min(1.0, score + _FOR_YOU_SAVED_LOOK_BOOST)
+                wire = int(round(score * 100))
+                boosted.append({**item, "_sortScore": wire, "matchScore": wire})
+            ranked = sorted(
+                boosted, key=lambda look: (-look["_sortScore"], look["id"])
+            )
+            items, next_cursor, has_more = _paginate(
+                ranked, cursor=cursor, limit=limit
+            )
+            return items, next_cursor, has_more, True
+        items, next_cursor, has_more = _paginate(
+            ranked, cursor=cursor, limit=limit
+        )
+        return items, next_cursor, has_more, False

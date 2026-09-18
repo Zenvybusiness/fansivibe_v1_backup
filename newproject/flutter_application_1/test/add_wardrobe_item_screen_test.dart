@@ -1,13 +1,19 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_item_screen.dart';
 import 'package:fansivibe/shared/theme/fansivibe_theme.dart';
 
-Widget createTestApp(AddItemCategoryConfig category) {
+Widget createTestApp(
+  AddItemCategoryConfig category, {
+  WardrobeRepository? repository,
+}) {
   return MaterialApp(
     theme: FansivibeTheme.darkTheme,
-    home: AddWardrobeItemScreen(category: category),
+    home: AddWardrobeItemScreen(category: category, repository: repository),
   );
 }
 
@@ -83,15 +89,23 @@ void main() {
       expect(find.text('Please select a type and color.'), findsOneWidget);
     });
 
-    testWidgets('saves item and pops with data when valid (repository-backed)',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(createTestApp(topsCategory));
+    testWidgets('saves item and pops with data when valid (repository-backed)', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        createTestApp(topsCategory, repository: _MockAddRepo(success: true)),
+      );
 
       // Select a type
       await tester.tap(find.text('T-Shirt'));
       await tester.pumpAndSettle();
 
       // Select a color
+      await tester.scrollUntilVisible(
+        find.text('Black'),
+        200.0,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Black'));
       await tester.pumpAndSettle();
 
@@ -105,6 +119,11 @@ void main() {
       await tester.pumpAndSettle();
 
       // Save
+      await tester.scrollUntilVisible(
+        find.text('Save Item'),
+        300.0,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Save Item'));
       await tester.pumpAndSettle();
 
@@ -126,35 +145,164 @@ void main() {
     testWidgets('shows loading indicator during submission', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(createTestApp(topsCategory));
+      final completer = Completer<WardrobeItemData?>();
+      final repo = _CompleterAddRepo(completer);
+      await tester.pumpWidget(createTestApp(topsCategory, repository: repo));
 
       await tester.tap(find.text('T-Shirt'));
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(
+        find.text('Black'),
+        200.0,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Black'));
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(
+        find.text('Save Item'),
+        300.0,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Save Item'));
-      await tester.pumpAndSettle();
+      await tester.pump();
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      completer.complete(null);
+      await tester.pumpAndSettle();
     });
 
     testWidgets('shows error message on API failure', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(createTestApp(topsCategory));
+      await tester.pumpWidget(
+        createTestApp(topsCategory, repository: _MockAddRepo(success: false)),
+      );
 
       await tester.tap(find.text('T-Shirt'));
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(
+        find.text('Black'),
+        200.0,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Black'));
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(
+        find.text('Save Item'),
+        300.0,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Save Item'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Failed to add item.'), findsOneWidget);
+      expect(find.text('Failed to add item. Please try again.'), findsOneWidget);
     });
   });
+}
+
+class _MockAddRepo implements WardrobeRepository {
+  _MockAddRepo({this.success = true});
+  final bool success;
+
+  @override
+  Future<WardrobeItemData?> createItem({
+    required String name,
+    required String category,
+    required String color,
+    String? material,
+    MediaRef? imageRef,
+  }) async {
+    if (!success) return null;
+    return WardrobeItemData(
+      id: 'mock-uuid-1',
+      name: name,
+      category: category,
+      color: color,
+      material: material,
+    );
+  }
+
+  @override
+  Future<WardrobeItemData?> getItem({required String itemId}) async => null;
+  @override
+  Future<List<WardrobeItemData>> listItems({
+    String? category,
+    String? color,
+    String? sortBy,
+    String? order,
+    int page = 1,
+    int pageSize = 20,
+  }) async => const [];
+  @override
+  Future<WardrobeItemData?> updateItem({
+    required String itemId,
+    String? name,
+    String? category,
+    String? color,
+    String? material,
+    bool? isFavorite,
+  }) async => null;
+  @override
+  Future<bool?> deleteItem({required String itemId}) async => null;
+  @override
+  Future<WardrobeInsightData?> getInsight() async => null;
+  @override
+  Future<WearSummary?> getWearSummary() async => null;
+  @override
+  Future<WearEventLogResponse?> logWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) async => null;
+}
+
+class _CompleterAddRepo implements WardrobeRepository {
+  _CompleterAddRepo(this.completer);
+  final Completer<WardrobeItemData?> completer;
+
+  @override
+  Future<WardrobeItemData?> createItem({
+    required String name,
+    required String category,
+    required String color,
+    String? material,
+    MediaRef? imageRef,
+  }) => completer.future;
+
+  @override
+  Future<WardrobeItemData?> getItem({required String itemId}) async => null;
+  @override
+  Future<List<WardrobeItemData>> listItems({
+    String? category,
+    String? color,
+    String? sortBy,
+    String? order,
+    int page = 1,
+    int pageSize = 20,
+  }) async => const [];
+  @override
+  Future<WardrobeItemData?> updateItem({
+    required String itemId,
+    String? name,
+    String? category,
+    String? color,
+    String? material,
+    bool? isFavorite,
+  }) async => null;
+  @override
+  Future<bool?> deleteItem({required String itemId}) async => null;
+  @override
+  Future<WardrobeInsightData?> getInsight() async => null;
+  @override
+  Future<WearSummary?> getWearSummary() async => null;
+  @override
+  Future<WearEventLogResponse?> logWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) async => null;
 }

@@ -626,6 +626,7 @@ class WardrobeItemRepository(Protocol):
         color: str,
         material: Optional[str],
         isFavorite: bool,
+        image_ref: Optional[dict[str, Any]] = None,
     ) -> "WardrobeItemRecord": ...
 
     def update(
@@ -639,6 +640,8 @@ class WardrobeItemRepository(Protocol):
         material: Optional[str],
         material_set: bool = False,
         isFavorite: Optional[bool],
+        image_ref: Optional[dict[str, Any]] = None,
+        image_ref_set: bool = False,
     ) -> Optional["WardrobeItemRecord"]: ...
 
     def delete(

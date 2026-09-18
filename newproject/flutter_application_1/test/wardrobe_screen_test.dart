@@ -2,18 +2,108 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
-import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_screen.dart';
+import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/app/router/router_shell.dart';
+import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_category_screen.dart';
+import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_item_screen.dart';
+import 'package:fansivibe/features/wardrobe/presentation/wardrobe_item_details_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 
 /// Creates a [FansivibeApp] booted directly into the main shell so tab
 /// navigation can be exercised without re-running the onboarding Entry flow.
-Widget _freshApp() {
+Widget _freshApp({WardrobeRepository? repository}) {
+  final repo = repository ?? _MockWardrobeRepository(items: WardrobeMockData.items);
   return FansivibeApp(
-    router: GoRouter(initialLocation: '/home', routes: appRoutes),
+    router: GoRouter(
+      initialLocation: '/home',
+      routes: [
+        StatefulShellRoute.indexedStack(
+          builder: (context, state, navigationShell) =>
+              RouterShell(navigationShell: navigationShell),
+          branches: [
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/home',
+                  builder: (context, state) => const Scaffold(body: Text('Home')),
+                ),
+              ],
+            ),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/discover',
+                  builder: (context, state) => const Scaffold(body: Text('Discover')),
+                ),
+              ],
+            ),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/assistant',
+                  builder: (context, state) => const Scaffold(body: Text('Assistant')),
+                ),
+              ],
+            ),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/wardrobe',
+                  name: RouteNames.wardrobe,
+                  builder: (context, state) => WardrobeScreen(repository: repo),
+                  routes: [
+                    GoRoute(
+                      path: 'add-category',
+                      name: RouteNames.wardrobeAddCategory,
+                      builder: (context, state) =>
+                          const AddWardrobeCategoryScreen(),
+                    ),
+                    GoRoute(
+                      path: 'add-item',
+                      name: RouteNames.wardrobeAddItem,
+                      builder: (context, state) {
+                        final category = state.extra as AddItemCategoryConfig?;
+                        return category != null
+                            ? AddWardrobeItemScreen(category: category)
+                            : const SizedBox.shrink();
+                      },
+                    ),
+                    GoRoute(
+                      path: 'item-details',
+                      name: RouteNames.wardrobeItemDetails,
+                      builder: (context, state) {
+                        final itemId = state.extra as String?;
+                        final item = WardrobeMockData.items.firstWhere(
+                          (i) => i.id == itemId,
+                          orElse: () => WardrobeMockData.items.first,
+                        );
+                        return WardrobeItemDetailsScreen(
+                          itemId: itemId ?? item.id,
+                          item: item,
+                          repository: repo,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/profile',
+                  builder: (context, state) => const Scaffold(body: Text('Profile')),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    ),
   );
 }
 
@@ -179,13 +269,12 @@ void main() {
       await tester.pumpAndSettle();
 
       // Should show details screen with item info
-      expect(find.text('Details'), findsOneWidget);
+      expect(find.text('Category'), findsOneWidget);
       expect(find.text('Color'), findsOneWidget);
       expect(find.text('Charcoal'), findsOneWidget);
       expect(find.text('Material'), findsOneWidget);
       expect(find.text('Wool'), findsOneWidget);
-      expect(find.text('Edit Item'), findsOneWidget);
-      expect(find.text('Add to Outfit'), findsOneWidget);
+      expect(find.text('Edit'), findsOneWidget);
       expect(find.text('Delete'), findsOneWidget);
     });
 
@@ -356,7 +445,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('No items in this category yet'), findsOneWidget);
+      expect(find.text('No wardrobe items yet.'), findsOneWidget);
       expect(find.text('Add your first piece to get started'), findsOneWidget);
       expect(find.text('0 items'), findsWidgets);
     });
@@ -407,7 +496,12 @@ class _MockWardrobeRepository implements WardrobeRepository {
   }
 
   @override
-  Future<WardrobeItemData?> getItem({required String itemId}) async => null;
+  Future<WardrobeItemData?> getItem({required String itemId}) async {
+    return items.cast<WardrobeItemData?>().firstWhere(
+      (i) => i?.id == itemId,
+      orElse: () => null,
+    );
+  }
 
   @override
   Future<WardrobeItemData?> createItem({

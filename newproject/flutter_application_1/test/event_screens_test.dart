@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/events/data/event_models.dart';
 import 'package:fansivibe/features/events/data/events_repository.dart';
+import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
 import 'package:fansivibe/features/events/presentation/add_event_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_details_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_list_screen.dart';
@@ -705,6 +706,103 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('No outfit available'), findsNothing);
+    });
+  });
+
+  group('Event selection survives into the outfit flow', () {
+    testWidgets('created event is selected and reaches build outfit', (
+      WidgetTester tester,
+    ) async {
+      final repository = FakeEventsRepository();
+      Map<String, String>? buildExtra;
+      final router = GoRouter(
+        initialLocation: '/',
+        routes: [
+          GoRoute(
+            path: '/',
+            name: RouteNames.events,
+            builder: (_, __) => EventListScreen(repository: repository),
+            routes: [
+              GoRoute(
+                path: 'add',
+                name: RouteNames.eventAdd,
+                builder: (_, __) => AddEventScreen(repository: repository),
+              ),
+              GoRoute(
+                path: 'build-outfit',
+                name: RouteNames.buildOutfit,
+                builder: (_, state) {
+                  buildExtra = (state.extra as Map?)?.map(
+                    (k, v) => MapEntry(k.toString(), v.toString()),
+                  );
+                  return BuildOutfitScreen(
+                    eventId: buildExtra?['eventId'],
+                    eventTitle: buildExtra?['eventTitle'],
+                    initialOccasion: buildExtra?['occasion'],
+                  );
+                },
+              ),
+            ],
+          ),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.add_rounded).first);
+      await tester.pump();
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).first, 'Rooftop Party');
+      await tester.tap(find.text('Select date'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+        find.text('Party'),
+        100,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Party'));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+        find.byType(FilledButton),
+        100,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byType(FilledButton));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Created event exists AND is visibly selected.
+      expect(find.text('Rooftop Party'), findsOneWidget);
+      expect(
+        find.text('Selected for styling: Rooftop Party'),
+        findsOneWidget,
+      );
+
+      // Selection survives navigation into the outfit flow.
+      await tester.tap(find.text('Build outfit for this event'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(buildExtra?['occasion'], 'party');
+      expect(buildExtra?['eventTitle'], 'Rooftop Party');
+      expect(buildExtra?['eventId'], isNotEmpty);
+      expect(find.text('Styling for: Rooftop Party'), findsOneWidget);
+      // Party matches a builder occasion, so it preselects.
+      expect(find.text('Build Outfit'), findsWidgets);
+    });
+
+    testWidgets('build outfit without event shows no event chip', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapApp(const BuildOutfitScreen()),
+      );
+
+      expect(find.text('Create Your Look'), findsOneWidget);
+      expect(find.textContaining('Styling for:'), findsNothing);
     });
   });
 }

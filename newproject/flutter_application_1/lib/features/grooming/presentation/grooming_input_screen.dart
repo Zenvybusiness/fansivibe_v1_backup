@@ -25,10 +25,25 @@ class _GroomingInputScreenState extends State<GroomingInputScreen> {
   }
 
   void _analyze() {
-    final faceShape = _selectedFaceShape ?? 'oval';
-    final beardStyle = _selectedBeardStyle ?? 'full_beard';
-    final density = _selectedDensity ?? 'medium';
-    final color = _selectedColor ?? 'dark_brown';
+    // Every field is user-chosen: never invent defaults (no silent 'oval').
+    if (_selectedFaceShape == null ||
+        _selectedBeardStyle == null ||
+        _selectedDensity == null ||
+        _selectedColor == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Select your face shape, beard style, density and color to continue.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final faceShape = _selectedFaceShape!;
+    final beardStyle = _selectedBeardStyle!;
+    final density = _selectedDensity!;
+    final color = _selectedColor!;
 
     context.pushNamed(
       RouteNames.groomingProcessing,

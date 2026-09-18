@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_item_details_screen.dart';
+import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
@@ -10,14 +11,18 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-Widget _wrapScreen(WardrobeItemData item) {
+Widget _wrapScreen(WardrobeItemData item, {bool deleteSucceeds = true}) {
   final httpClient = MockClient((request) async {
+    if (request.method == 'DELETE') {
+      return http.Response('', deleteSucceeds ? 204 : 500);
+    }
     return http.Response(
       jsonEncode({
         'id': item.id,
         'name': item.name,
         'category': item.category,
         'color': item.color,
+        'material': item.material,
         'isFavorite': item.isFavorite,
         'createdAt': '2024-01-15T10:00:00Z',
         'updatedAt': '2024-01-15T10:00:00Z',
@@ -41,16 +46,17 @@ void main() {
     ) async {
       final item = WardrobeMockData.items.first;
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
       expect(find.text(item.name), findsWidgets);
-      expect(find.byIcon(Icons.person_rounded), findsWidgets);
     });
 
     testWidgets('renders category card with name', (WidgetTester tester) async {
       final item = WardrobeMockData.items.first;
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      expect(find.text('Tops'), findsWidgets);
+      expect(find.text('tops'), findsWidgets);
       expect(find.text(item.name), findsWidgets);
     });
 
@@ -59,13 +65,14 @@ void main() {
     ) async {
       final item = WardrobeMockData.items.first;
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      expect(find.text('Details'), findsOneWidget);
+      expect(find.text('Category'), findsOneWidget);
+      expect(find.text('tops'), findsWidgets);
       expect(find.text('Color'), findsOneWidget);
       expect(find.text('Charcoal'), findsOneWidget);
       expect(find.text('Material'), findsOneWidget);
       expect(find.text('Wool'), findsOneWidget);
-      expect(find.text('Category'), findsOneWidget);
     });
 
     testWidgets('shows favorite icon for favorite item', (
@@ -73,6 +80,7 @@ void main() {
     ) async {
       final item = WardrobeMockData.items.first;
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
       expect(find.byIcon(Icons.favorite_rounded), findsWidgets);
       expect(find.text('Favorite'), findsOneWidget);
@@ -83,70 +91,116 @@ void main() {
     ) async {
       final item = WardrobeMockData.items[1]; // Linen Button-Down, not favorite
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      expect(find.text('Favorite'), findsNothing);
+      expect(find.text('Not favorite'), findsOneWidget);
     });
 
     testWidgets('renders action buttons', (WidgetTester tester) async {
       final item = WardrobeMockData.items.first;
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Edit Item'), 400);
-      expect(find.text('Edit Item'), findsOneWidget);
-      expect(find.text('Add to Outfit'), findsOneWidget);
+      expect(find.text('Edit'), findsOneWidget);
       expect(find.text('Delete'), findsOneWidget);
     });
 
-    testWidgets('Edit button shows snackbar', (WidgetTester tester) async {
+    testWidgets('Edit button toggles edit mode', (WidgetTester tester) async {
       final item = WardrobeMockData.items.first;
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Edit Item'), 400);
-      await tester.tap(find.text('Edit Item'));
+      await tester.tap(find.text('Edit'));
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.textContaining('Editing'), findsOneWidget);
+      expect(find.text('Edit Merino Crew Neck'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
     });
 
-    testWidgets('Delete button shows snackbar and removes item', (
+    testWidgets('Delete button shows confirmation dialog and removes item', (
       WidgetTester tester,
     ) async {
       final item = WardrobeMockData.items.first;
+      LearningService.instance.addItem(WardrobeEntry(
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        color: item.color,
+      ));
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Delete'), 400);
       await tester.tap(find.text('Delete'));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      // Show confirmation dialog
-      await tester.tap(find.text('Delete'));
+      expect(find.text('Delete Item'), findsOneWidget);
+      expect(find.text('Are you sure you want to remove "Merino Crew Neck"?'), findsOneWidget);
+
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Delete')));
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.textContaining('removed from wardrobe'), findsOneWidget);
     });
 
-    testWidgets('Add to Outfit button shows snackbar', (
+    testWidgets('Wear capture button appears for backend UUID', (
       WidgetTester tester,
     ) async {
-      final item = WardrobeMockData.items.first;
+      final item = WardrobeItemData(
+        id: '78ff3686-c950-4cd6-84c3-7e18d6634dfa',
+        name: 'Camel Overcoat',
+        category: 'outerwear',
+        color: 'Camel',
+      );
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Add to Outfit'), 400);
-      await tester.tap(find.text('Add to Outfit'));
-      await tester.pump();
-
-      expect(find.textContaining('added to outfit'), findsOneWidget);
+      expect(find.text('I wore this'), findsOneWidget);
     });
 
     testWidgets('navigates back on back button tap', (
       WidgetTester tester,
     ) async {
       final item = WardrobeMockData.items.first;
-      await tester.pumpWidget(_wrapScreen(item));
+      final httpClient = MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'id': item.id,
+            'name': item.name,
+            'category': item.category,
+            'color': item.color,
+            'isFavorite': item.isFavorite,
+          }),
+          200,
+        );
+      });
+      final repo = WardrobeRepositoryImpl(client: WardrobeClient(client: httpClient));
 
-      expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => WardrobeItemDetailsScreen(
+                    itemId: item.id,
+                    item: item,
+                    repository: repo,
+                  ),
+                ),
+              ),
+              child: const Text('Open Details'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open Details'));
+      await tester.pumpAndSettle();
+      expect(find.byType(WardrobeItemDetailsScreen), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+      await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
 
       expect(find.byType(WardrobeItemDetailsScreen), findsNothing);
@@ -157,75 +211,112 @@ void main() {
     ) async {
       final item = WardrobeMockData.items.first; // Charcoal
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      // Color is shown as text and dot icon
       expect(find.text('Charcoal'), findsOneWidget);
     });
 
     testWidgets('duplicate delete submission is prevented', (WidgetTester tester) async {
       final item = WardrobeMockData.items.first;
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      // Tap Delete twice rapidly
-      await tester.scrollUntilVisible(find.text('Delete'), 400);
       await tester.tap(find.text('Delete'));
-      await tester.pump();
-      await tester.tap(find.text('Delete'));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      // Should only show one confirmation dialog (the second tap is ignored while deleting)
-      expect(find.textContaining('removed from wardrobe'), findsNothing);
+      expect(find.byType(AlertDialog), findsOneWidget);
     });
 
     testWidgets('API/network failure during deletion shows error', (WidgetTester tester) async {
-      // Test that deletion failure is handled UI correctly
-      // Since the repository makes actual API calls, this test verifies the
-      // error state management path exists without requiring a real network failure.
       final item = WardrobeMockData.items.first;
-      await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpWidget(_wrapScreen(item, deleteSucceeds: false));
+      await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Delete'), 400);
       await tester.tap(find.text('Delete'));
-      await tester.pump();
-      await tester.tap(find.text('Delete'));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      // UI should remain mounted and not crash on the deletion path
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Delete')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Failed to delete item. Please try again.'), findsOneWidget);
       expect(find.byType(WardrobeItemDetailsScreen), findsOneWidget);
     });
 
     testWidgets('correct navigation after successful deletion', (WidgetTester tester) async {
       final item = WardrobeMockData.items.first;
-      await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => WardrobeItemDetailsScreen(
+                    itemId: item.id,
+                    item: item,
+                    repository: WardrobeRepositoryImpl(
+                      client: WardrobeClient(
+                        client: MockClient((request) async {
+                          if (request.method == 'DELETE') {
+                            return http.Response('', 204);
+                          }
+                          return http.Response(
+                            jsonEncode({
+                              'id': item.id,
+                              'name': item.name,
+                              'category': item.category,
+                              'color': item.color,
+                              'isFavorite': item.isFavorite,
+                              'createdAt': '2024-01-15T10:00:00Z',
+                              'updatedAt': '2024-01-15T10:00:00Z',
+                            }),
+                            200,
+                          );
+                        }),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              child: const Text('Open Details'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open Details'));
+      await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Delete'), 400);
-      await tester.tap(find.text('Delete'));
-      await tester.pump();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
 
-      // Screen should be closed after successful deletion
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Delete')));
+      await tester.pumpAndSettle();
+
       expect(find.byType(WardrobeItemDetailsScreen), findsNothing);
     });
 
     testWidgets('deleted item removed from list/state', (WidgetTester tester) async {
-      // Verify that after deletion, the item is removed from LearningService
-      // and thus from the wardrobe list
       final item = WardrobeMockData.items.first;
+      LearningService.instance.resetForTest();
+      LearningService.instance.addItem(WardrobeEntry(
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        color: item.color,
+      ));
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Delete'), 400);
-      await tester.tap(find.text('Delete'));
-      await tester.pump();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
 
-      // LearningService should have removed the item
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Delete')));
+      await tester.pumpAndSettle();
+
       expect(LearningService.instance.wardrobe.any((i) => i.id == item.id), isFalse);
     });
 
     testWidgets('renders details section without material when null', (WidgetTester tester) async {
-      // Create an item without material
       final item = WardrobeItemData(
         id: 'test',
         name: 'Test Item',
@@ -233,11 +324,12 @@ void main() {
         color: 'Black',
       );
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      expect(find.text('Details'), findsOneWidget);
-      expect(find.text('Color'), findsOneWidget);
-      expect(find.text('Material'), findsNothing);
       expect(find.text('Category'), findsOneWidget);
+      expect(find.text('Color'), findsOneWidget);
+      expect(find.text('Material'), findsOneWidget);
+      expect(find.text('Not specified'), findsOneWidget);
     });
 
     testWidgets('edit-form name field uses the design-system error color', (
@@ -245,13 +337,12 @@ void main() {
     ) async {
       final item = WardrobeMockData.items.first;
       await tester.pumpWidget(_wrapScreen(item));
+      await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Edit Item'), 400);
-      await tester.tap(find.text('Edit Item'));
+      await tester.tap(find.text('Edit'));
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
-      // Validation behavior is unchanged; only the raw-red accents moved to
-      // the Fansivibe error token.
       final nameField = tester
           .widgetList<TextField>(find.byType(TextField))
           .firstWhere(

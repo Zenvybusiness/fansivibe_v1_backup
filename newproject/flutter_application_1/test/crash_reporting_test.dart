@@ -91,12 +91,12 @@ void main() {
       final byteList = [1, 2, 3, 4, 5, 6];
 
       final metadata = <String, dynamic>{
-        'image_payload': rawBytes,
+        'image_bytes': rawBytes,
         'raw_stream': byteList,
       };
 
       final sanitized = ErrorSanitizer.sanitizeMap(metadata);
-      expect(sanitized['image_payload'], equals('[REDACTED]')); // key has image
+      expect(sanitized['image_bytes'], equals('[REDACTED]')); // key has image_bytes
       expect(sanitized['raw_stream'], equals('[BYTES: 6 items]'));
     });
 

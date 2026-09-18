@@ -6,6 +6,7 @@ import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
 import 'package:fansivibe/features/hairstyle/presentation/widgets/hairstyle_widgets.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/components/fansi_error_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/analytics/analytics_service.dart';
@@ -13,7 +14,8 @@ import 'package:fansivibe/shared/analytics/analytics_service.dart';
 class HairstyleResultScreen extends StatefulWidget {
   const HairstyleResultScreen({super.key, this.result, this.service});
 
-  /// The analysis result to render; falls back to the offline mock when null.
+  /// The analysis result to render; null renders an explicit error state
+  /// (never mock content — a missing result is not a result).
   final HairstyleAnalysisResult? result;
 
   /// Injectable for tests; when null a temporary service is created on save.
@@ -35,7 +37,43 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasMock = widget.result == null;
-    final resolved = widget.result ?? HairstyleAnalysisResult.mock;
+    // Missing result is an explicit error, never mock content: without a
+    // backend result there is nothing truthful to render.
+    if (hasMock) {
+      return Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        appBar: AppBar(
+          title: const Text('Hairstyle Results'),
+          leading: IconButton(
+            icon: Icon(
+              Icons.arrow_back_rounded,
+              color: FansivibeColors.textPrimary,
+            ),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.goNamed(RouteNames.stylist);
+              }
+            },
+          ),
+        ),
+        body: SafeArea(
+          child: FansiErrorView(
+            message:
+                'No hairstyle analysis available. Please run a scan first.',
+            onRetry: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.goNamed(RouteNames.stylist);
+              }
+            },
+          ),
+        ),
+      );
+    }
+    final resolved = widget.result!;
 
     // Emit recommendations_viewed only for real backend recommendations,
     // not mock/fallback data, and only once per real result.

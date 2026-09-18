@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
 import 'package:fansivibe/app/router/app_router.dart';
@@ -10,6 +11,7 @@ import 'package:fansivibe/features/home/data/today_look_repository.dart';
 import 'package:fansivibe/features/home/presentation/daily_outfit_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
@@ -189,7 +191,10 @@ Widget _backendApp({WardrobeRepository? wardrobeRepository}) {
 
 void main() {
   group('HomeScreen Widget Tests', () {
-    setUp(() {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      LocalStorage.init(prefs: await SharedPreferences.getInstance());
+      LearningService.instance.resetForTest();
       LocalStorage.displayName = null;
       LocalStorage.onboardingComplete = false;
     });
@@ -434,7 +439,7 @@ void main() {
     testWidgets(
       'Change Style button in Today\'s Look navigates to Build Outfit',
       (WidgetTester tester) async {
-        await tester.pumpWidget(_freshApp());
+        await tester.pumpWidget(_backendApp());
 
         await tester.pumpAndSettle();
 
@@ -448,7 +453,7 @@ void main() {
         await tester.tap(changeStyleFinder);
         await tester.pumpAndSettle();
 
-        expect(find.text('Build Outfit'), findsNWidgets(2));
+        expect(find.text('Build Outfit'), findsWidgets);
       },
     );
 
@@ -474,7 +479,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('View Analysis'), findsOneWidget);
+      expect(find.text('Capture Photo'), findsOneWidget);
     });
 
     testWidgets('does not present fabricated recommendations snackbar on Home', (

@@ -239,6 +239,34 @@ void main() {
       expect(result.failure, isNull);
     });
 
+    test('generate carries the verbatim 204 empty reason', () async {
+      Future<String?> reason(Map<String, String> headers) async {
+        final client = OutfitBuilderClient(
+          client: MockClient(
+            (_) async => http.Response('', 204, headers: headers),
+          ),
+        );
+        final result = await client.generateOutfit(
+          occasion: 'office',
+          mood: 'classic',
+          fit: 'tailored',
+          colorPalette: 'warm',
+        );
+        expect(result.noneAvailable, isTrue);
+        return result.emptyReason;
+      }
+
+      // Known backend code passes through verbatim.
+      expect(
+        await reason({'x-outfit-empty-reason': 'empty_wardrobe'}),
+        'empty_wardrobe',
+      );
+      // Missing header (older backend) → null → generic empty copy.
+      expect(await reason({}), isNull);
+      // Unknown future code passes through untouched (screen falls back).
+      expect(await reason({'x-outfit-empty-reason': 'future_code'}), 'future_code');
+    });
+
     test('generate maps the frozen error table', () async {
       final cases = {
         401: OutfitFailure.unauthorized,

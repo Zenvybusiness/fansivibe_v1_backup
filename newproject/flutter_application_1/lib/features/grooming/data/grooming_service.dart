@@ -41,6 +41,12 @@ class GroomingService extends ChangeNotifier {
   GroomingAnalysisResult? _result;
   GroomingAnalysisResult? get result => _result;
 
+  /// Provenance parity with [HairstyleService]: true on every offline /
+  /// unreachable / failed path that resolves the mock, so callers can
+  /// render an honest error instead of posing mock content as real.
+  bool _usedMockResult = false;
+  bool get isMockResult => _usedMockResult;
+
   bool _disposed = false;
 
   /// Wire the learning repository so the analysis uses the user's stored face
@@ -62,33 +68,49 @@ class GroomingService extends ChangeNotifier {
     _completedStageCount = 0;
     _analysisError = null;
     _result = null;
+    _usedMockResult = false;
+    _isFailed = false;
+    _isCompleted = false;
     _safeNotify();
 
+    // ponytail: mock stays the return value for now (callers + tests
+    // pin the type), but every mock path now sets _usedMockResult and
+    // _analysisError so UI can fail closed instead of posing success.
     GroomingAnalysisResult resolved = GroomingAnalysisResult.mock;
     final faceShape = _learning?.face?.faceShape;
 
     if (faceShape == null || faceShape.isEmpty) {
+      _usedMockResult = true;
+      _analysisError = 'No face profile yet. Complete a face scan first.';
       resolved = GroomingAnalysisResult.mock;
     } else {
       final runId = await _client.submitGroomingAnalysis();
       if (runId == null) {
+        _usedMockResult = true;
+        _analysisError = 'Grooming service unreachable. Please try again.';
         resolved = GroomingAnalysisResult.mock;
       } else {
         final run = await _client.pollGroomingRun(runId: runId);
         if (run != null && run.isFailed) {
           _analysisError = 'Grooming analysis failed. Please try again.';
           _isFailed = true;
+          _usedMockResult = true;
+          resolved = GroomingAnalysisResult.mock;
+        } else if (run == null) {
+          _analysisError = 'Grooming service unreachable. Please try again.';
+          _usedMockResult = true;
           resolved = GroomingAnalysisResult.mock;
         } else {
+          _usedMockResult = false;
           resolved = GroomingAnalysisResult.fromRunResult(run);
         }
         _isCompleted = true;
-
       }
     }
 
     if (_disposed) return resolved;
 
+    _result = resolved;
     _isProcessing = false;
     _completedStageCount = totalStages;
     _safeNotify();
@@ -170,6 +192,7 @@ class GroomingService extends ChangeNotifier {
   /// Test-only hook: mark the pipeline finished with [result].
   @visibleForTesting
   void completeWith(GroomingAnalysisResult result) {
+    _usedMockResult = identical(result, GroomingAnalysisResult.mock);
     _result = result;
     _completedStageCount = totalStages;
     _isProcessing = false;
@@ -179,6 +202,7 @@ class GroomingService extends ChangeNotifier {
   /// Test-only hook: simulate a backend `failed` run.
   @visibleForTesting
   void setAnalysisError(String message) {
+    _usedMockResult = true;
     _analysisError = message;
     _completedStageCount = totalStages;
     _isProcessing = false;

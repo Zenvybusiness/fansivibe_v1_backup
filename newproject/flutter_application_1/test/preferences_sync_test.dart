@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/profile/presentation/preferences_screen.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
 /// Scriptable preferences backend: canned GET list, recorded PATCHes.
@@ -23,6 +25,7 @@ class ScriptedPreferencesBackend {
   bool failGet = false;
   bool throwOnPatch = false;
   final List<http.Request> patchRequests = [];
+  Completer<http.Response>? patchCompleter;
 
   Future<http.Response> handle(http.Request request) async {
     if (request.method == 'GET') {
@@ -36,6 +39,7 @@ class ScriptedPreferencesBackend {
     }
     patchRequests.add(request);
     if (throwOnPatch) throw Exception('offline');
+    if (patchCompleter != null) return patchCompleter!.future;
     return http.Response('{"displayName":"Dev User"}', patchStatus);
   }
 
@@ -150,10 +154,11 @@ void main() {
   });
 
   group('PreferencesScreen sync (P1-2 & P2-6)', () {
-    setUp(() {
+    setUp(() async {
       SharedPreferences.setMockInitialValues({});
+      LocalStorage.init(prefs: await SharedPreferences.getInstance());
+      AuthSession.resetForTest();
       LearningService.instance.resetForTest();
-      AuthSession.onSessionExpired = null;
     });
 
     Widget harness(AssistantClient client) => MaterialApp(
@@ -305,6 +310,9 @@ void main() {
       WidgetTester tester,
     ) async {
       final backend = ScriptedPreferencesBackend();
+      final patchCompleter = Completer<http.Response>();
+      backend.patchCompleter = patchCompleter;
+
       await tester.pumpWidget(harness(backend.client()));
       await tester.pumpAndSettle();
 
@@ -316,6 +324,9 @@ void main() {
 
       expect(find.text('Syncing Formal…'), findsOneWidget);
       expect(isChipSelected(tester, 'Formal'), isTrue);
+
+      // Complete the pending request
+      patchCompleter.complete(http.Response('{"displayName":"Dev User"}', 200));
 
       // Settle completion
       await tester.pumpAndSettle();
@@ -355,6 +366,7 @@ void main() {
     testWidgets('401 during preference sync triggers AuthSession unauthorized notification (P2-6)', (
       WidgetTester tester,
     ) async {
+      await AuthSession.saveSession('tok-pref-sync');
       var expiredNotified = false;
       AuthSession.onSessionExpired = () {
         expiredNotified = true;
@@ -371,6 +383,7 @@ void main() {
 
       expect(expiredNotified, isTrue);
       AuthSession.onSessionExpired = null;
+      await AuthSession.clearSession();
     });
   });
 }

@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fansivibe/app/router/app_router.dart';
-import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/auth/auth.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/account_creation_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/entry_screen.dart';
@@ -228,8 +227,11 @@ void main() {
       await tester.pumpWidget(_routerHarness(const EntryScreen()));
       await tester.pump(const Duration(milliseconds: 1300));
 
-      await tester.tap(find.text('Sign In'));
-      await tester.pumpAndSettle();
+      final signInFinder = find.text('Sign In');
+      await tester.ensureVisible(signInFinder);
+      await tester.tap(signInFinder);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
       expect(find.text('Welcome Back'), findsOneWidget);
     });
@@ -246,8 +248,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Sign Out'));
-      await tester.pumpAndSettle();
+      final signOutFinder = find.text('Sign Out');
+      await tester.ensureVisible(signOutFinder);
+      await tester.tap(signOutFinder);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
       expect(fake.logoutCalls, 1);
       expect(AuthSession.token, isNull);

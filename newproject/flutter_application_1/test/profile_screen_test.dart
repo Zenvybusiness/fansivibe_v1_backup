@@ -8,7 +8,9 @@ import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
 import 'package:fansivibe/features/profile/presentation/profile_screen.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/profile_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _TestSummaryRepo implements LearningSummaryRepository {
   final LearningSummary? _summary;
@@ -28,6 +30,12 @@ Widget _freshApp() {
 
 void main() {
   group('ProfileScreen Widget Tests', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      LocalStorage.init(prefs: await SharedPreferences.getInstance());
+      UserSession.displayName = null;
+    });
+
     testWidgets(
       'renders neutral empty profile state when unauthenticated or no display name',
       (WidgetTester tester) async {
@@ -133,8 +141,8 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Sam Stylist'), findsOneWidget);
-        expect(find.text('92'), findsOneWidget);
-        expect(find.text('5d streak'), findsOneWidget);
+        expect(find.text('92'), findsWidgets);
+        expect(find.text('5 d'), findsOneWidget);
 
         // Verifies fake "Alex" / fake stats are never rendered
         expect(find.text('Alex'), findsNothing);

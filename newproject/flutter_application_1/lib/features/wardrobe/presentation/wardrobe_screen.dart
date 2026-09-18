@@ -326,7 +326,11 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
               ),
               const SizedBox(height: FansivibeSpacing.md),
               Text(
-                'No items in this category yet',
+                // ponytail: truthful copy per filter scope — the
+                // bottom-bar [Add Item to Wardrobe] is the CTA.
+                _selectedCategory == 'all'
+                    ? 'No wardrobe items yet.'
+                    : 'No items in this category yet',
                 style: FansivibeTypography.bodyLargeWithFamily.copyWith(
                   color: FansivibeColors.secondary,
                 ),

@@ -17,7 +17,9 @@ from app.application.enrichment import enrich_hairstyle_result
 from app.application.learning import mark_styled_today
 from app.application.media import build_media_ref, read_image_bytes
 from app.ai.vision_appearance_adapter import AppearanceAnalysisError
+from app.ai.vision_garment_adapter import GarmentAnalysisError
 from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
+from app.domain.ports.garment_analysis import GarmentAnalysisPort
 from app.domain.ports.external import KnowledgeSource
 from app.domain.ports.repositories import (
     ActivityDayRepository,
@@ -630,6 +632,111 @@ class CreateGroomingRun:
             user_id=user_id,
             status="completed",
             result=result.to_snapshot(),
+        )
+        if not completed:
+            raise ApiError(
+                status_code=500,
+                code="DATABASE_FAILURE",
+                message="Something went wrong while saving your data. Please try again.",
+            )
+        return run_id
+
+
+class CreateGarmentRun:
+    """M11 — submit a garment analysis (wardrobe image pass).
+
+    Garment-typed run → GarmentAnalysisPort → GarmentProfile → completed /
+    failed run whose ``result`` is the observation snapshot verbatim. There
+    is deliberately NO decision-engine step: the observation IS the result
+    (no recommendation is derived), and nothing is written to
+    ``user_state`` or ``wardrobe_items`` here — persisting a wardrobe item
+    from a garment run is the user-confirmed save path's job
+    (``POST /v1/wardrobe/items`` with vocab-validated fields).
+
+    ``garment_port`` is REQUIRED (no default): the development/hash adapter
+    must never silently back this path.
+    """
+
+    def __init__(
+        self,
+        *,
+        runs: AnalysisRunRepository,
+        garment_port: GarmentAnalysisPort,
+    ) -> None:
+        self._runs = runs
+        self._garment_port = garment_port
+
+    def __call__(self, *, user_id: UUID, image: any) -> UUID:
+        # Validate image content-type
+        content_type = getattr(image, "content_type", None)
+        if content_type not in {"image/jpeg", "image/png", "image/webp"}:
+            raise validation(
+                [{"field": "image", "error": "unsupported media type, must be JPEG, PNG or WebP"}]
+            )
+
+        # Size validation uses the declared size so oversized payloads are
+        # rejected before their bytes are read into memory.
+        size_bytes = getattr(image, "size", None)
+        if size_bytes is not None and size_bytes > 20 * 1024 * 1024:
+            raise validation(
+                [{"field": "image", "error": f"image too large ({size_bytes} bytes), max 20 MB"}]
+            )
+
+        # Construct MediaRef from the actual received bytes (real SHA-256).
+        content = read_image_bytes(image)
+        media_ref = build_media_ref(
+            user_id=user_id,
+            content_type=content_type,
+            content=content,
+            analyzer=getattr(self._garment_port, "adapter_id", "unknown"),
+        )
+
+        # Step 1: Create analysis run (pending)
+        run_id = self._runs.create(
+            user_id=user_id,
+            run_type="garment",
+            engine_version="vision-v1",
+            input_media=media_ref,
+            knowledge_version=knowledge_provenance(),
+        )
+
+        # Step 2: Run garment analysis adapter
+        try:
+            garment_profile = self._garment_port.analyze(
+                media_ref=media_ref, user_id=user_id, image_bytes=content
+            )
+        except GarmentAnalysisError as exc:
+            self._runs.fail(
+                run_id=run_id,
+                user_id=user_id,
+                error={
+                    "code": "PROCESSING_FAILURE",
+                    "message": "We couldn't finish this request. Please try again.",
+                    "details": {"run_id": str(run_id), "reason": exc.reason},
+                },
+            )
+            return run_id
+        except Exception:
+            # Adapter failure → honest `failed` run — never a stuck pending.
+            self._runs.fail(
+                run_id=run_id,
+                user_id=user_id,
+                error={
+                    "code": "PROCESSING_FAILURE",
+                    "message": "We couldn't finish this request. Please try again.",
+                    "details": {"run_id": str(run_id)},
+                },
+            )
+            return run_id
+
+        # Step 3: Complete the run with the observation snapshot verbatim.
+        completed = self._runs.complete(
+            run_id=run_id,
+            user_id=user_id,
+            status="completed",
+            result=replace(
+                garment_profile, sourceRunId=str(run_id)
+            ).to_snapshot(),
         )
         if not completed:
             raise ApiError(

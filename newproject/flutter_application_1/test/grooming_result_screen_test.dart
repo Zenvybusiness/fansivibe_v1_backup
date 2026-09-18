@@ -12,7 +12,7 @@ GoRouter _groomingResultRouter({
   String beardStyle = 'Full Beard',
   String beardDensity = 'Medium',
   String beardColor = 'Dark Brown',
-  GroomingAnalysisResult? result,
+  GroomingAnalysisResult? result = GroomingAnalysisResult.mock,
 }) {
   return GoRouter(
     initialLocation: '/',
@@ -58,6 +58,7 @@ void main() {
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          result: GroomingAnalysisResult.mock,
         ),
       ),
     );
@@ -74,6 +75,7 @@ void main() {
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          result: GroomingAnalysisResult.mock,
         ),
       ),
     );
@@ -89,6 +91,7 @@ void main() {
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          result: GroomingAnalysisResult.mock,
         ),
       ),
     );
@@ -108,6 +111,7 @@ void main() {
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          result: GroomingAnalysisResult.mock,
         ),
       ),
     );
@@ -126,6 +130,7 @@ void main() {
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          result: GroomingAnalysisResult.mock,
         ),
       ),
     );
@@ -144,6 +149,7 @@ void main() {
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          result: GroomingAnalysisResult.mock,
         ),
       ),
     );
@@ -160,6 +166,7 @@ void main() {
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          result: GroomingAnalysisResult.mock,
         ),
       ),
     );
@@ -175,6 +182,7 @@ void main() {
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          result: GroomingAnalysisResult.mock,
         ),
       ),
     );
@@ -193,6 +201,7 @@ void main() {
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          result: GroomingAnalysisResult.mock,
         ),
       ),
     );
@@ -212,6 +221,7 @@ void main() {
           beardStyle: 'Full Beard',
           beardDensity: 'Medium',
           beardColor: 'Dark Brown',
+          result: GroomingAnalysisResult.mock,
         ),
       ),
     );
@@ -282,5 +292,22 @@ void main() {
 
     expect(find.text('Grooming Results'), findsOneWidget);
     expect(find.text('Your Grooming Profile'), findsOneWidget);
+  });
+
+  testWidgets('null result shows an error, never mock content', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp.router(
+        routerConfig: _groomingResultRouter(result: null),
+      ),
+    );
+
+    expect(find.text('Grooming Results'), findsOneWidget);
+    expect(
+      find.text('No grooming analysis available. Please run a scan first.'),
+      findsOneWidget,
+    );
+    expect(find.text('Structured Goatee'), findsNothing);
   });
 }

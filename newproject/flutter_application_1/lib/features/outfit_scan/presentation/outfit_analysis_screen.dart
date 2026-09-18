@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -556,7 +558,7 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
             icon: Icons.auto_awesome_rounded,
             onPressed: () {
               if (!mounted) return;
-              Navigator.of(context).pushNamed('/home/daily-outfit');
+              context.pushNamed(RouteNames.dailyOutfit);
             },
           ),
         ),

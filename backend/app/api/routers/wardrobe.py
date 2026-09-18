@@ -165,8 +165,8 @@ def add_wardrobe_item(
     """Create a new wardrobe item.
 
     Category and color are validated against the controlled vocabulary server-side.
-    Material is optional and validated if provided. Image handling is sealed until
-    MS10.3 — imageRef is accepted but media flow is not mounted.
+    Material is optional and validated if provided. An optional `imageRef`
+    photo reference (M11 garment-analysis media ref) is stored verbatim.
     """
     use_case = AddWardrobeItem(wardrobe=WardrobeItemRepositorySQL(db))
     record = use_case(
@@ -176,6 +176,7 @@ def add_wardrobe_item(
         color=request.color,
         material=request.material,
         isFavorite=request.isFavorite,
+        image_ref=request.imageRef,
     )
     return _to_wire(record)
 
@@ -224,7 +225,7 @@ def update_wardrobe_item(
     category/color must be valid vocabulary codes,
     material optional; null clears material,
     isFavorite optional,
-    imageRef remains sealed until MS10.3,
+    imageRef optional; explicit null clears it,
     server updates updatedAt.
     Foreign/non-existent item → 404.
     """
@@ -238,6 +239,8 @@ def update_wardrobe_item(
         material=request.material,
         material_set="material" in request.model_fields_set,
         isFavorite=request.isFavorite,
+        image_ref=request.imageRef,
+        image_ref_set="imageRef" in request.model_fields_set,
     )
     return _to_wire(record)
 

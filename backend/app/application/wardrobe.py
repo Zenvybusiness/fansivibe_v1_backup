@@ -140,6 +140,7 @@ class AddWardrobeItem:
         color: str,
         material: str | None,
         isFavorite: bool,
+        image_ref: dict | None = None,
     ) -> WardrobeItemRecord:
         if len(name) < 1 or len(name) > 100:
             raise validation(
@@ -154,6 +155,7 @@ class AddWardrobeItem:
                 color=color,
                 material=material,
                 isFavorite=isFavorite,
+                image_ref=image_ref,
             )
             self._wardrobe.commit()
             return record
@@ -196,7 +198,7 @@ class UpdateWardrobeItem:
     category/color must be valid vocabulary codes,
     material optional; null clears material,
     isFavorite optional,
-    imageRef remains sealed until MS10.3,
+    imageRef optional; explicit null clears it (M11 photo reference),
     server updates updatedAt.
     Foreign/non-existent item → 404.
     """
@@ -215,6 +217,8 @@ class UpdateWardrobeItem:
         material: str | None,
         material_set: bool = False,
         isFavorite: bool | None,
+        image_ref: dict | None = None,
+        image_ref_set: bool = False,
     ) -> WardrobeItemRecord:
         record = self._wardrobe.get_by_id(user_id=user_id, item_id=item_id)
         if record is None:
@@ -235,6 +239,8 @@ class UpdateWardrobeItem:
                 material=material,
                 material_set=material_set,
                 isFavorite=isFavorite,
+                image_ref=image_ref,
+                image_ref_set=image_ref_set,
             )
             self._wardrobe.commit()
         except IntegrityError as exc:

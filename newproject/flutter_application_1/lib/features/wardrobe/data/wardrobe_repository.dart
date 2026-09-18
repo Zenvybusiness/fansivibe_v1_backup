@@ -109,6 +109,17 @@ String _topCategoryLine(Map<String, int> byCategory, int total) {
       '($peak of $total wears each).';
 }
 
+/// Normalizes a UI display value to a backend vocabulary code.
+///
+/// Backend `wardrobe_categories`/`colors`/`materials` are lowercase
+/// snake_case (`light_blue`); the add-item UI offers display labels
+/// (`Light Blue`). Already-canonical codes pass through unchanged.
+// ponytail: case/space mapping only; labels outside backend vocab still
+// 422 truthfully — add when backend publishes aliases or UI reads
+// GET /v1/knowledge/* vocab.
+String _vocabCode(String value) =>
+    value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+
 /// Abstract contract for wardrobe data operations.
 ///
 /// The [WardrobeRepository] becomes the single abstraction used by the feature,
@@ -255,9 +266,9 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
   }) async {
     final apiItem = await _client.createItem(
       name: name,
-      category: category,
-      color: color,
-      material: material,
+      category: _vocabCode(category),
+      color: _vocabCode(color),
+      material: material == null ? null : _vocabCode(material),
       imageRef: imageRef,
     );
 
@@ -286,9 +297,9 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
     final apiItem = await _client.updateItem(
       itemId: itemId,
       name: name,
-      category: category,
-      color: color,
-      material: material,
+      category: category == null ? null : _vocabCode(category),
+      color: color == null ? null : _vocabCode(color),
+      material: material == null ? null : _vocabCode(material),
       isFavorite: isFavorite,
     );
 

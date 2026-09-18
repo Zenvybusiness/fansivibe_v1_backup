@@ -86,20 +86,32 @@ class EventItem {
 
   /// Creates an [EventItem] from the backend wire map.
   ///
-  /// Strict on required keys (a malformed row throws into the client's
-  /// null path rather than posing as an event); nullable keys stay
-  /// nullable.
-  factory EventItem.fromJson(Map<String, dynamic> json) => EventItem(
-    id: json['id'] as String,
-    title: json['title'] as String,
-    eventType: json['eventType'] as String,
-    eventDate: json['eventDate'] as String,
-    eventTime: json['time'] as String?,
-    location: json['location'] as String?,
-    notes: json['notes'] as String?,
-    createdAt: DateTime.parse(json['createdAt'] as String),
-    updatedAt: DateTime.parse(json['updatedAt'] as String),
-  );
+  /// Accepts both the full `UserEvent` detail shape and the
+  /// `EventSummary` list-card shape (`GET /v1/events` omits
+  /// `location`/`notes`/`createdAt`/`updatedAt`). Missing timestamps fall
+  /// back to the event date at midnight UTC — derived from the real wire
+  /// value, never invented. A malformed row still throws into the
+  /// client's null path rather than posing as an event.
+  factory EventItem.fromJson(Map<String, dynamic> json) {
+    final eventDate = json['eventDate'] as String;
+    // ponytail: summary rows carry no timestamps; derive midnight-UTC
+    // from eventDate. Full detail rows keep their real timestamps.
+    final fallbackStamp =
+        DateTime.tryParse('${eventDate}T00:00:00.000Z') ?? DateTime.now();
+    final createdRaw = json['createdAt'] as String?;
+    final updatedRaw = json['updatedAt'] as String?;
+    return EventItem(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      eventType: json['eventType'] as String,
+      eventDate: eventDate,
+      eventTime: json['time'] as String?,
+      location: json['location'] as String?,
+      notes: json['notes'] as String?,
+      createdAt: createdRaw == null ? fallbackStamp : DateTime.parse(createdRaw),
+      updatedAt: updatedRaw == null ? fallbackStamp : DateTime.parse(updatedRaw),
+    );
+  }
 
   /// Serializes this item back to the backend wire shape.
   Map<String, dynamic> toJson() => {

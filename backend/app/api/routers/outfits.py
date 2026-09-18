@@ -24,7 +24,12 @@ from app.api.schemas.outfits import (
     OutfitComponent,
 )
 from app.api.schemas.saved_looks import SaveLookRequest, SavedLook
-from app.application.outfits import GenerateOutfit, SaveOutfit
+from app.application.outfits import (
+    EMPTY_OUTFIT_REASON_HEADER,
+    NO_LEGAL_CANDIDATE,
+    GenerateOutfit,
+    SaveOutfit,
+)
 from app.domain.ports.repositories import OutfitRecommendation as OutfitRecord
 from app.infrastructure.db.repositories import (
     ActivityDayRepositorySQL,
@@ -98,13 +103,18 @@ def generate_outfit(
 
     `seed` selects the ranked derivation variant (absent → the winner;
     same seed repeats the backend result). Persists nothing, never
-    keyed. No legal candidate → 204 ("no matching wardrobe").
+    keyed. No legal candidate → 204 ("no matching wardrobe") with an
+    empty body plus the M11 P4 `X-Outfit-Empty-Reason` header carrying
+    the deterministic reason (`empty_wardrobe` /
+    `missing_required_category` / `no_legal_candidate`). Older clients
+    ignore the header: body and status are unchanged, so the existing
+    204 path stays byte-compatible.
     """
     use_case = GenerateOutfit(
         wardrobe_items=WardrobeItemRepositorySQL(db),
         user_state=UserStateRepositorySQL(db),
     )
-    record = use_case(
+    record, empty_reason = use_case.derive_with_reason(
         user_id=user_id,
         occasion=request.occasion,
         mood=request.mood,
@@ -113,7 +123,10 @@ def generate_outfit(
         seed=request.seed,
     )
     if record is None:
-        return Response(status_code=204)
+        return Response(
+            status_code=204,
+            headers={EMPTY_OUTFIT_REASON_HEADER: empty_reason or NO_LEGAL_CANDIDATE},
+        )
     return _record_to_outfit_schema(record)
 
 

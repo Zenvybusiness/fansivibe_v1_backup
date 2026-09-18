@@ -94,7 +94,11 @@ class OutfitBuilderClient {
         }
       }
       if (response.statusCode == 204) {
-        return const OutfitResult.noneAvailable();
+        // M11 P4: verbatim backend reason, never inferred locally.
+        // Missing header (older backend) → null → generic empty copy.
+        return OutfitResult.noneAvailable(
+          emptyReason: response.headers['x-outfit-empty-reason'],
+        );
       }
       debugPrint(
         'Outfit generate responded ${response.statusCode}: ${response.body}',

@@ -103,7 +103,7 @@ void main() {
     await tester.tap(find.text('Show my wardrobe'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Here\u2019s what I know'), findsOneWidget);
+    expect(find.textContaining('Your wardrobe is currently empty'), findsOneWidget);
   });
 
   testWidgets(

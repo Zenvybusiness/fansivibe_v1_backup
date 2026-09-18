@@ -38,7 +38,8 @@ class WardrobeItemCreate(BaseModel):
 class WardrobeItemPatch(BaseModel):
     """Request body for `PATCH /v1/wardrobe/items/{item_id}` (W-4).
 
-    PATCH partial merge — only present fields change. `null` material clears it.
+    PATCH partial merge — only present fields change. `null` material or
+    `null` imageRef clears it.
     """
 
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
@@ -46,6 +47,7 @@ class WardrobeItemPatch(BaseModel):
     color: Optional[str] = None
     material: Optional[str] = None
     isFavorite: Optional[bool] = None
+    imageRef: Optional[dict[str, Any]] = None
 
 
 class ListEnvelope(BaseModel):

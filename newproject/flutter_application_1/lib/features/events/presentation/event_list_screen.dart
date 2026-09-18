@@ -30,6 +30,11 @@ class EventListScreen extends StatefulWidget {
 class _EventListScreenState extends State<EventListScreen> {
   late Future<EventListPage?> _future;
 
+  /// Event chosen for outfit styling. Set immediately after creation so
+  /// the new row is visibly selected, and retained while this screen
+  /// lives so it survives the add → list → build navigation.
+  EventItem? _selectedEvent;
+
   EventsRepository get _repository =>
       widget.repository ?? EventsRepositoryImpl();
 
@@ -46,10 +51,33 @@ class _EventListScreenState extends State<EventListScreen> {
   }
 
   Future<void> _addEvent() async {
-    final created = await context.pushNamed<bool>(RouteNames.eventAdd);
-    if (created == true && mounted) {
+    final created = await context.pushNamed<EventItem>(RouteNames.eventAdd);
+    if (created != null && mounted) {
+      setState(() {
+        _selectedEvent = created;
+      });
       _reload();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${created.title} added and selected for styling'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
+  }
+
+  void _buildOutfitForSelected() {
+    final event = _selectedEvent;
+    if (event == null) return;
+    context.pushNamed(
+      RouteNames.buildOutfit,
+      extra: <String, String>{
+        'eventId': event.id,
+        'eventTitle': event.title,
+        'occasion': event.eventType,
+      },
+    );
   }
 
   Future<void> _openEvent(EventItem event) async {
@@ -121,6 +149,8 @@ class _EventListScreenState extends State<EventListScreen> {
                           ),
                         ),
                         const SizedBox(height: 28),
+                        if (_selectedEvent != null)
+                          _buildSelectedBanner(context),
                         Padding(
                           padding: const EdgeInsets.only(bottom: 20),
                           child: FansiButton.primary(
@@ -144,8 +174,11 @@ class _EventListScreenState extends State<EventListScreen> {
                             final page = snapshot.data;
                             if (!snapshot.hasData || page == null) {
                               return FansiErrorView(
+                                // ponytail: session expiry is handled
+                                // globally via AuthSession; this retry
+                                // re-issues the list request.
                                 message:
-                                    'Couldn\'t load your events. Check your connection and try again.',
+                                    'Couldn\'t load your events. Please try again.',
                                 onRetry: _reload,
                               );
                             }
@@ -175,6 +208,56 @@ class _EventListScreenState extends State<EventListScreen> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectedBanner(BuildContext context) {
+    final theme = Theme.of(context);
+    final event = _selectedEvent!;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: FansivibeColors.accentGold.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: FansivibeColors.accentGold.withValues(alpha: 0.35),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.check_circle_rounded,
+                  size: 16,
+                  color: FansivibeColors.accentGold,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Selected for styling: ${event.title}',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: FansivibeColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FansiButton.secondary(
+              label: 'Build outfit for this event',
+              icon: Icons.checkroom_rounded,
+              onPressed: _buildOutfitForSelected,
+            ),
+          ],
         ),
       ),
     );

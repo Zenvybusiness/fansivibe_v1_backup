@@ -34,21 +34,23 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.infrastructure.db.session import DATABASE_URL
 
+# Phase-13: DB-backed tests NEVER touch the authoritative database.
+# Set FANSIVIBE_TEST_DATABASE_URL to an isolated database (e.g. the
+# `fansivibe_test` database in the same container); without it the
+# DB-backed tests skip instead of destroying production QA data.
+# Applied to DATABASE_URL before any `app.*` import because settings
+# (and alembic's env.py, which re-reads the imported default) cache it
+# at first access.
+_TEST_DATABASE_URL = os.environ.get("FANSIVIBE_TEST_DATABASE_URL", "")
+if _TEST_DATABASE_URL:
+    os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
+TEST_DATABASE_URL = _TEST_DATABASE_URL
+
 _TRUNCATE = (
     "TRUNCATE learning_signals, activity_days, saved_looks, analysis_runs, "
     "feedback_events, user_events, wardrobe_wear_events, wardrobe_wear_groups, "
     "user_sessions, user_state, users CASCADE"
 )
-
-
-def db_reachable() -> bool:
-    try:
-        engine = create_engine(DATABASE_URL)
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return True
-    except Exception:
-        return False
 
 
 def _run_migrations(url: str) -> None:
@@ -61,13 +63,28 @@ def _run_migrations(url: str) -> None:
 
 @pytest.fixture(scope="session")
 def migrated_db() -> str:
-    if not db_reachable():
+    if not TEST_DATABASE_URL:
         pytest.skip(
-            "PostgreSQL not reachable at DATABASE_URL — set it to enable "
-            "DB-backed tests (e.g. `docker compose up postgres`)."
+            "FANSIVIBE_TEST_DATABASE_URL is not set — refusing to TRUNCATE "
+            "the authoritative database. Create an isolated test database "
+            "(e.g. `CREATE DATABASE fansivibe_test`) and set the variable."
         )
-    _run_migrations(DATABASE_URL)
-    return DATABASE_URL
+    if TEST_DATABASE_URL == DATABASE_URL:
+        pytest.fail(
+            "FANSIVIBE_TEST_DATABASE_URL points at the authoritative "
+            "database — refusing to TRUNCATE it.",
+            pytrace=False,
+        )
+    try:
+        engine = create_engine(TEST_DATABASE_URL)
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        pytest.skip(
+            "Test PostgreSQL not reachable at FANSIVIBE_TEST_DATABASE_URL."
+        )
+    _run_migrations(TEST_DATABASE_URL)
+    return TEST_DATABASE_URL
 
 
 @pytest.fixture

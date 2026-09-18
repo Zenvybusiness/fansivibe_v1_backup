@@ -18,6 +18,12 @@ class FaceProcessingScreen extends StatefulWidget {
     this.imageBytes,
     this.imageFilename,
     this.imageContentType,
+    this.angleFront,
+    this.angleFrontName,
+    this.angleLeft,
+    this.angleLeftName,
+    this.angleRight,
+    this.angleRightName,
   });
 
   /// Injectable for tests; when null the screen owns a real [HairstyleService].
@@ -28,6 +34,16 @@ class FaceProcessingScreen extends StatefulWidget {
   final Uint8List? imageBytes;
   final String? imageFilename;
   final String? imageContentType;
+
+  /// Guided multi-angle captures (FRONT/LEFT/RIGHT, in-memory only).
+  /// When all three are present they take the multi-angle path; every
+  /// view is analyzed and none is discarded (see face_scan_votes.dart).
+  final Uint8List? angleFront;
+  final String? angleFrontName;
+  final Uint8List? angleLeft;
+  final String? angleLeftName;
+  final Uint8List? angleRight;
+  final String? angleRightName;
 
   @override
   State<FaceProcessingScreen> createState() => _FaceProcessingScreenState();
@@ -67,6 +83,39 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
   }
 
   Future<void> _start() async {
+    // Guided multi-angle path: every captured view is analyzed through
+    // the existing endpoint and aggregated deterministically.
+    if (widget.angleFront != null &&
+        widget.angleLeft != null &&
+        widget.angleRight != null) {
+      final multi = await _service.runMultiAngleAnalysis(
+        frontBytes: widget.angleFront!,
+        frontName: widget.angleFrontName,
+        leftBytes: widget.angleLeft!,
+        leftName: widget.angleLeftName,
+        rightBytes: widget.angleRight!,
+        rightName: widget.angleRightName,
+      );
+      if (!mounted) return;
+      // Null/failed multi-angle stays on the honest error state (with
+      // retry) — mock content is never forwarded as a real analysis.
+      if (multi == null || _service.analysisError != null) {
+        setState(() {});
+        return;
+      }
+      LearningService.instance.setFace(
+        FaceProfile(
+          faceShape: multi.faceShape,
+          skinTone: multi.skinTone,
+          bodyType: null,
+          styleType: multi.styleDna.isNotEmpty
+              ? multi.styleDna.split('•').first
+              : '',
+        ),
+      );
+      _navigateToResult(multi);
+      return;
+    }
     final result = await _service.runAnalysis(
       imageBytes: widget.imageBytes,
       imageFilename: widget.imageFilename,
@@ -84,6 +133,9 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
     // backend result — never from the offline mock fallback (G-11). This
     // keeps cold-start users who complete a real scan on the path to a valid
     // face profile without ever storing mock-derived attributes as if real.
+    // A mock resolution (offline/unreachable/skip) forwards null so the
+    // result screen renders its explicit error state — mock content is
+    // never posed as a real analysis.
     if (!_service.isMockResult) {
       LearningService.instance.setFace(
         FaceProfile(
@@ -93,8 +145,10 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
           styleType: result.styleDna.isNotEmpty ? result.styleDna.split('•').first : '',
         ),
       );
+      _navigateToResult(result);
+    } else {
+      _navigateToResult(null);
     }
-    _navigateToResult(result);
   }
 
   void _navigateToResult(HairstyleAnalysisResult? result) {

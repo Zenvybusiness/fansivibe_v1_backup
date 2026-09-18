@@ -28,14 +28,64 @@ class ControllableHairstyleService extends HairstyleService {
 
   void finish() {
     finished = true;
-    completeWith(HairstyleAnalysisResult.mock);
-    _completer.complete(HairstyleAnalysisResult.mock);
+    // A real (non-mock) parsed result so the processing screen forwards
+    // it as genuine backend content (identical() must stay false).
+    final real = HairstyleAnalysisResult.fromRunResult(const {
+      'appearance': {
+        'faceShape': 'Oval',
+        'skinTone': 'Warm Medium',
+        'styleType': 'Modern Classic',
+      },
+      'recommendations': {
+        'top': {
+          'id': 'textured_quiff',
+          'name': 'Textured Quiff',
+          'description': 'A real backend-derived recommendation.',
+          'matchScore': 0.94,
+          'reasons': ['Grounded reason'],
+          'stylingTips': '',
+          'maintenance': '',
+          'bestFor': '',
+        },
+        'alternatives': [],
+      },
+    });
+    completeWith(real);
+    _completer.complete(real);
   }
 
   void failWith(String message) {
     finished = true;
     setAnalysisError(message);
     _completer.complete(HairstyleAnalysisResult.mock);
+  }
+
+  /// Multi-angle captures handed over by the processing screen.
+  List<Uint8List>? receivedAngleBytes;
+
+  /// Completed multi-angle calls.
+  int multiAngleCalls = 0;
+
+  @override
+  Future<HairstyleAnalysisResult?> runMultiAngleAnalysis({
+    required Uint8List frontBytes,
+    String? frontName,
+    required Uint8List leftBytes,
+    String? leftName,
+    required Uint8List rightBytes,
+    String? rightName,
+  }) async {
+    multiAngleCalls++;
+    receivedAngleBytes = [frontBytes, leftBytes, rightBytes];
+    final real = HairstyleAnalysisResult.fromRunResult(const {
+      'appearance': {'faceShape': 'Oval'},
+      'recommendations': {
+        'top': {'id': 'textured_quiff', 'name': 'Textured Quiff'},
+        'alternatives': [],
+      },
+    });
+    completeWith(real);
+    return real;
   }
 }
 

@@ -2,15 +2,13 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:fansivibe/app/app.dart';
-import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/features/assistant/data/assistant_client.dart';
 import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/assistant/domain/assistant_service.dart';
+import 'package:fansivibe/features/assistant/presentation/assistant_screen.dart';
 import 'package:fansivibe/features/assistant/presentation/widgets/assistant_widgets.dart';
 
 Widget _bubbleHarness({required AssistantMessage message}) {
@@ -22,11 +20,9 @@ Widget _bubbleHarness({required AssistantMessage message}) {
 }
 
 Widget _screenApp({required AssistantService service}) {
-  return FansivibeApp(
-    router: GoRouter(
-      initialLocation: '/assistant',
-      routes: appRoutes,
-    ),
+  return MaterialApp(
+    theme: ThemeData.dark(),
+    home: AssistantScreen(service: service),
   );
 }
 

@@ -208,7 +208,10 @@ class _AddEventScreenState extends State<AddEventScreen> {
         );
         if (!mounted) return;
         if (created != null) {
-          Navigator.of(context).pop<bool>(true);
+          // Return the backend-created item so the caller can show and
+          // select it immediately (never a bare bool — the UUID is the
+          // only event identity).
+          Navigator.of(context).pop<EventItem>(created);
         } else {
           _showFailure('Couldn\'t create your event. Please try again.');
         }

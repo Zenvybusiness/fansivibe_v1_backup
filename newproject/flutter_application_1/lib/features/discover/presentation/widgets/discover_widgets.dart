@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/discover.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
+    show WardrobeItemData;
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_chip.dart';
 import 'package:fansivibe/shared/components/fansi_hero_card.dart';
 import 'package:fansivibe/shared/components/fansi_image_well.dart';
+import 'package:fansivibe/shared/components/fansi_mini_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
@@ -173,6 +176,39 @@ class LookCard extends StatelessWidget {
       badge: showMatchBadge
           ? FansiBadge(score: data.matchScore, size: BadgeSize.compact)
           : null,
+    );
+  }
+}
+
+/// Wardrobe-item card for the Discover Clothes tab (M12 P3).
+///
+/// Discover-owned presentation over the backend `WardrobeItemData`
+/// (same shared primitives as the wardrobe surface): neutral
+/// [FansiImageWell] placeholder — wardrobe rows carry no servable
+/// photo (image_ref is provenance, never a URL), so no photo is ever
+/// invented here. Taps route to the existing wardrobe detail surface.
+class ClothesItemCard extends StatelessWidget {
+  const ClothesItemCard({required this.item, this.onTap, super.key});
+
+  /// Persisted backend wardrobe row, verbatim (never a mock product).
+  final WardrobeItemData item;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return FansiMiniCard(
+      onTap: onTap,
+      image: const Stack(
+        fit: StackFit.expand,
+        children: [
+          FansiImageWell(
+            icon: Icons.checkroom_rounded,
+            color: FansivibeColors.accentGold,
+          ),
+        ],
+      ),
+      title: item.name,
+      meta: item.color,
     );
   }
 }

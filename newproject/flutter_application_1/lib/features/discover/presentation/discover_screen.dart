@@ -4,6 +4,9 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/discover.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
+    show WardrobeItemData, WardrobeMockData;
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_chip.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -25,18 +28,28 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 /// precedent) — it never invents attributes and never changes ids.
 class DiscoverScreen extends StatefulWidget {
   /// Creates a [DiscoverScreen].
-  const DiscoverScreen({super.key, this.repository});
+  const DiscoverScreen({super.key, this.repository, this.wardrobeRepository});
 
   /// Injectable for tests; when null the screen owns its own repository.
   final DiscoverRepository? repository;
+
+  /// Wardrobe source for the Clothes tab; injectable for tests.
+  final WardrobeRepository? wardrobeRepository;
 
   @override
   State<DiscoverScreen> createState() => _DiscoverScreenState();
 }
 
+/// Active Discover feed. Explore is the ranked catalog (#43);
+/// For You is the owner-personalized reorder (M12 P1); Clothes is the
+/// owner's persisted wardrobe (M12 P3). No Trending tab exists — there
+/// is no trend source to back one.
+enum _DiscoverTab { explore, forYou, clothes }
+
 class _DiscoverScreenState extends State<DiscoverScreen> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  _DiscoverTab _tab = _DiscoverTab.explore;
 
   // Filter states (`all` = omitted from the backend query).
   String _selectedOccasion = 'all';
@@ -57,10 +70,34 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   bool _hasMore = false;
   bool _loadingMore = false;
 
+  // For You bucket (M12 P1): separate feed state per tab — rows are
+  // never mixed, never persisted, and die with this screen (no global
+  // cache, so user transitions cannot leak rows across sessions).
+  bool _forYouLoading = false;
+  bool _forYouLoaded = false;
+  DiscoverFailure? _forYouFailure;
+  List<LookSummary> _forYouItems = [];
+  String? _forYouCursor;
+  bool _forYouHasMore = false;
+  bool _forYouLoadingMore = false;
+  bool _forYouPersonalized = false;
+
+  // Clothes bucket (M12 P3): the owner's persisted wardrobe via the
+  // existing WardrobeRepository (server-side category filter, one page
+  // of 100 — the wardrobe-screen precedent). Screen-local only.
+  late final WardrobeRepository _wardrobeRepository;
+  bool _clothesLoading = false;
+  bool _clothesLoaded = false;
+  bool _clothesFailed = false;
+  List<WardrobeItemData> _clothesItems = [];
+  String _clothesCategory = 'all';
+
   @override
   void initState() {
     super.initState();
     _repository = widget.repository ?? DiscoverRepositoryImpl();
+    _wardrobeRepository =
+        widget.wardrobeRepository ?? WardrobeRepositoryImpl();
     _refresh();
   }
 
@@ -118,6 +155,132 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     } else {
       // Failure keeps the loaded rows with a truthful message (retry
       // keeps the same cursor).
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_failureCopy(result.failure)),
+          backgroundColor: FansivibeColors.accentGold,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: FansivibeRadius.smdBorder,
+          ),
+        ),
+      );
+    }
+  }
+
+  void _selectTab(_DiscoverTab tab) {
+    if (_tab == tab) return;
+    setState(() => _tab = tab);
+    if (tab == _DiscoverTab.forYou && !_forYouLoaded) _refreshForYou();
+    if (tab == _DiscoverTab.clothes && !_clothesLoaded) _refreshClothes();
+  }
+
+  Future<void> _refreshClothes() async {
+    setState(() {
+      _clothesLoading = true;
+      _clothesFailed = false;
+    });
+    try {
+      final items = await _wardrobeRepository.listItems(
+        category: _clothesCategory == 'all' ? null : _clothesCategory,
+        pageSize: 100,
+      );
+      if (!mounted) return;
+      setState(() {
+        _clothesLoading = false;
+        _clothesLoaded = true;
+        _clothesItems = items;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _clothesLoading = false;
+        _clothesLoaded = true;
+        _clothesFailed = true;
+        _clothesItems = [];
+      });
+    }
+  }
+
+  void _selectClothesCategory(String id) {
+    if (_clothesCategory == id) return;
+    setState(() => _clothesCategory = id);
+    _refreshClothes();
+  }
+
+  /// Loaded wardrobe rows, narrowed by the client-side search box only
+  /// (same precedent as the look feeds).
+  List<WardrobeItemData> _clothesVisible() {
+    if (_searchQuery.isEmpty) return _clothesItems;
+    final query = _searchQuery.toLowerCase();
+    return _clothesItems
+        .where((item) => item.name.toLowerCase().contains(query))
+        .toList();
+  }
+
+  void _handleClothesTap(BuildContext context, WardrobeItemData item) {
+    // Existing wardrobe detail architecture — backend UUID travels verbatim.
+    context.pushNamed(RouteNames.wardrobeItemDetails, extra: item.id);
+  }
+
+  Future<void> _handleClothesAdd(BuildContext context) async {
+    // Existing Add Wardrobe Item flow (M11 P2 intact); reload on return
+    // so a fresh save appears — backend stays canonical.
+    final result = await context.pushNamed<WardrobeItemData>(
+      RouteNames.wardrobeAddCategory,
+    );
+    if (result != null && mounted) _refreshClothes();
+  }
+
+  Future<void> _refreshForYou() async {
+    setState(() {
+      _forYouLoading = true;
+      _forYouFailure = null;
+    });
+    final result = await _repository.getForYouFeed();
+    if (!mounted) return;
+    setState(() {
+      _forYouLoading = false;
+      _forYouLoaded = true;
+      if (result.isPage) {
+        _forYouItems = result.page!.items;
+        _forYouCursor = result.page!.nextCursor;
+        _forYouHasMore = result.page!.hasMore;
+        _forYouPersonalized = result.page!.personalized;
+      } else {
+        _forYouFailure = result.failure;
+        _forYouItems = [];
+        _forYouCursor = null;
+        _forYouHasMore = false;
+        _forYouPersonalized = false;
+      }
+    });
+  }
+
+  Future<void> _loadMoreForYou() async {
+    if (_forYouLoadingMore || !_forYouHasMore || _forYouCursor == null) {
+      return;
+    }
+    setState(() => _forYouLoadingMore = true);
+    final result = await _repository.getForYouFeed(cursor: _forYouCursor);
+    if (!mounted) return;
+    setState(() => _forYouLoadingMore = false);
+    if (result.isPage) {
+      setState(() {
+        // Backend windows never overlap, but ids already on screen are
+        // never appended twice.
+        final seen = _forYouItems.map((e) => e.id).toSet();
+        _forYouItems = [
+          ..._forYouItems,
+          ...result.page!.items.where((e) => seen.add(e.id)),
+        ];
+        _forYouCursor = result.page!.nextCursor;
+        _forYouHasMore = result.page!.hasMore;
+        _forYouPersonalized = result.page!.personalized;
+      });
+    } else {
+      // Failure keeps the loaded rows with a truthful message (retry
+      // keeps the same cursor). Never the /v1/looks feed, never mocks.
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_failureCopy(result.failure)),
@@ -205,10 +368,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   /// Loaded backend rows, narrowed by the client-side search box only.
-  List<LookSummary> _getVisibleLooks() {
-    if (_searchQuery.isEmpty) return _items;
+  List<LookSummary> _getVisibleLooks([List<LookSummary>? source]) {
+    final rows = source ?? _items;
+    if (_searchQuery.isEmpty) return rows;
     final query = _searchQuery.toLowerCase();
-    return _items
+    return rows
         .where(
           (look) =>
               look.title.toLowerCase().contains(query) ||
@@ -249,23 +413,38 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
                         const SizedBox(height: 20),
 
+                        // Explore / For You switch
+                        _buildTabRow(context),
+
+                        const SizedBox(height: 20),
+
                         // Search + Filter
                         _buildSearchRow(context),
 
                         const SizedBox(height: 20),
 
-                        // Results count
-                        _buildResultsHeader(
-                          context,
-                          _loading || _failure != null
-                              ? null
-                              : _getVisibleLooks().length,
-                        ),
+                        // Results count / For You banner / Clothes count
+                        if (_tab == _DiscoverTab.forYou)
+                          _buildForYouBanner(context)
+                        else if (_tab == _DiscoverTab.clothes)
+                          _buildClothesHeader(context)
+                        else
+                          _buildResultsHeader(
+                            context,
+                            _loading || _failure != null
+                                ? null
+                                : _getVisibleLooks().length,
+                          ),
 
                         const SizedBox(height: 16),
 
                         // Looks content
-                        _buildBody(context),
+                        if (_tab == _DiscoverTab.forYou)
+                          _buildForYouBody(context)
+                        else if (_tab == _DiscoverTab.clothes)
+                          _buildClothesBody(context)
+                        else
+                          _buildBody(context),
 
                         const SizedBox(height: 32),
                       ],
@@ -320,6 +499,218 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildTabRow(BuildContext context) {
+    // Horizontally scrollable: three tabs must never overflow narrow
+    // screens (responsive-layout precedent from the filter chips row).
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          FansiChip(
+            label: 'Explore',
+            icon: Icons.explore_outlined,
+            selected: _tab == _DiscoverTab.explore,
+            onTap: () => _selectTab(_DiscoverTab.explore),
+          ),
+          const SizedBox(width: 8),
+          FansiChip(
+            label: 'For You',
+            icon: Icons.person_outline_rounded,
+            selected: _tab == _DiscoverTab.forYou,
+            onTap: () => _selectTab(_DiscoverTab.forYou),
+          ),
+          const SizedBox(width: 8),
+          FansiChip(
+            label: 'Clothes',
+            icon: Icons.checkroom_outlined,
+            selected: _tab == _DiscoverTab.clothes,
+            onTap: () => _selectTab(_DiscoverTab.clothes),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Clothes tab header: live count plus the real backend category
+  /// vocabulary as chips (`all` = unfiltered server query).
+  Widget _buildClothesHeader(BuildContext context) {
+    final theme = Theme.of(context);
+    final count = _clothesLoading || _clothesFailed
+        ? null
+        : _clothesVisible().length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final category in WardrobeMockData.categories)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FansiChip(
+                    label: category.name,
+                    selected: _clothesCategory == category.id,
+                    onTap: () => _selectClothesCategory(category.id),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          count == null
+              ? 'Loading clothes...'
+              : '$count ${count == 1 ? 'item' : 'items'} in your wardrobe',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: FansivibeColors.textSecondary,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildClothesBody(BuildContext context) {
+    if (_clothesLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(48),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+    if (_clothesFailed) {
+      return _buildErrorState(
+        context,
+        DiscoverFailure.networkError,
+        onRetry: _refreshClothes,
+        title: 'Clothes unavailable',
+      );
+    }
+    final visible = _clothesVisible();
+    if (visible.isEmpty) {
+      return _buildClothesEmpty(context);
+    }
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: 0.50,
+      ),
+      itemCount: visible.length,
+      itemBuilder: (context, index) {
+        final item = visible[index];
+        return ClothesItemCard(
+          item: item,
+          onTap: () => _handleClothesTap(context, item),
+        );
+      },
+    );
+  }
+
+  /// Honest empty wardrobe: never mock products, never the looks
+  /// catalog — the CTA reuses the existing Add Wardrobe Item flow.
+  Widget _buildClothesEmpty(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.checkroom_outlined,
+              size: 64,
+              color: FansivibeColors.accentGold.withValues(alpha: 0.4),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Your wardrobe is empty',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: FansivibeColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Add clothes to see them here.',
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: FansivibeColors.textSecondary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            FansiButton.primary(
+              label: 'Add clothes',
+              icon: Icons.add_rounded,
+              onPressed: () => _handleClothesAdd(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Honest For You banner driven by the backend `personalized` flag —
+  /// never Trending/Popular/Recommended-for-you wording.
+  Widget _buildForYouBanner(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = _forYouPersonalized
+        ? 'For You — based on looks you\u2019ve saved.'
+        : 'Browse classic looks to get started — save looks you love and this space becomes yours.';
+    return Text(
+      copy,
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: FansivibeColors.textSecondary,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+
+  Widget _buildForYouBody(BuildContext context) {
+    if (_forYouLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(48),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+    if (_forYouFailure != null) {
+      return _buildErrorState(
+        context,
+        _forYouFailure!,
+        onRetry: _refreshForYou,
+      );
+    }
+    final visible = _getVisibleLooks(_forYouItems);
+    if (visible.isEmpty) {
+      return _buildEmptyState(context);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildLooksGrid(context, visible),
+        if (_forYouHasMore) ...[
+          const SizedBox(height: 20),
+          Center(
+            child: _forYouLoadingMore
+                ? const CircularProgressIndicator()
+                : FansiButton.secondary(
+                    label: 'Load more',
+                    icon: Icons.expand_more_rounded,
+                    onPressed: _loadMoreForYou,
+                  ),
+          ),
+        ],
       ],
     );
   }
@@ -557,7 +948,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
-  Widget _buildErrorState(BuildContext context, DiscoverFailure failure) {
+  Widget _buildErrorState(
+    BuildContext context,
+    DiscoverFailure failure, {
+    VoidCallback? onRetry,
+    String title = 'Looks unavailable',
+  }) {
     final theme = Theme.of(context);
 
     return Center(
@@ -577,7 +973,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             Text(
               failure == DiscoverFailure.invalidInput
                   ? 'Filters not supported yet'
-                  : 'Looks unavailable',
+                  : title,
               style: theme.textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: FansivibeColors.textPrimary,
@@ -602,7 +998,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               FansiButton.primary(
                 label: 'Try Again',
                 icon: Icons.refresh_rounded,
-                onPressed: _refresh,
+                onPressed: onRetry ?? _refresh,
               ),
           ],
         ),

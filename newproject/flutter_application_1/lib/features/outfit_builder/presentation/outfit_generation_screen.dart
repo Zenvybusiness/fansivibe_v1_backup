@@ -25,6 +25,8 @@ class OutfitGenerationScreen extends StatefulWidget {
     required this.mood,
     required this.fit,
     required this.colorPalette,
+    this.eventId,
+    this.eventTitle,
     this.outfitRepository,
     super.key,
   });
@@ -33,6 +35,11 @@ class OutfitGenerationScreen extends StatefulWidget {
   final String mood;
   final String fit;
   final String colorPalette;
+
+  /// Optional event context from the event flow (display only — the
+  /// backend derive call stays prefs-only until it accepts an event).
+  final String? eventId;
+  final String? eventTitle;
 
   /// Backend outfit source. Defaults to the live repository; tests
   /// inject a fake.
@@ -148,7 +155,7 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
                           return _buildForwarding(context);
                         }
                         if (result != null && result.noneAvailable) {
-                          return _buildEmpty(context);
+                          return _buildEmpty(context, result.emptyReason);
                         }
                         return _buildError(context, result?.failure);
                       },
@@ -245,7 +252,24 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
     );
   }
 
-  Widget _buildEmpty(BuildContext context) {
+  /// M11 P4: maps the verbatim backend empty reason to truthful copy.
+  /// Unknown/null codes fall back to the existing generic state — never
+  /// a more specific message than the backend reason supports.
+  static String emptyMessageFor(String? reason) {
+    switch (reason) {
+      case OutfitEmptyReason.emptyWardrobe:
+        return 'Add some wardrobe items to build an outfit.';
+      case OutfitEmptyReason.missingRequiredCategory:
+        return 'Add the missing clothing category to build an outfit.';
+      case OutfitEmptyReason.noLegalCandidate:
+        return 'No compatible outfit is available from your wardrobe right now.';
+      default:
+        return 'Your wardrobe doesn\'t have the pieces for this combination yet. '
+            'Add wardrobe items to unlock outfit generation.';
+    }
+  }
+
+  Widget _buildEmpty(BuildContext context, String? emptyReason) {
     final theme = Theme.of(context);
     return Column(
       children: [
@@ -265,8 +289,7 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Your wardrobe doesn\'t have the pieces for this combination yet. '
-          'Add wardrobe items to unlock outfit generation.',
+          emptyMessageFor(emptyReason),
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium?.copyWith(
             color: FansivibeColors.textSecondary,
@@ -276,9 +299,23 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
         const SizedBox(height: 24),
         _buildSelectionSummary(context),
         const SizedBox(height: 24),
+        // Honest empty state: 204 means the wardrobe has no legal
+        // candidate for these prefs. Retrying the identical request is
+        // offered alongside actions that actually change the outcome.
+        FansiButton.primary(
+          label: 'Add wardrobe items',
+          icon: Icons.checkroom_rounded,
+          onPressed: () => context.goNamed(RouteNames.wardrobe),
+        ),
+        const SizedBox(height: 12),
         FansiButton.secondary(
+          label: 'Change preferences',
+          icon: Icons.tune_rounded,
+          onPressed: () => context.pop(),
+        ),
+        const SizedBox(height: 12),
+        FansiButton.tertiary(
           label: 'Try Again',
-          icon: Icons.refresh_rounded,
           onPressed: _generate,
         ),
         const SizedBox(height: 32),
@@ -326,8 +363,37 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
 
   Widget _buildSelectionSummary(BuildContext context) {
     final theme = Theme.of(context);
+    final eventTitle = widget.eventTitle;
 
-    return Container(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (eventTitle != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.event_outlined,
+                  size: 16,
+                  color: FansivibeColors.accentGold,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'Styling for: $eventTitle',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: FansivibeColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -377,6 +443,8 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
           ),
         ],
       ),
+        ),
+      ],
     );
   }
 

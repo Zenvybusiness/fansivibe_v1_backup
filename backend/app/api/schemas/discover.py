@@ -50,3 +50,15 @@ class LookFeed(BaseModel):
     items: list[LookSummary]
     next_cursor: Optional[str] = None
     has_more: bool
+
+
+class ForYouFeed(LookFeed):
+    """Cursor envelope for `GET /v1/looks/for-you` (M12 P1).
+
+    `personalized` is True iff an owner signal reordered the catalog;
+    False is the honest cold start (catalog order, never posed as
+    personal). No other fields: banned keys from `LookFeed` stay
+    banned here.
+    """
+
+    personalized: bool

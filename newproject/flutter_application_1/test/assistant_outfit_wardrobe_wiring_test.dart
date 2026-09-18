@@ -13,8 +13,65 @@ import 'package:fansivibe/features/learning/learning_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_item_details_screen.dart';
 import 'package:fansivibe/app/router/route_names.dart';
-import 'package:fansivibe/app/router/app_router.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:go_router/go_router.dart';
+
+class _FakeWardrobeRepo implements WardrobeRepository {
+  @override
+  Future<WardrobeItemData?> getItem({required String itemId}) async {
+    return _wardrobe.firstWhere(
+      (i) => i.id == itemId,
+      orElse: () => _wardrobe.first,
+    );
+  }
+
+  @override
+  Future<List<WardrobeItemData>> listItems({
+    String? category,
+    String? color,
+    String? sortBy,
+    String? order,
+    int page = 1,
+    int pageSize = 20,
+  }) async => _wardrobe;
+
+  @override
+  Future<WardrobeItemData?> createItem({
+    required String name,
+    required String category,
+    required String color,
+    String? material,
+    MediaRef? imageRef,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<WardrobeItemData?> updateItem({
+    required String itemId,
+    String? name,
+    String? category,
+    String? color,
+    String? material,
+    bool? isFavorite,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<bool?> deleteItem({required String itemId}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<WardrobeInsightData?> getInsight() async => null;
+
+  @override
+  Future<WearEventLogResponse?> logWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<WearSummary?> getWearSummary() async => null;
+}
 
 /// STEP 13.17 — wiring tests: `selectedItemIds` resolved against the
 /// already-loaded learning wardrobe and passed to [OutfitRecommendationCard].
@@ -340,7 +397,17 @@ void main() {
                 ),
               ),
             ),
-            ...appRoutes,
+            GoRoute(
+              path: '/item-details',
+              name: RouteNames.wardrobeItemDetails,
+              builder: (context, state) {
+                final itemId = state.extra as String?;
+                return WardrobeItemDetailsScreen(
+                  itemId: itemId ?? '',
+                  repository: _FakeWardrobeRepo(),
+                );
+              },
+            ),
           ],
         );
 
@@ -352,7 +419,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(WardrobeItemDetailsScreen), findsOneWidget);
-        expect(find.text('Details'), findsOneWidget);
+        expect(find.text('Category'), findsOneWidget);
       },
     );
   });
@@ -452,7 +519,16 @@ void main() {
     testWidgets('H. wardrobe message renders cards, never the outfit card', (
       tester,
     ) async {
-      const context = AssistantUserContext();
+      const context = AssistantUserContext(
+        wardrobe: [
+          WardrobeEntry(
+            id: '1',
+            name: 'Merino Crew Neck',
+            category: 'tops',
+            color: 'Charcoal',
+          ),
+        ],
+      );
       final reply = OfflineAssistant().replyFor('show my wardrobe', context);
       final message = AssistantMessage(
         role: 'assistant',

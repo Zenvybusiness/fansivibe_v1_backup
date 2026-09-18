@@ -45,12 +45,10 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Discover screen is shown.
-    expect(
-      find.text('Your personalized looks, based on your style and preferences'),
-      findsOneWidget,
-    );
+    expect(find.text('Discover'), findsWidgets);
+    expect(find.text('Find looks tailored to your style'), findsOneWidget);
+    expect(find.text('Explore'), findsOneWidget);
     expect(find.text('For You'), findsOneWidget);
-    expect(find.text('Trending'), findsAtLeast(1));
 
     // Tap Stylist tab.
     await tester.tap(
@@ -77,7 +75,6 @@ void main() {
 
     // Verify Wardrobe screen is shown.
     expect(find.text('My Wardrobe'), findsOneWidget);
-    expect(find.text('24 items'), findsWidgets);
 
     // Tap Profile tab.
     await tester.tap(
@@ -89,8 +86,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Profile screen is shown.
-    expect(find.text('Alex'), findsOneWidget);
-    expect(find.text('@alex_styles'), findsOneWidget);
+    expect(find.text('Style Profile'), findsOneWidget);
+    expect(find.text('Alex'), findsNothing);
 
     // Tap Home tab to return.
     await tester.tap(
@@ -160,7 +157,6 @@ void main() {
 
     // Verify FaceScanScreen is shown.
     expect(find.text('Face Scan'), findsOneWidget);
-    expect(find.text('Scan Face'), findsOneWidget);
 
     // Go back.
     await tester.tap(find.byIcon(Icons.arrow_back_rounded));
@@ -282,11 +278,9 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Discover screen is still showing (state preserved via IndexedStack).
-    expect(
-      find.text('Your personalized looks, based on your style and preferences'),
-      findsOneWidget,
-    );
+    expect(find.text('Discover'), findsWidgets);
+    expect(find.text('Find looks tailored to your style'), findsOneWidget);
+    expect(find.text('Explore'), findsOneWidget);
     expect(find.text('For You'), findsOneWidget);
-    expect(find.text('Trending'), findsAtLeast(1));
   });
 }

@@ -92,6 +92,19 @@ class ScriptedDiscoverRepository implements DiscoverRepository {
     detailRequests.add(lookId);
     return detailHandler!(lookId);
   }
+
+  final List<ForYouFeedResult> forYouQueue = [];
+  ForYouFeedResult forYouFallback = const ForYouFeedResult.failure(
+    DiscoverFailure.networkError,
+  );
+  final List<Map<String, Object?>> forYouRequests = [];
+
+  @override
+  Future<ForYouFeedResult> getForYouFeed({String? cursor, int? limit}) async {
+    forYouRequests.add({'cursor': cursor, 'limit': limit});
+    if (forYouQueue.isNotEmpty) return forYouQueue.removeAt(0);
+    return forYouFallback;
+  }
 }
 
 Widget discoverHarness(ScriptedDiscoverRepository repo) {
@@ -251,8 +264,11 @@ void main() {
       await tester.pumpWidget(discoverHarness(repo));
       await tester.pumpAndSettle();
       expect(find.text('Modern Minimalist'), findsNothing);
-      expect(find.text('For You'), findsNothing);
       expect(find.text('Trending'), findsNothing);
+      // The For You tab is real UI backed by GET /v1/looks/for-you
+      // (M12 P1) — not the dead forYouMock list: the tab exists while
+      // mock titles and the sourceless Trending tab do not.
+      expect(find.text('For You'), findsOneWidget);
     });
 
     testWidgets('tapping a card routes with the backend code', (

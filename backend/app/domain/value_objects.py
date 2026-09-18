@@ -77,6 +77,47 @@ class AppearanceProfile:
 
 
 @dataclass(frozen=True)
+class GarmentProfile:
+    """Observed garment attributes from a real garment image (M11).
+
+    Every attribute is either observed from the supplied pixels or None.
+    None means "not clearly visible" — never a guess, never a default.
+    ``category`` uses the canonical wardrobe category codes
+    (tops/bottoms/outerwear/footwear/accessories) or None.
+    Free-form attributes (subcategory/color/pattern/material/style/fit)
+    are short observed strings or None; mapping them onto the controlled
+    vocabularies happens at wardrobe-save time (user-confirmed, 422 on
+    unknown codes) — not here. ``sourceRunId`` is the producing run
+    (provenance, R-1).
+    """
+
+    category: str | None = None
+    subcategory: str | None = None
+    color: str | None = None
+    pattern: str | None = None
+    material: str | None = None
+    style: str | None = None
+    fit: str | None = None
+    confidence: float = 0.0
+    needs_review: bool = True
+    sourceRunId: str = ""
+
+    def to_snapshot(self) -> dict:
+        return {
+            "category": self.category,
+            "subcategory": self.subcategory,
+            "color": self.color,
+            "pattern": self.pattern,
+            "material": self.material,
+            "style": self.style,
+            "fit": self.fit,
+            "confidence": self.confidence,
+            "needs_review": self.needs_review,
+            "sourceRunId": self.sourceRunId,
+        }
+
+
+@dataclass(frozen=True)
 class HairstyleResult:
     """The immutable completed-run snapshot (TRX-5 `result`).
 

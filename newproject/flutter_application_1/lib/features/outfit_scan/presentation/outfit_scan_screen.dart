@@ -46,6 +46,13 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   // works from localhost. Mobile camera behavior is preserved.
   XFile? _selectedImage;
   Uint8List? _selectedImageBytes;
+
+  // Explicit upload stage: IDLE (nothing/selecting) → IMAGE_SELECTED
+  // (preview shown) → UPLOADING (buttons disabled) → navigates to
+  // processing on 202, or back to IMAGE_SELECTED with a real error.
+  // No fake percentages — indeterminate progress only.
+  bool _isUploading = false;
+  String? _statusMessage;
   bool get _isTestMode {
     final bindingType = WidgetsBinding.instance.runtimeType.toString();
     return bindingType.contains('TestWidgetsFlutterBinding');
@@ -217,10 +224,10 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
           mimeType: 'image/jpeg',
         );
         _selectedImageBytes = bytes;
+        // IMAGE_SELECTED: preview renders immediately; the user submits
+        // explicitly via Analyze Photo (no silent auto-upload).
+        _statusMessage = 'Photo selected';
       });
-
-      // Upload to backend immediately
-      await _uploadImageAndNavigate(context, _selectedImage!);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -236,18 +243,37 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     }
   }
 
-  Future<void> _uploadImageAndNavigate(
-    BuildContext context,
-    XFile imageFile,
-  ) async {
+  /// Submits the selected image (UPLOADING stage).
+  ///
+  /// Guarded against duplicate taps while a submit is in flight. Only
+  /// safe metadata is logged (byte length, filename, HTTP outcome,
+  /// elapsed time) — never image bytes or content.
+  Future<void> _submitSelected(BuildContext context) async {
+    final imageFile = _selectedImage;
+    if (imageFile == null || _isUploading) return;
+    setState(() {
+      _isUploading = true;
+      _statusMessage = 'Uploading photo…';
+    });
+    final stopwatch = Stopwatch()..start();
     try {
       final runId = await _client.submitOutfitAnalysis(imageFile);
 
       if (!context.mounted) return;
 
       if (runId != null) {
+        debugPrint(
+          'Outfit scan upload ok: '
+          'bytes=${_selectedImageBytes?.length ?? -1}, '
+          'run_id=$runId, elapsed_ms=${stopwatch.elapsedMilliseconds}',
+        );
         context.pushNamed(RouteNames.scanProcessing, extra: runId);
       } else {
+        if (!mounted) return;
+        setState(() {
+          _statusMessage =
+              'Upload failed. ${AppConfig.connectionHint}';
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Upload failed. ${AppConfig.connectionHint}'),
@@ -261,6 +287,9 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       }
     } catch (e) {
       if (!mounted) return;
+      setState(() {
+        _statusMessage = 'Upload error. ${AppConfig.connectionHint} ($e)';
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Upload error. ${AppConfig.connectionHint} ($e)'),
@@ -271,6 +300,16 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
           ),
         ),
       );
+    } finally {
+      stopwatch.stop();
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          if (_statusMessage == 'Uploading photo…') {
+            _statusMessage = 'Photo selected';
+          }
+        });
+      }
     }
   }
 
@@ -281,9 +320,11 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       return;
     }
 
+    if (_isUploading) return;
+
     if (_selectedImage != null) {
-      // Image already picked/gallery; the upload was already done in _pickImage
-      // Just navigate processing screen will poll with the run_id
+      // Gallery/camera image already selected: submit it explicitly.
+      await _submitSelected(context);
       return;
     }
 
@@ -291,6 +332,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     if (controller == null || !_controller!.value.isInitialized) {
       // Attempt re-init; but still keep flow if we fail to capture.
       await _initializeCamerasAndController();
+      if (!context.mounted) return;
       context.pushNamed(RouteNames.scanProcessing);
       return;
     }
@@ -303,7 +345,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       // Handles permission denied / unavailable via the outer CameraException
       // mapping; empty bytes are treated as a capture failure.
       final bytes = await xFile.readAsBytes();
-      if (!mounted) return;
+      if (!context.mounted) return;
       if (bytes.isEmpty) {
         context.pushNamed(RouteNames.scanProcessing);
         return;
@@ -311,12 +353,12 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       setState(() {
         _selectedImage = xFile;
         _selectedImageBytes = bytes;
+        // IMAGE_SELECTED: show the captured preview; submit explicitly.
+        _statusMessage = 'Photo selected';
       });
-
-      // Upload captured image to backend
-      await _uploadImageAndNavigate(context, xFile);
     } catch (e) {
       // If capture fails, still continue to existing processing flow.
+      if (!context.mounted) return;
       context.pushNamed(RouteNames.scanProcessing);
     }
   }
@@ -358,10 +400,16 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
                       children: [
                         const SizedBox(height: 8),
                         _buildCameraPreview(context),
+                        const SizedBox(height: 12),
+                        _buildStatusLine(context),
                         const SizedBox(height: 20),
                         _buildCheckRow(),
                         const SizedBox(height: 24),
                         _buildCaptureButton(context),
+                        if (_selectedImageBytes != null) ...[
+                          const SizedBox(height: 12),
+                          _buildAnalyzeButton(context),
+                        ],
                         const SizedBox(height: 12),
                         _buildSecondaryActions(context),
                         const SizedBox(height: 32),
@@ -671,11 +719,56 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     );
   }
 
+  /// Current upload-stage status (indeterminate — no fake percentages).
+  Widget _buildStatusLine(BuildContext context) {
+    final message = _statusMessage;
+    if (message == null) return const SizedBox.shrink();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_isUploading)
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        else
+          Icon(
+            _statusMessage == 'Photo selected'
+                ? Icons.check_circle_outline_rounded
+                : Icons.info_outline_rounded,
+            size: 16,
+            color: FansivibeColors.accentGold,
+          ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            message,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: FansivibeColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildCaptureButton(BuildContext context) {
     return FansiButton.primary(
-      label: 'Capture Photo',
+      label: _isUploading ? 'Uploading…' : 'Capture Photo',
       icon: Icons.camera_alt_rounded,
-      onPressed: () => _handleCapture(context),
+      onPressed: _isUploading ? null : () => _handleCapture(context),
+    );
+  }
+
+  /// Explicit submit for the selected image (IMAGE_SELECTED → UPLOADING).
+  Widget _buildAnalyzeButton(BuildContext context) {
+    return FansiButton.secondary(
+      label: _isUploading ? 'Uploading…' : 'Analyze Photo',
+      icon: Icons.auto_awesome_rounded,
+      onPressed: _isUploading ? null : () => _submitSelected(context),
     );
   }
 
@@ -686,7 +779,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
           child: FansiButton.secondary(
             label: 'Choose from Gallery',
             icon: Icons.photo_library_rounded,
-            onPressed: () => _pickImage(ImageSource.gallery),
+            onPressed: _isUploading ? null : () => _pickImage(ImageSource.gallery),
           ),
         ),
         const SizedBox(width: 12),
@@ -694,7 +787,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
           child: FansiButton.secondary(
             label: 'Switch Camera',
             icon: Icons.cameraswitch_rounded,
-            onPressed: _switchCamera,
+            onPressed: _isUploading ? null : _switchCamera,
           ),
         ),
       ],

@@ -14,7 +14,8 @@ GoRouter _freshHairstyleRouter() => GoRouter(
     GoRoute(
       path: '/',
       name: RouteNames.hairstyleResult,
-      builder: (_, __) => const HairstyleResultScreen(),
+      builder: (_, __) =>
+          const HairstyleResultScreen(result: HairstyleAnalysisResult.mock),
       routes: [
         GoRoute(
           path: 'details',
@@ -39,20 +40,20 @@ GoRouter _freshHairstyleRouter() => GoRouter(
 void main() {
   group('HairstyleResultScreen Widget Tests', () {
     testWidgets('renders app bar with title', (WidgetTester tester) async {
-      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen()));
+      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen(result: HairstyleAnalysisResult.mock)));
 
       expect(find.text('Hairstyle Results'), findsOneWidget);
       expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
     });
 
     testWidgets('renders header', (WidgetTester tester) async {
-      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen()));
+      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen(result: HairstyleAnalysisResult.mock)));
 
       expect(find.text('Your Style Profile'), findsOneWidget);
     });
 
     testWidgets('renders style profile section', (WidgetTester tester) async {
-      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen()));
+      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen(result: HairstyleAnalysisResult.mock)));
 
       expect(find.text('Style Profile'), findsOneWidget);
       expect(find.text('Oval'), findsOneWidget);
@@ -62,14 +63,14 @@ void main() {
     testWidgets('renders top recommendation section', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen()));
+      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen(result: HairstyleAnalysisResult.mock)));
 
       expect(find.text('Top Recommendation'), findsOneWidget);
       expect(find.text('Textured Quiff'), findsOneWidget);
     });
 
     testWidgets('renders alternative hairstyles', (WidgetTester tester) async {
-      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen()));
+      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen(result: HairstyleAnalysisResult.mock)));
 
       expect(find.text('Alternative Hairstyles'), findsOneWidget);
       expect(find.text('Classic Pompadour'), findsOneWidget);
@@ -78,13 +79,13 @@ void main() {
     });
 
     testWidgets('renders match percentage', (WidgetTester tester) async {
-      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen()));
+      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen(result: HairstyleAnalysisResult.mock)));
 
       expect(find.text('94%'), findsOneWidget);
     });
 
     testWidgets('renders action buttons', (WidgetTester tester) async {
-      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen()));
+      await tester.pumpWidget(MaterialApp(home: const HairstyleResultScreen(result: HairstyleAnalysisResult.mock)));
 
       expect(find.text('Try Another'), findsOneWidget);
       expect(find.text('Save Style'), findsOneWidget);
@@ -147,7 +148,10 @@ void main() {
       addTearDown(service.dispose);
       await tester.pumpWidget(
         MaterialApp(
-          home: HairstyleResultScreen(service: service),
+          home: HairstyleResultScreen(
+            result: HairstyleAnalysisResult.mock,
+            service: service,
+          ),
         ),
       );
 
@@ -169,7 +173,10 @@ void main() {
       addTearDown(service.dispose);
       await tester.pumpWidget(
         MaterialApp(
-          home: HairstyleResultScreen(service: service),
+          home: HairstyleResultScreen(
+            result: HairstyleAnalysisResult.mock,
+            service: service,
+          ),
         ),
       );
 
@@ -180,6 +187,24 @@ void main() {
 
       expect(service.saveCalls, 1);
       expect(find.text('Could not save hairstyle'), findsOneWidget);
+    });
+
+    testWidgets('null result shows an error, never mock content', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(home: const HairstyleResultScreen()),
+      );
+
+      expect(find.text('Hairstyle Results'), findsOneWidget);
+      expect(
+        find.text(
+          'No hairstyle analysis available. Please run a scan first.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Textured Quiff'), findsNothing);
+      expect(find.text('Oval'), findsNothing);
     });
   });
 }
