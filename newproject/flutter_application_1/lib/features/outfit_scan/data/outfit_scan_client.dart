@@ -58,7 +58,7 @@ class OutfitScanClient {
       final filename = imageFile.name.isNotEmpty
           ? imageFile.name
           : 'outfit_scan.jpg';
-      return submitOutfitAnalysisBytes(bytes, filename: filename);
+      return await submitOutfitAnalysisBytes(bytes, filename: filename);
     } catch (error) {
       debugPrint('Outfit scan backend unreachable during submit: $error');
       return null;

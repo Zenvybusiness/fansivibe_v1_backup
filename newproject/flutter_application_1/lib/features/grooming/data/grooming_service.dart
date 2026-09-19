@@ -127,7 +127,7 @@ class GroomingService extends ChangeNotifier {
         .map(
           (e) => e != null
               ? GroomingRecommendation.fromBackend(
-                  {'id': e['run_id'] as String?, 'name': e['run_type'] as String? ?? '', 'description': '', 'matchScore': 0.0, 'reasons': [], 'stylingTips': '', 'maintenance': '', 'bestFor': '', 'icon': null},
+                  {'id': e['run_id'] as String?, 'name': e['run_type'] as String? ?? '', 'description': '', 'matchScore': 0.0, 'reasons': <dynamic>[], 'stylingTips': '', 'maintenance': '', 'bestFor': '', 'icon': null},
                 )
               : const GroomingRecommendation(
                   id: '',

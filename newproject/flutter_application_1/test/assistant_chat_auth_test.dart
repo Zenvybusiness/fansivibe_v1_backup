@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -9,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/features/assistant/data/assistant_client.dart';
 import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/assistant/domain/assistant_service.dart';
-import 'package:fansivibe/features/assistant/presentation/widgets/assistant_widgets.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 
@@ -47,8 +45,8 @@ void main() {
             jsonEncode({
               'intent': 'greeting',
               'text': 'Hello from authenticated backend.',
-              'cards': [],
-              'clarifications': [],
+              'cards': <dynamic>[],
+              'clarifications': <dynamic>[],
             }),
             200,
             headers: {'content-type': 'application/json; charset=UTF-8'},
@@ -77,8 +75,8 @@ void main() {
           jsonEncode({
             'intent': 'chat',
             'text': 'OK',
-            'cards': [],
-            'clarifications': [],
+            'cards': <dynamic>[],
+            'clarifications': <dynamic>[],
           }),
           200,
           headers: {'content-type': 'application/json; charset=UTF-8'},
@@ -174,13 +172,6 @@ void main() {
         // P2-4 guarantee: offline fallback is truthfully marked offline
         expect(assistantMsg.isOffline, isTrue);
 
-        // Widget bubble verification
-        final widget = MaterialApp(
-          home: Scaffold(
-            body: MessageBubble(message: assistantMsg),
-          ),
-        );
-
         expect(assistantMsg.isOffline, isTrue);
       },
     );
@@ -196,8 +187,8 @@ void main() {
           jsonEncode({
             'intent': 'greeting',
             'text': 'Hello',
-            'cards': [],
-            'clarifications': [],
+            'cards': <dynamic>[],
+            'clarifications': <dynamic>[],
           }),
           200,
           headers: {'content-type': 'application/json; charset=UTF-8'},

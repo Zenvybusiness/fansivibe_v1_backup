@@ -31,7 +31,7 @@ void main() {
                   'maintenance': 'Wipe clean regularly',
                   'bestFor': 'Daily wear',
                 },
-                'alternatives': [],
+                'alternatives': <dynamic>[],
               },
             },
           ),

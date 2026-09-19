@@ -23,15 +23,6 @@ WardrobeEntry _toEntry(WardrobeItemData item) => WardrobeEntry(
   isFavorite: item.isFavorite,
 );
 
-WardrobeItemData _toItem(WardrobeEntry entry) => WardrobeItemData(
-  id: entry.id,
-  name: entry.name,
-  category: entry.category,
-  color: entry.color,
-  material: entry.material,
-  isFavorite: entry.isFavorite,
-);
-
 class WardrobeScreen extends StatefulWidget {
   /// Creates the wardrobe screen.
   ///

@@ -245,7 +245,6 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
     BuildContext context,
     Map<String, dynamic> topRecommendation,
   ) {
-    final id = topRecommendation['id'] as String?;
     final name = topRecommendation['name'] as String?;
     final description = topRecommendation['description'] as String?;
     final matchScore = (topRecommendation['matchScore'] ?? 0.0) as double;

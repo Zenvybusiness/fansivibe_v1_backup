@@ -290,7 +290,6 @@ class LearningService extends ChangeNotifier implements LearningRepository {
     );
   }
 
-  @override
   void removeItem(String itemId) {
     _mutate(
       () {

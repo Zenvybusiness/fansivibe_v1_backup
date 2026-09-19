@@ -27,7 +27,6 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
   late final OutfitScanClient _client;
   String? _runId;
   Map<String, dynamic>? _runStatus;
-  int _pollAttempts = 0;
   bool _isLoading = true;
   String? _errorMessage;
   Timer? _pollTimer;
@@ -159,7 +158,6 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
             ? 'Still analyzing — this can take a little longer on the first scan.'
             : 'Server returned ${result.statusCode}, retrying...';
         setState(() {
-          _pollAttempts = attempts;
           _errorMessage = message;
         });
       }

@@ -2,6 +2,161 @@
 
 ---
 
+## M14 P1.5 — TRENDING PROVIDER ACCESS, OFFICIAL-DOC VERIFICATION & CREDENTIAL READINESS (Audit & official-doc verification complete, zero prod changes, no migrations created, credentials NOT CONFIGURED, YouTube v3 + Google Trends BQ + Flipkart Affiliate + Amazon PA-API independently verified, Pinterest officially excludes India, Meta strictly non-commercial, TikTok unavailable/blocked, status: CONDITIONAL GO TO M14 P2 PENDING CREDENTIAL SETUP)
+
+- Scope: Completed independent official-document verification audit across 12 providers (YouTube Data API v3, Google Trends, Flipkart Affiliate, Amazon PA-API 5.0, Pinterest Trends, Instagram/Meta, TikTok, Myntra, Cuelinks, Rainforest, Heuritech, WGSN). Verified API availability, India regional support, legal constraints, image distribution terms, rate limits, and environment credential readiness. Zero production code, zero schema migrations, zero mock data, and zero committed secrets.
+- Current Status: `AUDIT & VERIFICATION COMPLETE — ZERO PRODUCTION CODE MODIFIED`.
+- Baseline Verification:
+  - Git Branch: `main`, commit `12bd5bfaf202f4c1297f81f3a6bc29f7494c3f0b`.
+  - Working Tree: Preserves all 17 existing user changes from M13 P1–P3. Zero git resets/checkouts.
+  - PostgreSQL 18.6: Active in container `fansivibe-postgres18`, Alembic revision `0022`, 20 authoritative tables. Migration 0023 intentionally NOT created.
+  - Test Baseline: Flutter 942/942 passed, 0 analyzer issues; backend 514 passed (DB-free suite).
+- Independent Official-Documentation Claim Verification:
+  - YouTube Data API v3: **VERIFIED** (10,000 quota units/day, `videos.list` = 1 unit, Category 26: Howto & Style in region `IN`, commercial display permitted with branding/attribution, max 30 calendar days caching under Developer Policies Section III.E).
+  - Google Trends (BigQuery): **VERIFIED** (`country_code='IN'`, daily partitions, 30-day TTL, commercial query permitted under standard GCP ToS; limited to top 25 overall country terms).
+  - Google Trends (API): **PARTIALLY VERIFIED** (Application-gated Alpha prioritizing research; not GA; pytrends unmaintained).
+  - Flipkart Affiliate API: **VERIFIED** (Active program, `Fk-Affiliate-Id`/`Fk-Affiliate-Token` headers, product search & feeds, 100% domestic India INR pricing/stock, direct CDN hot-linking permitted, asset self-hosting prohibited).
+  - Amazon.in PA-API 5.0: **VERIFIED** (Active API; requires 3 qualifying sales in 180 days to request credentials and ~10 sales in 30 days to maintain; direct CDN hot-linking permitted; server self-hosting strictly prohibited under Sec 4(n); 24h refresh mandate).
+  - Rainforest API: **VERIFIED** (Active commercial proxy scraper SaaS, explicitly supports `amazon.in`, entry plans $18–$66/mo; viable bootstrap fallback for Amazon.in SKUs before 3 sales).
+  - Pinterest Trends API: **CONTRADICTED / REGION EXCLUDED** (Official API enum for `/v5/trends/keywords/{region}/top` explicitly excludes India `IN`; returns error).
+  - Instagram Graph API: **VERIFIED / CONSTRAINED** (30 unique hashtags per rolling 7 days; cannot discover macro trends).
+  - Meta Content Library: **COMMERCIAL USE PROHIBITED** (Terms via ICPSR strictly limit use to non-commercial scientific/public research).
+  - TikTok Commercial / Research APIs: **UNAVAILABLE / BLOCKED** (Commercial API restricted to EU DSA; Research API academic only; domestic service blocked under Section 69A IT Act).
+  - Myntra: **CLOSED / VENDOR-ONLY** (No public developer or affiliate API; must use network link converters like Cuelinks).
+  - Cuelinks API: **VERIFIED FOR LINK MONETIZATION ONLY** (Active V3 API; explicitly does NOT provide product feeds or images).
+  - Heuritech & WGSN: **VERIFIED HIGH-COST ENTERPRISE** (€35k–$50k+/year sales-gated contracts; unfeasible for V1 bootstrapping).
+- Credential Readiness Audit:
+  - Checked `backend/.env`, `settings.py`, and local system environment.
+  - YouTube API: **NOT CONFIGURED**.
+  - Google Cloud / BigQuery: **NOT CONFIGURED**.
+  - Flipkart Affiliate: **NOT CONFIGURED**.
+  - Amazon Associates / PA-API: **NOT CONFIGURED**.
+  - All other external providers: **NOT CONFIGURED**.
+  - Live Access Tests: Blocked/halted cleanly due to unconfigured credentials; zero secrets exposed.
+- Image Rights Architecture:
+  - Zero-Binary Self-Hosting Rule verified compliant across Flipkart and Amazon affiliate policies (direct CDN hotlinking permitted, server self-hosting prohibited, 24h refresh).
+- Decision Gates:
+  - Trend Source: **PARTIAL** (Verified, awaiting GCP credentials).
+  - Product Source: **PARTIAL** (Verified, awaiting affiliate onboarding/credentials).
+  - Image Rights: **READY**.
+  - Commercial Rights: **READY**.
+  - India Support: **READY**.
+  - Credentials: **BLOCKED** (Not yet configured in deployment environment).
+  - Data Quality: **READY**.
+  - Architecture: **READY**.
+- Deliverable: Created `docs/architecture/TRENDING_PROVIDER_ACCESS_MATRIX.md`.
+- Authoritative Verdict: **CONDITIONAL GO — PROVIDER ACCESS STILL REQUIRED** (Prerequisites: provision GCP project API key and Flipkart/Amazon affiliate credentials).
+
+---
+
+## M14 P1 — TRENDING PROVIDER VALIDATION & ACCESS FEASIBILITY AUDIT (Audit & Research complete, zero prod changes, no migrations created, YouTube v3 + Google Trends BQ + Flipkart Affiliate + Amazon PA-API feasible, TikTok banned, Meta non-commercial, Pinterest lacks India, status: CONDITIONAL GO TO M14 P1.5)
+
+- Scope: Completed comprehensive feasibility audit and technical research on real external trend/social/search sources and commerce/product sources for Fansivibe. Zero production code, zero schema migrations, zero mock data, and zero fake popularity scores introduced.
+- Current Status: `AUDIT COMPLETE — IMPLEMENTATION NOT PERFORMED`.
+- Baseline Verification:
+  - Git Branch: `main`, commit `12bd5bfaf202f4c1297f81f3a6bc29f7494c3f0b`.
+  - Working Tree: Preserves all 17 existing user changes from M13 P1–P3. Zero git resets/checkouts.
+  - PostgreSQL 18.6: Active in container `fansivibe-postgres18`, Alembic revision `0022`, 20 authoritative tables. Migration 0023 intentionally NOT created.
+  - Test Baseline: Flutter 942/942 passed, 0 analyzer issues; backend 514 passed (DB-free suite).
+- Provider Feasibility Matrix Findings:
+  - Trend / Social Sources:
+    - YouTube Data API v3: **GREEN** (Category 26: Howto & Style, regionCode=IN, creator/content velocity, 10k quota free tier, commercial display with embed/attribution permitted).
+    - Google Trends (BigQuery Dataset / Alpha API): **YELLOW/GREEN** (Public search interest momentum in India geo=IN, zero images, keyword time-series only).
+    - Pinterest Trends API: **RED for India V1** (Region enum officially excludes `IN`; only US/CA/EU/LatAm/AU supported).
+    - TikTok: **RED** (Legally banned in India under Section 69A IT Act; Commercial Content API restricted to EU DSA research).
+    - Instagram Graph API: **RED** (Hashtag search strictly limited to 30 unique hashtags/7d, requires App Review, no trend discovery).
+    - Meta Content Library: **RED** (Legally restricted to academic non-commercial research; commercial apps strictly banned).
+    - Heuritech & WGSN: **YELLOW for Enterprise Roadmap / RED for V1** (€35k–$50k+/year enterprise sales-gated contracts).
+  - Commerce / Product Sources:
+    - Flipkart Affiliate API: **GREEN** (Domestic Indian leader, native INR prices, product feed & keyword search, explicit graphic image rights for affiliate sales promotion via direct CDN hot-linking).
+    - Amazon.in PA-API 5.0: **GREEN** (Qualified associates, Indian catalog, strict mandate to hot-link Amazon CDN images; local self-hosting prohibited).
+    - Cuelinks API: **GREEN** (Monetization & link conversion fallback for closed Indian fashion portals like Myntra/Ajio).
+    - Myntra Direct Developer API: **RED** (Closed to public/affiliate developers; vendor-only).
+- Rights & Architecture Decisions:
+  - Image Rights: Zero-binary self-hosting rule. Fansivibe backend stores direct CDN URLs only; client hot-links images directly with affiliate tracking and disclosure.
+  - Pluggable Adapters: Modular `TrendSource` and `ProductSource` design in `backend/app/trending/`.
+  - Batch Snapshot Pipeline: Daily ETL run at 02:00 IST producing immutable daily snapshot rows. Provider API costs do not scale with user volume.
+  - Database Specification: 5 tables designed (`trend_sources`, `trend_entities`, `trend_snapshots`, `trend_items`, `trend_products`). Schema ready for M14 P2.
+  - API & UI: Deterministic `GET /v1/trending` wire contract and Discover screen 4th tab with 65/35 card geometry, fail-closed empty/stale states, and "Style With My Wardrobe" bridge.
+- Deliverable: Created `docs/architecture/TRENDING_PROVIDER_VALIDATION.md` with all 24 required sections.
+- Decision Verdict: `CONDITIONAL GO TO M14 P1.5 — ACCESS / CREDENTIAL SETUP & LEGAL CLARIFICATION`.
+
+---
+
+## M13 P3 — FULL PRODUCTION READINESS VERIFICATION (Audit complete, implementation not performed, 942/942 Flutter test pass, 0 analyze issues, web build pass, PG 18.6 persistent, Alembic 0022, Qwen 2.5-VL:3B verified, Trending NOT IMPLEMENTED)
+
+- Scope: Completed exhaustive 23-point production-readiness verification and security audit across the entire Fansivibe frontend and backend stack. Verified zero production defects; zero code changes required or implemented.
+- Current Status: `AUDIT COMPLETE — IMPLEMENTATION NOT PERFORMED`.
+- Baseline Verification:
+  - Flutter Static Analysis: `flutter analyze` -> 0 issues found (0 errors, 0 warnings, 0 infos).
+  - Flutter Automated Tests: `flutter test` -> 942 passed, 0 failed across all test files.
+  - Flutter Web Build: `flutter build web` -> Built successfully (`build\web` ready).
+  - Backend Unit Tests: 514 passed (DB-free suite), 536 skipped safely via `FANSIVIBE_TEST_DATABASE_URL` safeguard to prevent TRUNCATE against persistent database.
+  - Live Backend HTTP Verification: 75/75 tests passed against port 8000 across all 9 operational groups (Auth, Wardrobe, Looks, For You, Outfits, Today, Feedback, Wears/Events, Analysis).
+  - Live AI Inference: Real Qwen 2.5-VL:3B local inference on real portrait and denim shirt imagery verified. Face scan completed with oval face shape; garment scan completed with `category=tops, color=blue, material=denim, confidence=0.90, needs_review=False`. Fail-closed honest negative tests verified on vegetable still life (`no_face_detected` and `no_garment_detected`).
+  - Database Integrity & Persistence: PostgreSQL 18.6 in container `fansivibe-postgres18` verified at Alembic revision `0022`. Exactly 20 authoritative tables. Zero orphaned records across all foreign-key relationships. Safe container restart executed: volume persisted 100% of data (59 users, 29 wardrobe items, 35 analysis runs, 4 saved looks, 7 user events, 6 wear events).
+  - Mock Audit: 0 `NetworkImage` in Flutter `lib/`. Mocks (`trendingMock`, `forYouMock`) remain isolated in dead/unreachable files. Offline assistant clearly labeled in UI and grounded in user context.
+  - Discover & Trending: Discover screen isolated into 3 honest buckets: Explore (`GET /v1/looks`), For You (`GET /v1/looks/for-you`), Clothes (`GET /v1/wardrobe/items`). Trending remains strictly absent, unbacked by any source, and `NOT IMPLEMENTED`.
+  - Security & Privacy: Bcrypt `$2b$12$` password hashing verified; zero plaintext secrets in DB or logs; `ErrorSanitizer` and `_sanitize_log_message` actively redact tokens and secrets; image bytes ephemeral in memory and never written to public web paths; strict `OW-1` multi-tenant user isolation verified on all routes.
+  - Git Safety: Zero git reset, restore, or checkout executed; zero user working-tree modifications discarded; all diffs preserved.
+
+---
+
+## M13 P2 — REAL TRENDING ARCHITECTURE / SOURCE DECISION (Design & Audit only, Trending source: NOT AVAILABLE, zero prod changes, status: NOT IMPLEMENTED)
+
+- Scope: Completed comprehensive architectural audit and design decision document for a real Fansivibe Trending feature. Rigorously verified that no legitimate trend data source exists today. Zero production code, zero migrations, zero fake mock data, and zero contract changes introduced.
+- Authoritative Finding: `Trending source: NOT AVAILABLE`.
+- Implementation Status: `NOT IMPLEMENTED`.
+- Current-State Audit:
+  - Discover: 3 verified, honest buckets: Explore (`GET /v1/looks`, 8-row knowledge catalog), For You (`GET /v1/looks/for-you`, saved-look boosted catalog), Clothes (`GET /v1/wardrobe/items`, owner-persisted wardrobe).
+  - Data Classification: 100% of user data (wardrobe, wears, events, feedback, saved looks, analysis photos) is user-private (`OW-1` tenant boundary). No public or cross-user aggregation pipeline exists. `isTrending` remains an explicitly banned key in Discover schemas and use cases.
+  - Providers & Infrastructure: Local Ollama (Qwen 2.5-VL:3B) only. Zero third-party trend/fashion/social APIs, zero cron/background jobs, zero public CDN image hosting.
+- Architecture Decision Deliverable:
+  - Created `docs/architecture/TRENDING_ARCHITECTURE_DECISION.md` containing all 16 required sections: Executive Summary, Current-State Audit, Semantic Definition of Trending, Supported Entity Feasibility Matrix, Real Data Source Audit, External Trend-Source Model (Model A), Fansivibe Behavioral Aggregation Model (Model B), Proposed `GET /v1/trending` Backend Wire Contract, Proposed Database Schema (`trend_snapshots`, `trend_items`), Flutter UI Architecture (isolated screen-local bucket, 65/35 card rule), Failure / Empty / Unavailable State Behaviors, Security & Anti-Sybil Integrity ($N \ge 50$ unique users, 1-vote cap), Privacy Boundaries (K-anonymity, zero user photos/names), Product Decisions Required (7 key decisions), Implementation Blockers (5 hard blockers), and Recommended Next Engineering Phase.
+- Safety Verification:
+  - Zero destructive database operations. PostgreSQL 18.6 and Alembic 0022 completely untouched.
+  - Zero fake mocks (`trendingMock`) or synthetic popularity scores created.
+  - Zero API contracts modified; M11 and M12 production behavior 100% preserved.
+  - Zero git reset, checkout, or discard commands executed.
+
+---
+
+## M13 P1 — FLUTTER ANALYZER CLEANUP (0 analyze issues, 942/942 test pass, web build pass, zero prod behavior changes)
+
+- Scope: Resolved all 32 analyzer issues (29 warnings, 3 infos, 0 errors) to achieve a completely clean `flutter analyze` (0 issues found) without broad ignores, without silencing linter rules, and without changing product behavior.
+- Analyzer Status:
+  - `flutter analyze`: No issues found! (0 errors, 0 warnings, 0 infos).
+  - `flutter test`: 942 passed, 0 failed across all test suites.
+  - `flutter build web`: Built successfully (`build\web` ready).
+- Production Changes (10 files):
+  1. `lib/features/assistant/data/offline_assistant.dart`: Removed unused import `package:fansivibe/features/learning/data/models.dart`.
+  2. `lib/features/assistant/presentation/widgets/outfit_recommendation_card.dart`: Removed unused optional `super.key` from private constructor `_OutfitRecommendationCardView`; removed redundant `.toList()` in spread operator.
+  3. `lib/features/grooming/data/grooming_service.dart`: Added explicit `<dynamic>[]` type argument to `'reasons'` collection literal in `listRuns()` mapping.
+  4. `lib/features/learning/domain/learning_service.dart`: Removed incorrect `@override` annotation from `removeItem` (method is present on service but not part of public `LearningRepository` abstract interface).
+  5. `lib/features/outfit_scan/data/outfit_scan_client.dart`: Added `await` to `submitOutfitAnalysisBytes` call inside `try` block of `submitOutfitAnalysis` to ensure asynchronous rejections are caught by the error handler.
+  6. `lib/features/outfit_scan/presentation/outfit_analysis_screen.dart`: Removed unused local variable `id` in `_buildRecommendationCard`.
+  7. `lib/features/outfit_scan/presentation/outfit_processing_screen.dart`: Removed unused private field `_pollAttempts` and its write-only assignment.
+  8. `lib/features/wardrobe/presentation/wardrobe_item_details_screen.dart`: Removed unused private field `_errorMessage` and its write-only assignments; migrated deprecated `value` parameter to `initialValue` on `DropdownButtonFormField`; removed unused local variable `theme` in `_buildContent`; removed unreferenced private helper `_categoryIcon`.
+  9. `lib/features/wardrobe/presentation/wardrobe_screen.dart`: Removed unreferenced private helper function `_toItem`.
+  10. `lib/shared/analytics/analytics_service.dart`: Replaced redundant private field and trivial getter/setter pair with direct public field `bool experimentMode = true`.
+- Test Changes (6 files):
+  1. `test/assistant_chat_auth_test.dart`: Added `<dynamic>[]` type arguments to collection literals; removed unused `widget` local variable; removed unused `material.dart` and `assistant_widgets.dart` imports.
+  2. `test/assistant_offline_labeling_test.dart`: Added `<dynamic>[]` type arguments to collection literals.
+  3. `test/learning_service_test.dart`: Removed unused `item2` local variable.
+  4. `test/outfit_analysis_screen_test.dart`: Added `<dynamic>[]` type argument to `alternatives` collection literal.
+  5. `test/support/controllable_hairstyle_service.dart`: Added `<dynamic>[]` type arguments to `alternatives` collection literals.
+  6. `test/wardrobe_client_test.dart`: Added `<dynamic>[]` type arguments to `items` collection literals.
+- Safety Audit:
+  - Zero git reset, checkout, or discard commands executed.
+  - Zero destructive database operations.
+  - Zero API contracts modified.
+  - Zero mock or fake production data introduced.
+  - M11/M12 contracts and functionality completely intact.
+  - Trending untouched.
+
+---
+
+
 ## FLUTTER TEST BASELINE CLEANUP — 100% TEST SUITE PASSING (942 passed, 0 failed, 32 analyze issues, 0 errors, web build pass)
 
 - Scope: Brought the Fansivibe Flutter test suite from 886 passed / 56 failed to 100% clean baseline (942 passed, 0 failed) without changing working production behavior merely to satisfy obsolete tests.

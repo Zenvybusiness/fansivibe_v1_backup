@@ -70,7 +70,6 @@ class _WardrobeItemDetailsScreenState
   String? _newColor;
   String? _newMaterial;
   bool? _newFavorite;
-  String? _errorMessage;
   bool _canEdit = true;
 
   @override
@@ -114,15 +113,11 @@ class _WardrobeItemDetailsScreenState
 
   Future<void> _saveChanges() async {
     if (!_formKey.currentState!.validate()) {
-      setState(() {
-        _errorMessage = 'Please fix the validation errors.';
-      });
       return;
     }
 
     setState(() {
       _canEdit = false;
-      _errorMessage = null;
     });
 
     // Build WardrobeItemPatch with only the fields that changed
@@ -183,7 +178,6 @@ class _WardrobeItemDetailsScreenState
       } else {
         // API failure
         setState(() {
-          _errorMessage = 'Failed to update item. Please try again.';
           _canEdit = true;
         });
       }
@@ -191,7 +185,6 @@ class _WardrobeItemDetailsScreenState
       // Network/error failure
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Failed to update item. Please check your connection.';
         _canEdit = true;
       });
     }
@@ -248,7 +241,6 @@ ScaffoldMessenger.of(context).showSnackBar(
       } else {
         // API failure or item already deleted
         setState(() {
-          _errorMessage = 'Failed to delete item. Please try again.';
           _isDeleting = false;
         });
         if (!mounted) return;
@@ -266,7 +258,6 @@ ScaffoldMessenger.of(context).showSnackBar(
       // Network/error failure
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Failed to delete item. Please check your connection.';
         _isDeleting = false;
       });
       if (!mounted) return;
@@ -400,7 +391,7 @@ ScaffoldMessenger.of(context).showSnackBar(
 
             // Category field
             DropdownButtonFormField<String>(
-              value: _newCategory,
+              initialValue: _newCategory,
               decoration: InputDecoration(
                 labelText: 'Category',
                 border: OutlineInputBorder(
@@ -645,8 +636,6 @@ ScaffoldMessenger.of(context).showSnackBar(
   }
 
   Widget _buildContent(BuildContext context) {
-    final theme = Theme.of(context);
-
     if (_isLoading) {
       return _buildLoadingScreen(context);
     }
@@ -704,24 +693,6 @@ ScaffoldMessenger.of(context).showSnackBar(
         ),
       ],
     );
-  }
-
-  IconData _categoryIcon(String? iconName) {
-    if (iconName == null) return Icons.category_rounded;
-    switch (iconName) {
-      case 'checkroom_rounded':
-        return Icons.checkroom_rounded;
-      case 'person_rounded':
-        return Icons.person_rounded;
-      case 'accessibility_rounded':
-        return Icons.accessibility_rounded;
-      case 'directions_walk_rounded':
-        return Icons.directions_walk_rounded;
-      case 'diamond_rounded':
-        return Icons.diamond_rounded;
-      default:
-        return Icons.category_rounded;
-    }
   }
 
   Color _colorFromName(String colorName) {

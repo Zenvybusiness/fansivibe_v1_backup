@@ -1,7 +1,6 @@
 import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
-import 'package:fansivibe/features/learning/data/models.dart';
 
 /// A single outfit suggestion mirroring `backend/app/data/catalog.py`.
 class _LookCard {

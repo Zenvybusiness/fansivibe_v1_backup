@@ -53,7 +53,7 @@ void main() {
           expect(request.headers['Authorization'], 'Bearer dev');
           return http.Response(
             jsonEncode({
-              'items': [],
+              'items': <dynamic>[],
               'page': 1,
               'page_size': 20,
               'total': 0,
@@ -77,7 +77,7 @@ void main() {
           expect(request.url.queryParameters['order'], 'desc');
           return http.Response(
             jsonEncode({
-              'items': [],
+              'items': <dynamic>[],
               'page': 1,
               'page_size': 20,
               'total': 0,
@@ -99,7 +99,7 @@ void main() {
           expect(request.url.queryParameters['page_size'], '50');
           return http.Response(
             jsonEncode({
-              'items': [],
+              'items': <dynamic>[],
               'page': 2,
               'page_size': 50,
               'total': 5,

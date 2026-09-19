@@ -113,8 +113,8 @@ void main() {
         final liveReplyJson = jsonEncode({
           'intent': 'greeting',
           'text': 'Live backend stylist response.',
-          'cards': [],
-          'clarifications': [],
+          'cards': <dynamic>[],
+          'clarifications': <dynamic>[],
         });
 
         final mockHttpClient = MockClient((request) async {
@@ -174,8 +174,8 @@ void main() {
         final liveReplyJson = jsonEncode({
           'intent': 'greeting',
           'text': 'Fresh backend AI response.',
-          'cards': [],
-          'clarifications': [],
+          'cards': <dynamic>[],
+          'clarifications': <dynamic>[],
         });
 
         final mockHttpClient = MockClient((request) async {

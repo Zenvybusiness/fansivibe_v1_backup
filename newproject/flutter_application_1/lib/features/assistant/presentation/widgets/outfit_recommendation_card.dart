@@ -84,7 +84,6 @@ class _OutfitRecommendationCardView extends StatefulWidget {
     required this.wardrobeItems,
     this.onSave,
     this.initialSaved = false,
-    super.key,
   });
 
   final OutfitIntelligence outfitIntelligence;
@@ -282,7 +281,7 @@ class _OutfitRecommendationCardViewState
                 ),
             ],
           );
-        }).toList(),
+        }),
       ],
     );
   }

@@ -19,13 +19,7 @@ class AnalyticsService {
   /// When [isExperimentMode] is false, experiment events are no-ops.
   /// This flag allows the client to disable experiment tracking when using
   /// mock data, preventing contamination of experimental observations.
-  bool _experimentMode = true;
-
-  set experimentMode(bool value) {
-    _experimentMode = value;
-  }
-
-  bool get experimentMode => _experimentMode;
+  bool experimentMode = true;
 
   /// Subscription handlers for each event type.
   ///
@@ -51,7 +45,7 @@ class AnalyticsService {
       // the result came from offline mock data.
       return;
     }
-    if (!_experimentMode) {
+    if (!experimentMode) {
       return;
     }
     for (final handler in _handlers) {
@@ -222,11 +216,11 @@ class AnalyticsService {
   /// Disable experiment event dispatching. Used when operating in mock-only
   /// mode to prevent mock data from contaminating experimental observations.
   void disableExperimentMode() {
-    _experimentMode = false;
+    experimentMode = false;
   }
 
   /// Re-enable experiment event dispatching.
   void enableExperimentMode() {
-    _experimentMode = true;
+    experimentMode = true;
   }
 }

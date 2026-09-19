@@ -47,7 +47,7 @@ class ControllableHairstyleService extends HairstyleService {
           'maintenance': '',
           'bestFor': '',
         },
-        'alternatives': [],
+        'alternatives': <dynamic>[],
       },
     });
     completeWith(real);
@@ -81,7 +81,7 @@ class ControllableHairstyleService extends HairstyleService {
       'appearance': {'faceShape': 'Oval'},
       'recommendations': {
         'top': {'id': 'textured_quiff', 'name': 'Textured Quiff'},
-        'alternatives': [],
+        'alternatives': <dynamic>[],
       },
     });
     completeWith(real);

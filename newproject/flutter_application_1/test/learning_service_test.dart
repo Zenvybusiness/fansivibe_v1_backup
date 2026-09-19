@@ -117,13 +117,6 @@ void main() {
         color: 'Charcoal',
         isFavorite: true,
       );
-      final item2 = WardrobeEntry(
-        id: '2',
-        name: 'Linen Button-Down',
-        category: 'tops',
-        color: 'White',
-      );
-
       // The default wardrobe already has item '1', so we can update it
       LearningService.instance.updateItem('1', item1);
       expect(LearningService.instance.wardrobe.length, 24);
