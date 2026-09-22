@@ -1,0 +1,81 @@
+{
+    "$id": "https://fansivibe.local/ffo/v1/jewelry.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": true,
+    "description": "FFO v1.0 jewelry. Extensible.",
+    "properties": {
+        "finish": {
+            "type": "string"
+        },
+        "formality": {
+            "type": "string"
+        },
+        "metal": {
+            "type": "string"
+        },
+        "provenance": {
+            "$ref": "#/$defs/provenance"
+        },
+        "scale": {
+            "type": "string"
+        },
+        "stone": {
+            "type": "string"
+        },
+        "style": {
+            "type": "string"
+        },
+        "subcategory": {
+            "description": "E.g. necklace, hoops, bangle, ring, brooch.",
+            "type": "string"
+        }
+    },
+    "required": [
+        "subcategory"
+    ],
+    "title": "FFO Jewelry",
+    "type": "object",
+    "$defs": {
+        "provenance": {
+            "additionalProperties": true,
+            "properties": {
+                "confidence": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "created_at": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "source_type": {
+                    "enum": [
+                        "AUTHORITATIVE",
+                        "PROFESSIONAL",
+                        "INDUSTRY",
+                        "COMMUNITY",
+                        "INFERRED",
+                        "MODEL_GENERATED"
+                    ],
+                    "type": "string"
+                },
+                "updated_at": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "verified_at": {
+                    "format": "date-time",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "type": "object"
+        }
+    },
+    "x-ffo-version": "1.0"
+}

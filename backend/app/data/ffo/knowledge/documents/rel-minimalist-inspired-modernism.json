@@ -1,0 +1,17 @@
+{
+    "doc_id": "rel-minimalist-inspired-modernism",
+    "doc_type": "relationship",
+    "language": "en",
+    "object": "modernism",
+    "provenance": {
+        "confidence": 0.6,
+        "source": "FFO Seed v0.1 curation",
+        "source_type": "AUTHORITATIVE"
+    },
+    "published_at": "2026-09-21T00:00:00+00:00",
+    "rel_type": "INSPIRED_BY",
+    "retrieved_at": "2026-09-21T00:00:00+00:00",
+    "status": "reviewed",
+    "subject": "minimalist",
+    "version": 1
+}

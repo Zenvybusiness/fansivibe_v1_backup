@@ -289,3 +289,67 @@ class KnowledgeItemReferenceList {
     'total': total,
   };
 }
+
+/// One FFO foundation schema summary (`GET /v1/knowledge/ffo`).
+class FfoSchemaSummary {
+  const FfoSchemaSummary({required this.name, required this.title});
+
+  final String name;
+  final String title;
+
+  FfoSchemaSummary copyWith({String? name, String? title}) =>
+      FfoSchemaSummary(name: name ?? this.name, title: title ?? this.title);
+
+  factory FfoSchemaSummary.fromJson(Map<String, dynamic> json) =>
+      FfoSchemaSummary(
+        name: json['name'] as String,
+        title: json['title'] as String,
+      );
+
+  Map<String, dynamic> toJson() => {'name': name, 'title': title};
+}
+
+/// Offset envelope for `GET /v1/knowledge/ffo`.
+class FfoSchemaList {
+  const FfoSchemaList({
+    required this.items,
+    required this.page,
+    required this.pageSize,
+    required this.total,
+  });
+
+  final List<FfoSchemaSummary> items;
+  final int page;
+  final int pageSize;
+  final int total;
+
+  factory FfoSchemaList.fromJson(Map<String, dynamic> json) => FfoSchemaList(
+    items: (json['items'] as List<dynamic>? ?? const [])
+        .map((e) => FfoSchemaSummary.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    page: json['page'] as int? ?? 1,
+    pageSize: json['page_size'] as int? ?? 20,
+    total: json['total'] as int? ?? 0,
+  );
+
+  bool get isEmpty => items.isEmpty;
+
+  FfoSchemaList copyWith({
+    List<FfoSchemaSummary>? items,
+    int? page,
+    int? pageSize,
+    int? total,
+  }) => FfoSchemaList(
+    items: items ?? this.items,
+    page: page ?? this.page,
+    pageSize: pageSize ?? this.pageSize,
+    total: total ?? this.total,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'items': items.map((e) => e.toJson()).toList(),
+    'page': page,
+    'page_size': pageSize,
+    'total': total,
+  };
+}

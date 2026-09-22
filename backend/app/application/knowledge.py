@@ -18,7 +18,8 @@ Sources (one per datum, never duplicated):
 
 from __future__ import annotations
 
-from app.api.errors import validation
+from app.api.errors import not_found, validation
+from app.data import ffo as ffo_data
 from app.domain.ports.repositories import VocabularyRepository
 
 
@@ -149,3 +150,33 @@ class ListKnowledgeItems:
         _check_pagination(page=page, page_size=page_size)
         rows = self._knowledge.retrieve_item_references()
         return _paginate(list(rows), page=page, page_size=page_size)
+
+
+class ListFfoSchemas:
+    """FFO schema index — `GET /v1/knowledge/ffo` (additive FFO read).
+
+    Serves the 26 foundation schema names + titles from the file-backed
+    FFO package (K9.1 versioned config, no DB). Deterministic
+    `SCHEMA_NAMES` order, never user data.
+    """
+
+    def __call__(self, *, page: int, page_size: int) -> tuple[list[dict], int]:
+        _check_pagination(page=page, page_size=page_size)
+        rows = [
+            {"name": name, "title": ffo_data.load_schema(name).get("title", name)}
+            for name in ffo_data.list_schemas()
+        ]
+        return _paginate(rows, page=page, page_size=page_size)
+
+
+class GetFfoSchema:
+    """FFO schema body — `GET /v1/knowledge/ffo/{name}` (additive FFO read).
+
+    Returns the checked-in JSON Schema verbatim. Unknown names fail
+    closed with 404 (OW-neutral public read; never a guess, never empty).
+    """
+
+    def __call__(self, *, name: str) -> dict:
+        if name not in ffo_data.list_schemas():
+            raise not_found()
+        return ffo_data.load_schema(name)

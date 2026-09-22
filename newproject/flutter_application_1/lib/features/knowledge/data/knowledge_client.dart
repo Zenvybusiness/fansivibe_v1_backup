@@ -171,4 +171,59 @@ class KnowledgeClient {
     }
     return null;
   }
+
+  /// Fetches the FFO foundation schema index (`GET /v1/knowledge/ffo`).
+  ///
+  /// Returns the [FfoSchemaList] on 200, or null when unavailable.
+  Future<FfoSchemaList?> listFfoSchemas({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    try {
+      final response = await _client
+          .get(
+            _uri('/v1/knowledge/ffo', page: page, pageSize: pageSize),
+            headers: _headers,
+          )
+          .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return FfoSchemaList.fromJson(decoded);
+      }
+      debugPrint(
+        'Knowledge ffo responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Knowledge backend unreachable during ffo list: $error');
+    }
+    return null;
+  }
+
+  /// Fetches one FFO foundation schema verbatim (`GET /v1/knowledge/ffo/{name}`).
+  ///
+  /// Returns the raw schema JSON on 200, or null when unavailable —
+  /// including the honest 404 for unknown names and empty names, which
+  /// never leave the client.
+  Future<Map<String, dynamic>?> getFfoSchema(String name) async {
+    if (name.isEmpty) return null;
+    try {
+      final response = await _client
+          .get(
+            Uri.parse('$baseUrl/v1/knowledge/ffo/$name'),
+            headers: _headers,
+          )
+          .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+      debugPrint(
+        'Knowledge ffo/$name responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Knowledge backend unreachable during ffo get: $error');
+    }
+    return null;
+  }
 }

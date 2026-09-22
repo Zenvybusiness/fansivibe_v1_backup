@@ -1,0 +1,1 @@
+{"policy": "Model-generated knowledge must NOT automatically become authoritative knowledge.", "provenance_fields": ["confidence", "source", "source_type", "created_at", "updated_at", "verified_at"], "source_classes": ["AUTHORITATIVE", "PROFESSIONAL", "INDUSTRY", "COMMUNITY", "INFERRED", "MODEL_GENERATED"], "x-ffo-version": "1.0"}

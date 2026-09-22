@@ -1,0 +1,1 @@
+{"doc_id": "rel-denim-made-from-cotton", "doc_type": "relationship", "language": "en", "object": "cotton", "provenance": {"confidence": 0.9, "source": "FFO Seed v0.1 curation", "source_type": "AUTHORITATIVE"}, "published_at": "2026-09-21T00:00:00+00:00", "rel_type": "MADE_FROM", "retrieved_at": "2026-09-21T00:00:00+00:00", "status": "published", "subject": "denim", "version": 1}

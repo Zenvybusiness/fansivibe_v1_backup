@@ -2,6 +2,202 @@
 
 ---
 
+## PHASE 3F IMPLEMENTATION — 3F-A ID NAMESPACE + 3F-B CORPUS DIGEST (contract 2.0)
+
+- 3F-A (serialization only, contract stayed 1.0): `Valid evidence IDs:` inventory + explicit `ID:/Type:/Label:/FFO refs:/Confidence:/Retrieved:/Source:/Status:/knowledge:` blocks; brackets verified to occur ONLY around IDs over all 76 corpus docs (no corpus string value contains brackets; renderers emit parens/braces only). Validator, contract, retrieval, benchmark untouched. New `test_evidence_id_namespace.py` 11/11.
+- 3F-A benchmark (`2026-09-22T06:04:00Z`, raw temp `baseline_3fa_results.json`): 0/25 evaluable — 22 schema, 3 evidence-ref. No evaluability gain; evidence-ref count fell only because more cases survived to the versions gate. Honest verdict: namespace alone did not unblock this model.
+- 3F-B (contract 1.0→2.0): ONE authoritative `corpus_digest()` in `ffo_reasoning.py` (SHA-256 stdlib over canonical `{"corpus": [{doc_id,version} sorted], "ffo_version"}`, sort_keys+compact separators); `ReasoningVersions.corpus_versions` map → `corpus_digest` full-hex string; `_parse_versions` enforces 64-hex, rejects legacy `corpus_versions` (never converts), pins contract 2.0; `evidence_schema` stays `evidence-pack/1`, `EvidencePack` untouched. Prompt echoes one short digest (verified server-side: input built + output compared, exact match). Fixtures in 6 test files moved to digest shape; new `test_corpus_digest.py` 7/7 (determinism, order-independence, FFO/version binding, bad-shape/old-map/hex/contract rejection, round-trip + tamper).
+- 3F-B benchmark (`2026-09-22T06:25:20Z`, same model/config/pins except contract 2.0, raw temp `baseline_3fb_results.json`): **14/25 evaluable, 2 full passes** (`anx-volume-balance`, `cmp-cotton-linen`). Schema failures 20→0 (`version_preservation` 14/14). Remaining: 10 evidence-reference `invalid_output` (model invents FFO refs — `alias-wine`, `term-burgundy`, comma-mashed `fitted-top, garment` fragments) + 1 empty `evidence_ids` (`ins-kimono-sizing`) + 1 `malformed_json` (`uns-sneaker-prices`); 12 evaluable-but-failed on reasoning metrics (precision/recall/FFO correctness). Zero transport (HTTP) or retrieval failures.
+- 3F-B metrics over n=14 evaluable (separable, no single score): intent 1.000 (14/14), grounding 1.000 (14/14), evidence_precision 0.714 (6/14), evidence_recall 0.929 (12/14), ffo_correctness 0.540 (2/14), unsupported 1.000, missing 0.929 (13/14), contradiction 0.929 (13/14), uncertainty 0.929 (13/14), constraint 1.000, version 1.000.
+- Comparison: 3D 0/25 (20 schema/5 evid-ref) → 3F-A 0/25 (22/3, contract 1.0) → 3F-B 14/25 evaluable, schema failures eliminated. Improvement claimed ONLY for 3F-B and only as measured. Dominant remaining failure is FFO-reference invention — next phase should target FFO-ref grounding, not versions or IDs.
+- Reproducibility: model `qwen2.5vl:3b` digest `fb90415c…`, Ollama 0.34.2, temp 0.0, timeout 120s, retries 1, json mode; benchmark 1.0, FFO 1.0, seed-v0.1, evidence-schema evidence-pack/1; contracts: 3F-A 1.0 / 3F-B 2.0; lexical retrieval per-case filters.
+- Regression: full backend 676 passed / same 6 pre-existing `test_analysis_use_case.py` failures / 537 skipped; `git diff --check` clean. Stop condition met.
+
+---
+
+## PHASE 3F EVIDENCE CONTRACT REVIEW (design only — zero code changes)
+
+- Correction to the brief: `evidence_schema` (`"evidence-pack/1"`) is a static identity string, NOT 76 entries. The 76-entry map is `corpus_versions` (`{doc_id: version}`) inside `ReasoningVersions`. Both ride the model-echoed pins; only the map is large.
+- Finding A: the 76-entry map is per-doc integrity + corpus identity (membership by key, version by value); `ffo_version` = ontology identity, `evidence_schema` = schema identity, `reasoning_contract_version` = contract identity. Nothing validates map completeness (`_parse_versions` is shape-only); the enforced guarantee is input==output pin equality + evaluator `version_preservation`. A digest (sha256 over canonical sorted `{doc_id,version}` + `ffo_version`, stdlib `hashlib`, verified server-side against the live corpus, not just input==output) preserves and strengthens this — full report §3.
+- Finding B: serialization lets prose mimic IDs — knowledge text cited as ID, `alias-wide_leg_jeans` blended from label/alias patterns, bare `knowledge` cited, `ffo_refs` given doc_id-style strings. Proposed machine-ID namespace: square brackets reserved EXCLUSIVELY for evidence IDs (content rendering already emits none) + a `Valid evidence IDs:` inventory line; serialization-only, no contract change — full report §5.
+- Compat: digest change ⇒ contract bump required (old inputs with `corpus_versions` map invalid under new shape); ID-namespace change ⇒ no bump (prompt/serialization only, validator untouched). Integrity guarantees preserved or strengthened; nothing weakened for model convenience.
+- Full 11-section design report delivered in chat (no files modified, no benchmark rerun). Next: await approval to implement digest and/or ID-namespace in that order.
+
+---
+
+## PHASE 3E STRUCTURED OUTPUT HARDENING (prompt-only, validation untouched)
+
+- Diagnosis (Task A, from 3D raw outputs): 20× model echoed `versions` with only `ffo_version`+`corpus_versions`, dropping `evidence_schema`/`reasoning_contract_version` (verified raw on `exp-denim-textile`); 5× bad `evidence_ids` — 2× full knowledge text cited as ID, 1× alias string, 1× non-string list, 1× empty list. Contract, retrieval, corpus, evaluator left unchanged.
+- Exact prompt/adapter changes (`backend/app/ai/reasoning_prompt.py` ONLY — no validator, contract, retrieval, or benchmark edits): (1) system prompt +3 rules — ONLY one JSON object; copy evidence_ids character-for-character from square-bracketed IDs, never knowledge text/labels/statements; echo versions with all four keys unchanged (all pre-existing 3C sentences kept verbatim); (2) section C header line — IDs are the bracketed IDs only; (3) section D — echo versions exactly/all-four-keys + evidence_ids only from section C; (4) removed doubled `knowledge: knowledge:` prefix on term lines (single `knowledge:` now; the cited-as-ID text the model copied). No second schema, no auto-repair, no validator weakening.
+- Tests: new `backend/tests/test_ollama_prompt_hardening.py` 10/10, no Ollama (prompt-rule pins ×3, valid-IDs-with-content pass, knowledge-text-as-ID/unknown/duplicate rejected, evidence_schema exactness, max_conclusions, malformed_json). 3A contract tests untouched.
+- Phase 3E benchmark (same 25 cases, same pipeline/config, timestamp `2026-09-22T01:54:06Z`; raw: `Temp/opencode/baseline_3e_results.json`, temp only): 0/25 evaluable — 20 output-schema failures (versions echo), 5 evidence-reference failures (`anx-denim-material`+`mat-denim-cotton` cited literal `['knowledge']`; `sty-cropped-proportion` alias string; `cmp-streetwear-classic` non-string; `ins-kimono-sizing` empty). 0 transport, 0 retrieval failures. All 11 metrics unevaluable (0/0 each, no scores). Note: 3E rerun overwrote the temp-only 3D raw JSON with identical-name output; 3D counts/pins stand as recorded below (committed record intact, rerun is reproducible from same config).
+- Comparison (Task F): 3D = 0/25 evaluable, 20 schema, 5 evidence-ref. 3E = 0/25 evaluable, 20 schema, 5 evidence-ref. NO measured improvement — per-case modes shifted beneath identical totals (`idn-loose-jeans` schema→was evidence-ref; `sty-cropped-proportion` evidence-ref→was schema), consistent with temperature-0 not being deterministic for this model. Benchmark is NOT evaluable.
+- Remaining failure categories: output-schema (versions echo of 76-entry pin) and evidence-reference (knowledge-token confusion persists — model now cites the word `knowledge` itself). Recommendation (measured-failures only): next phase should shrink what the model must echo verbatim (e.g. versions digest/handle instead of full 76-entry map — a contract decision, not a prompt tweak) and/or separate machine IDs from human-readable knowledge lines more sharply; prompt hardening alone is exhausted for this model.
+- Reproducibility: model `qwen2.5vl:3b`, digest `fb90415cde1ef08aa669ae74b082d49b158729b6db1ab183c941417d507e71a1`, Ollama `0.34.2`, temperature `0.0`, timeout 120s, max_retries 1, format json; benchmark `1.0`, FFO `1.0`, seed `seed-v0.1`, contract `1.0`, evidence-schema `evidence-pack/1`; retrieval lexical `retrieve()` Phase 2C per-case filters only.
+- Regression: full backend 659 passed / same 6 pre-existing `test_analysis_use_case.py` failures / 537 skipped; `git diff --check` clean. Stop condition met; no model selection/training.
+
+---
+
+## PHASE 3D EVIDENCE CONTENT + FIRST LIVE BASELINE (no tuning/training/selection)
+
+- Evidence content contract (Part A, pre-existing in working tree, verified here): `corpus.evidence_content(doc)` returns the validated knowledge subset per type — term → entity_kind/canonical_id/full payload; alias → alias/canonical_id (+entity_kind); relationship → rel_type/subject/object; rule → full payload (when/effect) — always with `doc_id` for belonging checks; raises `CorpusError` on invalid docs, never invents/summarizes. `ReasoningEvidence.content` (default `{}`) is the smallest backward-compatible extension; absent parses fine, present-but-mismatched (`content.doc_id != doc_id`) or non-object rejected. Ollama layer never reads corpus files — content arrives via `ReasoningEvidence`.
+- Serialization: `render_content` + one `knowledge:` line per evidence block in `reasoning_prompt.py` (compact, no corpus/metadata dumps); `build_case_input` attaches content by doc_id lookup (unknown ids fail fast via `CorpusError`). Retrieval behavior and all existing evidence fields unchanged.
+- Tests: `test_ffo_evidence_content.py` 10/10, no Ollama needed (4 type extractions, provenance alignment, serialization include/no-dump, backward compat, malformed handling, case-input attach).
+- Live baseline (Part D, separate integration execution, NOT part of suite): model `qwen2.5vl:3b` (digest `fb90415cde1ef08aa669ae74b082d49b158729b6db1ab183c941417d507e71a1`, Ollama `0.34.2`; configured default `llama3.1:8b` not pulled — used the explicitly configured available model, no auto-selection, no pull). Config: temperature `0.0` (reduced randomness, not determinism), timeout 120s, max_retries 1, format json, num_predict unset. Pins: benchmark `1.0`, FFO `1.0`, seed `seed-v0.1`, contract `1.0`, evidence-schema `evidence-pack/1`. Retrieval: lexical `retrieve()` Phase 2C with per-case filters only. Timestamp `2026-09-22T01:40:42Z`. Ground truth untouched. Raw results: `C:/Users/shivu/AppData/Local/Temp/opencode/baseline_3d_results.json` (temp only, not committed).
+- Result: 0/25 cases evaluable — all 25 failed 3A validation (`invalid_output`), none reached the evaluator. All 11 metrics therefore unevaluable (0 evaluable outputs each; reported separately, no single score): intent_accuracy, grounding_accuracy, evidence_precision, evidence_recall, ffo_correctness, unsupported_handling, missing_detection, contradiction_handling, uncertainty_compliance, constraint_compliance, version_preservation — each `n/a (0/0 evaluable)`.
+- Failure categories (Part E, evidence-bound only): 20× output-schema failure (`versions` missing `evidence_schema`/`reasoning_contract_version` — small model drops keys when echoing the 76-entry `corpus_versions` pin); 5× evidence-reference failure (`anx-denim-material` + `mat-denim-cotton` cited knowledge text as evidence_id; `idn-loose-jeans` cited `alias-wide_leg_jeans`; `cmp-streetwear-classic` non-string evidence_ids; `ins-kimono-sizing` empty evidence_ids). Zero transport failures (all HTTP 200), zero retrieval failures (evidence built for every case). Per-case detail (metric failure for all = unevaluable at validation gate; expected property = contract-valid output, actual = rejected output): see temp results JSON.
+- Regression (Part F): focused 94 passed / 1 skipped (3D+3C+3B+3A+2C+2D, integration skip is the modelless-server gate); full backend 649 passed / same 6 pre-existing `test_analysis_use_case.py` failures / 537 skipped; `git diff --check` clean. Suite runs without Ollama; live baseline was explicit CLI-equivalent execution only.
+- Known limitations: vision-model baseline is a floor, not a capability claim; 76-entry version echo is heavy for small models (contract kept verbatim by design); belonging = doc_id match + construction-time corpus lookup (no deep payload re-check in domain — would invert the data dependency); `recommend` intent still deferred.
+- Deferred (stop condition honored): fine-tuning/LoRA/training, automatic model selection, trend/product/personalization intelligence, UI, vector DB.
+
+---
+
+## PHASE 3C OLLAMA ADAPTER — first model-execution layer (read-only)
+
+- Scope: 5 new files only (`ai/reasoning_prompt.py`, `ai/ollama_reasoner.py`, `application/reasoning.py`, `tests/test_ffo_reasoning_adapter.py`, `tests/test_ollama_reasoning_integration.py`). No tuning/training, trends, products, personalization, UI, outfit, FFO, retrieval, DB, or vector changes. Zero prod files modified.
+- Architecture: `OllamaFashionReasoner` in `app/ai/` (F-3/F-7: HTTP + vendor code behind adapter, domain imports nothing); `ReasoningConfig` (explicit args + `FANSIVIBE_OLLAMA_HOST/MODEL`, `FANSIVIBE_REASONING_TIMEOUT_S/TEMPERATURE/MAX_RETRIES/NUM_PREDICT`; temp 0.0, timeout 60s, 1 retry); prompt builder strictly separated (SYSTEM/REQUEST/CONTEXT/EVIDENCE/CONTRACT sections, all 10 model instructions).
+- Pipeline: validated input → `/api/chat` JSON mode → fence-strip → `json.loads` → 3A validation → evidence-ID check → FFO-ref check (entities ∪ evidence refs) → output. Typed `ReasoningExecutionError` (unavailable/timeout/http_error/malformed_json/invalid_output); transport-only retries (max 1+max_retries); validation never retried. DEBUG-only operational logging, never bodies.
+- Benchmark path: `execute_benchmark_case` (case → lexical evidence → validated input → reasoner → evaluator; ground truth untouched) + `python -m app.application.reasoning` manual CLI (`--list/--case/--model/--base-url/--timeout-s`). Eval metadata via `adapter.describe()` (no secrets).
+- Validation: unit 18/18 via `httpx.MockTransport` (prompt, serialization, config/env, success, malformed/invalid-evidence/invalid-FFO/version/max/standing, timeout/connection/500/404, retry counts, describe); integration smoke SKIPS (server up, model not pulled — model-presence gate added). Full backend 639 passed / same 6 pre-existing fails / 537 skipped; `git diff --check` clean. Flutter untouched → not run.
+- Self-caused failures fixed, not hidden: exhausted-500 surfaced as `unavailable` (retry error now carries its terminal category); integration ran against a modelless server (added `/api/tags` model-presence skip).
+- Environment note: Ollama IS reachable at localhost:11434 here, but the configured model is not pulled — no live benchmark run was possible or claimed.
+- Deferred: fine-tuning/LoRA/training, model selection, trends, products, personalization, UI, vector DB.
+
+---
+
+## PHASE 3B BENCHMARK — 25-case reasoning evaluation, metrics, evaluator (no model)
+
+- Scope: 3 new files only (`data/ffo/benchmark/benchmark_v01.json`, `domain/services/ffo_benchmark.py`, `tests/test_ffo_benchmark.py`). No model, prompts, calls, tuning, trends, products, personalization, UI, outfit, DB, or vector changes.
+- Cases: 25, all corpus-traceable — 4 explain / 4 identify / 3 compare / 3 style / 3 match / 3 analyze + insufficient (kimono) / contested (opposing fits) / unsupported (prices) / uncertain (grunge, single edge) / max-bounds (fit, max 1). Ground truth is structural (no NL matching, no stored model answers).
+- Metrics (11, separable, no single score): intent, grounding (derived status), evidence precision/recall, FFO correctness, unsupported/missing/contradiction/uncertainty handling, constraint bounds, version preservation. Evaluator total over malformed outputs (scores 0, never raises); cases sorted by case_id.
+- Validation: new `test_ffo_benchmark.py` 15/15 (schema, dup/version checks, evidence + FFO ref resolution, retrieval alignment for all supported/contested/uncertain evidence, 6 intents, 5 groundings, metric math incl. 0.5 precision, determinism, serialization, versions); full backend 621 passed / same 6 pre-existing fails / 536 skipped; `git diff --check` clean. Flutter untouched → not run.
+- Self-caused failure fixed, not hidden: `BENCHMARK_PATH` pointed at a nonexistent `domain/benchmark/` dir — anchored to the FFO package.
+- Gaps: kimono/sizing absent (insufficient case documents it); contested/uncertain coverage is thin by seed design (harmonious corpus); retrieval alignment skips insufficient/unsupported evidence by rule.
+- Deferred: model adapter, prompts, execution, model selection, tuning, trends, products, personalization, UI, vector DB.
+
+---
+
+## PHASE 3A REASONING CONTRACT — input/output data-model + port (no model)
+
+- Scope: 3 new files only (`domain/ports/reasoning.py`, `domain/services/ffo_reasoning.py`, `tests/test_ffo_reasoning.py`). No prompts, calls, tuning, providers, personalization, UI, outfit, DB, or vector changes.
+- Contracts: `FashionReasoningInput` (request{query,intent} + context + entities + evidence + constraints{evidence_only,max_conclusions} + requirements + versions) and `FashionReasoningOutput` (answer + conclusions + uncertainties + missing_evidence + contradictions + categorical confidence + unsupported + version pins). Port: `FashionReasoner` (contract_version + reason(); model-agnostic, untyped to avoid services→ports inversion).
+- Intent: 6 supported (explain/identify/compare/style/match/analyze); `recommend` deferred (overlaps outfit generation) and rejected with reason. Context: occasion/climate/region/style/wardrobe_refs/budget/fit — all optional, no persistence.
+- Grounding: conclusions cite ≥1 input evidence id (unknown/dup/empty rejected); contested requires contradictions; empty conclusions require missing_evidence (insufficient) unless unsupported (which forbids conclusions); confidence categorical high/medium/low/unknown (not a probability); output pins must equal input pins.
+- Validation: new `test_ffo_reasoning.py` 20/20 (valid/invalid, 6 intents, deferred, context, evidence preservation + ref rules, 5 grounding semantics, provenance, versions, serialization round-trip); full backend 606 passed / same 6 pre-existing fails / 536 skipped; `git diff --check` clean. Flutter untouched → not run.
+- Self-caused failures fixed, not hidden: fixture cited evidence outside its own pack (validator correctly rejected — fixture now cites in-pack ids); two regex matches corrected.
+- Deferred: Ollama/model adapter, prompting, reasoning execution, trends, products, personalization, UI, vector DB.
+
+---
+
+## PHASE 2D SEMANTIC + HYBRID — abstract provider, in-memory index, hybrid union
+
+- Scope: 2 new files only (`domain/ports/embeddings.py`, `domain/services/ffo_semantic.py`); Phase 2C file byte-untouched. No vector DB, embeddings dep, HTTP, Ollama, UI, outfit/scoring changes, FFO edits, DB changes.
+- Contracts: `EmbeddingProvider` Protocol (model_id/version, embed_text(s), `EmbeddingError` infra signal); `SemanticIndex` (model/version stamps, FFO version, per-doc vectors + versions); `semantic_search` (cosine, rounded 6dp, desc + doc_id); `hybrid_retrieve` → `HybridPack` (lexical hits in lexical order, then semantic-only; per-result lexical/semantic scores + reasons; provenance/confidence preserved).
+- Versioning: ragged-dims → ValueError at build; index/provider model mismatch → ValueError; documents+stale-index → ValueError; versions ride in every pack. Empty/zero-norm/dim-mismatched vectors skipped; provider failure → lexical-only `fallback: True`.
+- Validation: new `test_ffo_semantic.py` 14/14 (fake embeddings, no downloads); 2C 17/17 intact; full backend 586 passed / same 6 pre-existing fails / 536 skipped; `git diff --check` clean. Flutter untouched → not run.
+- Self-caused failure fixed, not hidden: empty-embedding test asserted against an empty entry instead of the three distinct empty reasons; restructured.
+- Deferred: vector DB, hybrid score fusion, reranking, learned weights, DB-backed corpus, corpus HTTP endpoint, Ollama prompting/reasoning, trends, products, personalization, UI.
+
+---
+
+## PHASE 2C RETRIEVAL V0 — deterministic lexical + metadata over Seed v0.1
+
+- Scope: Internal/domain-level retrieval only (`app/domain/services/ffo_retrieval.py`). No embeddings, vector DB, HTTP, Ollama, UI, outfit/scoring changes, FFO edits, DB changes. Zero prod files modified (2 new files only).
+- Ranking (integer tiers, max wins, doc_id tiebreak): 700 exact_canonical (terms only) / 600 exact_alias (incl. alias docs answering their canonical) / 500 exact_phrase (proper substring over canonical+alias+payload strings) / 400 token (punctuation-stripped) / 300 ffo_reference (entity_kind, subject/object, effect, when-values) / 200 domain / 100 metadata / 0 unscored (blank query; filters still apply). Structured refs are excluded from phrase text so whole-field equality resolves at 300, not 500.
+- Contracts: `RetrievalResult` (doc_id, doc_type, label, matched_terms, score, reason, domain, ffo_references, verbatim provenance, confidence, status) + `EvidencePack` (query, filters, items, metadata, corpus ffo_version/count/versions). Domain derived statically (bags/jewelry→accessories; rel by rel_type; rules→styling; fallback `general`, unreachable in v0.1).
+- Validation: new `test_ffo_retrieval.py` 17/17 (all required cases, order asserted); full backend 572 passed / same 6 pre-existing fails / 536 skipped; `git diff --check` clean. Flutter untouched → no Flutter runs.
+- Fixes from honest failures (not hidden): alias docs answering canonical queries demoted 700→600; `INFLUENCED_BY` was never FFO vocab (fixed in 2B); comma-attached tokens (`jeans,`) missed matches → punctuation-stripped tokenization; saree/kimono expectations corrected (saree IS retrievable via culture doc at token tier).
+- Known limitations: no semantic understanding (token quirks like leg→rule-cropped are lexical, not relevance); relationship/rule docs have no phrase/token text beyond names/payload strings; when-values match exactly only; single-token exact field matches land in token tier; no TF-IDF/field weights.
+- Deferred: vector search, hybrid fusion, reranking, DB-backed corpus, typed corpus domain objects, corpus HTTP endpoint, model prompting.
+
+---
+
+## PHASE 2B SEED v0.1 — 76 curated documents, all validated (additive)
+
+- Scope: Small curated foundation seed under the frozen Phase 2A contract (no redesign except one rule fix below). No scraping, trends, prices, providers, Ollama, endpoints, screens, or prod behavior change.
+- Counts: 76 docs — 54 terms / 10 aliases / 9 relationships / 3 rules. Domains: garments 6, footwear 3, accessories 3, bags 2, jewelry 1, materials 6, textiles 6, colors 6, patterns 4, silhouettes 5, fits 3, aesthetics 6, culture 3, styling via 3 pairing rels + 3 volume/proportion rules, history via 4 rels (INFLUENCED/POPULARIZED_BY/INSPIRED_BY/REVIVED), industry via MADE_FROM material link.
+- Provenance: every doc source `FFO Seed v0.1 curation`, tier AUTHORITATIVE, confidence 0.6–0.95, language en, published/retrieved 2026-09-21.
+- Validation: new `test_ffo_seed_v01.py` 8/8 (counts, universal validity, FFO resolution, unique ids, alias + relationship resolution, provenance, ordering); `test_ffo_corpus.py` 11/11 incl. new legal multi-alias test. Full backend 555 passed / same 6 pre-existing fails / 536 skipped. Flutter knowledge 26/26, analyze clean.
+- Fixes from validator truthfulness (not hidden): (1) `INFLUENCED_BY` is not FFO vocabulary — doc corrected to `INFLUENCED`; (2) Phase 2A collision rule rejected multiple aliases per canonical, contradicting FFO §35 — narrowed to terms-only in `corpus.py`; (3) dangling `fitted_top` reference — added `term-fitted-top`; (4) self-caused test edit breakage repaired.
+- Gaps (reported, not invented): saree/one-piece/regional garment categories (no 5-code mapping); history/industry/designer/brand/trend/product entities (need sourced factual records); proportion entities (rules only); new occasions (frozen 9); hair/grooming/makeup/fragrance (outside the 14 domains).
+- Excluded with reasons: designer/brand/product/trend_signal (sourced facts unavailable), user_style/wardrobe_item/outfit (user-owned, not knowledge), occasion terms (DB duplication), trend entities (trend data banned this phase).
+
+---
+
+## PHASE 2A CORPUS — ingestion/provenance foundation + 4-doc sample seed (additive)
+
+- Scope: Versioned knowledge-document layer over the FFO foundation for a small curated seed. No prod behavior change (one additive read method), no datasets, no providers, no Ollama, no screens, no scorer endpoint.
+- New: `schemas/knowledge_document.schema.json` (envelope contract, registered → index now 27); `app/data/ffo/corpus.py` (`load_documents`/`validate_document`/`build_index`/`corpus_versions`, `CorpusError(ValueError)`, stdlib only); 4 sample docs (`knowledge/documents/`: term + alias + relationship + rule); `CatalogKnowledgeSource.retrieve_corpus_documents(doc_type=None)` (invalid seed/unknown type → `KnowledgeError`, port unmoved).
+- Contract highlights: doc types term/alias/relationship/rule; authority tier ≡ `provenance.source_type` (single field); status draft/reviewed/published/deprecated; per-doc version ≥1; BCP-47 language; ISO-8601 published/retrieved (+created/updated if present); term payloads must carry the FFO schema's required keys; alias targets must resolve to a same-set term; relationship subjects/objects stay free strings.
+- Validation: new `test_ffo_corpus.py` 10/10 (valid ×4 types, shipped seed, 10 invalid shapes, provenance gaps, bad FFO refs, doc/canonical/alias dupes, versions, unparsable file, service happy-path/filter/unknown-type/invalid-seed). Full backend 546 passed / same 6 pre-existing fails / 536 DB-skipped. Flutter knowledge 26/26 pass, analyze clean (mock totals + assertions updated 26→27).
+- Self-caused failures fixed, not hidden: monkeypatched `DOCUMENTS_DIR` ignored due to default-arg binding → `directory=None` resolves at call time; 2 Flutter mocks hardcoded total 26.
+- Architectural decisions still required before real seed content: (1) alias targets strict to same-set terms — allowlist catalog codes (looks.code etc.) when seeds reference them; (2) no doc merge/version-replacement (same doc_id always duplicate) — needs a supersede rule when curation volume grows; (3) structural validation only, no full JSON Schema engine — add `jsonschema` dep only on demand; (4) corpus served as raw dicts — typed domain objects only when a consumer needs them; (5) no HTTP endpoint for corpus reads yet — add when a client needs it.
+
+---
+
+## FFO FULL REGRESSION — zero regressions from the entire FFO track
+
+- Backend full suite: 536 passed (baseline 514 + 22 FFO), 536 DB-skipped, 6 failed — all 6 the known pre-existing `test_analysis_use_case.py` outfit-run failures (untouched file, `1.1+1.0` provenance unrelated to FFO).
+- Flutter full suite: 953 passed, 0 failed (baseline 942 + 11 new `ffo_knowledge_test.dart`).
+- Verdict: the FFO track (schemas, scorer, API reads, Flutter data layer) introduced zero regressions on either side.
+
+---
+
+## FFO TRACK COMPLETE (scoped foundation; seed/content/UI deferred to product calls)
+
+- Delivered, all additive and validated: 26 JSON Schemas + 6 knowledge seeds (`backend/app/data/ffo/`); catalog conformance tests; `ffo_compatibility()` per-dimension scorer (reuses STEP-13 signals); `GET /v1/knowledge/ffo` + `/ffo/{name}` (public, `X-Ffo-Version`); Flutter DTO/client/repository in the knowledge feature (no screens).
+- Deferred (need product decisions): #22/FFO seed content (DEC-014 gate), scorer endpoint surfacing, any FFO consumer screen, Ollama fine-tuning, live trend providers, large-dataset population.
+- Test totals: backend FFO suites 22/22; Flutter `ffo_knowledge_test` 11/11; neighbors green (209 backend domain, 19 knowledge incl. DB-skips, 15 Flutter knowledge); analyzer clean; `git diff --check` clean.
+
+---
+
+## FLUTTER FFO READS — DTO + client + repository in knowledge feature (no screens)
+
+- Scope: Extended the existing knowledge data layer in place (fewest files): `FfoSchemaSummary`/`FfoSchemaList` DTOs, `listFfoSchemas` + `getFfoSchema` (verbatim schema map, empty names never requested) on `KnowledgeClient`, passthrough on `KnowledgeRepository`. Null-on-failure per repo convention; no mocks, no screens, no navigation changes.
+- Skills: `flutter-implement-json-serialization` (fromJson/toJson + strict casts), `flutter-use-http-package` (GET + 12s timeout + session Bearer, repo null-convention kept), `dart-run-static-analysis` (clean).
+- Validation: new `test/ffo_knowledge_test.dart` 11/11 (roundtrips, exact paths, pagination, 404/500/offline nulls, empty-name guard, repo passthrough); existing `knowledge_test.dart` 15/15 untouched; `flutter analyze` on knowledge + both test files: no issues.
+- Self-caused mis-edit fixed, not hidden: a doc-line replacement briefly mislabeled `KnowledgeItemReferenceList`; restored, diff verified purely additive (+64).
+
+---
+
+## FFO LOADER READS — `GET /v1/knowledge/ffo` + `/ffo/{name}` (additive, public, read-only)
+
+- Scope: Serves the FFO foundation over the existing M5 knowledge patterns (BA-7 use cases, offset envelopes, frozen error taxonomy). Public, no auth, no DB, no user data. Existing #18–22 untouched.
+- Added: `ListFfoSchemas` + `GetFfoSchema` (`application/knowledge.py`); `FfoSchemaSummary`/`FfoSchemaList` (`api/schemas/knowledge.py`); two routes (`routers/knowledge.py`) carrying `X-Ffo-Version: 1.0` alongside `X-Knowledge-Version`; unknown names → 404 NOT_FOUND.
+- Validation: new `test_ffo_loader_api.py` 5/5 (26-name index, pagination, both headers, bogus-token public, verbatim detail, 404, 422s); all FFO suites 22/22; neighbors `knowledge + knowledge_reads + m12_p1` 19 passed / 29 DB-skipped; `git diff --check` clean.
+- Self-caused failure fixed, not hidden: dropped `]` in `first["items"}}` broke collection; pytest's message was exact, fixed to `first["items"]}`.
+
+---
+
+## FFO COMPATIBILITY SCORER — per-dimension projection of existing signals (additive, zero prod changes)
+
+- Scope: Added `backend/app/domain/services/ffo_compatibility.py` — `ffo_compatibility()` projects reused STEP-13 sub-signals (imported from `analysis_rules`, never copied) + the FFO silhouette-heuristics file onto FFO §31 dimension names as 0..1 linear rescales. Emits the §37 shape (compatibility/reasoning/confidence/uncertainties); uncomputed dims omitted, no single correctness score. No prod file modified, no migration, no new rules.
+- Dimensions: color/material/climate/wardrobe always computed; occasion only with preferred_occasions; user_preference only with preferred_item_ids (UUID-canonical, engine boundary); silhouette only when top+bottom carry silhouette attrs (wardrobe rows lack the column, so usually omitted — honest). Proportion/aesthetic/footwear/accessories/trend/budget out of scope (no engine signal).
+- Validation: new `test_ffo_compatibility.py` 5/5 (bounds, no single score, determinism, occasion/silhouette/preference omission + heuristic match); FFO suites 17/17; neighbors `analysis_rules + clothing_intelligence + decision_engine + knowledge` 209/209; `git diff --check` clean.
+- Self-caused failure fixed, not hidden: preference test used non-UUID ids (`a`) which the engine canonically rejects → switched to UUID-form id.
+
+---
+
+## FFO CATALOG VALIDATION — seed data vs FFO v1.0 (read-only, zero prod changes)
+
+- Scope: Validated existing `app/data/catalog.py` seed against the new FFO foundation. Read-only; no prod code, no migrations, no dataset population.
+- Added: `backend/tests/test_ffo_catalog_validation.py` (5 tests) — wardrobe categories are the canonical 5, look catalogs have unique codes + 0..1 scoreSeeds, KNOWLEDGE_OCCASIONS == FFO 9 canonical codes, ITEM_REFERENCES empty (DEC-014 #22 gate still open).
+- Documented gaps (asserted as frozen, suite stays green): WARDROBE colors/materials are display labels (`Charcoal`, `Pique Cotton`), not FK codes — normalization happens at wardrobe-save time, seed layer untouched; `ITEM_REFERENCES` empty per DEC-014 content gate.
+- Validation: FFO suites 12/12 pass; full backend run 526 passed / 6 failed / 536 skipped — all 6 failures in `test_analysis_use_case.py` outfit-run tests, proven pre-existing (no prod file modified; `git status` shows only `CURRENT_STATE.md` + new additive paths; the `1.1+1.0` provenance string is catalog-1.1 + OI-rules-1.0 per `analysis_rules.py:804-813`, unrelated to FFO).
+
+---
+
+## FFO v1.0 FOUNDATION — 26 SCHEMAS + KNOWLEDGE SKELETON (additive, zero prod changes, backend file-backed per K9.1)
+
+- Scope: Implemented FFO v1.0 Phase 1 foundation as additive versioned backend config in `backend/app/data/ffo/` (K9.1 file-backed Layer A/B seed). Zero production behavior changes, zero migrations, zero Ollama fine-tuning, zero live trend providers, zero large dataset population.
+- Reuse (no duplicates): `wardrobe_item`/`garment` category enum is exactly the 5 FK-guarded `wardrobe_categories` codes from migration 0005; `occasion` x-canonical-codes are exactly the 9 DEC-014 codes; `color`/`material` keep the 17/16 canonical codes as the DB-valid subset with FFO names as the extensible superset (descriptions + x-canonical-codes/x-canonical-source annotate the mapping; no new tables).
+- Created (34 files, all new): `__init__.py` (FFO_VERSION=1.0, stdlib-only loader), 26 `schemas/*.schema.json` (draft 2020-12, `additionalProperties:true`, shared `provenance` mixin per §33: confidence/source/source_type/created_at/updated_at/verified_at), 6 `knowledge/` seeds (taxonomy/ffo_domains, relationships/relationship_types §34, aliases/canonical_aliases §35, rules/compatibility_heuristics §16/18, sources/source_classes §33, evaluation/phase1_checklist §41).
+- Validation: new `backend/tests/test_ffo_foundation.py` 7/7 pass (26-schema presence/shape, provenance mixin, canonical reuse, skeleton validity, stdlib-only loader); neighbors `test_knowledge + test_clothing_intelligence + test_decision_engine` 138/138 pass; `git diff --check` clean; `git status` shows only the two new additive paths.
+- Conflicts/gaps: FFO occasion list (20+) is a superset of the frozen 9 — extras are ontology-level only until a product decision adopts them; FFO color/material/textile properties (weight/drape/stretch/...) are schema-representable but unpopulated; brand records are time-aware (`last_verified` required) with no live verification source wired; trend/product layers are shape-only with no providers (M14 trend work untouched).
+- Remaining (explicitly not started per instructions): knowledge-base population, Ollama fine-tuning, live trend providers.
+
+---
+
 ## M14 P1.5 — TRENDING PROVIDER ACCESS, OFFICIAL-DOC VERIFICATION & CREDENTIAL READINESS (Audit & official-doc verification complete, zero prod changes, no migrations created, credentials NOT CONFIGURED, YouTube v3 + Google Trends BQ + Flipkart Affiliate + Amazon PA-API independently verified, Pinterest officially excludes India, Meta strictly non-commercial, TikTok unavailable/blocked, status: CONDITIONAL GO TO M14 P2 PENDING CREDENTIAL SETUP)
 
 - Scope: Completed independent official-document verification audit across 12 providers (YouTube Data API v3, Google Trends, Flipkart Affiliate, Amazon PA-API 5.0, Pinterest Trends, Instagram/Meta, TikTok, Myntra, Cuelinks, Rainforest, Heuritech, WGSN). Verified API availability, India regional support, legal constraints, image distribution terms, rate limits, and environment credential readiness. Zero production code, zero schema migrations, zero mock data, and zero committed secrets.

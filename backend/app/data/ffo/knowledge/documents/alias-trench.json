@@ -1,0 +1,17 @@
+{
+    "alias": "trench",
+    "canonical_id": "trench-coat",
+    "doc_id": "alias-trench",
+    "doc_type": "alias",
+    "entity_kind": "garment",
+    "language": "en",
+    "provenance": {
+        "confidence": 0.8,
+        "source": "FFO Seed v0.1 curation",
+        "source_type": "AUTHORITATIVE"
+    },
+    "published_at": "2026-09-21T00:00:00+00:00",
+    "retrieved_at": "2026-09-21T00:00:00+00:00",
+    "status": "published",
+    "version": 1
+}

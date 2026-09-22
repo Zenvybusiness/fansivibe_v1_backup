@@ -68,3 +68,19 @@ class ItemReferenceList(BaseModel):
     page: int
     page_size: int
     total: int
+
+
+class FfoSchemaSummary(BaseModel):
+    """One FFO foundation schema (`GET /v1/knowledge/ffo`)."""
+
+    name: str
+    title: str
+
+
+class FfoSchemaList(BaseModel):
+    """Offset envelope for `GET /v1/knowledge/ffo`."""
+
+    items: list[FfoSchemaSummary]
+    page: int
+    page_size: int
+    total: int

@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import Optional
 
 from app.data import catalog
+from app.data.ffo import corpus
 from app.domain.ports.external import KnowledgeError
 from app.domain.value_objects import HairstyleRecommendation
 
@@ -224,3 +225,22 @@ class CatalogKnowledgeSource:
         once authoritative content is supplied; nothing is invented here.
         """
         return [_validate_item_reference(dict(entry)) for entry in catalog.ITEM_REFERENCES]
+
+    def retrieve_corpus_documents(self, doc_type: str | None = None) -> list[dict]:
+        """Validated Phase 2A corpus documents, optionally filtered by type.
+
+        Read-only integration over the file-backed corpus: every served doc
+        passed `corpus.build_index` (shape, provenance, FFO references,
+        duplicates). Unknown `doc_type` or an invalid seed raises
+        `KnowledgeError` — never partial data. Deterministic doc_id order.
+        """
+        if doc_type is not None and doc_type not in corpus.DOC_TYPES:
+            raise KnowledgeError(f"unknown corpus doc_type '{doc_type}'")
+        try:
+            index = corpus.build_index(corpus.load_documents())
+        except corpus.CorpusError as exc:
+            raise KnowledgeError(f"invalid knowledge corpus: {exc}") from exc
+        docs = [index["by_id"][doc_id] for doc_id in sorted(index["by_id"])]
+        if doc_type is not None:
+            docs = [doc for doc in docs if doc["doc_type"] == doc_type]
+        return docs

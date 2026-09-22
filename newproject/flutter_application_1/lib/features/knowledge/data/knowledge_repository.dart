@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:fansivibe/features/knowledge/data/knowledge_api_models.dart';
 import 'package:fansivibe/features/knowledge/data/knowledge_client.dart';
 
-/// Abstract contract for M5 knowledge reads (#18–#22, STEP 19.5).
+/// Abstract contract for M5 knowledge reads (#18–#22, STEP 19.5) plus the
+/// additive FFO foundation reads (`GET /v1/knowledge/ffo*`).
 ///
 /// The backend is the single source of truth. There is deliberately NO
 /// mock fallback here: a fabricated vocabulary would corrupt validation
@@ -42,6 +43,15 @@ abstract class KnowledgeRepository {
     int page = 1,
     int pageSize = 20,
   });
+
+  /// Returns the FFO foundation schema index, or null when unavailable.
+  Future<FfoSchemaList?> listFfoSchemas({int page = 1, int pageSize = 20});
+
+  /// Returns one FFO foundation schema verbatim, or null when unavailable.
+  ///
+  /// Null covers unreachable backend, unknown names (server 404), and
+  /// empty names (never requested) — the caller hides the surface.
+  Future<Map<String, dynamic>?> getFfoSchema(String name);
 }
 
 /// Concrete implementation of [KnowledgeRepository] backed only by the
@@ -93,5 +103,15 @@ class KnowledgeRepositoryImpl implements KnowledgeRepository {
     // No placeholder rows: an empty non-null list is the honest gated
     // state and passes through untouched.
     return _client.listItems(page: page, pageSize: pageSize);
+  }
+
+  @override
+  Future<FfoSchemaList?> listFfoSchemas({int page = 1, int pageSize = 20}) {
+    return _client.listFfoSchemas(page: page, pageSize: pageSize);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> getFfoSchema(String name) {
+    return _client.getFfoSchema(name);
   }
 }

@@ -1,0 +1,1 @@
+{"aliases": {}, "canonical_entities": [{"aliases": ["baggy jeans", "loose jeans", "wide baggy denim", "relaxed jeans"], "canonical": "wide_leg_jeans", "confidence": 0.8, "note": "Related but not identical; normalization decides specificity per FFO §35."}], "related_entities": {}, "x-ffo-version": "1.0"}
