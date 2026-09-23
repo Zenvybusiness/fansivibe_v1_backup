@@ -4,11 +4,14 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/discover.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_widgets.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
     show WardrobeItemData, WardrobeMockData;
+import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_chip.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
@@ -96,9 +99,16 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   void initState() {
     super.initState();
     _repository = widget.repository ?? DiscoverRepositoryImpl();
-    _wardrobeRepository =
-        widget.wardrobeRepository ?? WardrobeRepositoryImpl();
-    _refresh();
+    // Phase 2.1 guests read the Clothes tab from the on-device wardrobe
+    // (same cards, same add flow, zero API calls). Explore/ForYou stay
+    // server-side: the bodies below keep their honest prompts.
+    _wardrobeRepository = isGuestUser
+        ? LocalWardrobeRepository()
+        : (widget.wardrobeRepository ?? WardrobeRepositoryImpl());
+    // Phase 2 guests never fetch: GET /v1/looks, /v1/looks/for-you, and
+    // /v1/wardrobe/items all 401 without a session. The bodies below
+    // render the sign-in prompt instead.
+    if (!isGuestUser) _refresh();
   }
 
   @override
@@ -110,6 +120,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   String? _activeOrNull(String id) => id == 'all' ? null : id;
 
   Future<void> _refresh() async {
+    if (isGuestUser) return;
     setState(() {
       _loading = true;
       _failure = null;
@@ -136,6 +147,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Future<void> _loadMore() async {
+    if (isGuestUser) return;
     if (_loadingMore || !_hasMore || _nextCursor == null) return;
     setState(() => _loadingMore = true);
     final result = await _repository.getLookFeed(
@@ -181,6 +193,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       _clothesFailed = false;
     });
     try {
+      // Guests hydrate the on-device model first so persisted local
+      // items appear; load() is idempotent after the first call.
+      if (isGuestUser) await LearningService.instance.load();
       final items = await _wardrobeRepository.listItems(
         category: _clothesCategory == 'all' ? null : _clothesCategory,
         pageSize: 100,
@@ -220,6 +235,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   void _handleClothesTap(BuildContext context, WardrobeItemData item) {
     // Existing wardrobe detail architecture — backend UUID travels verbatim.
+    // Phase 2.1 guests resolve through the local repository instead.
     context.pushNamed(RouteNames.wardrobeItemDetails, extra: item.id);
   }
 
@@ -233,6 +249,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Future<void> _refreshForYou() async {
+    if (isGuestUser) return;
     setState(() {
       _forYouLoading = true;
       _forYouFailure = null;
@@ -258,6 +275,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Future<void> _loadMoreForYou() async {
+    if (isGuestUser) return;
     if (_forYouLoadingMore || !_forYouHasMore || _forYouCursor == null) {
       return;
     }
@@ -676,6 +694,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Widget _buildForYouBody(BuildContext context) {
+    // Phase 2 guests: honest sign-in prompt, never a 401-backed error.
+    if (isGuestUser) return _buildGuestBody(context);
     if (_forYouLoading) {
       return const Center(
         child: Padding(
@@ -913,6 +933,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Widget _buildBody(BuildContext context) {
+    // Phase 2 guests: honest sign-in prompt, never a 401-backed error.
+    if (isGuestUser) return _buildGuestBody(context);
     if (_loading) {
       return const Center(
         child: Padding(
@@ -1040,6 +1062,17 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
+  /// Phase 2 guest state: the look catalog and wardrobe are
+  /// account-backed, so guests get an honest sign-in prompt — never
+  /// mock looks, never a 401-backed error card.
+  Widget _buildGuestBody(BuildContext context) {
+    return const GuestSignInCard(
+      title: 'Discover looks',
+      message:
+          'The look catalog lives in your account. Sign in to explore personalized looks — browsing stays free.',
+    );
+  }
+
   Widget _buildEmptyState(BuildContext context) {
     final theme = Theme.of(context);
 
@@ -1085,6 +1118,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   void _handleLookTap(BuildContext context, LookSummary look) {
+    // Phase 2 guests: the detail fetch is account-only — prompt at the
+    // button instead of pushing into a 401-backed screen.
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to open look details. Browsing stays free.',
+      );
+      return;
+    }
     // The backend catalog code travels verbatim — never a local id.
     context.pushNamed(RouteNames.lookDetails, extra: look.id);
   }

@@ -11,6 +11,7 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 class YourAnalysisScreen extends StatefulWidget {
   const YourAnalysisScreen({super.key});
@@ -77,8 +78,12 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   }
 
   void _onContinueWithoutAccount() {
-    // Save analysis locally and navigate home
-    context.goNamed(RouteNames.home, extra: {
+    // Guest path: persist locally so a relaunch resumes, then land on
+    // the AI Stylist tab. Camera flow and UI above are untouched.
+    LocalStorage.onboardingComplete = true;
+    LocalStorage.savedLocally = true;
+    LocalStorage.analysisCached = true;
+    context.goNamed(RouteNames.stylist, extra: {
       'onboarding_complete': true,
       'display_name': null,
       'vibe': null,

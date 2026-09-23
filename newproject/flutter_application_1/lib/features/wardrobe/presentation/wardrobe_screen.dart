@@ -5,10 +5,12 @@ import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
@@ -57,6 +59,24 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   @override
   void initState() {
     super.initState();
+    // Phase 2.1 guests run the full wardrobe on-device: the local
+    // repository serves the same list/detail/add/edit/delete flows with
+    // zero API calls (insight/wear-summary have no on-device equivalent
+    // and stay hidden). Injected fakes are ignored for guests, so guest
+    // tests can assert the backend is never touched.
+    if (isGuestUser) {
+      _repository = LocalWardrobeRepository();
+      _insightFuture = Future.value(null);
+      _wearSummaryFuture = Future.value(null);
+      LearningService.instance.addListener(_onLocalChanged);
+      // Hydrate persisted on-device items, then render; live mutations
+      // (add/edit/delete returns) refresh through the listener.
+      LearningService.instance.load().then((_) {
+        if (mounted) _loadItems();
+      });
+      _loadItems();
+      return;
+    }
     _repository =
         widget.repository ?? widget.insightRepository ?? WardrobeRepositoryImpl();
     // Independent from the item list: the list renders immediately while
@@ -67,6 +87,18 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     _wearSummaryFuture =
         Future.sync(() => _repository.getWearSummary());
     _loadItems();
+  }
+
+  @override
+  void dispose() {
+    if (isGuestUser) {
+      LearningService.instance.removeListener(_onLocalChanged);
+    }
+    super.dispose();
+  }
+
+  void _onLocalChanged() {
+    if (mounted) _loadItems();
   }
 
   Future<void> _loadItems() async {
@@ -110,6 +142,10 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Phase 2.1 guests use the same body over the local repository:
+    // real counts, real grid, honest empty state — no sign-in wall.
+    // Insight/wear slots stay hidden (null futures, no on-device
+    // equivalent); the Add button opens the local add flow.
     final filteredItems = _filteredItems;
     final totalItems = _items.length;
 
@@ -364,8 +400,12 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       RouteNames.wardrobeAddCategory,
     );
     if (result != null && context.mounted) {
-      LearningService.instance.addItem(_toEntry(result));
-      UserSession.hasSavedWardrobeItem = true;
+      // Guests already persisted through the local repository in the
+      // add flow — re-adding here would duplicate the row.
+      if (!isGuestUser) {
+        LearningService.instance.addItem(_toEntry(result));
+        UserSession.hasSavedWardrobeItem = true;
+      }
       _loadItems();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -381,6 +421,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   }
 
   void _handleItemTap(BuildContext context, WardrobeItemData item) async {
+    // Phase 2.1 guests open the same details over the local repository
+    // (wired in initState) — no prompt, no backend fetch.
     await context.pushNamed<String>(RouteNames.wardrobeItemDetails, extra: item.id);
     if (mounted) {
       _loadItems();

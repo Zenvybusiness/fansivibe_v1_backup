@@ -13,6 +13,10 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/components/fansivibe_card.dart';
+import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -61,7 +65,16 @@ class _HomeScreenState extends State<HomeScreen> {
     // Backend-first M10 summary (STEP 19.16): fetched once for the main
     // branch only — first-visit onboarding shows no summary slots.
     // Null means unavailable: slots render their honest error state.
-    if (!_isFirstVisit) {
+    // Phase 2.1 guests run the score slot on-device (see
+    // _buildScoreSlot): hydrate the persisted local model and refresh
+    // the slot live as wardrobe items are added.
+    if (isGuestUser) {
+      LearningService.instance.addListener(_onLocalChanged);
+      LearningService.instance.load().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
+    if (!_isFirstVisit && !isGuestUser) {
       _summaryRepository =
           widget.summaryRepository ?? LearningSummaryRepositoryImpl();
       _summaryFuture = _summaryRepository.getSummary();
@@ -80,12 +93,26 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _retrySummary() {
+    if (isGuestUser) return;
     setState(() {
       _summaryFuture = _summaryRepository.getSummary();
     });
   }
 
+  @override
+  void dispose() {
+    if (isGuestUser) {
+      LearningService.instance.removeListener(_onLocalChanged);
+    }
+    super.dispose();
+  }
+
+  void _onLocalChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _retryTodayLook() {
+    if (isGuestUser) return;
     setState(() {
       _todayLookFuture = _todayLookRepository.getTodayLook();
     });
@@ -197,6 +224,53 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildScoreSlot() {
+    // Phase 2.1 guests: the real on-device score (60 + wardrobe items +
+    // saved looks, via LearningService) — no fetch, no faking, and the
+    // limitation (device-only until sign-in) is stated on the card.
+    if (isGuestUser) {
+      final service = LearningService.instance;
+      final pieces = service.wardrobe.length;
+      final favorites =
+          service.wardrobe.where((e) => e.isFavorite).length;
+      final theme = Theme.of(context);
+      return FansivibeCard(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Style Score',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: FansivibeColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${service.styleScore}',
+              style: theme.textTheme.displayLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: FansivibeColors.accentGold,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '$pieces ${pieces == 1 ? 'piece' : 'pieces'} · '
+              '$favorites ${favorites == 1 ? 'favorite' : 'favorites'} '
+              'on this device — grows as you add clothes.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: FansivibeColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            FansiButton.tertiary(
+              label: 'Sign in to sync & back up',
+              onPressed: () => promptGuestSignIn(context),
+            ),
+          ],
+        ),
+      );
+    }
     // Backend-first M10 score (STEP 19.16): the server value renders
     // verbatim. Loading and error states keep the slot title with no
     // value — there is deliberately no mock fallback here.
@@ -221,6 +295,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildStreakSlot() {
+    // Phase 2.1 guests: streaks are server-tracked — no on-device
+    // equivalent exists, so the slot hides rather than inventing one.
+    if (isGuestUser) return const SizedBox.shrink();
     // Backend-first M10 streak (STEP 19.16): same future as the score
     // slot, so one GET feeds both — no second request, no local math.
     return FutureBuilder<LearningSummary?>(
@@ -282,6 +359,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildTodaysLookSlot(BuildContext context) {
+    // Phase 2 guests: no session, no fetch — honest sign-in prompt
+    // instead of a 401-backed error card.
+    if (isGuestUser) {
+      return const GuestSignInCard(
+        title: "Today's Look",
+        message:
+            'Your daily look lives in your account. Sign in to get personalized recommendations — browsing stays free.',
+      );
+    }
     // Backend-first M9 Today's Look (STEP 19.25): the server derivation
     // renders verbatim. Loading/empty/error states keep the slot title
     // with no value — there is deliberately no mock fallback here, and a

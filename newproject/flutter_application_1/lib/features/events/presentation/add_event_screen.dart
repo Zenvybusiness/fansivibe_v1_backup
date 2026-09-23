@@ -5,6 +5,7 @@ import 'package:fansivibe/features/events/data/events_repository.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// Backend-first add/edit event form (M8-D).
 ///
@@ -169,6 +170,15 @@ class _AddEventScreenState extends State<AddEventScreen> {
 
   Future<void> _submit() async {
     if (!_isValid) return;
+    // Phase 2 guests: creating/updating events is account-only —
+    // prompt at the button instead of posting into a 401.
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to save events. Browsing stays free.',
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       final title = _nameController.text.trim();

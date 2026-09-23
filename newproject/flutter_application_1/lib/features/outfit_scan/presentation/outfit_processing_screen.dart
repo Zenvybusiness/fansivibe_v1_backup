@@ -41,6 +41,15 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
     _client = widget.client ?? OutfitScanClient();
     _runId = widget.runId;
     _pollStart = DateTime.now();
+    // Phase 2: never poll a missing run id (guest-gated submits and
+    // failed uploads both land here with null). The honest error + Back
+    // to Scan below owns recovery — no request, no timer, no 401 storm.
+    if (_runId == null || _runId!.isEmpty) {
+      debugPrint('Outfit analysis polling aborted: missing run_id');
+      _isLoading = false;
+      _errorMessage = 'No run ID available';
+      return;
+    }
     debugPrint('Outfit analysis polling started: run_id=$_runId');
     _pollRunStatus();
   }
@@ -54,7 +63,7 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
   Future<void> _pollRunStatus({int attempts = 0}) async {
     if (!mounted) return;
 
-    if (_runId == null) {
+    if (_runId == null || _runId!.isEmpty) {
       setState(() {
         _isLoading = false;
         _errorMessage = 'No run ID available';

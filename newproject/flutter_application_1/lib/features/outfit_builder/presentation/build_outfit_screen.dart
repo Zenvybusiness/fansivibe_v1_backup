@@ -5,6 +5,7 @@ import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.
 import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class BuildOutfitScreen extends StatefulWidget {
   /// Optional event handoff from the event flow (`eventId`, `eventTitle`,
@@ -51,6 +52,16 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
 
   void _buildOutfit() {
     if (!_allSelected) return;
+    // Phase 2 guests: deriving an outfit (POST /v1/outfits/generate)
+    // is account-only — prompt at the button instead of pushing into
+    // a 401-backed generation screen.
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to build outfits. Browsing stays free.',
+      );
+      return;
+    }
     context.pushNamed(
       RouteNames.outfitGeneration,
       extra: <String, String>{

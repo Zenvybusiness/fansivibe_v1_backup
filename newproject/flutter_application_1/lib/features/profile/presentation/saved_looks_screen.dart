@@ -13,6 +13,7 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// Saved looks collection (DEC-013, STEP 18.4; reactions M11).
 ///
@@ -52,10 +53,18 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
     super.initState();
     _repository = widget.repository ?? SavedLooksRepositoryImpl();
     _feedbackRepository = widget.feedbackRepository ?? FeedbackRepositoryImpl();
+    // Phase 2 guests never fetch: GET /v1/looks/saved 401s without a
+    // session. The build below renders the sign-in prompt instead.
+    if (isGuestUser) {
+      _isLoading = false;
+      _loadFailed = false;
+      return;
+    }
     _loadSavedLooks();
   }
 
   Future<void> _loadSavedLooks() async {
+    if (isGuestUser) return;
     final page = await _repository.listSavedLooks(page: 1, pageSize: 20);
 
     if (!mounted) return;
@@ -68,6 +77,7 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
   }
 
   Future<void> _retryLoad() async {
+    if (isGuestUser) return;
     setState(() {
       _isLoading = true;
       _loadFailed = false;
@@ -92,6 +102,14 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
   /// accepted backend ack shows success — failures keep the row for a
   /// truthful retry. No local signal is recorded either way.
   Future<void> _reactToLook(SavedLookItem look, String rating) async {
+    // Phase 2 guests: feedback is account-only — prompt at the button.
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to send feedback. Browsing stays free.',
+      );
+      return;
+    }
     if (_reactingIds.contains(look.id)) return;
     setState(() {
       _reactingIds.add(look.id);
@@ -136,6 +154,14 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
   /// row already gone, in which case no successful server-delete is
   /// claimed). Failures retain the row for a truthful retry.
   Future<void> _deleteLook(SavedLookItem look) async {
+    // Phase 2 guests: deleting is account-only — prompt at the button.
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to manage saved looks. Browsing stays free.',
+      );
+      return;
+    }
     if (_deletingIds.contains(look.id)) return;
 
     final shouldConfirm = await showDialog<bool?>(
@@ -249,6 +275,10 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
   }
 
   Widget _buildBody(BuildContext context) {
+    // Phase 2.1 guests: the screen's own honest empty state — the fetch
+    // above never fired, and guests hold no server-saved rows. No wall:
+    // wardrobe favorites are the guest's local save mechanism.
+    if (isGuestUser) return _buildEmptyState(context);
     if (_isLoading) {
       return const FansiLoadingView(message: 'Loading saved looks…');
     }

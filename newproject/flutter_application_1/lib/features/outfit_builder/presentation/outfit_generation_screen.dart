@@ -7,6 +7,7 @@ import 'package:fansivibe/features/outfit_builder/outfit_builder.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// Step 2 of the builder flow: derives one outfit from the step-1
 /// preferences via the M13 backend (#41 `POST /v1/outfits/generate`).
@@ -58,10 +59,15 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
   void initState() {
     super.initState();
     _repository = widget.outfitRepository ?? OutfitBuilderRepositoryImpl();
+    // Phase 2 guests never derive: POST /v1/outfits/generate 401s
+    // without a session. The build below renders the sign-in prompt
+    // instead, so no request fires and nothing forwards.
+    if (isGuestUser) return;
     _generate();
   }
 
   void _generate() {
+    if (isGuestUser) return;
     setState(() {
       _forwarded = false;
       _generationFuture = _repository.generateOutfit(
@@ -145,6 +151,19 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
                     child: FutureBuilder<OutfitResult>(
                       future: _generationFuture,
                       builder: (context, snapshot) {
+                        // Phase 2 guests: honest sign-in prompt — the
+                        // derive call above never fired, so there is
+                        // nothing to forward and no 401 to explain.
+                        if (isGuestUser) {
+                          return const Padding(
+                            padding: EdgeInsets.only(top: 40),
+                            child: GuestSignInCard(
+                              title: 'Build Outfit',
+                              message:
+                                  'Outfit generation lives in your account. Sign in to build looks from your preferences — browsing stays free.',
+                            ),
+                          );
+                        }
                         if (snapshot.connectionState ==
                             ConnectionState.waiting) {
                           return _buildLoading(context);

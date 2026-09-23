@@ -5,8 +5,10 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 /// Converts a [WardrobeItemData] to a [WardrobeEntry] for LearningService sync.
 WardrobeEntry _toEntry(WardrobeItemData item) => WardrobeEntry(
   id: item.id,
@@ -75,7 +77,14 @@ class _WardrobeItemDetailsScreenState
   @override
   void initState() {
     super.initState();
-    _repository = widget.repository ?? WardrobeRepositoryImpl();
+    // Phase 2.1 guests read/edit/delete through the local repository —
+    // same screen, zero API calls. Injected fakes are ignored for
+    // guests, so guest tests can assert the backend is never touched.
+    if (isGuestUser) {
+      _repository = LocalWardrobeRepository();
+    } else {
+      _repository = widget.repository ?? WardrobeRepositoryImpl();
+    }
     _loadItem();
   }
 
@@ -102,6 +111,8 @@ class _WardrobeItemDetailsScreenState
   }
 
   void _toggleEdit() {
+    // Phase 2.1 guests edit on-device through the local repository —
+    // no prompt, no backend call.
     setState(() {
       _isEditing = !_isEditing;
       if (!_isEditing) {
@@ -191,6 +202,8 @@ class _WardrobeItemDetailsScreenState
   }
 
   Future<void> _deleteItem() async {
+    // Phase 2.1 guests delete on-device through the local repository —
+    // no prompt, no backend call.
     if (_isDeleting) return;
 
     final itemId = widget.itemId;
@@ -287,6 +300,15 @@ ScaffoldMessenger.of(context).showSnackBar(
   /// never interpreted as "not worn". No auto-logging: callers invoke
   /// this only from the explicit capture action.
   Future<void> _logWear() async {
+    // Phase 2 guests: wear logging is account-only — prompt at the
+    // button instead of posting into a 401.
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to log wears. Browsing stays free.',
+      );
+      return;
+    }
     final item = _item;
     if (_isLoggingWear || item == null || !_isBackendUuid(item.id)) return;
 

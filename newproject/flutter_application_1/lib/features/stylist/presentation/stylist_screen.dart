@@ -4,6 +4,7 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class StylistActionData {
   const StylistActionData({
@@ -155,7 +156,19 @@ class StylistScreen extends StatelessWidget {
     return Semantics(
       button: true,
       child: InkWell(
-        onTap: () => context.pushNamed(RouteNames.assistant),
+        // Phase 2 guests: the assistant chat is account-gated (the
+        // Phase 1 guard bounces guests to /entry) — prompt at the
+        // button instead of bouncing.
+        onTap: () {
+          if (isGuestUser) {
+            promptGuestSignIn(
+              context,
+              action: 'Sign in to chat with the assistant. Browsing stays free.',
+            );
+            return;
+          }
+          context.pushNamed(RouteNames.assistant);
+        },
         borderRadius: FansivibeRadius.lgBorder,
         child: Container(
           width: double.infinity,

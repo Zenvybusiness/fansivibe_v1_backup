@@ -7,12 +7,14 @@ import 'package:fansivibe/features/wardrobe/data/garment_client.dart';
 import 'package:fansivibe/features/wardrobe/data/garment_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_photo_screen.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// Screen for filling in item details when adding a new wardrobe item.
 ///
@@ -104,7 +106,13 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
     );
 
     try {
-      final createdItem = await _repository.createItem(
+      // Phase 2.1 guests persist on-device through the local repository
+      // (photo imageRefs are always null here: garment analysis is
+      // server-side, so local items are imageless — the photo step says
+      // so when analysis prompts for sign-in). No prompt, no backend.
+      final repository =
+          isGuestUser ? LocalWardrobeRepository() : _repository;
+      final createdItem = await repository.createItem(
         name: newItem.name,
         category: newItem.category,
         color: newItem.color,
@@ -223,6 +231,15 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
   }
 
   Future<void> _analyzePhoto() async {
+    // Phase 2 guests: garment analysis is account-only — prompt at the
+    // button instead of submitting into a 401.
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to analyze clothing. Browsing stays free.',
+      );
+      return;
+    }
     final bytes = _photoBytes;
     if (bytes == null || _photoStage == _PhotoStage.analyzing) return;
     if (bytes.length > GarmentClient.maxImageBytes) {

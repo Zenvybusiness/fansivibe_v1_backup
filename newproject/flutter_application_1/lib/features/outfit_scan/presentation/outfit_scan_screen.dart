@@ -13,6 +13,7 @@ import 'package:fansivibe/features/outfit_scan/data/outfit_scan_client.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class OutfitScanScreen extends StatefulWidget {
   const OutfitScanScreen({super.key, this.client});
@@ -251,6 +252,16 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   Future<void> _submitSelected(BuildContext context) async {
     final imageFile = _selectedImage;
     if (imageFile == null || _isUploading) return;
+    // Phase 2 guests: outfit analysis (POST /v1/analysis/*) is
+    // account-only — prompt at the button instead of submitting into
+    // a 401 and polling a null run id.
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to analyze outfits. Browsing stays free.',
+      );
+      return;
+    }
     setState(() {
       _isUploading = true;
       _statusMessage = 'Uploading photo…';
@@ -325,6 +336,16 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     if (_selectedImage != null) {
       // Gallery/camera image already selected: submit it explicitly.
       await _submitSelected(context);
+      return;
+    }
+
+    // Phase 2 guests: capturing without a selection falls through to a
+    // null-run processing screen below — prompt instead.
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to analyze outfits. Browsing stays free.',
+      );
       return;
     }
 

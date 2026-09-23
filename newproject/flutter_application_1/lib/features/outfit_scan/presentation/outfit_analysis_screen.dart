@@ -5,6 +5,7 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class OutfitAnalysisScreen extends StatefulWidget {
   const OutfitAnalysisScreen({super.key, this.analysisResult});
@@ -537,6 +538,15 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
             label: 'Save Profile',
             icon: Icons.bookmark_border,
             onPressed: () {
+              // Phase 2 guests: persisting the profile is account-only —
+              // prompt at the button instead of faking a save.
+              if (isGuestUser) {
+                promptGuestSignIn(
+                  context,
+                  action: 'Sign in to save your profile. Browsing stays free.',
+                );
+                return;
+              }
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Appearance profile saved'),

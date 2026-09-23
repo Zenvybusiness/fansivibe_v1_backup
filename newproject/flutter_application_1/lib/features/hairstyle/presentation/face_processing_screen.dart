@@ -10,6 +10,7 @@ import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class FaceProcessingScreen extends StatefulWidget {
   const FaceProcessingScreen({
@@ -83,6 +84,13 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
   }
 
   Future<void> _start() async {
+    // Phase 2 guests: hairstyle analysis (POST /v1/analysis/hairstyle)
+    // is account-only — never submit. The build below renders the
+    // sign-in prompt instead.
+    if (isGuestUser) {
+      setState(() {});
+      return;
+    }
     // Guided multi-angle path: every captured view is analyzed through
     // the existing endpoint and aggregated deterministically.
     if (widget.angleFront != null &&
@@ -160,6 +168,36 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Phase 2 guests: honest sign-in prompt — the analysis submit in
+    // _start never fired, so no 401 and no polling.
+    if (isGuestUser) {
+      return Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        appBar: AppBar(
+          title: const Text('Analyzing Face'),
+          leading: IconButton(
+            icon: const Icon(
+              Icons.arrow_back_rounded,
+              color: FansivibeColors.textPrimary,
+            ),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ),
+        body: const SafeArea(
+          child: SingleChildScrollView(
+            physics: BouncingScrollPhysics(),
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: GuestSignInCard(
+                title: 'Hairstyle Analysis',
+                message:
+                    'Hairstyle analysis lives in your account. Sign in to analyze your photo — browsing stays free.',
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     final completedStages = _service.completedStageCount;
     final totalStages = HairstyleService.totalStages;
     final allComplete = completedStages >= totalStages;

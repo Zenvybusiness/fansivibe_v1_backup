@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/auth/auth.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart'
     show ProfileMenuAction;
 import 'package:fansivibe/features/profile/presentation/widgets/profile_widgets.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/style_summary_section.dart';
+import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_error_view.dart';
 import 'package:fansivibe/shared/components/fansi_loading_view.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
@@ -83,13 +86,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // Backend-first M10 summary (STEP 19.16): fetched once. Null means
     // unavailable — the hero shows an honest placeholder and the section
     // renders its error state. No mock fallback, ever.
+    // Phase 2 guests never fetch: GET /v1/learning/summary 401s without
+    // a session. The hero below shows its neutral placeholders and the
+    // section renders the on-device status instead. Hydrate + listen so
+    // the status stays live as local items change.
     _summaryRepository =
         widget.summaryRepository ?? LearningSummaryRepositoryImpl();
     _authRepository = widget.authRepository ?? AuthRepositoryImpl();
-    _summaryFuture = _summaryRepository.getSummary();
+    _summaryFuture =
+        isGuestUser ? Future.value(null) : _summaryRepository.getSummary();
+    if (isGuestUser) {
+      LearningService.instance.addListener(_onLocalChanged);
+      LearningService.instance.load().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    if (isGuestUser) {
+      LearningService.instance.removeListener(_onLocalChanged);
+    }
+    super.dispose();
+  }
+
+  void _onLocalChanged() {
+    if (mounted) setState(() {});
   }
 
   void _retrySummary() {
+    if (isGuestUser) return;
     setState(() {
       _summaryFuture = _summaryRepository.getSummary();
     });
@@ -167,12 +194,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           child: Column(
                             children: _defaultMenuActions.map((action) {
+                              // Guests hold no session, so "Sign Out" is a
+                              // lie — the tile offers Sign In instead and
+                              // routes to account creation (see
+                              // _handleMenuAction). All other tiles keep
+                              // their labels and destinations.
+                              final effective = isGuestUser &&
+                                      action.id == 'sign_out'
+                                  ? const ProfileMenuAction(
+                                      id: 'sign_out',
+                                      label: 'Sign In',
+                                      iconName: 'login_rounded',
+                                    )
+                                  : action;
                               return Column(
                                 children: [
                                   ProfileMenuCard(
-                                    action: action,
-                                    onTap: () =>
-                                        _handleMenuAction(context, action.id),
+                                    action: effective,
+                                    onTap: () => _handleMenuAction(
+                                      context,
+                                      effective.id,
+                                    ),
                                   ),
                                   if (action.id != _defaultMenuActions.last.id)
                                     Divider(
@@ -392,7 +434,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   /// Backend-fed summary section with truthful loading/error states.
+  /// Phase 2.1 guests: the real on-device status (pieces, favorites,
+  /// local score) — no fetch, no faking, limitation stated inline.
   Widget _buildSummarySection() {
+    if (isGuestUser) {
+      final service = LearningService.instance;
+      final pieces = service.wardrobe.length;
+      final favorites =
+          service.wardrobe.where((e) => e.isFavorite).length;
+      final theme = Theme.of(context);
+      return FansivibeCard(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'On this device',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: FansivibeColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '$pieces ${pieces == 1 ? 'piece' : 'pieces'} · '
+              '$favorites ${favorites == 1 ? 'favorite' : 'favorites'} · '
+              'score ${service.styleScore}',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: FansivibeColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            FansiButton.tertiary(
+              label: 'Sign in to sync & back up',
+              onPressed: () => promptGuestSignIn(context),
+            ),
+          ],
+        ),
+      );
+    }
     return FutureBuilder<LearningSummary?>(
       future: _summaryFuture,
       builder: (context, snapshot) {
@@ -413,6 +493,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _handleMenuAction(BuildContext context, String id) {
+    // Phase 2.1 guests browse preferences (local-only save) and saved
+    // looks (honest on-device empty state) like everyone else — the
+    // account-only parts explain themselves at the point of action.
+    // A guest's Sign In tile routes to account creation; every other
+    // tile keeps its existing destination.
+    if (isGuestUser && id == 'sign_out') {
+      context.pushNamed(RouteNames.accountCreation);
+      return;
+    }
     switch (id) {
       case 'preferences':
         context.pushNamed(RouteNames.profilePreferences);

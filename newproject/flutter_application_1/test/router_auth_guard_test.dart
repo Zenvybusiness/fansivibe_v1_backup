@@ -68,6 +68,118 @@ void main() {
     });
   });
 
+  group('explicit guest (Continue Without Account, no session)', () {
+    test('all five tabs stay reachable (Phase 1 guest scope)', () {
+      for (final location in [
+        '/home',
+        '/discover',
+        '/stylist',
+        '/wardrobe',
+        '/profile',
+      ]) {
+        expect(
+          authRedirect(
+            location,
+            isAuthenticated: false,
+            isGuest: true,
+          ),
+          isNull,
+          reason: location,
+        );
+      }
+    });
+
+    test('nested shell read screens stay reachable', () {
+      for (final location in [
+        '/home/daily-outfit',
+        '/discover/look-details',
+        '/stylist/scan-outfit',
+        '/stylist/scan-outfit/processing',
+        '/stylist/scan-outfit/processing/analysis',
+        '/stylist/build-outfit',
+        '/stylist/build-outfit/generation',
+        '/stylist/build-outfit/generation/recommendation',
+        '/stylist/hairstyle',
+        '/stylist/hairstyle/processing',
+        '/stylist/hairstyle/processing/result',
+        '/stylist/hairstyle/processing/result/details',
+        '/stylist/grooming',
+        '/stylist/grooming/processing',
+        '/stylist/grooming/processing/result',
+        '/stylist/grooming/processing/result/details',
+        '/stylist/events',
+        '/stylist/events/add',
+        '/stylist/events/details',
+        '/stylist/events/edit',
+        '/wardrobe/add-category',
+        '/wardrobe/add-item',
+        '/wardrobe/item-details',
+        '/profile/preferences',
+        '/profile/saved-looks',
+        '/profile/subscription',
+        '/profile/support',
+        '/profile/settings',
+      ]) {
+        expect(
+          authRedirect(
+            location,
+            isAuthenticated: false,
+            isGuest: true,
+          ),
+          isNull,
+          reason: location,
+        );
+      }
+    });
+
+    test('assistant and reasoning stay blocked for guests', () {
+      for (final location in [
+        '/assistant',
+        '/reasoning',
+      ]) {
+        expect(
+          authRedirect(
+            location,
+            isAuthenticated: false,
+            isGuest: true,
+          ),
+          '/entry',
+          reason: location,
+        );
+      }
+    });
+
+    test('public flows stay reachable', () {
+      for (final location in [
+        '/splash',
+        '/entry',
+        '/onboarding/vibe',
+        '/onboarding/camera-permission',
+        '/onboarding/photo-capture',
+        '/onboarding/analysis',
+        '/onboarding/result',
+        '/onboarding/account',
+      ]) {
+        expect(
+          authRedirect(
+            location,
+            isAuthenticated: false,
+            isGuest: true,
+          ),
+          isNull,
+          reason: location,
+        );
+      }
+    });
+
+    test('unknown paths are left alone (no invented destinations)', () {
+      expect(
+        authRedirect('/nope', isAuthenticated: false, isGuest: true),
+        isNull,
+      );
+    });
+  });
+
   group('authenticated', () {
     test('never forced away from any route (no loops)', () {
       for (final location in [
@@ -75,6 +187,7 @@ void main() {
         '/splash',
         '/onboarding/account',
         '/assistant',
+        '/reasoning',
         '/home',
         '/discover',
         '/stylist/scan-outfit',

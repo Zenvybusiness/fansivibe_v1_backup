@@ -5,6 +5,7 @@ import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// The Look Details screen (DISCOVER-002, M14).
 ///
@@ -40,14 +41,24 @@ class _LookDetailsScreenState extends State<LookDetailsScreen> {
   bool _notFound = false;
   DiscoverFailure? _failure;
 
+  /// Phase 2 guests: no session, so no detail fetch — the body renders
+  /// the sign-in prompt instead of a 401-backed error.
+  bool _guestBlocked = false;
+
   @override
   void initState() {
     super.initState();
     _repository = widget.repository ?? DiscoverRepositoryImpl();
+    if (isGuestUser) {
+      _guestBlocked = true;
+      _loading = false;
+      return;
+    }
     _fetch();
   }
 
   Future<void> _fetch() async {
+    if (_guestBlocked) return;
     setState(() {
       _loading = true;
       _notFound = false;
@@ -129,6 +140,16 @@ class _LookDetailsScreenState extends State<LookDetailsScreen> {
   }
 
   Widget _buildBody(BuildContext context) {
+    if (_guestBlocked) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: GuestSignInCard(
+          title: 'Look Details',
+          message:
+              'Look details live in your account. Sign in to open them — browsing stays free.',
+        ),
+      );
+    }
     if (_loading) {
       return const Padding(
         padding: EdgeInsets.all(48),

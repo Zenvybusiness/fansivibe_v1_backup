@@ -1414,3 +1414,12 @@ tests. DEC-009–020 unchanged.
   `activity_days` foundation + signal-write upsert wiring → 2) M10-B
   `GET /v1/learning/summary` backend → 3) Flutter data layer → 4) Home
   + Profile backend-first binding → 5) cross-layer regression.
+
+---
+
+## DEC-GUEST-01 � Guest Access to AI Stylist Tab
+
+Status: Accepted (owner-directed, 2026-09-23)
+
+Users who choose Continue Without Account reach the AI Stylist tab (/stylist exactly) as explicit guests without a session token. The guard exception is scoped to that one tab: all other shell branches and every nested /stylist/* action still redirect unauthenticated users to /entry. Guest capture stays on the public onboarding chain (iAnalysis ? YourAnalysisScreen); the real analysis pipeline (hairstyleProcessing ? backend) remains authenticated-only. No token is minted for guests and no backend auth is bypassed � API clients keep resolving tokens through AuthSession and 401 honestly.
+

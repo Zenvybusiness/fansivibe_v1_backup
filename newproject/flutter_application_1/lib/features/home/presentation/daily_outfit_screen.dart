@@ -4,6 +4,7 @@ import 'package:fansivibe/features/home/data/today_look_client.dart';
 import 'package:fansivibe/features/home/data/today_look_models.dart';
 import 'package:fansivibe/features/home/data/today_look_repository.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
@@ -58,6 +59,10 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
   bool _saving = false;
   bool _saved = false;
 
+  /// Phase 2 guests: no session, so no fetch/regenerate/save — the
+  /// screen renders the sign-in prompt instead of 401-backed states.
+  bool _guestBlocked = false;
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +78,13 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     _alternativesAnim = _buildAnim(0.55, 0.75);
     _actionsAnim = _buildAnim(0.67, 0.85);
     _controller.forward();
+    // Phase 2 guests never fetch: GET /v1/looks/today 401s without a
+    // session. The build below renders the sign-in prompt instead.
+    if (isGuestUser) {
+      _guestBlocked = true;
+      _loading = false;
+      return;
+    }
     _fetchToday();
   }
 
@@ -112,6 +124,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
   }
 
   void _retry() {
+    if (_guestBlocked) return;
     setState(() {
       _loading = true;
       _failure = null;
@@ -125,6 +138,13 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
   /// the response arrives (never optimistically). A failed regeneration
   /// keeps the current look visible with truthful feedback.
   Future<void> _handleGenerateAnother() async {
+    if (_guestBlocked) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to generate looks. Browsing stays free.',
+      );
+      return;
+    }
     if (_loading || _regenerating || _saving) return;
     setState(() => _regenerating = true);
     _regenCount += 1;
@@ -168,6 +188,13 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
   /// never duplicate the save. A failed save keeps the look visible with
   /// truthful retry feedback. Never logs a wear event.
   Future<void> _handleSaveOutfit() async {
+    if (_guestBlocked) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to save looks. Browsing stays free.',
+      );
+      return;
+    }
     final look = _look;
     if (_loading || _saving || _regenerating || look == null || _saved) return;
     final title = look.title.trim();
@@ -209,6 +236,22 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
       return _stateScaffold(
         context,
         body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    // Phase 2 guests: honest sign-in prompt, never a 401-backed error.
+    if (_guestBlocked) {
+      return _stateScaffold(
+        context,
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: GuestSignInCard(
+              title: "Today's Look",
+              message:
+                  'Your daily look lives in your account. Sign in to get personalized recommendations — browsing stays free.',
+            ),
+          ),
+        ),
       );
     }
     if (look == null) {

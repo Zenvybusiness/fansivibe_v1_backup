@@ -8,6 +8,7 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_error_view.dart';
 import 'package:fansivibe/shared/components/fansi_loading_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// Backend-first event list (M8-D).
 ///
@@ -41,16 +42,32 @@ class _EventListScreenState extends State<EventListScreen> {
   @override
   void initState() {
     super.initState();
+    // Phase 2 guests never fetch: GET /v1/events 401s without a
+    // session. The build below renders the sign-in prompt instead.
+    if (isGuestUser) {
+      _future = Future.value(null);
+      return;
+    }
     _future = Future.sync(() => _repository.listEvents());
   }
 
   void _reload() {
+    if (isGuestUser) return;
     setState(() {
       _future = Future.sync(() => _repository.listEvents());
     });
   }
 
   Future<void> _addEvent() async {
+    // Phase 2 guests: creating events is account-only — prompt at the
+    // button instead of pushing into a 401-backed form.
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to plan events. Browsing stays free.',
+      );
+      return;
+    }
     final created = await context.pushNamed<EventItem>(RouteNames.eventAdd);
     if (created != null && mounted) {
       setState(() {
@@ -162,6 +179,15 @@ class _EventListScreenState extends State<EventListScreen> {
                         FutureBuilder<EventListPage?>(
                           future: _future,
                           builder: (context, snapshot) {
+                            // Phase 2 guests: honest sign-in prompt —
+                            // the list request above never fired.
+                            if (isGuestUser) {
+                              return const GuestSignInCard(
+                                title: 'Event Planning',
+                                message:
+                                    'Event planning lives in your account. Sign in to plan outfits for events — browsing stays free.',
+                              );
+                            }
                             if (snapshot.connectionState ==
                                 ConnectionState.waiting) {
                               return const Padding(

@@ -6,6 +6,7 @@ import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// UI label → backend occasion code (P1-2).
 ///
@@ -132,6 +133,20 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     }
 
     final previousOccasion = _selectedOccasion;
+
+    // Phase 2.1 guests: preferences persist on-device only — the sync
+    // call below would 401 without a session, so it is skipped and the
+    // status says so honestly instead of rolling back a valid choice.
+    if (isGuestUser) {
+      _learningService.addPreferredOccasion(value);
+      setState(() {
+        _selectedOccasion = value;
+        _preferences = _buildPreferences();
+        _isError = false;
+        _statusMessage = 'Saved: $value (this device only)';
+      });
+      return;
+    }
 
     // Instant-save UX: highlight selected chip immediately and show syncing indicator.
     setState(() {

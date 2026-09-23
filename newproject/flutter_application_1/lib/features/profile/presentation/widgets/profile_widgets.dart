@@ -545,6 +545,8 @@ class ProfileMenuCard extends StatelessWidget {
         return Icons.settings_rounded;
       case 'logout_rounded':
         return Icons.logout_rounded;
+      case 'login_rounded':
+        return Icons.login_rounded;
       default:
         return Icons.circle_rounded;
     }

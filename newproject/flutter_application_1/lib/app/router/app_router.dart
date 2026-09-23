@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/app/router/router_shell.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/app/router/auth_guard.dart';
 import 'package:fansivibe/shared/components/fansi_error_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -514,8 +515,12 @@ final GoRouter appRouter = GoRouter(
   // 21.2 (M1) declarative auth guard: unauthenticated deep links into
   // the shell land on entry; authenticated users are never forced away
   // (no loops, no network on navigation — see auth_guard.dart).
+  // Explicit guests (Continue Without Account, no session token) may
+  // view the AI Stylist tab only; nested actions stay guarded.
   redirect: (context, state) => authRedirect(
     state.uri.path,
     isAuthenticated: AuthSession.isAuthenticated,
+    isGuest:
+        !AuthSession.isAuthenticated && LocalStorage.savedLocally,
   ),
 );
