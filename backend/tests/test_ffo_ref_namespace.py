@@ -196,7 +196,8 @@ def test_evidence_ids_distinct_from_refs():
     ids = {e.doc_id for e in parsed.evidence}
     assert ids.isdisjoint(universe)
     for doc_id in ids:
-        assert f"ID: [{doc_id}]" in text
+        assert f"ID: {doc_id}" in text
+
 
 
 def test_no_ref_created_and_universe_unchanged():
@@ -333,13 +334,14 @@ def test_3h_prompt_constraints_preserved():
     system = build_system_prompt()
     user = build_user_prompt(_input())
     for kept in (
-        "square-bracketed IDs in section C",
+        "Valid evidence IDs list in section C",
         "Valid FFO references list in section C",
         "Echo the versions object from section D exactly",
         "Return ONLY that JSON object and nothing else",
         "Answer ONLY from the supplied evidence",
     ):
         assert kept in system, f"3H system rule lost: {kept}"
+
     for kept in (
         "Valid evidence IDs:",
         "Valid FFO references:",

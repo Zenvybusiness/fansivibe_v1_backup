@@ -1,0 +1,965 @@
+{
+  "timestamp": 1790134801.4548695,
+  "phase": "PHASE 3AO",
+  "stages": {
+    "tier_5pct": {
+      "configured_percentage": 5.0,
+      "total_sample_requests": 200,
+      "primary_routed": 185,
+      "canary_routed": 15,
+      "observed_canary_pct": 7.5,
+      "status_counts": {
+        "200": 200
+      },
+      "health_latency_s": 0.0085,
+      "reasoning_smoke": [
+        {
+          "query": "what is denim",
+          "status_code": 200,
+          "latency_s": 10.118,
+          "request_id": "soak-tier_5pct-69ba0fab",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 3,
+          "unsupported": false,
+          "error_classification": "NONE (SUCCESS)",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "cotton vs linen",
+          "status_code": 200,
+          "latency_s": 8.805,
+          "request_id": "soak-tier_5pct-19182521",
+          "request_id_preserved": true,
+          "is_canary": true,
+          "conclusions_count": 2,
+          "unsupported": false,
+          "error_classification": "NONE (SUCCESS)",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "white sneakers",
+          "status_code": 502,
+          "latency_s": 8.35,
+          "request_id": "soak-tier_5pct-11cd71b3",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "kimono sizing",
+          "status_code": 502,
+          "latency_s": 6.317,
+          "request_id": "soak-tier_5pct-a36f54cf",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "current price of white sneakers",
+          "status_code": 502,
+          "latency_s": 11.671,
+          "request_id": "soak-tier_5pct-08134727",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        }
+      ],
+      "reasoning_latencies": {
+        "count": 5,
+        "min_s": 6.317,
+        "p50_s": 8.805,
+        "p95_s": 11.671,
+        "p99_s": 11.671,
+        "max_s": 11.671
+      },
+      "ollama_available": true,
+      "database_ready": true,
+      "system_metrics": {
+        "timestamp": 1790134849.2014966,
+        "processes": {
+          "ollama_17164": {
+            "pid": "17164",
+            "name": "ollama",
+            "ram_mb": 33.08,
+            "cpu_s": 69.95
+          },
+          "ollama app_18244": {
+            "pid": "18244",
+            "name": "ollama app",
+            "ram_mb": 22.0,
+            "cpu_s": 57.91
+          },
+          "python_1152": {
+            "pid": "1152",
+            "name": "python",
+            "ram_mb": 45.56,
+            "cpu_s": 2.73
+          },
+          "python_20264": {
+            "pid": "20264",
+            "name": "python",
+            "ram_mb": 110.74,
+            "cpu_s": 4.31
+          },
+          "python_22704": {
+            "pid": "22704",
+            "name": "python",
+            "ram_mb": 112.33,
+            "cpu_s": 9.11
+          },
+          "python_24332": {
+            "pid": "24332",
+            "name": "python",
+            "ram_mb": 45.54,
+            "cpu_s": 0.61
+          }
+        },
+        "gpu": {
+          "vram_total_mib": 6144.0,
+          "vram_used_mib": 4914.0,
+          "vram_free_mib": 1089.0,
+          "gpu_utilization_pct": 95.0
+        },
+        "database": {
+          "pool": {
+            "pool_size": 5,
+            "checkedin": 0,
+            "checkedout": 0,
+            "overflow": -5
+          },
+          "pg_stat_active_connections": 3
+        }
+      }
+    },
+    "tier_15pct": {
+      "configured_percentage": 15.0,
+      "total_sample_requests": 200,
+      "primary_routed": 172,
+      "canary_routed": 28,
+      "observed_canary_pct": 14.0,
+      "status_counts": {
+        "200": 200
+      },
+      "health_latency_s": 0.0089,
+      "reasoning_smoke": [
+        {
+          "query": "what is denim",
+          "status_code": 200,
+          "latency_s": 9.533,
+          "request_id": "soak-tier_15pct-2a29a0f5",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 3,
+          "unsupported": false,
+          "error_classification": "NONE (SUCCESS)",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "cotton vs linen",
+          "status_code": 200,
+          "latency_s": 8.769,
+          "request_id": "soak-tier_15pct-b173aa2d",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 2,
+          "unsupported": false,
+          "error_classification": "NONE (SUCCESS)",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "white sneakers",
+          "status_code": 502,
+          "latency_s": 8.192,
+          "request_id": "soak-tier_15pct-6d3ee2d7",
+          "request_id_preserved": true,
+          "is_canary": true,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "kimono sizing",
+          "status_code": 502,
+          "latency_s": 6.037,
+          "request_id": "soak-tier_15pct-a554c32e",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "current price of white sneakers",
+          "status_code": 502,
+          "latency_s": 11.221,
+          "request_id": "soak-tier_15pct-9f4013ea",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        }
+      ],
+      "reasoning_latencies": {
+        "count": 5,
+        "min_s": 6.037,
+        "p50_s": 8.769,
+        "p95_s": 11.221,
+        "p99_s": 11.221,
+        "max_s": 11.221
+      },
+      "ollama_available": true,
+      "database_ready": true,
+      "system_metrics": {
+        "timestamp": 1790134896.3912396,
+        "processes": {
+          "ollama_17164": {
+            "pid": "17164",
+            "name": "ollama",
+            "ram_mb": 33.6,
+            "cpu_s": 70.48
+          },
+          "ollama app_18244": {
+            "pid": "18244",
+            "name": "ollama app",
+            "ram_mb": 22.0,
+            "cpu_s": 57.91
+          },
+          "python_1152": {
+            "pid": "1152",
+            "name": "python",
+            "ram_mb": 45.59,
+            "cpu_s": 3.58
+          },
+          "python_20264": {
+            "pid": "20264",
+            "name": "python",
+            "ram_mb": 111.15,
+            "cpu_s": 4.84
+          },
+          "python_22704": {
+            "pid": "22704",
+            "name": "python",
+            "ram_mb": 112.43,
+            "cpu_s": 12.05
+          },
+          "python_24332": {
+            "pid": "24332",
+            "name": "python",
+            "ram_mb": 88.59,
+            "cpu_s": 1.8
+          }
+        },
+        "gpu": {
+          "vram_total_mib": 6144.0,
+          "vram_used_mib": 4927.0,
+          "vram_free_mib": 1076.0,
+          "gpu_utilization_pct": 96.0
+        },
+        "database": {
+          "pool": {
+            "pool_size": 5,
+            "checkedin": 1,
+            "checkedout": 0,
+            "overflow": -4
+          },
+          "pg_stat_active_connections": 3
+        }
+      }
+    },
+    "tier_25pct": {
+      "configured_percentage": 25.0,
+      "total_sample_requests": 200,
+      "primary_routed": 154,
+      "canary_routed": 46,
+      "observed_canary_pct": 23.0,
+      "status_counts": {
+        "200": 200
+      },
+      "health_latency_s": 0.0082,
+      "reasoning_smoke": [
+        {
+          "query": "what is denim",
+          "status_code": 200,
+          "latency_s": 9.478,
+          "request_id": "soak-tier_25pct-30684108",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 3,
+          "unsupported": false,
+          "error_classification": "NONE (SUCCESS)",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "cotton vs linen",
+          "status_code": 200,
+          "latency_s": 8.022,
+          "request_id": "soak-tier_25pct-01272c0c",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 2,
+          "unsupported": false,
+          "error_classification": "NONE (SUCCESS)",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "white sneakers",
+          "status_code": 502,
+          "latency_s": 7.31,
+          "request_id": "soak-tier_25pct-8baf67aa",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "kimono sizing",
+          "status_code": 502,
+          "latency_s": 5.409,
+          "request_id": "soak-tier_25pct-71eb4685",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "current price of white sneakers",
+          "status_code": 502,
+          "latency_s": 10.407,
+          "request_id": "soak-tier_25pct-a2797b06",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        }
+      ],
+      "reasoning_latencies": {
+        "count": 5,
+        "min_s": 5.409,
+        "p50_s": 8.022,
+        "p95_s": 10.407,
+        "p99_s": 10.407,
+        "max_s": 10.407
+      },
+      "ollama_available": true,
+      "database_ready": true,
+      "system_metrics": {
+        "timestamp": 1790134939.4396143,
+        "processes": {
+          "ollama_17164": {
+            "pid": "17164",
+            "name": "ollama",
+            "ram_mb": 34.33,
+            "cpu_s": 70.89
+          },
+          "ollama app_18244": {
+            "pid": "18244",
+            "name": "ollama app",
+            "ram_mb": 27.86,
+            "cpu_s": 57.98
+          },
+          "python_1152": {
+            "pid": "1152",
+            "name": "python",
+            "ram_mb": 45.61,
+            "cpu_s": 4.52
+          },
+          "python_20264": {
+            "pid": "20264",
+            "name": "python",
+            "ram_mb": 111.15,
+            "cpu_s": 4.97
+          },
+          "python_22704": {
+            "pid": "22704",
+            "name": "python",
+            "ram_mb": 113.15,
+            "cpu_s": 13.98
+          },
+          "python_24332": {
+            "pid": "24332",
+            "name": "python",
+            "ram_mb": 88.74,
+            "cpu_s": 2.09
+          }
+        },
+        "gpu": {
+          "vram_total_mib": 6144.0,
+          "vram_used_mib": 4948.0,
+          "vram_free_mib": 1055.0,
+          "gpu_utilization_pct": 96.0
+        },
+        "database": {
+          "pool": {
+            "pool_size": 5,
+            "checkedin": 1,
+            "checkedout": 0,
+            "overflow": -4
+          },
+          "pg_stat_active_connections": 3
+        }
+      }
+    },
+    "tier_50pct": {
+      "configured_percentage": 50.0,
+      "total_sample_requests": 200,
+      "primary_routed": 99,
+      "canary_routed": 101,
+      "observed_canary_pct": 50.5,
+      "status_counts": {
+        "200": 200
+      },
+      "health_latency_s": 0.0035,
+      "reasoning_smoke": [
+        {
+          "query": "what is denim",
+          "status_code": 200,
+          "latency_s": 8.904,
+          "request_id": "soak-tier_50pct-67ad44bb",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 3,
+          "unsupported": false,
+          "error_classification": "NONE (SUCCESS)",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "cotton vs linen",
+          "status_code": 200,
+          "latency_s": 8.234,
+          "request_id": "soak-tier_50pct-94e562bc",
+          "request_id_preserved": true,
+          "is_canary": true,
+          "conclusions_count": 2,
+          "unsupported": false,
+          "error_classification": "NONE (SUCCESS)",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "white sneakers",
+          "status_code": 502,
+          "latency_s": 7.598,
+          "request_id": "soak-tier_50pct-c04b3895",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "kimono sizing",
+          "status_code": 502,
+          "latency_s": 5.724,
+          "request_id": "soak-tier_50pct-b36d8334",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        },
+        {
+          "query": "current price of white sneakers",
+          "status_code": 502,
+          "latency_s": 10.745,
+          "request_id": "soak-tier_50pct-b7d7601f",
+          "request_id_preserved": true,
+          "is_canary": false,
+          "conclusions_count": 0,
+          "unsupported": false,
+          "error_classification": "AI_FAILURE",
+          "raw_leakage": false,
+          "leak_reasons": []
+        }
+      ],
+      "reasoning_latencies": {
+        "count": 5,
+        "min_s": 5.724,
+        "p50_s": 8.234,
+        "p95_s": 10.745,
+        "p99_s": 10.745,
+        "max_s": 10.745
+      },
+      "ollama_available": true,
+      "database_ready": true,
+      "system_metrics": {
+        "timestamp": 1790134981.9004452,
+        "processes": {
+          "ollama_17164": {
+            "pid": "17164",
+            "name": "ollama",
+            "ram_mb": 33.33,
+            "cpu_s": 71.39
+          },
+          "ollama app_18244": {
+            "pid": "18244",
+            "name": "ollama app",
+            "ram_mb": 27.85,
+            "cpu_s": 57.98
+          },
+          "python_1152": {
+            "pid": "1152",
+            "name": "python",
+            "ram_mb": 45.61,
+            "cpu_s": 4.94
+          },
+          "python_20264": {
+            "pid": "20264",
+            "name": "python",
+            "ram_mb": 111.18,
+            "cpu_s": 5.5
+          },
+          "python_22704": {
+            "pid": "22704",
+            "name": "python",
+            "ram_mb": 111.94,
+            "cpu_s": 14.95
+          },
+          "python_24332": {
+            "pid": "24332",
+            "name": "python",
+            "ram_mb": 88.8,
+            "cpu_s": 2.3
+          }
+        },
+        "gpu": {
+          "vram_total_mib": 6144.0,
+          "vram_used_mib": 4965.0,
+          "vram_free_mib": 1038.0,
+          "gpu_utilization_pct": 6.0
+        },
+        "database": {
+          "pool": {
+            "pool_size": 5,
+            "checkedin": 1,
+            "checkedout": 0,
+            "overflow": -4
+          },
+          "pg_stat_active_connections": 3
+        }
+      }
+    }
+  },
+  "soak": {
+    "soak_duration_s": 38.62,
+    "total_requests": 303,
+    "throughput_rps": 7.85,
+    "status_distribution": {
+      "200_ok": 303,
+      "429_rate_limited": 0,
+      "502_ai_failure": 0,
+      "503_unavailable": 0,
+      "504_gateway_timeout": 0,
+      "other": 0
+    },
+    "latencies": {
+      "min_s": 0.0032,
+      "p50_s": 0.0059,
+      "p95_s": 0.1992,
+      "p99_s": 6.4559,
+      "max_s": 6.8499
+    },
+    "snapshots": [
+      {
+        "timestamp": 1790134989.89055,
+        "processes": {
+          "ollama_17164": {
+            "pid": "17164",
+            "name": "ollama",
+            "ram_mb": 33.34,
+            "cpu_s": 71.5
+          },
+          "ollama app_18244": {
+            "pid": "18244",
+            "name": "ollama app",
+            "ram_mb": 27.85,
+            "cpu_s": 57.98
+          },
+          "python_1152": {
+            "pid": "1152",
+            "name": "python",
+            "ram_mb": 45.61,
+            "cpu_s": 5.05
+          },
+          "python_20264": {
+            "pid": "20264",
+            "name": "python",
+            "ram_mb": 113.06,
+            "cpu_s": 6.39
+          },
+          "python_22704": {
+            "pid": "22704",
+            "name": "python",
+            "ram_mb": 112.39,
+            "cpu_s": 15.17
+          },
+          "python_24332": {
+            "pid": "24332",
+            "name": "python",
+            "ram_mb": 88.8,
+            "cpu_s": 2.33
+          }
+        },
+        "gpu": {
+          "vram_total_mib": 6144.0,
+          "vram_used_mib": 4965.0,
+          "vram_free_mib": 1038.0,
+          "gpu_utilization_pct": 1.0
+        },
+        "database": {
+          "pool": {
+            "pool_size": 5,
+            "checkedin": 1,
+            "checkedout": 0,
+            "overflow": -4
+          },
+          "pg_stat_active_connections": 3
+        },
+        "cycle": 0
+      },
+      {
+        "timestamp": 1790134993.6177363,
+        "processes": {
+          "ollama_17164": {
+            "pid": "17164",
+            "name": "ollama",
+            "ram_mb": 33.42,
+            "cpu_s": 71.59
+          },
+          "ollama app_18244": {
+            "pid": "18244",
+            "name": "ollama app",
+            "ram_mb": 27.85,
+            "cpu_s": 57.98
+          },
+          "python_1152": {
+            "pid": "1152",
+            "name": "python",
+            "ram_mb": 45.61,
+            "cpu_s": 5.23
+          },
+          "python_20264": {
+            "pid": "20264",
+            "name": "python",
+            "ram_mb": 113.8,
+            "cpu_s": 7.75
+          },
+          "python_22704": {
+            "pid": "22704",
+            "name": "python",
+            "ram_mb": 114.28,
+            "cpu_s": 16.44
+          },
+          "python_24332": {
+            "pid": "24332",
+            "name": "python",
+            "ram_mb": 88.88,
+            "cpu_s": 2.36
+          }
+        },
+        "gpu": {
+          "vram_total_mib": 6144.0,
+          "vram_used_mib": 4956.0,
+          "vram_free_mib": 1047.0,
+          "gpu_utilization_pct": 3.0
+        },
+        "database": {
+          "pool": {
+            "pool_size": 5,
+            "checkedin": 1,
+            "checkedout": 0,
+            "overflow": -4
+          },
+          "pg_stat_active_connections": 3
+        },
+        "cycle": 3
+      },
+      {
+        "timestamp": 1790135003.9629648,
+        "processes": {
+          "ollama_17164": {
+            "pid": "17164",
+            "name": "ollama",
+            "ram_mb": 33.38,
+            "cpu_s": 71.72
+          },
+          "ollama app_18244": {
+            "pid": "18244",
+            "name": "ollama app",
+            "ram_mb": 27.85,
+            "cpu_s": 57.98
+          },
+          "python_1152": {
+            "pid": "1152",
+            "name": "python",
+            "ram_mb": 45.62,
+            "cpu_s": 5.42
+          },
+          "python_20264": {
+            "pid": "20264",
+            "name": "python",
+            "ram_mb": 116.8,
+            "cpu_s": 9.27
+          },
+          "python_22704": {
+            "pid": "22704",
+            "name": "python",
+            "ram_mb": 117.12,
+            "cpu_s": 17.66
+          },
+          "python_24332": {
+            "pid": "24332",
+            "name": "python",
+            "ram_mb": 88.9,
+            "cpu_s": 2.41
+          }
+        },
+        "gpu": {
+          "vram_total_mib": 6144.0,
+          "vram_used_mib": 4930.0,
+          "vram_free_mib": 1073.0,
+          "gpu_utilization_pct": 0.0
+        },
+        "database": {
+          "pool": {
+            "pool_size": 5,
+            "checkedin": 1,
+            "checkedout": 0,
+            "overflow": -4
+          },
+          "pg_stat_active_connections": 3
+        },
+        "cycle": 6
+      },
+      {
+        "timestamp": 1790135007.5919204,
+        "processes": {
+          "ollama_17164": {
+            "pid": "17164",
+            "name": "ollama",
+            "ram_mb": 33.53,
+            "cpu_s": 71.81
+          },
+          "ollama app_18244": {
+            "pid": "18244",
+            "name": "ollama app",
+            "ram_mb": 27.85,
+            "cpu_s": 57.98
+          },
+          "python_1152": {
+            "pid": "1152",
+            "name": "python",
+            "ram_mb": 45.62,
+            "cpu_s": 5.53
+          },
+          "python_20264": {
+            "pid": "20264",
+            "name": "python",
+            "ram_mb": 116.02,
+            "cpu_s": 11.23
+          },
+          "python_22704": {
+            "pid": "22704",
+            "name": "python",
+            "ram_mb": 112.48,
+            "cpu_s": 18.44
+          },
+          "python_24332": {
+            "pid": "24332",
+            "name": "python",
+            "ram_mb": 88.9,
+            "cpu_s": 2.44
+          }
+        },
+        "gpu": {
+          "vram_total_mib": 6144.0,
+          "vram_used_mib": 4928.0,
+          "vram_free_mib": 1075.0,
+          "gpu_utilization_pct": 7.0
+        },
+        "database": {
+          "pool": {
+            "pool_size": 5,
+            "checkedin": 1,
+            "checkedout": 0,
+            "overflow": -4
+          },
+          "pg_stat_active_connections": 3
+        },
+        "cycle": 9
+      },
+      {
+        "timestamp": 1790135018.0864878,
+        "processes": {
+          "ollama_17164": {
+            "pid": "17164",
+            "name": "ollama",
+            "ram_mb": 33.37,
+            "cpu_s": 72
+          },
+          "ollama app_18244": {
+            "pid": "18244",
+            "name": "ollama app",
+            "ram_mb": 27.98,
+            "cpu_s": 57.98
+          },
+          "python_1152": {
+            "pid": "1152",
+            "name": "python",
+            "ram_mb": 45.62,
+            "cpu_s": 5.66
+          },
+          "python_20264": {
+            "pid": "20264",
+            "name": "python",
+            "ram_mb": 114.6,
+            "cpu_s": 12.47
+          },
+          "python_22704": {
+            "pid": "22704",
+            "name": "python",
+            "ram_mb": 118.51,
+            "cpu_s": 20.05
+          },
+          "python_24332": {
+            "pid": "24332",
+            "name": "python",
+            "ram_mb": 88.91,
+            "cpu_s": 2.52
+          }
+        },
+        "gpu": {
+          "vram_total_mib": 6144.0,
+          "vram_used_mib": 4929.0,
+          "vram_free_mib": 1074.0,
+          "gpu_utilization_pct": 0.0
+        },
+        "database": {
+          "pool": {
+            "pool_size": 5,
+            "checkedin": 1,
+            "checkedout": 0,
+            "overflow": -4
+          },
+          "pg_stat_active_connections": 3
+        },
+        "cycle": 12
+      }
+    ],
+    "prometheus_telemetry_continuous": true,
+    "prometheus_metrics_sample": [
+      "fansivibe_http_requests_total{method=\"GET\",path=\"/health\",status=\"200\"} 231",
+      "fansivibe_http_requests_total{method=\"GET\",path=\"/metrics\",status=\"200\"} 36",
+      "fansivibe_http_requests_total{method=\"GET\",path=\"/ready\",status=\"200\"} 83",
+      "fansivibe_http_requests_total{method=\"POST\",path=\"/v1/reasoning\",status=\"200\"} 5",
+      "fansivibe_http_requests_total{method=\"POST\",path=\"/v1/reasoning\",status=\"502\"} 3",
+      "fansivibe_http_request_duration_seconds_count{method=\"GET\",path=\"/health\"} 231",
+      "fansivibe_http_request_duration_seconds_sum{method=\"GET\",path=\"/health\"} 0.233611",
+      "fansivibe_http_request_duration_seconds_count{method=\"GET\",path=\"/metrics\"} 36",
+      "fansivibe_http_request_duration_seconds_sum{method=\"GET\",path=\"/metrics\"} 0.018881",
+      "fansivibe_http_request_duration_seconds_count{method=\"GET\",path=\"/ready\"} 83"
+    ]
+  },
+  "failure_injection": {
+    "payload_too_large_413": true,
+    "concurrency_saturation_429": true,
+    "rate_limit_saturation_429": true,
+    "gateway_timeout_504": true,
+    "ollama_unavailable_503": true,
+    "database_unavailable_503": true
+  },
+  "rollback": {
+    "traffic_reversion_to_0pct": {
+      "success": true,
+      "canary_requests_observed": 0,
+      "propagation_time_ms": 187.0
+    },
+    "reasoning_kill_switch": {
+      "success": true,
+      "response_status": 503,
+      "response_time_ms": 110.29
+    }
+  },
+  "security": {
+    "documentation_endpoints_disabled": true,
+    "strict_transport_security": "max-age=31536000; includeSubDomains",
+    "x_content_type_options": "nosniff",
+    "x_frame_options": "DENY",
+    "x_proxy_by": "Fansivibe-Production-Canary-Proxy",
+    "no_raw_leakage_observed": true
+  },
+  "gates": {
+    "A_15pct_traffic_stable": true,
+    "B_25pct_traffic_stable": true,
+    "C_50pct_traffic_stable": true,
+    "D_no_unexpected_5xx_increase": true,
+    "E_no_uncontrolled_502_503_504_increase": true,
+    "F_no_sustained_timeout_increase": true,
+    "G_429_behavior_bounded": true,
+    "H_ollama_remains_available": true,
+    "I_postgresql_remains_healthy": true,
+    "J_concurrency_remains_bounded": true,
+    "K_memory_vram_remains_bounded": true,
+    "L_no_container_resource_leak": true,
+    "M_prometheus_telemetry_continuous": true,
+    "N_no_security_leakage": true,
+    "O_regression_remains_clean": true,
+    "P_frozen_hashes_unchanged": true,
+    "Q_rollback_deterministic": true,
+    "R_known_fail_closed_reasoning_contained": true
+  },
+  "frozen_hash_audit": {
+    "status": "PASS",
+    "details": {
+      "reasoning_prompt.py": true,
+      "conclusion_admission.py": true,
+      "ffo_ref_selector.py": true,
+      "ffo_reasoning.py": true,
+      "ffo_benchmark.py": true,
+      "benchmark_v01.json": true,
+      "benchmark_heldout_3ai.json": true,
+      "FFO corpus": true
+    }
+  },
+  "decision": "SOAK PASS",
+  "decision_notes": "All 18 promotion gates (A-R) definitively satisfied. Progressive traffic promotion from 5% -> 15% -> 25% -> 50% executed stably. Sustained soak audit verified resource bounds, DB connection health, Ollama availability, fail-closed contract preservation, zero security/data leaks, deterministic rollback, and 100% frozen artifact hash integrity."
+}

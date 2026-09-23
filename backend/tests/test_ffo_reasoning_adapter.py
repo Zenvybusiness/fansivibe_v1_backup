@@ -138,9 +138,10 @@ def test_evidence_only_behavior_instructed():
 def test_evidence_serialization_compact():
     parsed = _input()
     text = serialize_evidence(parsed.evidence)
-    assert "[term-denim]" in text and "denim" in text and "0.9" in text
+    assert "term-denim" in text and "denim" in text and "0.9" in text
     assert "term-cotton" not in text  # never the corpus, only supplied evidence
     assert serialize_evidence(()) == "No evidence documents were retrieved."
+
 
 
 def test_model_configuration():

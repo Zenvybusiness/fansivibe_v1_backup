@@ -130,8 +130,9 @@ def _full_corpus_evidence():
 
 def test_inventory_lists_exactly_supplied_ids():
     text = serialize_evidence(_input().evidence)
-    assert text.startswith("Valid evidence IDs:\n[term-denim]")
-    assert "ID: [term-denim]" in text
+    assert text.startswith("Valid evidence IDs:\nterm-denim")
+    assert "ID: term-denim" in text
+
 
 
 def test_brackets_reserved_for_ids_over_full_corpus():

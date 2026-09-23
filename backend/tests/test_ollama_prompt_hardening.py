@@ -122,9 +122,10 @@ def _reason(payload, reasoning_input=None):
 def test_system_prompt_id_fidelity_rules():
     system = build_system_prompt()
     assert "ONLY" in system and "one JSON object" in system
-    assert "square-bracketed IDs" in system
+    assert "Valid evidence IDs" in system
     assert "never use knowledge text" in system
     assert "all four keys" in system
+
 
 
 def test_user_prompt_evidence_id_and_versions_rules():

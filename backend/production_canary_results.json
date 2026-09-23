@@ -1,0 +1,164 @@
+{
+  "frozen_hash_audit": {
+    "status": "PASS",
+    "details": {
+      "reasoning_prompt.py": true,
+      "conclusion_admission.py": true,
+      "ffo_ref_selector.py": true,
+      "ffo_reasoning.py": true,
+      "ffo_benchmark.py": true,
+      "benchmark_v01.json": true,
+      "benchmark_heldout_3ai.json": true,
+      "FFO corpus": true
+    }
+  },
+  "pre_canary_validation": {
+    "health": {
+      "status": 200,
+      "latency_s": 0.0277
+    },
+    "ready": {
+      "status": 200,
+      "database": "connected"
+    },
+    "detailed_ready": {
+      "status": "ready",
+      "database": "connected",
+      "checks": {
+        "database": "ok",
+        "ffo_corpus": "ok",
+        "reasoning": "ok",
+        "reasoning_model": "qwen2.5vl:3b"
+      }
+    },
+    "docs_blocked": true,
+    "security_headers": {
+      "strict_transport_security": "max-age=31536000; includeSubDomains",
+      "x_content_type_options": "nosniff",
+      "x_frame_options": "DENY",
+      "x_proxy_by": "Fansivibe-Production-Canary-Proxy"
+    },
+    "metrics_available": true
+  },
+  "smoke_queries": [
+    {
+      "query": "what is denim",
+      "status_code": 200,
+      "latency_s": 10.311,
+      "request_id": "canary-smoke-114dc0a4",
+      "request_id_preserved": true,
+      "is_canary": "false",
+      "error_classification": "NONE (SUCCESS)",
+      "conclusions_count": 3,
+      "raw_leakage": false,
+      "leak_reasons": []
+    },
+    {
+      "query": "cotton vs linen",
+      "status_code": 200,
+      "latency_s": 8.885,
+      "request_id": "canary-smoke-ecbb4237",
+      "request_id_preserved": true,
+      "is_canary": "false",
+      "error_classification": "NONE (SUCCESS)",
+      "conclusions_count": 2,
+      "raw_leakage": false,
+      "leak_reasons": []
+    },
+    {
+      "query": "white sneakers",
+      "status_code": 502,
+      "latency_s": 8.151,
+      "request_id": "canary-smoke-00ce674b",
+      "request_id_preserved": true,
+      "is_canary": "false",
+      "error_classification": "AI_FAILURE",
+      "conclusions_count": 0,
+      "raw_leakage": false,
+      "leak_reasons": []
+    },
+    {
+      "query": "kimono sizing",
+      "status_code": 502,
+      "latency_s": 6.206,
+      "request_id": "canary-smoke-f196ceee",
+      "request_id_preserved": true,
+      "is_canary": "true",
+      "error_classification": "AI_FAILURE",
+      "conclusions_count": 0,
+      "raw_leakage": false,
+      "leak_reasons": []
+    },
+    {
+      "query": "current price of white sneakers",
+      "status_code": 502,
+      "latency_s": 11.425,
+      "request_id": "canary-smoke-43b3ca37",
+      "request_id_preserved": true,
+      "is_canary": "false",
+      "error_classification": "AI_FAILURE",
+      "conclusions_count": 0,
+      "raw_leakage": false,
+      "leak_reasons": []
+    }
+  ],
+  "traffic_distribution": {
+    "total_samples": 40,
+    "primary_routed": 39,
+    "canary_routed": 1,
+    "observed_canary_pct": 2.5,
+    "forced_canary_verified": true
+  },
+  "latency_stats": {
+    "sample_count": 5,
+    "min_s": 6.206,
+    "p50_s": 8.885,
+    "p95_s": 11.425,
+    "p99_s": 11.425,
+    "max_s": 11.425
+  },
+  "rollback_verification": {
+    "traffic_removal_to_0_pct": {
+      "success": true,
+      "post_rollback_canary_count": 0,
+      "rollback_time_ms": 180.18
+    },
+    "reasoning_kill_switch": {
+      "success": true,
+      "status_code": 503,
+      "response_time_ms": 204.17
+    }
+  },
+  "failure_injection": {
+    "payload_too_large_413": true,
+    "concurrency_saturation_429": true,
+    "rate_limit_saturation_429": true,
+    "gateway_timeout_504": true,
+    "ollama_unavailable_503": true
+  },
+  "prometheus_telemetry": {
+    "http_requests_total": "fansivibe_http_requests_total{method=\"POST\",path=\"/v1/reasoning\",status=\"502\"} 4",
+    "concurrency_active": "fansivibe_reasoning_concurrency_active 0",
+    "readiness_status": "fansivibe_readiness_status 1.0",
+    "ollama_available": "fansivibe_ollama_available 1.0"
+  },
+  "promotion_gates": {
+    "all_passed": true,
+    "gates": {
+      "A_no_unexpected_deployment_errors": true,
+      "B_no_new_backend_regression": true,
+      "C_no_new_flutter_regression": true,
+      "D_frozen_artifact_hashes_unchanged": true,
+      "E_health_healthy": true,
+      "F_ready_healthy": true,
+      "G_ollama_availability_stable": true,
+      "H_no_sustained_timeout_spike": true,
+      "I_no_unexpected_increase_in_502_503_504": true,
+      "J_no_uncontrolled_concurrency_saturation": true,
+      "K_no_security_or_secret_leakage": true,
+      "L_reasoning_quality_baseline_preserved": true
+    }
+  },
+  "decision": "CANARY PASS",
+  "decision_notes": "All 12 promotion gates (A-L) definitively satisfied. Canary traffic stable at 5%. Eligible for controlled traffic progression."
+}

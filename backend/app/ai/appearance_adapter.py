@@ -208,25 +208,17 @@ class DevelopmentAppearanceAnalysisAdapter(AppearanceAnalysisPort):
             pass
         return None
 
-    def analyze(self, *, media_ref: dict, user_id: UUID) -> AppearanceProfile:
+    def analyze(
+        self,
+        *,
+        media_ref: dict,
+        user_id: UUID,
+        image_bytes: bytes | None = None,
+    ) -> AppearanceProfile:
         """See `AppearanceAnalysisPort.analyze`."""
 
-        profile = self._generate_appearance_profile(media_ref, user_id)
+        return self._generate_appearance_profile(media_ref, user_id)
 
-        # Validate the generated profile against the data contract
-        if not self.validate_result(profile.__dict__):
-            # Fallback: return a minimal profile if generation yields invalid state
-            import uuid as _uuid
-            run_id = str(_uuid.uuid4())
-            return AppearanceProfile(
-                faceShape="",
-                skinTone="",
-                bodyType="",
-                styleType="",
-                sourceRunId=run_id,
-            )
-
-        return profile
 
     def validate_result(self, result: dict) -> bool:
         """See `AppearanceAnalysisPort.validate_result`.

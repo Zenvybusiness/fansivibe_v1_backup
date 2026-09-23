@@ -1,0 +1,142 @@
+# Fansivibe Production Multi-Tier Canary Deployment Topology (Phase 3AN)
+# 
+# Architecture:
+# - Reverse Proxy / TLS Gateway (Nginx): Ports 80 (HTTP->HTTPS redirect), 443 (TLS termination)
+#   - Ingress traffic splitting: 95% to backend-primary, 5% to backend-canary
+#   - Cascading Layer 4 timeout: 90s gateway deadline
+#   - Enforces 2MB max payload, HSTS, X-Request-Id correlation, metrics protection
+# - backend-primary: Baseline production FastAPI instance (port 8000)
+# - backend-canary: Canary release FastAPI instance (port 8001)
+# - ollama-prod: Dedicated GPU node hosting qwen2.5vl:3b (port 11434)
+# - postgres-prod: Managed PostgreSQL 16 cluster with connection pooling (port 5432)
+# - prometheus-prod: Operational metrics scraper monitoring GET /metrics
+
+version: '3.8'
+
+services:
+  reverse-proxy:
+    image: nginx:1.25-alpine
+    container_name: fansivibe-production-proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/production.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/tls:/etc/nginx/certs:ro
+    depends_on:
+      - backend-primary
+      - backend-canary
+    networks:
+      - fansivibe-prod-network
+
+  backend-primary:
+    image: fansivibe-backend:prod-stable
+    container_name: fansivibe-backend-primary
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      - FANSIVIBE_ENV=production
+      - PORT=8000
+      - UVICORN_WORKERS=4
+    expose:
+      - "8000"
+    depends_on:
+      postgres-prod:
+        condition: service_healthy
+      ollama-prod:
+        condition: service_healthy
+    networks:
+      - fansivibe-prod-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  backend-canary:
+    image: fansivibe-backend:prod-canary-v3an
+    container_name: fansivibe-backend-canary
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      - FANSIVIBE_ENV=production
+      - PORT=8001
+      - UVICORN_WORKERS=4
+      - FANSIVIBE_CANARY_INSTANCE=true
+    expose:
+      - "8001"
+    depends_on:
+      postgres-prod:
+        condition: service_healthy
+      ollama-prod:
+        condition: service_healthy
+    networks:
+      - fansivibe-prod-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  postgres-prod:
+    image: postgres:16-alpine
+    container_name: fansivibe-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_DB: fansivibe_prod
+      POSTGRES_USER: fansivibe_app
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    networks:
+      - fansivibe-prod-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fansivibe_app -d fansivibe_prod"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama-prod:
+    image: ollama/ollama:latest
+    container_name: fansivibe-ollama-prod
+    restart: always
+    volumes:
+      - ollama_prod_models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - fansivibe-prod-network
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  prometheus-prod:
+    image: prom/prometheus:v2.51.0
+    container_name: fansivibe-prometheus-prod
+    restart: always
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - fansivibe-prod-network
+
+networks:
+  fansivibe-prod-network:
+    driver: bridge
+
+volumes:
+  postgres_prod_data:
+  ollama_prod_models:
