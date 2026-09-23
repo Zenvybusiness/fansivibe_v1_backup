@@ -81,6 +81,41 @@ class Settings(BaseSettings):
         default=False, alias="FANSIVIBE_DISABLE_VISION"
     )
 
+    # AI Fashion Reasoning / Ollama configuration (Phase 3AL)
+    reasoning_host: str = Field(
+        default="http://localhost:11434", alias="FANSIVIBE_OLLAMA_HOST"
+    )
+    reasoning_model: str = Field(
+        default="qwen2.5vl:3b", alias="FANSIVIBE_OLLAMA_MODEL"
+    )
+    reasoning_timeout_s: float = Field(
+        default=60.0, alias="FANSIVIBE_REASONING_TIMEOUT_S"
+    )
+    reasoning_connect_timeout_s: float = Field(
+        default=5.0, alias="FANSIVIBE_OLLAMA_CONNECT_TIMEOUT"
+    )
+    reasoning_temperature: float = Field(
+        default=0.0, alias="FANSIVIBE_REASONING_TEMPERATURE"
+    )
+    reasoning_max_retries: int = Field(
+        default=1, alias="FANSIVIBE_REASONING_MAX_RETRIES"
+    )
+    reasoning_concurrency_limit: int = Field(
+        default=2, alias="FANSIVIBE_REASONING_CONCURRENCY_LIMIT"
+    )
+    reasoning_keep_alive: str = Field(
+        default="15m", alias="FANSIVIBE_REASONING_KEEP_ALIVE"
+    )
+    reasoning_rate_limit_per_minute: int = Field(
+        default=30, alias="FANSIVIBE_RATE_LIMIT_REASONING_PER_MINUTE"
+    )
+    disable_reasoning: bool = Field(
+        default=False, alias="FANSIVIBE_DISABLE_REASONING"
+    )
+    log_level: str = Field(
+        default="INFO", alias="FANSIVIBE_LOG_LEVEL"
+    )
+
     # CORS configuration (P2-9): explicit origins list, never wildcard in prod.
     cors_origins: list[str] = Field(
         default_factory=list, alias="FANSIVIBE_CORS_ORIGINS"
@@ -118,6 +153,10 @@ class Settings(BaseSettings):
     )
 
     @property
+    def is_staging(self) -> bool:
+        return self.environment.strip().lower() == "staging"
+
+    @property
     def is_production(self) -> bool:
         return self.environment.strip().lower() == "production"
 
@@ -125,7 +164,7 @@ class Settings(BaseSettings):
     def is_docs_enabled(self) -> bool:
         if self.enable_docs is not None:
             return self.enable_docs
-        return not self.is_production
+        return not (self.is_production or self.is_staging)
 
     @property
     def effective_cors_origin_regex(self) -> str | None:
@@ -135,11 +174,11 @@ class Settings(BaseSettings):
         - Otherwise non-production defaults to loopback-only
           `https?://(localhost|127.0.0.1)(:<port>)?` so `flutter run -d chrome`
           works on any ephemeral port without hardcoding one.
-        - Production with no explicit regex returns None (no regex CORS).
+        - Production and staging with no explicit regex return None (no regex CORS).
         """
         if self.cors_origin_regex:
             return self.cors_origin_regex
-        if not self.is_production:
+        if not (self.is_production or self.is_staging):
             return r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
         return None
 
@@ -168,6 +207,28 @@ class Settings(BaseSettings):
             return [str(item).strip() for item in v if str(item).strip()]
         return []
 
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_aliases(cls, data: Any) -> Any:
+        import os
+        if isinstance(data, dict):
+            # Prefer FANSIVIBE_OLLAMA_BASE_URL, fallback to FANSIVIBE_OLLAMA_HOST
+            if "reasoning_host" not in data and "FANSIVIBE_OLLAMA_HOST" not in data:
+                url = data.get("FANSIVIBE_OLLAMA_BASE_URL") or os.environ.get("FANSIVIBE_OLLAMA_BASE_URL")
+                if url:
+                    data["reasoning_host"] = url
+            # Prefer FANSIVIBE_OLLAMA_MODEL, fallback to FANSIVIBE_REASONING_MODEL
+            if "reasoning_model" not in data and "FANSIVIBE_OLLAMA_MODEL" not in data:
+                model = data.get("FANSIVIBE_REASONING_MODEL") or os.environ.get("FANSIVIBE_REASONING_MODEL")
+                if model:
+                    data["reasoning_model"] = model
+            # Prefer FANSIVIBE_OLLAMA_TIMEOUT, fallback to FANSIVIBE_REASONING_TIMEOUT_S
+            if "reasoning_timeout_s" not in data and "FANSIVIBE_REASONING_TIMEOUT_S" not in data:
+                timeout = data.get("FANSIVIBE_OLLAMA_TIMEOUT") or os.environ.get("FANSIVIBE_OLLAMA_TIMEOUT")
+                if timeout:
+                    data["reasoning_timeout_s"] = float(timeout)
+        return data
+
     @model_validator(mode="after")
     def _validate_production_invariants(self) -> typing.Self:
         if self.rate_limit_auth_per_minute < 1:
@@ -176,6 +237,27 @@ class Settings(BaseSettings):
             )
         if self.rate_limit_window_s < 1:
             raise ValueError("FANSIVIBE_RATE_LIMIT_WINDOW_S must be at least 1.")
+        if self.reasoning_concurrency_limit < 1:
+            raise ValueError(
+                "FANSIVIBE_REASONING_CONCURRENCY_LIMIT must be at least 1."
+            )
+        if self.reasoning_timeout_s <= 0:
+            raise ValueError("FANSIVIBE_REASONING_TIMEOUT_S must be greater than 0.")
+        if self.reasoning_connect_timeout_s <= 0:
+            raise ValueError("FANSIVIBE_OLLAMA_CONNECT_TIMEOUT must be greater than 0.")
+        if self.reasoning_rate_limit_per_minute < 1:
+            raise ValueError(
+                "FANSIVIBE_RATE_LIMIT_REASONING_PER_MINUTE must be at least 1."
+            )
+        if self.is_production or self.is_staging:
+            # Staging and production both forbid wildcard origins with credentials
+            if self.cors_allow_credentials and any(
+                origin.strip() == "*" for origin in self.cors_origins
+            ):
+                raise ValueError(
+                    f"{self.environment.capitalize()} CORS must not use allow_origins=['*'] together "
+                    "with allow_credentials=True."
+                )
         if self.is_production:
             # 1. DATABASE_URL must not use default dev credentials or dev URL
             if (
@@ -198,14 +280,6 @@ class Settings(BaseSettings):
             if self.allow_dev_token:
                 raise ValueError(
                     "FANSIVIBE_ALLOW_DEV_TOKEN cannot be enabled in production."
-                )
-            # 4. Never allow wildcard origins together with credentials.
-            if self.cors_allow_credentials and any(
-                origin.strip() == "*" for origin in self.cors_origins
-            ):
-                raise ValueError(
-                    'Production CORS must not use allow_origins=["*"] together '
-                    "with allow_credentials=True."
                 )
         return self
 

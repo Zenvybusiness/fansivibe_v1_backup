@@ -19,15 +19,138 @@ import json
 import sys
 
 from app.data.ffo import FFO_VERSION, corpus
+from app.domain.ports.reasoning import FashionReasoner
 from app.domain.services.ffo_benchmark import EvaluationResult, evaluate, load_benchmark
 from app.domain.services.ffo_reasoning import (
+    DEFERRED_INTENTS,
     EVIDENCE_SCHEMA_VERSION,
     REASONING_CONTRACT_VERSION,
+    SUPPORTED_INTENTS,
+    FashionReasoningInput,
+    FashionReasoningOutput,
+    ReasoningContractError,
     ReasoningEvidence,
     corpus_digest,
     validate_input,
 )
 from app.domain.services.ffo_retrieval import retrieve
+
+
+def infer_query_intent(query: str) -> str:
+    """Deterministic rule-based intent inference when not explicitly supplied."""
+    q = query.lower()
+    if any(k in q for k in (" vs ", " vs. ", "compare", "difference between", "contrasting")):
+        return "compare"
+    if any(k in q for k in ("pair with", "pairs with", "match with", "go with", "goes with", "combine with")):
+        return "match"
+    if any(k in q for k in ("how to style", "how to wear", "styling", "style with")):
+        return "style"
+    if any(k in q for k in ("what is", "what are", "define", "meaning of", "is a ", "identify")):
+        return "identify"
+    if any(k in q for k in ("why", "how does", "explain", "reason for")):
+        return "explain"
+    if any(k in q for k in ("analyze", "breakdown", "break down")):
+        return "analyze"
+    return "explain"
+
+
+class ReasonFashionQuery:
+    """Production application use case for fashion reasoning (Phase 3AJ).
+
+    Orchestrates the frozen reasoning pipeline:
+      request -> normalization -> retrieval -> evidence pack -> FashionReasoningInput
+      -> FashionReasoner port -> Ollama adapter (validation, admission, selector)
+      -> validated FashionReasoningOutput.
+    """
+
+    def __init__(
+        self,
+        *,
+        reasoner: FashionReasoner | None = None,
+        corpus_documents: list[dict] | None = None,
+    ) -> None:
+        self._reasoner = reasoner
+        self._corpus_documents = corpus_documents
+
+    def _resolve_reasoner(self) -> FashionReasoner:
+        if self._reasoner is not None:
+            return self._reasoner
+        from app.ai.ollama_reasoner import OllamaFashionReasoner
+
+        return OllamaFashionReasoner()
+
+    def __call__(
+        self,
+        *,
+        query: str,
+        intent: str | None = None,
+        context: dict | None = None,
+        max_conclusions: int = 3,
+        evidence_only: bool = True,
+    ) -> FashionReasoningOutput:
+        clean_query = str(query or "").strip()
+        if not clean_query:
+            raise ReasoningContractError("request: 'query' must be a non-empty string")
+
+        if intent is not None and str(intent).strip():
+            norm_intent = str(intent).strip().lower()
+            if norm_intent in DEFERRED_INTENTS:
+                raise ReasoningContractError(
+                    f"request: intent '{norm_intent}' deferred ({DEFERRED_INTENTS[norm_intent]})"
+                )
+            if norm_intent not in SUPPORTED_INTENTS:
+                raise ReasoningContractError(
+                    f"request: intent '{norm_intent}' must be one of {list(SUPPORTED_INTENTS)}"
+                )
+            resolved_intent = norm_intent
+        else:
+            resolved_intent = infer_query_intent(clean_query)
+
+        docs = (
+            self._corpus_documents
+            if self._corpus_documents is not None
+            else corpus.load_documents()
+        )
+        index = corpus.build_index(docs)
+        by_id = index["by_id"]
+
+        pack = retrieve(clean_query, documents=docs)
+        evidence = []
+        for item in pack.items:
+            if item.doc_id not in by_id:
+                raise corpus.CorpusError(f"evidence '{item.doc_id}' has no corpus document")
+            record = ReasoningEvidence.from_retrieval(item).to_dict()
+            record["content"] = corpus.evidence_content(by_id[item.doc_id])
+            evidence.append(record)
+
+        versions_map = corpus.corpus_versions(index)
+        digest = corpus_digest(versions_map, FFO_VERSION)
+
+        input_data = {
+            "request": {"query": clean_query, "intent": resolved_intent},
+            "context": dict(context or {}),
+            "entities": [],
+            "evidence": evidence,
+            "constraints": {
+                "evidence_only": bool(evidence_only),
+                "max_conclusions": max(1, int(max_conclusions or 3)),
+            },
+            "requirements": {"include_reasoning_notes": True},
+            "versions": {
+                "ffo_version": FFO_VERSION,
+                "corpus_digest": digest,
+                "evidence_schema": EVIDENCE_SCHEMA_VERSION,
+                "reasoning_contract_version": REASONING_CONTRACT_VERSION,
+            },
+        }
+
+        reasoning_input = validate_input(input_data)
+        reasoner = self._resolve_reasoner()
+        if reasoner.contract_version != REASONING_CONTRACT_VERSION:
+            raise ReasoningContractError(
+                f"reasoner contract '{reasoner.contract_version}' != '{REASONING_CONTRACT_VERSION}'"
+            )
+        return reasoner.reason(reasoning_input)
 
 
 def _corpus_versions() -> dict:
@@ -121,4 +244,10 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["build_case_input", "execute_benchmark_case", "main"]
+__all__ = [
+    "ReasonFashionQuery",
+    "build_case_input",
+    "execute_benchmark_case",
+    "infer_query_intent",
+    "main",
+]

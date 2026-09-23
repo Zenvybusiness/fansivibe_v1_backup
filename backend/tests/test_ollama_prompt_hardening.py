@@ -80,6 +80,13 @@ def _output(**overrides):
                 "ffo_refs": ["denim"],
                 "reasoning_note": "n",
                 "standing": "supported",
+                "admission": {
+                    "subject_ref": "denim",
+                    "atomic_claims": [
+                        {"text": "Denim is a durable textile.",
+                         "cited_doc_ids": ["term-denim"]}
+                    ],
+                },
             }
         ],
         "uncertainties": [],

@@ -29,6 +29,19 @@ abstract final class AppConfig {
     defaultValue: false,
   );
 
+  /// Production reasoning request deadline (Phase 3AL timeout hierarchy).
+  ///
+  /// Ollama runs with a 60s inference limit, backend handler has a 65s deadline,
+  /// and the Flutter client waits 75s to allow truthful backend 504 responses to arrive.
+  static const Duration reasoningTimeout = Duration(
+    seconds: int.fromEnvironment('REASONING_TIMEOUT_S', defaultValue: 75),
+  );
+
+  /// Standard knowledge catalog read timeout (default 12 seconds).
+  static const Duration defaultApiTimeout = Duration(
+    seconds: int.fromEnvironment('API_TIMEOUT_S', defaultValue: 12),
+  );
+
   /// Whether [url] targets a loopback host.
   static bool isLocalhostUrl(String url) =>
       url.contains('localhost') || url.contains('127.0.0.1');

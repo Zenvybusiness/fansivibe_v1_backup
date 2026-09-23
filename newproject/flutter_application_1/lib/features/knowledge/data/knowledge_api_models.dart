@@ -353,3 +353,243 @@ class FfoSchemaList {
     'total': total,
   };
 }
+
+/// Structured context for fashion reasoning requests (`POST /v1/reasoning`).
+class ReasoningContextDto {
+  const ReasoningContextDto({
+    this.occasion,
+    this.climate,
+    this.region,
+    this.stylePreference,
+    this.wardrobeRefs = const [],
+    this.budget,
+    this.fitPreference,
+  });
+
+  final String? occasion;
+  final String? climate;
+  final String? region;
+  final String? stylePreference;
+  final List<String> wardrobeRefs;
+  final String? budget;
+  final String? fitPreference;
+
+  Map<String, dynamic> toJson() => {
+    if (occasion != null) 'occasion': occasion,
+    if (climate != null) 'climate': climate,
+    if (region != null) 'region': region,
+    if (stylePreference != null) 'style_preference': stylePreference,
+    if (wardrobeRefs.isNotEmpty) 'wardrobe_refs': wardrobeRefs,
+    if (budget != null) 'budget': budget,
+    if (fitPreference != null) 'fit_preference': fitPreference,
+  };
+}
+
+/// Request payload for `POST /v1/reasoning`.
+class FashionReasoningRequest {
+  const FashionReasoningRequest({
+    required this.query,
+    this.intent,
+    this.context,
+    this.maxConclusions = 3,
+    this.evidenceOnly = true,
+  });
+
+  final String query;
+  final String? intent;
+  final ReasoningContextDto? context;
+  final int maxConclusions;
+  final bool evidenceOnly;
+
+  Map<String, dynamic> toJson() => {
+    'query': query,
+    if (intent != null) 'intent': intent,
+    if (context != null) 'context': context!.toJson(),
+    'max_conclusions': maxConclusions,
+    'evidence_only': evidenceOnly,
+  };
+}
+
+/// One evidence-grounded conclusion.
+class ReasoningConclusion {
+  const ReasoningConclusion({
+    required this.statement,
+    required this.evidenceIds,
+    this.ffoRefs = const [],
+    this.reasoningNote = '',
+    this.standing = 'supported',
+  });
+
+  final String statement;
+  final List<String> evidenceIds;
+  final List<String> ffoRefs;
+  final String reasoningNote;
+  final String standing;
+
+  factory ReasoningConclusion.fromJson(Map<String, dynamic> json) =>
+      ReasoningConclusion(
+        statement: json['statement'] as String,
+        evidenceIds: (json['evidence_ids'] as List<dynamic>? ?? const [])
+            .map((e) => e as String)
+            .toList(),
+        ffoRefs: (json['ffo_refs'] as List<dynamic>? ?? const [])
+            .map((e) => e as String)
+            .toList(),
+        reasoningNote: json['reasoning_note'] as String? ?? '',
+        standing: json['standing'] as String? ?? 'supported',
+      );
+
+  Map<String, dynamic> toJson() => {
+    'statement': statement,
+    'evidence_ids': evidenceIds,
+    'ffo_refs': ffoRefs,
+    'reasoning_note': reasoningNote,
+    'standing': standing,
+  };
+}
+
+/// Version pins accompanying reasoning outputs.
+class ReasoningVersions {
+  const ReasoningVersions({
+    required this.ffoVersion,
+    required this.corpusDigest,
+    required this.evidenceSchema,
+    required this.reasoningContractVersion,
+  });
+
+  final String ffoVersion;
+  final String corpusDigest;
+  final String evidenceSchema;
+  final String reasoningContractVersion;
+
+  factory ReasoningVersions.fromJson(Map<String, dynamic> json) =>
+      ReasoningVersions(
+        ffoVersion: json['ffo_version'] as String,
+        corpusDigest: json['corpus_digest'] as String,
+        evidenceSchema: json['evidence_schema'] as String,
+        reasoningContractVersion: json['reasoning_contract_version'] as String,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'ffo_version': ffoVersion,
+    'corpus_digest': corpusDigest,
+    'evidence_schema': evidenceSchema,
+    'reasoning_contract_version': reasoningContractVersion,
+  };
+}
+
+/// Response payload from `POST /v1/reasoning`.
+class FashionReasoningResponse {
+  const FashionReasoningResponse({
+    required this.answer,
+    this.conclusions = const [],
+    this.uncertainties = const [],
+    this.missingEvidence = const [],
+    this.contradictions = const [],
+    required this.confidence,
+    this.unsupported = false,
+    required this.versions,
+  });
+
+  final String answer;
+  final List<ReasoningConclusion> conclusions;
+  final List<String> uncertainties;
+  final List<String> missingEvidence;
+  final List<String> contradictions;
+  final String confidence;
+  final bool unsupported;
+  final ReasoningVersions versions;
+
+  factory FashionReasoningResponse.fromJson(Map<String, dynamic> json) =>
+      FashionReasoningResponse(
+        answer: json['answer'] as String,
+        conclusions: (json['conclusions'] as List<dynamic>? ?? const [])
+            .map((e) => ReasoningConclusion.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        uncertainties: (json['uncertainties'] as List<dynamic>? ?? const [])
+            .map((e) => e as String)
+            .toList(),
+        missingEvidence: (json['missing_evidence'] as List<dynamic>? ?? const [])
+            .map((e) => e as String)
+            .toList(),
+        contradictions: (json['contradictions'] as List<dynamic>? ?? const [])
+            .map((e) => e as String)
+            .toList(),
+        confidence: json['confidence'] as String? ?? 'unknown',
+        unsupported: json['unsupported'] as bool? ?? false,
+        versions: ReasoningVersions.fromJson(
+          json['versions'] as Map<String, dynamic>,
+        ),
+      );
+
+  Map<String, dynamic> toJson() => {
+    'answer': answer,
+    'conclusions': conclusions.map((e) => e.toJson()).toList(),
+    'uncertainties': uncertainties,
+    'missing_evidence': missingEvidence,
+    'contradictions': contradictions,
+    'confidence': confidence,
+    'unsupported': unsupported,
+    'versions': versions.toJson(),
+  };
+}
+
+/// How a fashion reasoning query failed (for truthful UI state mapping).
+enum ReasoningFailure {
+  /// 401 — unauthorized
+  unauthorized,
+
+  /// 422 — input validation error
+  invalidInput,
+
+  /// 422 — CONTRACT_VIOLATION / input validation error
+  contractViolation,
+
+  /// 429 — rate limited
+  rateLimited,
+
+  /// 502 — AI_MALFORMED_OUTPUT / AI_FAILURE (model failed validation)
+  malformedOutput,
+
+  /// 503 — AI_UNAVAILABLE / reasoning service unavailable
+  serviceUnavailable,
+
+  /// 504 — AI_TIMEOUT / reasoning service timeout
+  timeout,
+
+  /// 500 — unexpected internal error
+  unexpected,
+
+  /// Transport / network failure or unreachable host
+  networkError,
+
+  /// Other unrecognized error
+  unknown,
+}
+
+/// Typed outcome of `POST /v1/reasoning`.
+///
+/// Distinguishes between successful responses and technical failures.
+class ReasoningResult {
+  const ReasoningResult._({
+    this.response,
+    this.failure,
+    this.errorMessage,
+  }) : isSuccess = response != null,
+       isFailure = failure != null;
+
+  /// Valid reasoning response received (200 OK).
+  const ReasoningResult.success(FashionReasoningResponse response)
+    : this._(response: response);
+
+  /// Request failed with a technical or contract error.
+  const ReasoningResult.failure(ReasoningFailure failure, {String? message})
+    : this._(failure: failure, errorMessage: message);
+
+  final bool isSuccess;
+  final bool isFailure;
+  final FashionReasoningResponse? response;
+  final ReasoningFailure? failure;
+  final String? errorMessage;
+}
+

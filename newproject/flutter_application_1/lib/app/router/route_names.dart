@@ -16,6 +16,7 @@ abstract final class RouteNames {
   static const profile = 'profile';
 
   static const assistant = 'assistant';
+  static const fashionReasoning = 'fashion-reasoning';
 
   static const lookDetails = 'look-details';
 

@@ -11,6 +11,7 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/splash_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/entry_screen.dart';
 import 'package:fansivibe/features/assistant/presentation/assistant_screen.dart';
+import 'package:fansivibe/features/knowledge/presentation/fashion_reasoning_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/vibe_select_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/camera_permission_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/photo_capture_screen.dart';
@@ -125,6 +126,16 @@ final List<RouteBase> appRoutes = [
     path: '/assistant',
     name: RouteNames.assistant,
     builder: (context, state) => const AssistantScreen(),
+  ),
+  GoRoute(
+    path: '/reasoning',
+    name: RouteNames.fashionReasoning,
+    builder: (context, state) {
+      final extra = state.extra as Map<String, dynamic>?;
+      final query =
+          extra?['query'] as String? ?? state.uri.queryParameters['query'];
+      return FashionReasoningScreen(initialQuery: query);
+    },
   ),
   StatefulShellRoute.indexedStack(
     builder: (context, state, navigationShell) {

@@ -47,6 +47,12 @@ EVIDENCE = {
     "provenance": {"source": "s", "source_type": "AUTHORITATIVE", "confidence": 0.9},
     "confidence": 0.9,
     "status": "published",
+    "content": {
+        "doc_id": "term-denim",
+        "entity_kind": "textile",
+        "canonical_id": "denim",
+        "payload": {"durability": "high", "name": "denim"},
+    },
 }
 
 
@@ -74,6 +80,13 @@ def _output(**overrides):
                 "ffo_refs": ["denim"],
                 "reasoning_note": "n",
                 "standing": "supported",
+                "admission": {
+                    "subject_ref": "denim",
+                    "atomic_claims": [
+                        {"text": "Denim is a durable textile.",
+                         "cited_doc_ids": ["term-denim"]}
+                    ],
+                },
             }
         ],
         "uncertainties": [],

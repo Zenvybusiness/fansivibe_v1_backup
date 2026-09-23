@@ -1,0 +1,813 @@
+{
+  "benchmark_version": "1.1",
+  "ffo_version": "1.0",
+  "seed_ref": "heldout-v3ai",
+  "cases": [
+    {
+      "case_id": "idn-tote-bag-alias",
+      "query": "tote bag",
+      "expected_intent": "identify",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "alias-tote-bag",
+        "term-canvas-tote"
+      ],
+      "expected_ffo_refs": [
+        "canvas-tote"
+      ],
+      "accepted_aliases": {
+        "canvas-tote": [
+          "tote bag"
+        ]
+      },
+      "ffo_ref_roles": {
+        "canvas-tote": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Alias resolution: exact alias hit plus canonical target for tote bag.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "idn-y2k-aesthetic",
+      "query": "y2k fashion",
+      "expected_intent": "identify",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "alias-y2k-fashion",
+        "term-y2k"
+      ],
+      "expected_ffo_refs": [
+        "y2k"
+      ],
+      "accepted_aliases": {
+        "y2k": [
+          "y2k fashion"
+        ]
+      },
+      "ffo_ref_roles": {
+        "y2k": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Alias resolution for aesthetic category mapping y2k fashion alias to y2k canonical.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "idn-baggy-jeans-alias",
+      "query": "baggy jeans",
+      "expected_intent": "identify",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "alias-baggy-jeans",
+        "term-wide-leg-jeans"
+      ],
+      "expected_ffo_refs": [
+        "wide_leg_jeans"
+      ],
+      "accepted_aliases": {
+        "wide_leg_jeans": [
+          "baggy jeans",
+          "loose jeans"
+        ]
+      },
+      "ffo_ref_roles": {
+        "wide_leg_jeans": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Second variant alias for wide leg jeans mapping baggy jeans to wide_leg_jeans.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "exp-wool-material",
+      "query": "what is wool",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-wool"
+      ],
+      "expected_ffo_refs": [
+        "material",
+        "wool"
+      ],
+      "ffo_ref_roles": {
+        "material": "entity_kind",
+        "wool": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Canonical definition of natural wool fiber and material taxonomy.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "exp-silk-textile",
+      "query": "what is silk",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-silk"
+      ],
+      "expected_ffo_refs": [
+        "material",
+        "silk"
+      ],
+      "ffo_ref_roles": {
+        "material": "entity_kind",
+        "silk": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Canonical material definition of silk fiber.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "exp-chiffon-fabric",
+      "query": "what is chiffon",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-chiffon"
+      ],
+      "expected_ffo_refs": [
+        "chiffon",
+        "textile"
+      ],
+      "ffo_ref_roles": {
+        "chiffon": "canonical",
+        "textile": "entity_kind"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Textile definition of sheer woven chiffon.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "exp-leather-material",
+      "query": "what is leather",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-leather"
+      ],
+      "expected_ffo_refs": [
+        "leather",
+        "material"
+      ],
+      "ffo_ref_roles": {
+        "leather": "canonical",
+        "material": "entity_kind"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Material definition of treated hide leather.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "tax-pleated-trousers",
+      "query": "what are pleated trousers",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-pleated-trousers"
+      ],
+      "expected_ffo_refs": [
+        "garment",
+        "pleated-trousers"
+      ],
+      "ffo_ref_roles": {
+        "garment": "entity_kind",
+        "pleated-trousers": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Garment taxonomy and structure of pleated tailored trousers.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "tax-wayfarer-sunglasses",
+      "query": "what are wayfarer sunglasses",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-wayfarer-sunglasses"
+      ],
+      "expected_ffo_refs": [
+        "accessory",
+        "wayfarer-sunglasses"
+      ],
+      "ffo_ref_roles": {
+        "accessory": "entity_kind",
+        "wayfarer-sunglasses": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Accessory taxonomy for classic wayfarer frame eyewear.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "tax-gold-hoops-jewelry",
+      "query": "what are gold hoops",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-gold-hoops"
+      ],
+      "expected_ffo_refs": [
+        "gold-hoops",
+        "jewelry"
+      ],
+      "ffo_ref_roles": {
+        "gold-hoops": "canonical",
+        "jewelry": "entity_kind"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Jewelry category definition for circular gold hoop earrings.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "tax-loafers-footwear",
+      "query": "what are loafers",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-loafers"
+      ],
+      "expected_ffo_refs": [
+        "footwear",
+        "loafers"
+      ],
+      "ffo_ref_roles": {
+        "footwear": "entity_kind",
+        "loafers": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Footwear taxonomy for slip-on low-heel loafer shoes.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "sil-a-line-silhouette",
+      "query": "what is an a-line silhouette",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-a-line-silhouette"
+      ],
+      "expected_ffo_refs": [
+        "a-line",
+        "silhouette"
+      ],
+      "ffo_ref_roles": {
+        "a-line": "canonical",
+        "silhouette": "entity_kind"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Silhouette definition for flared triangular A-line proportions.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "sil-tapered-silhouette",
+      "query": "what is a tapered silhouette",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-tapered-silhouette"
+      ],
+      "expected_ffo_refs": [
+        "silhouette",
+        "tapered"
+      ],
+      "ffo_ref_roles": {
+        "silhouette": "entity_kind",
+        "tapered": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Silhouette definition narrowing progressively toward the hem.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "sil-structured-tapered-proportion",
+      "query": "defined shoulder line from structured outerwear and tapered bottom",
+      "expected_intent": "style",
+      "context": null,
+      "expected_confidence": "medium",
+      "expected_evidence_ids": [
+        "rule-structured-tapered",
+        "term-tapered-silhouette"
+      ],
+      "expected_ffo_refs": [
+        "defined_shoulder_line",
+        "tapered"
+      ],
+      "ffo_ref_roles": {
+        "defined_shoulder_line": "rule_effect",
+        "tapered": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Proportion styling heuristic linking structured outerwear with tapered bottoms to create a defined shoulder line.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "col-emerald-color",
+      "query": "what is emerald color",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-emerald"
+      ],
+      "expected_ffo_refs": [
+        "color",
+        "emerald"
+      ],
+      "ffo_ref_roles": {
+        "color": "entity_kind",
+        "emerald": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Color taxonomy for deep vivid green jewel tone.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "col-charcoal-neutral",
+      "query": "what is charcoal color",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-charcoal"
+      ],
+      "expected_ffo_refs": [
+        "charcoal",
+        "color"
+      ],
+      "ffo_ref_roles": {
+        "charcoal": "canonical",
+        "color": "entity_kind"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Color taxonomy for dark muted gray neutral.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "col-navy-palette",
+      "query": "what is navy color",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-navy"
+      ],
+      "expected_ffo_refs": [
+        "color",
+        "navy"
+      ],
+      "ffo_ref_roles": {
+        "color": "entity_kind",
+        "navy": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Color taxonomy for deep dark blue staple tone.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "cmp-tweed-velvet",
+      "query": "tweed vs velvet",
+      "expected_intent": "compare",
+      "context": null,
+      "expected_confidence": "medium",
+      "expected_evidence_ids": [
+        "term-tweed",
+        "term-velvet"
+      ],
+      "expected_ffo_refs": [
+        "textile",
+        "tweed",
+        "velvet"
+      ],
+      "ffo_ref_roles": {
+        "textile": "entity_kind",
+        "tweed": "canonical",
+        "velvet": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Comparison between coarse rough wool tweed and soft plush pile velvet.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "cmp-charcoal-navy",
+      "query": "charcoal vs navy",
+      "expected_intent": "compare",
+      "context": null,
+      "expected_confidence": "medium",
+      "expected_evidence_ids": [
+        "term-charcoal",
+        "term-navy"
+      ],
+      "expected_ffo_refs": [
+        "charcoal",
+        "color",
+        "navy"
+      ],
+      "ffo_ref_roles": {
+        "charcoal": "canonical",
+        "color": "entity_kind",
+        "navy": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Comparison between dark gray neutral and dark blue neutral palettes.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "cmp-silk-polyester",
+      "query": "silk vs polyester",
+      "expected_intent": "compare",
+      "context": null,
+      "expected_confidence": "medium",
+      "expected_evidence_ids": [
+        "term-polyester",
+        "term-silk"
+      ],
+      "expected_ffo_refs": [
+        "material",
+        "polyester",
+        "silk"
+      ],
+      "ffo_ref_roles": {
+        "material": "entity_kind",
+        "polyester": "canonical",
+        "silk": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Comparison between natural protein fiber silk and synthetic polymer polyester.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "sty-leather-belt-pleated-trousers",
+      "query": "leather belt and pleated trousers",
+      "expected_intent": "style",
+      "context": {
+        "occasion": "business"
+      },
+      "expected_confidence": "medium",
+      "expected_evidence_ids": [
+        "term-leather-belt",
+        "term-pleated-trousers"
+      ],
+      "expected_ffo_refs": [
+        "leather-belt",
+        "pleated-trousers"
+      ],
+      "ffo_ref_roles": {
+        "leather-belt": "canonical",
+        "pleated-trousers": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Styling combination pairing tailored pleated trousers with leather belt.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "mat-belt-complements-trousers",
+      "query": "leather belt",
+      "expected_intent": "match",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "rel-belt-complements-trousers",
+        "term-leather-belt"
+      ],
+      "expected_ffo_refs": [
+        "leather-belt",
+        "pleated-trousers"
+      ],
+      "ffo_ref_roles": {
+        "leather-belt": "canonical",
+        "pleated-trousers": "rel_endpoint"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Exact canonical term plus COMPLEMENTS relationship edge to pleated trousers.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "mat-wide-leg-pairs-fitted-top",
+      "query": "wide leg jeans",
+      "expected_intent": "match",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "rel-wide-leg-pairs-fitted-top",
+        "term-wide-leg-jeans"
+      ],
+      "expected_ffo_refs": [
+        "fitted-top",
+        "wide_leg_jeans"
+      ],
+      "accepted_aliases": {
+        "wide_leg_jeans": [
+          "baggy jeans",
+          "loose jeans"
+        ]
+      },
+      "ffo_ref_roles": {
+        "fitted-top": "rel_endpoint",
+        "wide_leg_jeans": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Exact canonical term plus PAIRS_WITH relationship edge to fitted top.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "cul-british-tailoring",
+      "query": "what is british tailoring",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-british-tailoring"
+      ],
+      "expected_ffo_refs": [
+        "british-tailoring",
+        "culture"
+      ],
+      "ffo_ref_roles": {
+        "british-tailoring": "canonical",
+        "culture": "entity_kind"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Cultural tradition of structured bespoke British tailoring.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "cul-indian-fashion",
+      "query": "what is indian fashion",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "high",
+      "expected_evidence_ids": [
+        "term-indian-fashion"
+      ],
+      "expected_ffo_refs": [
+        "culture",
+        "indian-fashion"
+      ],
+      "ffo_ref_roles": {
+        "culture": "entity_kind",
+        "indian-fashion": "canonical"
+      },
+      "expected_grounding": "supported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 1,
+      "rationale": "Cultural heritage of Indian fashion, drape, and textile techniques.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "rel-streetwear-lineage",
+      "query": "hip hop",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "low",
+      "expected_evidence_ids": [
+        "rel-streetwear-popularized-hiphop"
+      ],
+      "expected_ffo_refs": [
+        "hip-hop",
+        "streetwear"
+      ],
+      "ffo_ref_roles": {
+        "hip-hop": "rel_endpoint",
+        "streetwear": "rel_endpoint"
+      },
+      "expected_grounding": "uncertain",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 0,
+      "rationale": "Single reviewed relationship edge linking streetwear and hip hop; no standalone hip-hop term in corpus.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": true,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "con-opposing-aesthetic",
+      "query": "punk and classic aesthetics",
+      "expected_intent": "analyze",
+      "context": {
+        "occasion": "casual"
+      },
+      "expected_confidence": "low",
+      "expected_evidence_ids": [
+        "term-classic",
+        "term-punk"
+      ],
+      "expected_ffo_refs": [
+        "classic",
+        "punk"
+      ],
+      "ffo_ref_roles": {
+        "classic": "canonical",
+        "punk": "canonical"
+      },
+      "expected_grounding": "contested",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 0,
+      "rationale": "Both aesthetic terms retrieved; subversive rebellious punk and traditional refined classic directly conflict.",
+      "requires_contradictions": true,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "unc-modernism-concept",
+      "query": "modernism",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "low",
+      "expected_evidence_ids": [
+        "rel-minimalist-inspired-modernism"
+      ],
+      "expected_ffo_refs": [
+        "minimalist",
+        "modernism"
+      ],
+      "ffo_ref_roles": {
+        "minimalist": "rel_endpoint",
+        "modernism": "rel_endpoint"
+      },
+      "expected_grounding": "uncertain",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 0,
+      "rationale": "Modernism exists only as relationship object in minimalist-inspired-modernism edge with no independent definition.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": false,
+      "requires_uncertainties": true,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "ins-cheongsam-sizing",
+      "query": "cheongsam sizing",
+      "expected_intent": "explain",
+      "context": null,
+      "expected_confidence": "low",
+      "expected_evidence_ids": [],
+      "expected_ffo_refs": [],
+      "expected_grounding": "insufficient",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 0,
+      "rationale": "Cheongsam has no term, alias, or reference anywhere in the corpus.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": true,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    },
+    {
+      "case_id": "uns-briefcase-pricing",
+      "query": "current retail price of leather briefcase",
+      "expected_intent": "match",
+      "context": null,
+      "expected_confidence": "unknown",
+      "expected_evidence_ids": [
+        "term-leather-briefcase"
+      ],
+      "expected_ffo_refs": [
+        "leather-briefcase"
+      ],
+      "ffo_ref_roles": {
+        "leather-briefcase": "canonical"
+      },
+      "expected_grounding": "unsupported",
+      "expected_max_conclusions": null,
+      "min_supported_conclusions": 0,
+      "rationale": "Evidence exists for leather briefcase but monetary pricing is completely out of reasoning contract scope.",
+      "requires_contradictions": false,
+      "requires_missing_evidence": true,
+      "requires_uncertainties": false,
+      "retrieval_filters": {}
+    }
+  ]
+}

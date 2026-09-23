@@ -204,4 +204,88 @@ void main() {
       expect(await repo.getFfoSchema('outfit'), isNull);
     });
   });
+
+  group('Reasoning models and client integration', () {
+    final validResponseJson = {
+      'answer': 'Denim is a durable cotton twill textile.',
+      'conclusions': [
+        {
+          'statement': 'Denim is a durable twill textile.',
+          'evidence_ids': ['term-denim'],
+          'ffo_refs': ['denim', 'textile'],
+          'reasoning_note': 'Grounded in term-denim.',
+          'standing': 'supported',
+        },
+      ],
+      'uncertainties': <String>[],
+      'missing_evidence': <String>[],
+      'contradictions': <String>[],
+      'confidence': 'high',
+      'unsupported': false,
+      'versions': {
+        'ffo_version': '1.0',
+        'corpus_digest': 'a' * 64,
+        'evidence_schema': 'evidence-pack/1',
+        'reasoning_contract_version': '2.0',
+      },
+    };
+
+    test('FashionReasoningResponse roundtrips valid JSON', () {
+      final resp = FashionReasoningResponse.fromJson(validResponseJson);
+      expect(resp.answer, contains('Denim'));
+      expect(resp.confidence, 'high');
+      expect(resp.unsupported, isFalse);
+      expect(resp.conclusions.length, 1);
+      expect(resp.conclusions.first.evidenceIds, ['term-denim']);
+      expect(resp.conclusions.first.ffoRefs, ['denim', 'textile']);
+      expect(resp.versions.reasoningContractVersion, '2.0');
+      expect(resp.toJson(), validResponseJson);
+    });
+
+    test('KnowledgeClient reasonQuery calls /v1/reasoning and returns response', () async {
+      final client = KnowledgeClient(
+        client: MockClient((request) async {
+          expect(request.url.path, '/v1/reasoning');
+          expect(request.method, 'POST');
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['query'], 'what is denim');
+          return http.Response(jsonEncode(validResponseJson), 200);
+        }),
+      );
+
+      final resp = await client.reasonQuery(
+        const FashionReasoningRequest(query: 'what is denim'),
+      );
+      expect(resp, isNotNull);
+      expect(resp!.answer, contains('Denim'));
+      expect(resp.conclusions.first.statement, contains('Denim'));
+    });
+
+    test('KnowledgeRepositoryImpl reasonQuery delegates to client', () async {
+      final repo = KnowledgeRepositoryImpl(
+        client: KnowledgeClient(
+          client: MockClient((request) async {
+            return http.Response(jsonEncode(validResponseJson), 200);
+          }),
+        ),
+      );
+
+      final resp = await repo.reasonQuery(
+        const FashionReasoningRequest(query: 'what is denim'),
+      );
+      expect(resp, isNotNull);
+      expect(resp!.confidence, 'high');
+    });
+
+    test('KnowledgeClient reasonQuery returns null on failure without throwing', () async {
+      final client = KnowledgeClient(
+        client: MockClient((request) async => http.Response('{"error": "fail"}', 503)),
+      );
+      final resp = await client.reasonQuery(
+        const FashionReasoningRequest(query: 'what is denim'),
+      );
+      expect(resp, isNull);
+    });
+  });
 }
+

@@ -1,0 +1,67 @@
+[
+  {
+    "query": "what is denim",
+    "status_code": 200,
+    "latency_s": 8.961,
+    "request_id": "smoke-3am-165b83c2",
+    "request_id_preserved": true,
+    "proxy_header": "Fansivibe-Staging-Proxy",
+    "error_classification": "NONE (SUCCESS)",
+    "conclusions_count": 3,
+    "raw_leakage": false,
+    "leak_reasons": [],
+    "detail_snippet": ""
+  },
+  {
+    "query": "cotton vs linen",
+    "status_code": 200,
+    "latency_s": 11.943,
+    "request_id": "smoke-3am-cb13de0a",
+    "request_id_preserved": true,
+    "proxy_header": "Fansivibe-Staging-Proxy",
+    "error_classification": "NONE (SUCCESS)",
+    "conclusions_count": 3,
+    "raw_leakage": false,
+    "leak_reasons": [],
+    "detail_snippet": ""
+  },
+  {
+    "query": "white sneakers",
+    "status_code": 502,
+    "latency_s": 7.669,
+    "request_id": "smoke-3am-90c38bdf",
+    "request_id_preserved": true,
+    "proxy_header": "Fansivibe-Staging-Proxy",
+    "error_classification": "AI_FAILURE",
+    "conclusions_count": 0,
+    "raw_leakage": false,
+    "leak_reasons": [],
+    "detail_snippet": "The reasoning model failed to generate a valid response: unpermitted FFO references: ['rel-sneakers-pair-denim']"
+  },
+  {
+    "query": "kimono sizing",
+    "status_code": 502,
+    "latency_s": 6.315,
+    "request_id": "smoke-3am-7dac5f36",
+    "request_id_preserved": true,
+    "proxy_header": "Fansivibe-Staging-Proxy",
+    "error_classification": "AI_FAILURE",
+    "conclusions_count": 0,
+    "raw_leakage": false,
+    "leak_reasons": [],
+    "detail_snippet": "The reasoning model failed to generate a valid response: conclusions[0]: 'evidence_ids' must be non-empty"
+  },
+  {
+    "query": "current price of white sneakers",
+    "status_code": 200,
+    "latency_s": 6.085,
+    "request_id": "smoke-3am-a1257318",
+    "request_id_preserved": true,
+    "proxy_header": "Fansivibe-Staging-Proxy",
+    "error_classification": "NONE (SUCCESS)",
+    "conclusions_count": 1,
+    "raw_leakage": false,
+    "leak_reasons": [],
+    "detail_snippet": ""
+  }
+]

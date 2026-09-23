@@ -1,0 +1,186 @@
+[
+  {
+    "name": "supported_explanation",
+    "status": 200,
+    "elapsed": 16.00872150000214,
+    "data": {
+      "answer": "Denim is a type of fabric made from cotton or other fibers that are spun into threads and woven into cloth. It is commonly used to make jeans, jackets, and other garments.",
+      "conclusions": [
+        {
+          "statement": "Denim is a type of fabric.",
+          "evidence_ids": [
+            "term-denim"
+          ],
+          "ffo_refs": [
+            "denim"
+          ],
+          "reasoning_note": "The term 'denim' is directly associated with the fabric in the FFO references.",
+          "standing": "supported"
+        },
+        {
+          "statement": "Denim is typically used to make jeans and jackets.",
+          "evidence_ids": [
+            "term-denim"
+          ],
+          "ffo_refs": [
+            "denim"
+          ],
+          "reasoning_note": "The term 'denim' is associated with the fabric in the FFO references, and these references also mention typical uses for denim.",
+          "standing": "supported"
+        },
+        {
+          "statement": "Denim is durable and can be used to make garments.",
+          "evidence_ids": [
+            "term-denim"
+          ],
+          "ffo_refs": [
+            "denim"
+          ],
+          "reasoning_note": "The term 'denim' is associated with the fabric in the FFO references, and these references also mention durability and typical uses for denim.",
+          "standing": "supported"
+        }
+      ],
+      "uncertainties": [],
+      "missing_evidence": [],
+      "contradictions": [],
+      "confidence": "high",
+      "unsupported": false,
+      "versions": {
+        "ffo_version": "1.0",
+        "corpus_digest": "967f891e4c91d4e9463be5ea183b62ad3f3548f35c1b1e4d8678da49bf4d2581",
+        "evidence_schema": "evidence-pack/1",
+        "reasoning_contract_version": "2.0"
+      }
+    }
+  },
+  {
+    "name": "comparison",
+    "status": 200,
+    "elapsed": 15.110116800002288,
+    "data": {
+      "answer": "Cotton and linen are both natural fibers, but they have different properties and are used in different clothing items.",
+      "conclusions": [
+        {
+          "statement": "Cotton is a natural fiber used in various garments, including oxford shirts and trench coats.",
+          "evidence_ids": [
+            "term-cotton",
+            "term-oxford-shirt",
+            "term-trench-coat"
+          ],
+          "ffo_refs": [
+            "cotton",
+            "oxford-shirt",
+            "trench-coat"
+          ],
+          "reasoning_note": "Cotton is a natural fiber that can be found in oxford shirts and trench coats.",
+          "standing": "supported"
+        },
+        {
+          "statement": "Linen is a natural fiber used in oxford shirts.",
+          "evidence_ids": [
+            "term-linen",
+            "term-oxford-shirt"
+          ],
+          "ffo_refs": [
+            "linen",
+            "oxford-shirt"
+          ],
+          "reasoning_note": "Linen is a natural fiber that can be found in oxford shirts.",
+          "standing": "supported"
+        },
+        {
+          "statement": "Cotton and linen are used in different clothing items.",
+          "evidence_ids": [
+            "term-cotton",
+            "term-oxford-shirt",
+            "term-trench-coat",
+            "term-linen"
+          ],
+          "ffo_refs": [
+            "cotton",
+            "material",
+            "oxford-shirt",
+            "trench-coat",
+            "linen"
+          ],
+          "reasoning_note": "Cotton and linen are used in different clothing items.",
+          "standing": "supported"
+        }
+      ],
+      "uncertainties": [],
+      "missing_evidence": [],
+      "contradictions": [],
+      "confidence": "high",
+      "unsupported": false,
+      "versions": {
+        "ffo_version": "1.0",
+        "corpus_digest": "967f891e4c91d4e9463be5ea183b62ad3f3548f35c1b1e4d8678da49bf4d2581",
+        "evidence_schema": "evidence-pack/1",
+        "reasoning_contract_version": "2.0"
+      }
+    }
+  },
+  {
+    "name": "styling_matching",
+    "status": 200,
+    "elapsed": 12.905333999995491,
+    "data": {
+      "answer": "White sneakers are casual, canvas material shoes.",
+      "conclusions": [
+        {
+          "statement": "White sneakers are casual, canvas material shoes.",
+          "evidence_ids": [
+            "term-white-sneakers",
+            "alias-white-sneaker"
+          ],
+          "ffo_refs": [
+            "white-sneakers"
+          ],
+          "reasoning_note": "White sneakers are casual, canvas material shoes.",
+          "standing": "supported"
+        }
+      ],
+      "uncertainties": [],
+      "missing_evidence": [],
+      "contradictions": [],
+      "confidence": "high",
+      "unsupported": false,
+      "versions": {
+        "ffo_version": "1.0",
+        "corpus_digest": "967f891e4c91d4e9463be5ea183b62ad3f3548f35c1b1e4d8678da49bf4d2581",
+        "evidence_schema": "evidence-pack/1",
+        "reasoning_contract_version": "2.0"
+      }
+    }
+  },
+  {
+    "name": "insufficient_evidence",
+    "status": 502,
+    "elapsed": 9.990470099997765,
+    "data": {
+      "error": {
+        "code": "AI_FAILURE",
+        "message": "The reasoning model failed to generate a valid response: conclusions[0]: 'evidence_ids' must be non-empty",
+        "details": {
+          "category": "invalid_output",
+          "request_id": "1659162d-0253-477e-b495-1d0bca33d21f"
+        }
+      }
+    }
+  },
+  {
+    "name": "unsupported_info",
+    "status": 502,
+    "elapsed": 9.547624699996959,
+    "data": {
+      "error": {
+        "code": "AI_FAILURE",
+        "message": "The reasoning model failed to generate a valid response: unpermitted FFO references: ['white-sneaker']",
+        "details": {
+          "category": "invalid_output",
+          "request_id": "adf36cc9-a5e7-4a59-a149-69f3e40ab5a4"
+        }
+      }
+    }
+  }
+]

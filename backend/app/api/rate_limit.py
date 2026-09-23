@@ -126,3 +126,78 @@ async def auth_rate_limit(request: Request) -> None:
         logger.warning("Rate limiter error; failing open for auth endpoint.")
         return
     raise rate_limited(retry_after_s=retry_after)
+
+
+class ConcurrencyLimiter:
+    """Bounded concurrency semaphore to protect single-process resources (e.g. Ollama VRAM)."""
+
+    def __init__(self, limit: int = 2) -> None:
+        self._limit = max(1, limit)
+        self._semaphore = threading.Semaphore(self._limit)
+        self._active = 0
+        self._lock = threading.Lock()
+
+    @property
+    def limit(self) -> int:
+        return self._limit
+
+    @property
+    def active_count(self) -> int:
+        with self._lock:
+            return self._active
+
+    def acquire(self, timeout: float = 1.0) -> bool:
+        acquired = self._semaphore.acquire(blocking=True, timeout=timeout)
+        if acquired:
+            with self._lock:
+                self._active += 1
+        return acquired
+
+    def release(self) -> None:
+        with self._lock:
+            if self._active > 0:
+                self._active -= 1
+        self._semaphore.release()
+
+
+_reasoning_limiter: ConcurrencyLimiter | None = None
+_limiter_lock = threading.Lock()
+
+
+def get_reasoning_concurrency_limiter() -> ConcurrencyLimiter:
+    global _reasoning_limiter
+    with _limiter_lock:
+        if _reasoning_limiter is None:
+            settings = get_settings()
+            _reasoning_limiter = ConcurrencyLimiter(
+                limit=settings.reasoning_concurrency_limit
+            )
+        return _reasoning_limiter
+
+
+def reset_reasoning_concurrency_limiter() -> None:
+    global _reasoning_limiter
+    with _limiter_lock:
+        _reasoning_limiter = None
+
+
+def reasoning_rate_limit(request: Request) -> None:
+    """FastAPI dependency: sliding-window rate limit for fashion reasoning."""
+    try:
+        settings = get_settings()
+        if not settings.rate_limit_enabled:
+            return
+        allowed, retry_after = check(
+            f"reasoning:{_client_ip(request)}",
+            limit=settings.reasoning_rate_limit_per_minute,
+            window_s=60.0,
+        )
+        if allowed:
+            return
+    except ApiError:
+        raise
+    except Exception:
+        logger.warning("Rate limiter error; failing open for reasoning endpoint.")
+        return
+    raise rate_limited(retry_after_s=retry_after)
+

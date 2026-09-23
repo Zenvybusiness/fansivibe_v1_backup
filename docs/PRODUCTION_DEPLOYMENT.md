@@ -1,210 +1,249 @@
-# Fansivibe Production Deployment Runbook (Phase 21.2)
+# Fansivibe Production Deployment Runbook (Phase 3AL)
 
-Target architecture:
+Target deployment topology:
 
 ```
-PostgreSQL 16
+PostgreSQL 16 (Managed DB with PITR)
     ↓
-FastAPI Docker container (`backend/Dockerfile` + `entrypoint.sh`)
+Ollama Host (Local / GPU Instance: qwen2.5vl:3b)
     ↓
-HTTPS reverse proxy / load balancer (NOT in this repo — §6)
+FastAPI Docker Container (`backend/Dockerfile` + `entrypoint.sh`)
     ↓
-Flutter Android application (release-signed, §14)
+HTTPS Reverse Proxy / Load Balancer (Nginx / Caddy / Cloud LB with TLS Termination)
+    ↓
+Flutter Client (Android Release-Signed / iOS / Web)
 ```
 
-> Truthfulness note: this repository contains NO production domain, TLS
-> certificate, PostgreSQL server, Ollama server, keystore, or secret.
-> Every section below is labeled **[REPO]** (doable in this codebase,
-> done where stated) or **[INFRA]** (must be provisioned out-of-band in
-> Phase 21.3+). Nothing here claims a deployment exists.
+> Truthfulness note: this repository contains NO production domain, TLS certificate, PostgreSQL server, Ollama server, keystore, or secret. Every section below is labeled **[REPO]** (implemented in this codebase) or **[INFRA]** (must be provisioned out-of-band).
 
-## 1. PostgreSQL provisioning — [INFRA]
+---
 
-- Provision PostgreSQL 16 (managed service preferred).
-- Create one database + one least-privilege role for the API. The role
-  needs DDL (Alembic migrations run at container startup) — or run
-  migrations from a separate migrate job with an owner role and grant
-  the runtime role DML only.
-- Connection string shape:
-  `postgresql+psycopg://<user>:<password>@<host>:5432/<database>`
-- The service refuses production startup with the dev default URL or
-  any URL containing the dev credential (`fansivibe_dev`) — enforced
-  in `app/config/settings.py`, tested in
-  `tests/test_production_hardening.py`.
+## 1. Environment Configuration & Canonical Variables — [REPO + INFRA]
 
-## 2. Database backup / PITR — [INFRA, REQUIRED before real users]
+The backend configuration is managed by the leaf settings module (`backend/app/config/settings.py`) backed by Pydantic `BaseSettings`. Canonical naming scheme and legacy aliases:
 
-- Enable automated daily base backups + WAL archiving (PITR) on the
-  managed Postgres (or `pgBackRest`/`WAL-G` self-hosted).
-- Practice a restore to a scratch instance before launch.
-- Document retention (e.g. 7–30 days) and who can trigger a restore.
+| Canonical Variable | Alias / Fallback | Default | Description |
+|---|---|---|---|
+| `FANSIVIBE_ENV` | `ENVIRONMENT` | `development` | Environment mode (`development`, `test`, `staging`, `production`). In `production`, strict invariants are enforced. |
+| `DATABASE_URL` | — | `postgresql+psycopg://...` | Connection string for Postgres. Production rejects `fansivibe_dev` default credentials. |
+| `DATABASE_POOL_SIZE` | — | `5` | SQLAlchemy connection pool size. |
+| `DATABASE_POOL_TIMEOUT_S` | — | `30.0` | Connection checkout timeout from pool. |
+| `FANSIVIBE_AUTH_SECRET` | — | `dev-only-...` | JWT signing secret. Production rejects dev default and requires >= 32 characters. |
+| `FANSIVIBE_ALLOW_DEV_TOKEN` | — | `false` | Must stay `false` in production (enforced by validator). |
+| `FANSIVIBE_OLLAMA_BASE_URL` | `FANSIVIBE_OLLAMA_HOST` | `http://localhost:11434` | Ollama HTTP host endpoint. |
+| `FANSIVIBE_OLLAMA_MODEL` | `FANSIVIBE_REASONING_MODEL` | `qwen2.5vl:3b` | Frozen reasoning model name. |
+| `FANSIVIBE_OLLAMA_TIMEOUT` | `FANSIVIBE_REASONING_TIMEOUT_S`| `60.0` | Ollama inference timeout (seconds). |
+| `FANSIVIBE_OLLAMA_CONNECT_TIMEOUT`| — | `5.0` | Ollama TCP connect timeout (seconds). |
+| `FANSIVIBE_REASONING_TEMPERATURE`| — | `0.0` | Model decoding temperature (0.0 for benchmark determinism). |
+| `FANSIVIBE_REASONING_MAX_RETRIES`| — | `1` | Max transport retries for transient HTTP/socket failures. |
+| `FANSIVIBE_REASONING_CONCURRENCY_LIMIT`| — | `2` | Max concurrent Ollama inference requests per backend instance. |
+| `FANSIVIBE_REASONING_KEEP_ALIVE` | — | `15m` | Ollama VRAM keep-alive parameter (`15m` or `-1` for indefinite). |
+| `FANSIVIBE_RATE_LIMIT_REASONING_PER_MINUTE`| — | `30` | Sliding-window per-IP reasoning request limit. |
+| `FANSIVIBE_DISABLE_REASONING` | — | `false` | Typed kill-switch. When `true`, `/v1/reasoning` returns 503 and `/ready` reports reasoning as disabled. |
+| `FANSIVIBE_LOG_LEVEL` | — | `INFO` | Root logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `FANSIVIBE_CORS_ORIGINS` | — | `[]` | Allowed browser origins (comma-separated or JSON list). Production forbids `*` with credentials. |
 
-## 3. Secret injection — [INFRA + REPO template]
+---
 
-- Required secrets (see `backend/.env.example` for shapes only):
-  `DATABASE_URL`, `FANSIVIBE_AUTH_SECRET` (random, ≥ 32 chars).
-- Inject via the platform secret manager (never bake into the image,
-  never commit `.env` — both `.gitignore` files deny-list it).
-- `FANSIVIBE_ALLOW_DEV_TOKEN` must stay `false` (production validator
-  rejects `true`); `FANSIVIBE_ENABLE_DOCS` should stay `false`.
+## 2. Ollama / Model Lifecycle Management — [REPO + INFRA]
 
-## 4. Docker build — [REPO]
+The model lifecycle is managed via `OllamaLifecycleManager` (`backend/app/ai/lifecycle.py`):
 
-```bash
-docker build -t fansivibe-api:<tag> backend/
+1. **Startup Probe**:
+   - On backend startup (`lifespan`), the backend issues a non-blocking `check_availability(timeout_s=2.0)` to Ollama `/api/tags`.
+   - Verifies Ollama is listening and `qwen2.5vl:3b` exists in the local model library.
+   - If Ollama is offline or the model is missing at startup, the service logs a structured warning and continues running. Core services (auth, database, wardrobe, knowledge reads) remain 100% available.
+
+2. **Model Warmup & Keep-Alive Pinning**:
+   - If the model is detected at startup, the manager triggers a background asynchronous warmup (`warmup()`).
+   - Issues a minimal ping with `keep_alive: "15m"` to load model weights into GPU VRAM / system memory.
+   - Eliminates cold-start latency spikes for user queries (cold start ~15s drops to warm latency ~1-2s).
+   - In production with dedicated GPU, set `FANSIVIBE_REASONING_KEEP_ALIVE=-1` to permanently pin model weights in VRAM.
+
+3. **Adapter Keep-Alive Transmission**:
+   - `OllamaFashionReasoner` forwards `keep_alive` in all chat payloads (`backend/app/ai/ollama_reasoner.py`), ensuring the model stays warm during active usage.
+
+---
+
+## 3. Health & Readiness Architecture — [REPO]
+
+1. **Liveness Probe (`GET /health`)**:
+   - Lightweight: returns `{"status":"ok"}` immediately.
+   - Zero database, FFO, or Ollama I/O.
+   - Intended for container orchestrator liveness checks (Docker `HEALTHCHECK`, Kubernetes `livenessProbe`).
+
+2. **Readiness Probe (`GET /ready` & `GET /health/ready`)**:
+   - Standard mode (`GET /ready`): validates PostgreSQL connectivity (`SELECT 1`).
+     - Returns 200 `{"status": "ready", "database": "connected"}` or 503 `{"status": "not_ready", "database": "disconnected"}`.
+   - Detailed mode (`GET /ready?detailed=true`):
+     - Validates Database (`SELECT 1`).
+     - Validates FFO Corpus integrity (memoized static index and digest verification).
+     - Validates Ollama Reasoning subsystem (or reports `"disabled"` when `FANSIVIBE_DISABLE_REASONING=true`).
+     - Returns:
+       ```json
+       {
+         "status": "ready",
+         "database": "connected",
+         "checks": {
+           "database": "ok",
+           "ffo_corpus": "ok",
+           "reasoning": "ok",
+           "reasoning_model": "qwen2.5vl:3b"
+         }
+       }
+       ```
+   - If database or corpus check fails, responds with HTTP 503. If reasoning is offline while core DB is healthy, responds with HTTP 200 `{"status": "ready_degraded"}` so non-AI traffic is not blocked.
+
+---
+
+## 4. Cascading Timeout Hierarchy — [REPO + INFRA]
+
+To prevent orphaned backend processes, socket hangs, and premature client cancellations, timeouts strictly adhere to a cascading budget hierarchy:
+
+```
+[Layer 1] Ollama LLM Inference:       60.0s (connect: 5.0s, read: 55.0s)
+            ↓
+[Layer 2] Backend Handler Deadline:    65.0s (FastAPI usecase deadline -> 504 TIMEOUT)
+            ↓
+[Layer 3] Flutter Client Timeout:      75.0s (AppConfig.reasoningTimeout -> truthful retry UI)
+            ↓
+[Layer 4] Reverse Proxy Gateway (LB):  90.0s - 120.0s (proxy_read_timeout / gateway deadline)
+            ↓
+[Database] Pool Checkout Timeout:      30.0s (DATABASE_POOL_TIMEOUT_S)
 ```
 
-- Base `python:3.12-slim-bookworm`, non-root `appuser` (uid 10001).
-- Production image installs ONLY `requirements-prod.txt` (exact pins;
-  `pytest` never ships). `requirements.txt` is the dev/test env.
-- `HEALTHCHECK` hits `/health` (liveness).
+Rules:
+- The inner timeout (Ollama) expires *before* the backend handler deadline.
+- The backend handler deadline expires *before* the client timeout.
+- The client timeout expires *before* the reverse proxy drops the connection.
+- Transport retries inside the adapter are bounded (`max_retries: 1`), and only trigger on retryable transport disconnects—never on model validation failures.
 
-## 5. Alembic migration — [REPO procedure, INFRA execution]
+---
 
-- `entrypoint.sh` runs `alembic upgrade head` BEFORE `exec uvicorn`
-  (PID-1 intact, `set -e` fails fast — tested in
-  `tests/test_docker_entrypoint.py`).
-- Single head today: `0021` (asserted in
-  `tests/test_production_hardening.py::TestMigrationReadiness`).
-- Never edit historical migrations without a proven correctness
-  defect; never run `downgrade` against production data (§16).
+## 5. Resource Limits & Concurrency Protection — [REPO]
 
-## 6. HTTPS / TLS termination — [INFRA]
+1. **Request Body Size & Length Bounds** (`backend/app/api/schemas/reasoning.py`):
+   - `query`: `min_length=1`, `max_length=500` characters.
+   - `context` string fields: `max_length=100` characters each.
+   - `wardrobe_refs`: max 20 IDs.
+   - `max_conclusions`: bounded between 1 and 5.
 
-- Terminate TLS at the reverse proxy (nginx / Caddy / cloud LB);
-  the app container serves plain HTTP on `PORT` (default 8000) with
-  `--proxy-headers` so `request.url` reflects the external scheme.
-- Redirect HTTP→HTTPS and HSTS at the proxy. The Flutter production
-  build refuses non-HTTPS base URLs (`AppConfig.validateOrThrow`).
-- [INFRA] Renew certificates automatically (managed-LB auto-renewal or
-  `certbot renew` on a timer for self-managed proxies); alert on
-  expiry < 14 days and verify renewal on a staging host first.
+2. **In-Process Concurrency Limiter** (`backend/app/api/rate_limit.py`):
+   - Concurrency semaphore (`ConcurrencyLimiter`) bounds simultaneous Ollama inference requests per container instance (default: 2).
+   - If all slots are busy and a 1.0s acquire timeout expires, the request is rejected immediately with HTTP 429 `RATE_LIMITED` and `details: {"retry_after": 5}`.
+   - Ollama is **never invoked** prior to concurrency admission, protecting GPU VRAM from out-of-memory crashes.
 
-## 7. DNS — [INFRA]
+3. **Per-IP Rate Limiting**:
+   - In-process sliding-window rate limit on `POST /v1/reasoning` (default: 30 requests/minute per IP).
+   - Exceeding the rate limit returns HTTP 429 with truthful `retry_after`.
+   - *Architecture note*: This is single-process memory tracking. In multi-replica deployments with >1 backend container, edge enforcement (Cloudflare / Nginx WAF / Redis-backed limiter) should be provisioned.
 
-- No production hostname exists yet. When one is chosen, point an
-  `A`/`AAAA` (or `CNAME`) record at the proxy/LB and pass the public
-  origin to the backend (`FANSIVIBE_CORS_ORIGINS`) and to Flutter
-  (`--dart-define=ASSISTANT_BASE_URL=https://<host>`).
+---
 
-## 8. Health / readiness checks — [REPO]
+## 6. Input Handling & Contract Integrity — [REPO]
 
-- Liveness: `GET /health` → `{"status":"ok"}` (Docker HEALTHCHECK).
-- Readiness: `GET /ready` (alias `/health/ready`) → 200
-  `{"status":"ready"}` when Postgres answers `SELECT 1`, else 503.
-  Wire the LB/replica readiness gate to `/ready`, NOT `/health`.
+- User queries are **never silently rewritten or mutated**. Fashion terminology, casing, punctuation, and FFO references are preserved exactly as submitted.
+- Input validation:
+  - If a query contains unpermitted ASCII control characters (e.g. `\x00`–`\x1F` outside standard whitespace `\n`, `\r`, `\t`), the API rejects the request with HTTP 422 `VALIDATION_ERROR`.
+  - Empty or whitespace-only queries are rejected with HTTP 422.
 
-## 9. Rate limiting — [REPO local + INFRA edge]
+---
 
-- [REPO] In-process sliding-window guard on `POST /v1/auth/register`
-  and `POST /v1/auth/login` (`app/api/rate_limit.py`): per-IP budget,
-  truthful `429 RATE_LIMITED` with a `retry_after` hint, env-tunable
-  (`FANSIVIBE_RATE_LIMIT_*`), fail-open, bounded memory.
-- [INFRA] This is single-process counting. Phase 21.3 must add edge
-  enforcement (reverse-proxy/WAF limits, and Redis-backed counting if
-  running >1 replica) for assistant/chat, analysis, and write-heavy
-  routes.
+## 7. Logging & Observability — [REPO]
 
-## 10. Logs — [REPO format + INFRA sink]
+1. **Correlation IDs (`X-Request-Id`)**:
+   - `security_and_correlation_headers` middleware extracts incoming `X-Request-Id` or generates a UUID.
+   - Attached to request state, passed to error bodies, and returned on every response header.
 
-- [REPO] API error logs are sanitized (`app/api/errors.py` scrubs DB
-  passwords, Bearer tokens, JWTs, credential params) and carry
-  `X-Request-Id` on every error path; 5xx responses include
-  `request_id` for correlation. Authorization headers are never logged.
-- [INFRA] Ship container stdout to a log aggregator and define
-  retention + access controls in Phase 21.3.
+2. **Structured Reasoning Telemetry**:
+   - On completion of every query, a structured log entry is emitted:
+     ```
+     Reasoning query completed [req_id=...] query_len=14 intent=explain conclusions=3 confidence=high latency_ms=1240.5
+     ```
+   - **Privacy Redaction Guarantee**:
+     - Query text is NOT logged (only `query_len`).
+     - Raw Ollama model output is NEVER logged.
+     - User images, base64 strings, and biometric data are NEVER logged.
+     - Passwords, Bearer tokens, and database credentials are automatically scrubbed via regex sanitization.
 
-## 11. Crash reporting — [REPO abstraction + INFRA provider]
+---
 
-- [REPO] Flutter `CrashReportingService` dispatches sanitized reports
-  (`ErrorSanitizer` redacts tokens, passwords, image bytes, user data;
-  bounded at 50 recent reports) to registered `CrashReportSink`s.
-- [INFRA] No provider is wired in (no fake monitoring): add a
-  `CrashReportSink` implementation (Sentry/Crashlytics/equivalent) and
-  register it at startup in Phase 21.3.
+## 8. Security & Headers — [REPO]
 
-## 12. Ollama / vision provisioning — [INFRA, CONDITIONAL]
+1. **Security Headers Middleware**:
+   Applied to all responses:
+   - `X-Content-Type-Options: nosniff`
+   - `X-Frame-Options: DENY`
+   - `Referrer-Policy: strict-origin-when-cross-origin`
+   - `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` (scoped to API responses)
+   - In production (`is_production=True`): `Strict-Transport-Security: max-age=31536000; includeSubDomains`
 
-- No production Ollama server exists. If scans are enabled, provision
-  a host with a vision-capable model, set `FANSIVIBE_VISION_HOST`,
-  `FANSIVIBE_VISION_MODEL`, `FANSIVIBE_VISION_TIMEOUT_S` — connection
-  or model failures then surface as typed terminal failures (never
-  fake analysis).
-- If vision stays off, set `FANSIVIBE_DISABLE_VISION=true`: scans
-  report `analyzer_unavailable` (degraded, honest). Never hardcode a
-  production Ollama IP/domain in the repo.
+2. **CORS Restrictions**:
+   - Configured via `FANSIVIBE_CORS_ORIGINS`.
+   - In production, wildcard `*` origins combined with `allow_credentials=True` are rejected at startup by settings validation.
 
-## 13. Flutter production dart-defines — [REPO contract]
+---
+
+## 9. Retry Behavior & Policy — [REPO]
+
+Reasoning requests are expensive. The client and backend strictly follow these retry policies:
+
+- **HTTP 422 (Contract / Validation Error)**: NEVER retry automatically.
+- **HTTP 502 (Malformed Model Output)**: NEVER retry automatically. Surface failure with manual retry button.
+- **HTTP 429 (Rate Limited / Concurrency Full)**: Respect `retry_after` hint; client waits before retrying.
+- **HTTP 503 (AI Unavailable / Degraded)**: Surface retryable error to user with retry option.
+- **HTTP 504 (Timeout)**: Surface timeout message and allow explicit user retry.
+- **Network / Socket Error**: Surface network failure and allow explicit user retry.
+
+---
+
+## 10. Flutter Production Configuration — [REPO]
+
+Compile-time parameters for release builds:
 
 ```bash
 flutter build appbundle \
   --dart-define=PRODUCTION=true \
-  --dart-define=ASSISTANT_BASE_URL=https://<your-backend-host>
+  --dart-define=ASSISTANT_BASE_URL=https://<your-backend-host> \
+  --dart-define=REASONING_TIMEOUT_S=75
 ```
 
-- `PRODUCTION=true` without an `https://` non-localhost URL fails fast
-  at startup (`AppConfig.validateOrThrow`, called in `main()`).
-  No production domain is hardcoded or invented.
-- Auth tokens persist in platform secure storage (Android Keystore /
-  iOS Keychain) with a one-time migration from legacy preferences;
-  tests/dev fall back transparently (`SecureTokenStorage`).
+- In production (`PRODUCTION=true`), `AppConfig.validateOrThrow()` refuses to start if `ASSISTANT_BASE_URL` is missing, contains `localhost`, or uses cleartext HTTP (`http://`).
+- `KnowledgeClient` uses `AppConfig.reasoningTimeout` (75s) and transmits `X-Request-Id` correlation headers on every reasoning request.
+- Handles HTTP 429 by displaying truthful `retry_after` cooldown hints.
 
-## 14. Android signing — [INFRA artifact + REPO strictness]
+---
 
-- `android/app/build.gradle.kts` REQUIRES `key.properties` for strict
-  release builds (`REQUIRE_RELEASE_SIGNING=true`, `CI=true`, or
-  `-PprodRelease` fail instead of silently using debug keys); local
-  QA builds without it fall back to debug signing with a warning.
-- Generate the keystore OUT-OF-BAND
-  (`keytool -genkeypair ...`), copy `android/key.properties.example`
-  to `android/key.properties` with real values, and NEVER commit
-  `key.properties`, `*.jks`, `*.keystore`, or `*.p12` (deny-listed in
-  every `.gitignore`).
+## 11. Post-Deployment Smoke Tests — [INFRA Runbook]
 
-## 15. Rollback procedure — [INFRA run]
+After deploying to staging/production, execute these verification steps:
 
-1. LB: shift traffic back to the previous image tag (keep N-1 tagged).
-2. API: `docker run` previous tag (migrations are forward-only — §16).
-3. Flutter: staged rollout halt + promote previous AAB in Play Console.
-4. Verify `/ready`, smoke tests (§17), error-rate dashboards.
+1. **Liveness Probe**:
+   `GET /health` → 200 `{"status":"ok"}` (< 5ms).
+2. **Readiness Probe**:
+   `GET /ready` → 200 `{"status":"ready", "database":"connected"}`.
+   `GET /ready?detailed=true` → 200 with checks for `database`, `ffo_corpus`, and `reasoning`.
+3. **Security Headers**:
+   `curl -I https://<host>/health` verifies `X-Content-Type-Options`, `X-Frame-Options`, and `X-Request-Id`.
+4. **Live Reasoning Smoke Category Checks** (`POST /v1/reasoning`):
+   - Category 1 (Normal fashion query): `"what is denim"` → 200 OK with admitted conclusions.
+   - Category 2 (Comparison query): `"cotton vs linen"` → 200 OK.
+   - Category 3 (Supported styling query): `"white sneakers"` → 200 OK.
+   - Category 4 (Insufficient evidence query): `"kimono sizing"` → 502 fail-closed contract response.
+   - Category 5 (Unsupported info query): `"current price of white sneakers"` → 502 fail-closed contract response.
+5. **Rate Limit / Concurrency Verification**:
+   - Send burst requests to verify 429 `RATE_LIMITED` with `Retry-After: 5` when concurrency limit is saturated.
 
-- [INFRA] Restart policy: production containers must restart
-  automatically (`restart: unless-stopped` or the orchestrator
-  equivalent); the LB readiness gate stays on `/ready` so a
-  crash-looping replica takes no traffic.
+---
 
-## 16. Database rollback warning — [INFRA discipline]
+## 12. Troubleshooting & Operational Recovery
 
-- Alembic downgrades are NOT a production rollback tool: a downgrade
-  can destroy data written by the newer schema. Roll the **code**
-  back (§15) while leaving the schema at head unless a forward-fix
-  migration is authored, reviewed, and first replayed on a
-  backup-restored copy.
-
-## 17. Smoke tests — [INFRA run, REPO contracts]
-
-After every deploy, against the public base URL:
-
-1. `GET /health` → 200 `{"status":"ok"}`.
-2. `GET /ready` → 200 `{"status":"ready"}`.
-3. `POST /v1/auth/register` WITHOUT `Idempotency-Key` → 422
-   (contract, not rate limiting).
-4. Register → login → `GET /v1/users/me` → 200; logout → 204;
-   reused token → 401 with `WWW-Authenticate: Bearer`.
-5. `POST /v1/auth/social` → 502 (honest stub — §backlog).
-6. Rapid register/login burst past the configured budget → truthful
-   429 with `retry_after`.
-7. Flutter release build: cold start → login → token survives restart
-   (secure storage) → 401 expiry routes to entry without loops.
-8. If vision enabled: one scan end-to-end; if disabled: scan reports
-   unavailable (never a fabricated result).
-
-## Product backlog (NOT built in 21.2 — needs owner approval)
-
-- Social login providers (Google/Apple verification) — backend and
-  client are honest stubs (422-shape/502, `providerUnavailable`).
-- Account deletion / erasure pipeline (O-6, API-12) — no route mounted.
-- JWT refresh endpoint (tokens live 1h; clients re-login today).
-- Distributed rate limiting + WAF (see §9).
-- Monitoring/log/crash sinks (see §10–11).
-- PostgreSQL backups/PITR drills (see §2).
+| Symptom | Probable Cause | Action |
+|---|---|---|
+| `/ready` returns 503 `database: disconnected` | Postgres unreachable or connection pool exhausted | Check Postgres host, credentials in `DATABASE_URL`, and pool size (`DATABASE_POOL_SIZE`). |
+| `/ready` reports `reasoning: unavailable` | Ollama service is stopped or unreachable | Check if Ollama process is running at `FANSIVIBE_OLLAMA_BASE_URL`. |
+| `/ready` reports `reasoning: model_missing` | Required model not pulled into Ollama | Run `ollama pull qwen2.5vl:3b` on the Ollama host. |
+| Reasoning queries return 504 `TIMEOUT` | Model inference taking > 60s (CPU inference or heavy GPU contention) | Verify GPU acceleration in Ollama (`ollama ps`), increase `FANSIVIBE_OLLAMA_TIMEOUT` and Flutter timeout. |
+| Reasoning queries return 429 `RATE_LIMITED` | Concurrency limit (2) saturated or IP rate limit exceeded | Increase `FANSIVIBE_REASONING_CONCURRENCY_LIMIT` if GPU VRAM allows, or scale backend replicas. |
+| Cold queries take ~15s, warm queries take ~1.5s | Ollama unloaded model from VRAM | Set `FANSIVIBE_REASONING_KEEP_ALIVE=-1` or `"30m"` to prevent unloading. |
+| Scans or reasoning disabled intentionally | Maintenance or degraded operation | Set `FANSIVIBE_DISABLE_REASONING=true`. API returns 503 AI_FAILURE and `/ready` reports `"reasoning": "disabled"`. |

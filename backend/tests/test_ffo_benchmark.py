@@ -64,7 +64,7 @@ def _output(conclusions=(), **overrides):
     return data
 
 
-def _conclusion(ids=("term-denim",), refs=("denim",), standing="supported"):
+def _conclusion(ids=("term-denim",), refs=("denim", "textile"), standing="supported"):
     return {
         "statement": "s",
         "evidence_ids": list(ids),
@@ -76,7 +76,7 @@ def _conclusion(ids=("term-denim",), refs=("denim",), standing="supported"):
 
 def test_benchmark_loads_with_size_and_order():
     bench = _bench()
-    assert bench["benchmark_version"] == BENCHMARK_VERSION == "1.0"
+    assert bench["benchmark_version"] == BENCHMARK_VERSION == "1.1"
     assert bench["ffo_version"] == "1.0"
     assert 20 <= len(bench["cases"]) <= 30
     ids = [c["case_id"] for c in bench["cases"]]
@@ -98,7 +98,7 @@ def test_benchmark_schema_validation():
 def _dup_check():
     bench = _bench()
     dup = dict(bench["cases"][0])
-    data = {"benchmark_version": "1.0", "ffo_version": "1.0", "cases": [bench["cases"][0], dup]}
+    data = {"benchmark_version": BENCHMARK_VERSION, "ffo_version": "1.0", "cases": [bench["cases"][0], dup]}
     import tempfile, os
 
     handle, path = tempfile.mkstemp(suffix=".json")
@@ -249,7 +249,7 @@ def test_evaluation_result_serialization():
     }
     assert set(body["metrics"]) == set(METRIC_NAMES)
     assert json.loads(json.dumps(body)) == body
-    assert body["benchmark_version"] == "1.0"
+    assert body["benchmark_version"] == "1.1"
 
 
 def test_corpus_ffo_contract_version_preservation():

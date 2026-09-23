@@ -30,7 +30,7 @@ class KnowledgeClient {
   static String get _devToken => AuthSession.effectiveToken(_devTokenDefault);
 
   final http.Client _client;
-  static const Duration _timeout = Duration(seconds: 12);
+  static const Duration _timeout = AppConfig.defaultApiTimeout;
 
   Map<String, String> get _headers => {'Authorization': 'Bearer $_devToken'};
 
@@ -226,4 +226,94 @@ class KnowledgeClient {
     }
     return null;
   }
+
+  /// Submits a fashion reasoning query (`POST /v1/reasoning`).
+  ///
+  /// Returns the validated [FashionReasoningResponse] on 200, or null
+  /// when the reasoning service is unavailable, times out, or fails
+  /// contract validation. Failures never return fake answers.
+  Future<FashionReasoningResponse?> reasonQuery(
+    FashionReasoningRequest request,
+  ) async {
+    final result = await reasonQueryDetailed(request);
+    return result.response;
+  }
+
+  /// Submits a fashion reasoning query (`POST /v1/reasoning`) and returns
+  /// a typed [ReasoningResult] preserving the distinct technical failure reason.
+  Future<ReasoningResult> reasonQueryDetailed(
+    FashionReasoningRequest request, {
+    String? requestId,
+  }) async {
+    final effectiveRequestId =
+        requestId ?? 'flt-${DateTime.now().millisecondsSinceEpoch}';
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/reasoning'),
+            headers: {
+              ..._headers,
+              'Content-Type': 'application/json',
+              'X-Request-Id': effectiveRequestId,
+            },
+            body: jsonEncode(request.toJson()),
+          )
+          .timeout(AppConfig.reasoningTimeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        try {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+          return ReasoningResult.success(
+            FashionReasoningResponse.fromJson(decoded),
+          );
+        } catch (error) {
+          debugPrint('Malformed 200 body from reasoning service: $error');
+          return const ReasoningResult.failure(ReasoningFailure.malformedOutput);
+        }
+      }
+
+      String? errorMessage;
+      try {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        if (decoded.containsKey('error') && decoded['error'] is Map) {
+          final errMap = decoded['error'] as Map<String, dynamic>;
+          errorMessage = errMap['message'] as String?;
+          if (response.statusCode == 429) {
+            final details = errMap['details'] as Map<String, dynamic>?;
+            if (details != null && details.containsKey('retry_after')) {
+              final retryAfter = details['retry_after'];
+              errorMessage =
+                  'Too many requests. Please wait $retryAfter seconds before retrying.';
+            }
+          }
+        }
+      } catch (_) {}
+
+      final failure = _failureForStatus(response.statusCode);
+      debugPrint(
+        'Reasoning service responded ${response.statusCode}: ${response.body}',
+      );
+      return ReasoningResult.failure(failure, message: errorMessage);
+    } catch (error) {
+      debugPrint('Reasoning service unreachable or timed out: $error');
+      if (error is TimeoutException) {
+        return const ReasoningResult.failure(ReasoningFailure.timeout);
+      }
+      return const ReasoningResult.failure(ReasoningFailure.networkError);
+    }
+  }
+
+  static ReasoningFailure _failureForStatus(int statusCode) {
+    return switch (statusCode) {
+      401 => ReasoningFailure.unauthorized,
+      422 => ReasoningFailure.contractViolation,
+      429 => ReasoningFailure.rateLimited,
+      502 => ReasoningFailure.malformedOutput,
+      503 => ReasoningFailure.serviceUnavailable,
+      504 => ReasoningFailure.timeout,
+      500 => ReasoningFailure.unexpected,
+      _ => ReasoningFailure.unknown,
+    };
+  }
 }
+

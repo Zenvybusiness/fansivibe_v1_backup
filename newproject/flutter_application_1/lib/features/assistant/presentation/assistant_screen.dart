@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:fansivibe/app/router/route_names.dart';
+
 import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/assistant/domain/assistant_service.dart';
 import 'package:fansivibe/features/assistant/presentation/assistant_routes.dart';
@@ -173,6 +175,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.psychology_alt_outlined),
+            tooltip: 'Fashion Reasoning',
+            color: FansivibeColors.primary,
+            onPressed: () => context.pushNamed(RouteNames.fashionReasoning),
+          ),
           IconButton(
             icon: const Icon(Icons.auto_awesome_rounded),
             color: FansivibeColors.primary,

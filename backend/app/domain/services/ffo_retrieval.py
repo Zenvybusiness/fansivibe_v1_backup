@@ -129,12 +129,23 @@ def doc_label(doc: dict) -> str:
 
 
 def ffo_references(doc: dict) -> list[str]:
-    """Ordered unique FFO refs: canonical, alias, entity kind, subject/object."""
+    """Ordered unique FFO refs: canonical, alias, entity kind, subject/object.
+
+    Rule documents additionally expose their payload `effect` (Phase 3L):
+    the effect concept (e.g. `balanced_volume`) is otherwise unreferenceable
+    even though benchmark cases expect it. Same bare-string namespace, no
+    new entities — `when`-values stay match-only via `_secondary_refs`.
+    """
     refs: list[str] = []
     for key in ("canonical_id", "alias", "entity_kind", "subject", "object"):
         value = doc.get(key)
         if isinstance(value, str) and value.strip() and value not in refs:
             refs.append(value)
+    payload = doc.get("payload")
+    if isinstance(payload, dict):
+        effect = payload.get("effect")
+        if isinstance(effect, str) and effect.strip() and effect not in refs:
+            refs.append(effect)
     return refs
 
 

@@ -52,6 +52,16 @@ abstract class KnowledgeRepository {
   /// Null covers unreachable backend, unknown names (server 404), and
   /// empty names (never requested) — the caller hides the surface.
   Future<Map<String, dynamic>?> getFfoSchema(String name);
+
+  /// Submits a fashion reasoning query (`POST /v1/reasoning`).
+  ///
+  /// Returns the validated [FashionReasoningResponse] on 200, or null
+  /// when the reasoning service is unavailable, times out, or fails.
+  Future<FashionReasoningResponse?> reasonQuery(FashionReasoningRequest request);
+
+  /// Submits a fashion reasoning query and returns a typed [ReasoningResult]
+  /// preserving distinct technical failure categories (502, 503, 504, 422, etc.).
+  Future<ReasoningResult> reasonQueryDetailed(FashionReasoningRequest request);
 }
 
 /// Concrete implementation of [KnowledgeRepository] backed only by the
@@ -114,4 +124,15 @@ class KnowledgeRepositoryImpl implements KnowledgeRepository {
   Future<Map<String, dynamic>?> getFfoSchema(String name) {
     return _client.getFfoSchema(name);
   }
+
+  @override
+  Future<FashionReasoningResponse?> reasonQuery(FashionReasoningRequest request) {
+    return _client.reasonQuery(request);
+  }
+
+  @override
+  Future<ReasoningResult> reasonQueryDetailed(FashionReasoningRequest request) {
+    return _client.reasonQueryDetailed(request);
+  }
 }
+

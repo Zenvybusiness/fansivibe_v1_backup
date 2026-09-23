@@ -83,3 +83,31 @@ def get_current_user_id(
                 message="Something went wrong while saving your data. Please try again.",
             )
     raise authentication_error()
+
+
+def get_fashion_reasoner():
+    """Dependency provider for the fashion reasoning service (Phase 3AJ).
+
+    Instantiates the OllamaFashionReasoner adapter configured from Settings,
+    allowing tests and mocks to override via FastAPI's `app.dependency_overrides`.
+    """
+    from app.ai.ollama_reasoner import OllamaFashionReasoner, ReasoningConfig
+    from app.config.settings import get_settings
+
+    settings = get_settings()
+    config = ReasoningConfig.from_env(
+        base_url=settings.reasoning_host,
+        model=settings.reasoning_model,
+        timeout_s=settings.reasoning_timeout_s,
+        temperature=settings.reasoning_temperature,
+        max_retries=settings.reasoning_max_retries,
+        keep_alive=settings.reasoning_keep_alive,
+    )
+    return OllamaFashionReasoner(config=config)
+
+
+def get_lifecycle_manager():
+    """Dependency provider for the Ollama lifecycle manager (Phase 3AL)."""
+    from app.ai.lifecycle import OllamaLifecycleManager
+
+    return OllamaLifecycleManager()

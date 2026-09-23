@@ -29,6 +29,10 @@ abstract final class AssistantRoutes {
       'hairstyle' => RouteNames.hairstyle,
       'grooming' => RouteNames.grooming,
       'build-outfit' => RouteNames.buildOutfit,
+      'open_reasoning' => RouteNames.fashionReasoning,
+      'reasoning' => RouteNames.fashionReasoning,
+      'knowledge' => RouteNames.fashionReasoning,
+      'open_knowledge' => RouteNames.fashionReasoning,
       _ => null,
     };
   }

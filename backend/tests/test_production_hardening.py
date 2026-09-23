@@ -261,3 +261,187 @@ class TestMigrationReadiness:
         revisions = list(script.walk_revisions())
         assert len(revisions) > 0
         assert head in {rev.revision for rev in revisions}
+
+
+class TestReasoningProductionSettings:
+    """Validate reasoning configuration and production invariants (Phase 3AL)."""
+
+    def test_default_reasoning_settings(self):
+        settings = Settings()
+        assert settings.reasoning_host == "http://localhost:11434"
+        assert settings.reasoning_model == "qwen2.5vl:3b"
+        assert settings.reasoning_timeout_s == 60.0
+        assert settings.reasoning_temperature == 0.0
+        assert settings.reasoning_max_retries == 1
+        assert settings.reasoning_concurrency_limit == 2
+        assert settings.reasoning_keep_alive == "15m"
+        assert settings.reasoning_rate_limit_per_minute == 30
+        assert settings.disable_reasoning is False
+
+    def test_production_rejects_zero_concurrency_limit(self):
+        with pytest.raises(ValidationError, match="CONCURRENCY_LIMIT"):
+            Settings(reasoning_concurrency_limit=0)
+
+    def test_production_rejects_negative_or_zero_timeout(self):
+        with pytest.raises(ValidationError, match="TIMEOUT_S"):
+            Settings(reasoning_timeout_s=0.0)
+
+    def test_production_rejects_zero_rate_limit(self):
+        with pytest.raises(ValidationError, match="RATE_LIMIT_REASONING_PER_MINUTE"):
+            Settings(reasoning_rate_limit_per_minute=0)
+
+
+class TestSecurityHeadersAndCorrelation:
+    """Validate security headers and correlation ID middleware (Phase 3AL)."""
+
+    def test_security_headers_present_on_health_endpoint(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        client = TestClient(app)
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert response.headers.get("X-Content-Type-Options") == "nosniff"
+        assert response.headers.get("X-Frame-Options") == "DENY"
+        assert response.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+        assert "default-src 'none'" in response.headers.get("Content-Security-Policy", "")
+        assert response.headers.get("X-Request-Id") is not None
+
+    def test_incoming_request_id_preserved_in_response(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        client = TestClient(app)
+        custom_id = "test-custom-request-id-12345"
+        response = client.get("/health", headers={"X-Request-Id": custom_id})
+        assert response.status_code == 200
+        assert response.headers.get("X-Request-Id") == custom_id
+
+
+class TestDetailedReadinessEndpoint:
+    """Validate multi-subsystem readiness check (Phase 3AL)."""
+
+    def test_detailed_readiness_probe_success(self):
+        from unittest.mock import MagicMock
+        from fastapi.testclient import TestClient
+        from app.api.deps import get_lifecycle_manager
+        from app.infrastructure.db.session import get_db
+        from app.ai.lifecycle import ModelStatus
+        from app.main import app
+
+        mock_db = MagicMock()
+        mock_db.execute.return_value = MagicMock()
+
+        mock_lifecycle = MagicMock()
+        mock_lifecycle.model = "qwen2.5vl:3b"
+        mock_lifecycle.check_availability.return_value = ModelStatus(
+            available=True,
+            model_present=True,
+            model_name="qwen2.5vl:3b",
+            host="http://localhost:11434",
+            latency_ms=1.2,
+        )
+
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_lifecycle_manager] = lambda: mock_lifecycle
+        try:
+            client = TestClient(app)
+            response = client.get("/ready?detailed=true")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "ready"
+            assert data["database"] == "connected"
+            assert data["checks"]["database"] == "ok"
+            assert data["checks"]["ffo_corpus"] == "ok"
+            assert data["checks"]["reasoning"] == "ok"
+            assert data["checks"]["reasoning_model"] == "qwen2.5vl:3b"
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_lifecycle_manager, None)
+
+
+class TestConcurrencyLimiter:
+    """Validate in-process concurrency guard (Phase 3AL)."""
+
+    def test_concurrency_limiter_acquire_and_release(self):
+        from app.api.rate_limit import ConcurrencyLimiter
+
+        limiter = ConcurrencyLimiter(limit=1)
+        assert limiter.acquire(timeout=0.1) is True
+        assert limiter.active_count == 1
+
+        # Second acquire should fail because limit is 1
+        assert limiter.acquire(timeout=0.05) is False
+
+        limiter.release()
+        assert limiter.active_count == 0
+
+        # Should be able to acquire again
+        assert limiter.acquire(timeout=0.1) is True
+        limiter.release()
+
+
+class TestOllamaLifecycleManagerUnit:
+    """Validate Ollama lifecycle manager probe and warmup (Phase 3AL)."""
+
+    def test_check_availability_finds_model(self):
+        from unittest.mock import MagicMock
+        from app.ai.lifecycle import OllamaLifecycleManager
+
+        mock_client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "models": [{"name": "qwen2.5vl:3b", "size": 12345}]
+        }
+        mock_client.get.return_value = mock_resp
+
+        mgr = OllamaLifecycleManager(
+            host="http://test-ollama:11434",
+            model="qwen2.5vl:3b",
+            client=mock_client,
+        )
+        status = mgr.check_availability(timeout_s=1.0)
+        assert status.available is True
+        assert status.model_present is True
+        assert status.error is None
+
+    def test_check_availability_model_missing(self):
+        from unittest.mock import MagicMock
+        from app.ai.lifecycle import OllamaLifecycleManager
+
+        mock_client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "models": [{"name": "llama3:latest"}]
+        }
+        mock_client.get.return_value = mock_resp
+
+        mgr = OllamaLifecycleManager(
+            host="http://test-ollama:11434",
+            model="qwen2.5vl:3b",
+            client=mock_client,
+        )
+        status = mgr.check_availability(timeout_s=1.0)
+        assert status.available is True
+        assert status.model_present is False
+        assert "not found" in (status.error or "")
+
+    def test_warmup_success(self):
+        from unittest.mock import MagicMock
+        from app.ai.lifecycle import OllamaLifecycleManager
+
+        mock_client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client.post.return_value = mock_resp
+
+        mgr = OllamaLifecycleManager(
+            host="http://test-ollama:11434",
+            model="qwen2.5vl:3b",
+            keep_alive="15m",
+            client=mock_client,
+        )
+        assert mgr.warmup(timeout_s=1.0) is True
+

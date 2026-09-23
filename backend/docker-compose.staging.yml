@@ -1,0 +1,62 @@
+services:
+  reverse-proxy:
+    image: nginx:1.27-alpine
+    container_name: fansivibe-staging-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/staging.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - api
+
+  api:
+    build: .
+    container_name: fansivibe-staging-api
+    restart: unless-stopped
+    env_file:
+      - .env.staging
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fansivibe}:${POSTGRES_PASSWORD:-fansivibe_dev}@postgres:5432/${POSTGRES_DB:-fansivibe}
+      FANSIVIBE_OLLAMA_BASE_URL: http://ollama:11434
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: fansivibe-staging-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fansivibe}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fansivibe_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-fansivibe}
+    ports:
+      - "5432:5432"
+    volumes:
+      - staging_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fansivibe} -d ${POSTGRES_DB:-fansivibe}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:0.5.7
+    container_name: fansivibe-staging-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - staging_ollama_data:/root/.ollama
+    command: serve
+
+volumes:
+  staging_postgres_data:
+  staging_ollama_data:

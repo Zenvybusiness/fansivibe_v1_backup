@@ -9,13 +9,22 @@ Metric set (binary pass except precision/recall, which are continuous):
   grounding_accuracy     derived output status == expected grounding
   evidence_precision     cited ∩ expected / cited (1.0 when nothing cited)
   evidence_recall        cited ∩ expected / expected (1.0 when none expected)
-  ffo_correctness        cited refs ⊆ expected refs (1.0 when none cited)
+  ffo_correctness        cited refs ∩ accepted refs / cited (0.0 when refs
+                         required but none cited; 1.0 when none required
+                         and none cited)
+  ffo_recall             cited refs ∩ accepted refs / accepted refs
+                         (1.0 when none expected)
   unsupported_handling   unsupported flag == (expected == unsupported)
   missing_detection      missing non-empty == case requires/expects it
   contradiction_handling contradictions non-empty == case requires/expects it
   uncertainty_compliance uncertainties non-empty == case requires/expects it
   constraint_compliance  supported conclusions ≥ min AND total ≤ max (if set)
   version_preservation   output pins == input pins and ffo == benchmark ffo
+
+Accepted refs = expected_ffo_refs ∪ accepted_aliases values (canonical
+stays preferred; alias hits are reported separately, never converted).
+Roles (canonical/entity_kind/rel_endpoint/rule_effect) are explicit
+per-case metadata for readability; matching stays set-based.
 
 The evaluator is total over outputs (malformed outputs score 0 with
 reasons, never raise); it raises BenchmarkError only on malformed cases.
@@ -30,7 +39,7 @@ from pathlib import Path
 from app.data import ffo as _ffo_pkg
 from app.domain.services.ffo_reasoning import REASONING_CONTRACT_VERSION, SUPPORTED_INTENTS
 
-BENCHMARK_VERSION = "1.0"
+BENCHMARK_VERSION = "1.1"
 BENCHMARK_PATH = (
     Path(_ffo_pkg.__file__).resolve().parent / "benchmark" / "benchmark_v01.json"
 )
@@ -38,12 +47,15 @@ BENCHMARK_PATH = (
 GROUNDINGS = ("supported", "insufficient", "contested", "uncertain", "unsupported")
 CONFIDENCES = ("high", "medium", "low", "unknown")
 
+FFO_REF_ROLES = ("canonical", "entity_kind", "rel_endpoint", "rule_effect")
+
 METRIC_NAMES = (
     "intent_accuracy",
     "grounding_accuracy",
     "evidence_precision",
     "evidence_recall",
     "ffo_correctness",
+    "ffo_recall",
     "unsupported_handling",
     "missing_detection",
     "contradiction_handling",
@@ -109,6 +121,28 @@ def validate_case(raw: dict) -> dict:
     filters = raw.get("retrieval_filters", {})
     if not isinstance(filters, dict) or any(k not in _FILTER_KEYS for k in filters):
         raise BenchmarkError(f"{where}: 'retrieval_filters' keys must be a subset of {list(_FILTER_KEYS)}")
+    aliases = raw.get("accepted_aliases", {})
+    if not isinstance(aliases, dict):
+        raise BenchmarkError(f"{where}: 'accepted_aliases' must be an object")
+    expected_refs = list(raw.get("expected_ffo_refs", ()))
+    for canonical, variants in aliases.items():
+        if canonical not in expected_refs:
+            raise BenchmarkError(f"{where}: 'accepted_aliases' key '{canonical}' is not expected")
+        if isinstance(variants, str) or not isinstance(variants, (list, tuple)):
+            raise BenchmarkError(f"{where}: 'accepted_aliases' values must be lists")
+        for variant in variants:
+            if not isinstance(variant, str) or not variant.strip():
+                raise BenchmarkError(f"{where}: 'accepted_aliases' must hold non-empty strings")
+            if variant == canonical or variant in expected_refs:
+                raise BenchmarkError(f"{where}: alias '{variant}' duplicates an expected ref")
+    roles = raw.get("ffo_ref_roles", {})
+    if not isinstance(roles, dict):
+        raise BenchmarkError(f"{where}: 'ffo_ref_roles' must be an object")
+    for ref, role in roles.items():
+        if ref not in expected_refs:
+            raise BenchmarkError(f"{where}: 'ffo_ref_roles' key '{ref}' is not expected")
+        if role not in FFO_REF_ROLES:
+            raise BenchmarkError(f"{where}: role '{role}' must be one of {list(FFO_REF_ROLES)}")
     return raw
 
 
@@ -196,7 +230,7 @@ def evaluate(case: dict, input_dict: dict, output_dict: dict) -> "EvaluationResu
     cited, cited_refs = _cited_ids(output), _cited_refs(output)
     metrics: dict[str, dict] = {}
 
-    def record(name: str, score: float, expected, actual, reason: str) -> None:
+    def record(name: str, score: float, expected, actual, reason: str, detail=None) -> None:
         metrics[name] = {
             "score": score,
             "pass": score == 1.0,
@@ -204,6 +238,8 @@ def evaluate(case: dict, input_dict: dict, output_dict: dict) -> "EvaluationResu
             "actual": actual,
             "reason": reason,
         }
+        if detail is not None:
+            metrics[name]["detail"] = detail
 
     actual_intent = (input_dict.get("request") or {}).get("intent")
     record(
@@ -221,12 +257,32 @@ def evaluate(case: dict, input_dict: dict, output_dict: dict) -> "EvaluationResu
     recall = len([i for i in expected_ids if i in cited]) / len(expected_ids) if expected_ids else 1.0
     record("evidence_recall", recall, sorted(expected_ids), sorted(cited),
            "expected ids covered by cited ids")
-    correctness = (
-        len([r for r in cited_refs if r in expected_refs]) / len(cited_refs)
-        if cited_refs else 1.0
-    )
-    record("ffo_correctness", correctness, sorted(expected_refs), sorted(cited_refs),
-           "cited FFO refs covered by expected refs")
+    accepted = set(expected_refs) | {
+        alias
+        for variants in case.get("accepted_aliases", {}).values()
+        for alias in variants
+    }
+    alias_of = {
+        alias: canonical
+        for canonical, variants in case.get("accepted_aliases", {}).items()
+        for alias in variants
+    }
+    hits = [r for r in cited_refs if r in accepted]
+    if cited_refs:
+        correctness = len(hits) / len(cited_refs)
+    else:
+        correctness = 1.0 if not accepted else 0.0
+    detail = {
+        "canonical_hits": sorted({r for r in hits if r not in alias_of}),
+        "alias_hits": sorted({r: alias_of[r] for r in hits if r in alias_of}),
+        "missed": sorted(accepted - set(cited_refs)),
+    }
+    record("ffo_correctness", correctness, sorted(accepted), sorted(cited_refs),
+           "cited FFO refs covered by accepted refs (canonical + aliases)",
+           detail=detail)
+    recall_refs = len(hits) / len(accepted) if accepted else 1.0
+    record("ffo_recall", recall_refs, sorted(accepted), sorted(cited_refs),
+           "accepted FFO refs covered by cited refs", detail=detail)
     record(
         "unsupported_handling",
         1.0 if bool(output.get("unsupported", False)) == (case["expected_grounding"] == "unsupported") else 0.0,
@@ -303,6 +359,7 @@ __all__ = [
     "BENCHMARK_PATH",
     "BENCHMARK_VERSION",
     "CONFIDENCES",
+    "FFO_REF_ROLES",
     "GROUNDINGS",
     "METRIC_NAMES",
     "BenchmarkError",
