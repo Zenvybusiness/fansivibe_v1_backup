@@ -35,7 +35,7 @@ void promptGuestSignIn(BuildContext context, {String? action}) {
       ),
     ),
   );
-  context.pushNamed(RouteNames.accountCreation);
+  context.pushNamed(RouteNames.signIn);
 }
 
 /// Honest guest placeholder for an account-backed slot: names the slot,

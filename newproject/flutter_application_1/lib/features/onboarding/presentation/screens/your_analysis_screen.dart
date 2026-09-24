@@ -74,7 +74,7 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   }
 
   void _onSave() {
-    context.pushNamed(RouteNames.accountCreation);
+    context.pushNamed(RouteNames.createAccount);
   }
 
   void _onContinueWithoutAccount() {

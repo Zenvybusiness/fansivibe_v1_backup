@@ -103,12 +103,8 @@ class _EntryScreenState extends State<EntryScreen>
   }
 
   void _onSignIn() {
-    // Real sign-in (D-AUTH-1): the account screen in login mode talks
-    // to POST /v1/auth/login — never a local-only fake success.
-    context.pushNamed(
-      RouteNames.accountCreation,
-      extra: {'mode': 'login'},
-    );
+    // Real sign-in (D-AUTH-1): routes directly to the dedicated Sign In screen.
+    context.pushNamed(RouteNames.signIn);
   }
 
   @override

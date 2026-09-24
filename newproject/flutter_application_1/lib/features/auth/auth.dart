@@ -8,3 +8,5 @@ library;
 export 'data/auth_client.dart';
 export 'data/auth_models.dart';
 export 'data/auth_repository.dart';
+export 'presentation/screens/create_account_screen.dart';
+export 'presentation/screens/sign_in_screen.dart';

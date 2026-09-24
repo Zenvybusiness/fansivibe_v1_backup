@@ -499,7 +499,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // A guest's Sign In tile routes to account creation; every other
     // tile keeps its existing destination.
     if (isGuestUser && id == 'sign_out') {
-      context.pushNamed(RouteNames.accountCreation);
+      context.pushNamed(RouteNames.signIn);
       return;
     }
     switch (id) {

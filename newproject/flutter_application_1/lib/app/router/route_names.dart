@@ -7,6 +7,8 @@ abstract final class RouteNames {
   static const aiAnalysis = 'ai-analysis';
   static const yourAnalysis = 'your-analysis';
   static const accountCreation = 'account-creation';
+  static const createAccount = 'create-account';
+  static const signIn = 'sign-in';
 
   static const home = 'home';
   static const dailyOutfit = 'daily-outfit';

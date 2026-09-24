@@ -52,7 +52,11 @@ String? authRedirect(
 /// creation/login, and the (optionally-authenticated) assistant chat.
 bool _isPublic(String location) {
   if (location == '/splash' || location == '/entry') return true;
-  if (location == '/onboarding/account') return true;
+  if (location == '/onboarding/account' ||
+      location == '/create-account' ||
+      location == '/sign-in') {
+    return true;
+  }
   if (location.startsWith('/onboarding/') || location == '/onboarding') {
     return true;
   }

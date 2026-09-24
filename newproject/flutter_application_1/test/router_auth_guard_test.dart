@@ -20,6 +20,8 @@ void main() {
         '/onboarding/analysis',
         '/onboarding/result',
         '/onboarding/account',
+        '/create-account',
+        '/sign-in',
         '/assistant',
       ]) {
         expect(
@@ -159,6 +161,8 @@ void main() {
         '/onboarding/analysis',
         '/onboarding/result',
         '/onboarding/account',
+        '/create-account',
+        '/sign-in',
       ]) {
         expect(
           authRedirect(

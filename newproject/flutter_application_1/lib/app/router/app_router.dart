@@ -19,6 +19,7 @@ import 'package:fansivibe/features/onboarding/presentation/screens/photo_capture
 import 'package:fansivibe/features/onboarding/presentation/screens/ai_analysis_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/your_analysis_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/account_creation_screen.dart';
+import 'package:fansivibe/features/auth/auth.dart';
 import 'package:fansivibe/features/discover/presentation/discover_screen.dart';
 import 'package:fansivibe/features/discover/presentation/look_details_screen.dart';
 import 'package:fansivibe/features/events/data/event_models.dart';
@@ -122,6 +123,16 @@ final List<RouteBase> appRoutes = [
         mode: extra?['mode'] as String? ?? 'register',
       );
     },
+  ),
+  GoRoute(
+    path: '/create-account',
+    name: RouteNames.createAccount,
+    builder: (context, state) => const CreateAccountScreen(),
+  ),
+  GoRoute(
+    path: '/sign-in',
+    name: RouteNames.signIn,
+    builder: (context, state) => const SignInScreen(),
   ),
   GoRoute(
     path: '/assistant',
