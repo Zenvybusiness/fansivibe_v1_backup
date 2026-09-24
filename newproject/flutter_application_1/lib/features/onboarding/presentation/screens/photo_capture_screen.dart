@@ -10,6 +10,7 @@ import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 /// Onboarding photo capture (Phase 22, Step 3).
 ///
@@ -284,6 +285,7 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
   }
 
   void _onSkip() {
+    LocalStorage.savedLocally = true;
     context.goNamed(RouteNames.home, extra: {'vibe': null});
   }
 

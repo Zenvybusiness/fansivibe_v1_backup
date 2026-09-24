@@ -7,12 +7,12 @@ import 'package:fansivibe/shared/utils/local_storage.dart';
 class UserSession {
   UserSession._();
 
-  /// True once a new user has saved their first wardrobe item / completed onboarding.
+  /// True once a user has saved their first wardrobe item.
   static bool get hasSavedWardrobeItem =>
-      LocalStorage.onboardingComplete;
+      LocalStorage.hasSavedWardrobeItem;
 
   static set hasSavedWardrobeItem(bool value) {
-    LocalStorage.onboardingComplete = value;
+    LocalStorage.hasSavedWardrobeItem = value;
   }
 
   /// Display name of the user, if provided during account creation or onboarding.

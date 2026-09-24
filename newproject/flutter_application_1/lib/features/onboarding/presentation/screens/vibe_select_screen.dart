@@ -8,6 +8,7 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 class VibeSelectScreen extends StatefulWidget {
   const VibeSelectScreen({super.key});
@@ -98,11 +99,18 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
         );
         return;
       }
+      if (_selected != null) {
+        LocalStorage.vibe = _selected!.name;
+      }
       context.pushNamed(
         RouteNames.cameraPermission,
         extra: {'vibe': _selected?.name},
       );
     } else {
+      LocalStorage.savedLocally = true;
+      if (_selected != null) {
+        LocalStorage.vibe = _selected!.name;
+      }
       context.goNamed(RouteNames.home, extra: {'vibe': _selected?.name});
     }
   }
@@ -111,6 +119,7 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
     if (_photoPath) {
       context.pushNamed(RouteNames.cameraPermission, extra: {'vibe': null});
     } else {
+      LocalStorage.savedLocally = true;
       context.goNamed(RouteNames.home, extra: {'vibe': null});
     }
   }

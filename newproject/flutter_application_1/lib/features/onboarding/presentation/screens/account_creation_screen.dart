@@ -7,6 +7,8 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
 
 class AccountCreationScreen extends StatefulWidget {
   /// Auth source (D-AUTH-1). Defaults to the live repository; tests
@@ -117,14 +119,32 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
     if (!mounted) return;
     setState(() => _submitting = false);
     if (result.isAuthenticated) {
-      context.goNamed(
-        RouteNames.home,
-        extra: {
-          'onboarding_complete': true,
-          'display_name': result.displayName ??
-              (_nameController.text.isNotEmpty ? _nameController.text : null),
-        },
-      );
+      final name = result.displayName ??
+          (_nameController.text.isNotEmpty ? _nameController.text : null);
+      if (name != null) {
+        LocalStorage.displayName = name;
+      }
+      if (_isLogin) {
+        // Returning user logging in: enters established home
+        UserSession.hasSavedWardrobeItem = true;
+        context.goNamed(
+          RouteNames.home,
+          extra: {
+            'display_name': name,
+            'is_login': true,
+          },
+        );
+      } else {
+        // New user registering: enters first-time home
+        LocalStorage.onboardingComplete = true;
+        context.goNamed(
+          RouteNames.home,
+          extra: {
+            'onboarding_complete': true,
+            'display_name': name,
+          },
+        );
+      }
       return;
     }
     setState(() {

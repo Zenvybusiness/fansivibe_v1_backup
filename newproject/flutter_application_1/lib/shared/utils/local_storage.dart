@@ -63,6 +63,12 @@ class LocalStorage {
     _prefs?.setBool('analysis_cached', value);
   }
 
+  static bool get hasSavedWardrobeItem =>
+      _prefs?.getBool('has_saved_wardrobe_item') ?? false;
+  static set hasSavedWardrobeItem(bool value) {
+    _prefs?.setBool('has_saved_wardrobe_item', value);
+  }
+
   /// ----- Analysis Results Cache -----
 
   static Map<String, dynamic>? get analysisResult {

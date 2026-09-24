@@ -175,6 +175,7 @@ void main() {
     testWidgets('authenticated home ignores onboarding extra (no mock home)',
         (WidgetTester tester) async {
       await AuthSession.saveSession('regression-session-token');
+      LocalStorage.hasSavedWardrobeItem = true;
       await tester.pumpWidget(
         MaterialApp(
           home: HomeScreen(

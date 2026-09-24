@@ -404,8 +404,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       // add flow — re-adding here would duplicate the row.
       if (!isGuestUser) {
         LearningService.instance.addItem(_toEntry(result));
-        UserSession.hasSavedWardrobeItem = true;
       }
+      UserSession.hasSavedWardrobeItem = true;
       _loadItems();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

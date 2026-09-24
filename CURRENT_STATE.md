@@ -2,6 +2,28 @@
 
 ---
 
+## FIRST-TIME HOME EXPERIENCE RUNTIME INTEGRATION & HOMES.PDF ALIGNMENT (executed 2026-09-24, verdict: PASS — Runtime route verified, 0 lints, 1033/1033 full test suite pass)
+
+- Scope: End-to-end tracing and resolution of runtime Home route decision logic to ensure new users (authenticated new registrations and exploring guests) render the `Homes.pdf` First-Time Home Experience, while returning users and users with established wardrobe/scans seamlessly preserve the established `HomeScreen`.
+- Root Cause Identified:
+  1. `_isFirstVisit` in `HomeScreen` previously evaluated `!AuthSession.isAuthenticated`, forcing every registered/authenticated user into the old `HomeScreen` shell.
+  2. `_onboardingDataFromLocalStorage()` was returning null for guest users who skipped account creation or cold-started without a display name.
+  3. `LearningService.instance.wardrobe` is seeded with 24 default demo items (`defaultWardrobe`), causing naive `wardrobe.isNotEmpty` checks to incorrectly classify brand-new users as established users.
+  4. Guest "Explore Fansivibe" and skip-capture paths did not persist `savedLocally = true`, causing auth guard redirects back to `/entry`.
+  5. `UserSession.hasSavedWardrobeItem` was falsely tied to `LocalStorage.onboardingComplete`.
+- Architecture & Fixes:
+  - Real assets extracted directly from `Homes.pdf`: `assets/images/editorial_look_streetwear.jpg` (high-res model in oversized denim jacket on concrete stairs) and `assets/images/profile_avatar.png` (Alex avatar) declared in `pubspec.yaml` and integrated into `FirstTimeHeader` and `EditorialOutfitVisual` with luxury gradient blending and atelier fallback painter.
+  - Runtime diagnostic logging active: `FIRST_TIME_HOME_RUNTIME: route=/home widget=<class> auth=<bool> firstTime=<bool> hasAnalysis=<bool> preferences=<bool>`.
+  - True Baseline Style Score (0 with 'Baseline Uncalibrated', 'Your score starts here', 0-day streak indicator).
+  - Production route decision test suite added in `test/first_time_home_route_decision_test.dart` exercising genuine GoRouter navigation, session states, and Cold Start/subsequent visits.
+- Validation:
+  - Static analysis: `flutter analyze` → 0 issues found across all files.
+  - Route tests: `test/first_time_home_route_decision_test.dart` 5/5 passed.
+  - Feature tests: `test/first_time_light_path_home_screen_test.dart` 11/11 passed.
+  - Full suite: `flutter test` → 1033/1033 tests passed (100% clean).
+
+---
+
 ## DATABASE SCHEMA AUDIT (executed 2026-09-23, verdict: PASS WITH FINDINGS — read-only, 0 code changes, 0 migrations, DB unmodified)
 
 - Scope: repo config + all 21 migrations + SQLAlchemy models + live runtime `information_schema`/`pg_catalog` reads (SELECT-only; secrets never printed). Tech: PostgreSQL + SQLAlchemy 2.x + Alembic (`backend/alembic/versions/`). HEAD 0022, linear chain (0007 numbering gap intentional), 21/21 downgrades present. Runtime: 20 tables + `alembic_version`, columns match migrations exactly, 2 plpgsql functions (`complete_analysis_run`, `fail_analysis_run`).

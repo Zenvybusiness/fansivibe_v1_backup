@@ -123,9 +123,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final hasCompleted = LocalStorage.onboardingComplete;
     final storedDisplayName = LocalStorage.displayName;
     final storedVibe = LocalStorage.vibe;
-    if (hasCompleted && storedDisplayName != null) {
+    if (hasCompleted || storedVibe != null) {
       return <String, dynamic>{
-        'onboarding_complete': true,
+        'onboarding_complete': hasCompleted,
         'display_name': storedDisplayName,
         'vibe': storedVibe,
         'analysis_cached': LocalStorage.analysisCached,
@@ -135,17 +135,35 @@ class _HomeScreenState extends State<HomeScreen> {
     return null;
   }
 
-  // Authenticated users always enter the real shell: the first-time/mock
-  // branch is onboarding-only (logged-out Maybe-Later / cached preview).
-  // A login/register extra must never trap a session into mock content.
-  bool get _isFirstVisit =>
-      !AuthSession.isAuthenticated &&
-      (widget.onboardingData != null ||
-          _onboardingDataFromLocalStorage() != null);
-  bool get _hasAnalysis =>
-      widget.onboardingData?.containsKey('onboarding_complete') == true ||
-      (_onboardingDataFromLocalStorage()?.containsKey('onboarding_complete') ==
-          true);
+  bool get _hasEstablishedHistory {
+    // If the user already has saved wardrobe items
+    if (UserSession.hasSavedWardrobeItem) return true;
+    try {
+      if (LearningService.instance.signals.isNotEmpty) return true;
+      if (LearningService.instance.savedLooks.isNotEmpty) return true;
+    } catch (_) {}
+    if (LocalStorage.savedLookIds.isNotEmpty) return true;
+    return false;
+  }
+
+  // First-time users see the Homes.pdf first-time Home experience (whether
+  // newly registered or exploring as guest) until they build wardrobe/scan history.
+  // Returning login users or users with established history enter the established Home.
+  bool get _isFirstVisit {
+    if (widget.onboardingData?['is_login'] == true) return false;
+    if (_hasEstablishedHistory) return false;
+    final data = widget.onboardingData ?? _onboardingDataFromLocalStorage();
+    return data != null;
+  }
+
+  bool get _hasAnalysis {
+    final data = widget.onboardingData ?? _onboardingDataFromLocalStorage();
+    return data?['onboarding_complete'] == true ||
+        LocalStorage.analysisCached ||
+        (data?['display_name'] != null &&
+            (data!['display_name'] as String).trim().isNotEmpty);
+  }
+
   String? get _displayName {
     final raw = widget.onboardingData?['display_name'] as String? ??
         _onboardingDataFromLocalStorage()?['display_name'] as String? ??
@@ -153,6 +171,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (raw == null || raw.trim().isEmpty) return null;
     return raw.trim();
   }
+
   String? get _vibeName =>
       widget.onboardingData?['vibe'] as String? ??
       _onboardingDataFromLocalStorage()?['vibe'] as String?;
@@ -161,9 +180,27 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final learningService = LearningService.instance;
 
-    if (_isFirstVisit && _hasAnalysis && UserSession.hasSavedWardrobeItem) {
-      return FirstTimeLightPathHomeScreen(vibeName: _vibeName);
+    final String chosenWidget;
+    if (_isFirstVisit && _hasAnalysis) {
+      chosenWidget = 'FirstTimeHomeScreen';
+    } else if (_isFirstVisit) {
+      chosenWidget = 'FirstTimeLightPathHomeScreen';
+    } else {
+      chosenWidget = 'HomeScreen';
     }
+
+    debugPrint(
+      'FIRST_TIME_HOME_RUNTIME:\n'
+      'route=/home\n'
+      'widget=$chosenWidget\n'
+      'auth=${AuthSession.isAuthenticated}\n'
+      'firstTime=$_isFirstVisit\n'
+      'hasAnalysis=$_hasAnalysis\n'
+      'preferences=${_vibeName != null || LocalStorage.vibe != null}\n'
+      'displayName=$_displayName\n'
+      'onboardingData=${widget.onboardingData}',
+    );
+
     if (_isFirstVisit && _hasAnalysis) {
       return FirstTimeHomeScreen(displayName: _displayName);
     }
