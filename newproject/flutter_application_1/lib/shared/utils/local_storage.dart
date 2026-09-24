@@ -69,6 +69,12 @@ class LocalStorage {
     _prefs?.setBool('has_saved_wardrobe_item', value);
   }
 
+  static bool get isReturningUser =>
+      _prefs?.getBool('is_returning_user') ?? false;
+  static set isReturningUser(bool value) {
+    _prefs?.setBool('is_returning_user', value);
+  }
+
   /// ----- Analysis Results Cache -----
 
   static Map<String, dynamic>? get analysisResult {

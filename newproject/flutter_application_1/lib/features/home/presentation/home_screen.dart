@@ -59,41 +59,38 @@ class _HomeScreenState extends State<HomeScreen> {
   late final WardrobeRepository _wardrobeRepository;
   Future<WardrobeInsightData?>? _insightFuture;
 
+  void _initEstablishedFuturesIfNeeded() {
+    if (_summaryFuture != null) return;
+    _summaryRepository =
+        widget.summaryRepository ?? LearningSummaryRepositoryImpl();
+    _summaryFuture = _summaryRepository.getSummary();
+    _todayLookRepository =
+        widget.todayLookRepository ?? TodayLookRepositoryImpl();
+    _todayLookFuture = _todayLookRepository.getTodayLook();
+    _wardrobeRepository =
+        widget.wardrobeRepository ?? WardrobeRepositoryImpl();
+    _insightFuture = _wardrobeRepository.getInsight();
+  }
+
   @override
   void initState() {
     super.initState();
-    // Backend-first M10 summary (STEP 19.16): fetched once for the main
-    // branch only — first-visit onboarding shows no summary slots.
-    // Null means unavailable: slots render their honest error state.
-    // Phase 2.1 guests run the score slot on-device (see
-    // _buildScoreSlot): hydrate the persisted local model and refresh
-    // the slot live as wardrobe items are added.
+    LearningService.instance.addListener(_onLocalChanged);
+    UserSession.savedWardrobeItemNotifier.addListener(_onLocalChanged);
+
     if (isGuestUser) {
-      LearningService.instance.addListener(_onLocalChanged);
       LearningService.instance.load().then((_) {
         if (mounted) setState(() {});
       });
     }
     if (!_isFirstVisit && !isGuestUser) {
-      _summaryRepository =
-          widget.summaryRepository ?? LearningSummaryRepositoryImpl();
-      _summaryFuture = _summaryRepository.getSummary();
-      // Backend-first M9 Today's Look (STEP 19.25): same single-fetch
-      // discipline — one GET feeds the slot; failures render honest
-      // loading/error/empty states, never mock content.
-      _todayLookRepository =
-          widget.todayLookRepository ?? TodayLookRepositoryImpl();
-      _todayLookFuture = _todayLookRepository.getTodayLook();
-      // Backend-first wardrobe insight (P2-8): live backend insight renders
-      // truthful intelligence; empty/null response hides the card.
-      _wardrobeRepository =
-          widget.wardrobeRepository ?? WardrobeRepositoryImpl();
-      _insightFuture = _wardrobeRepository.getInsight();
+      _initEstablishedFuturesIfNeeded();
     }
   }
 
   void _retrySummary() {
     if (isGuestUser) return;
+    _initEstablishedFuturesIfNeeded();
     setState(() {
       _summaryFuture = _summaryRepository.getSummary();
     });
@@ -101,18 +98,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    if (isGuestUser) {
-      LearningService.instance.removeListener(_onLocalChanged);
-    }
+    LearningService.instance.removeListener(_onLocalChanged);
+    UserSession.savedWardrobeItemNotifier.removeListener(_onLocalChanged);
     super.dispose();
   }
 
   void _onLocalChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (!_isFirstVisit && !isGuestUser) {
+      _initEstablishedFuturesIfNeeded();
+    }
+    setState(() {});
   }
 
   void _retryTodayLook() {
     if (isGuestUser) return;
+    _initEstablishedFuturesIfNeeded();
     setState(() {
       _todayLookFuture = _todayLookRepository.getTodayLook();
     });
@@ -141,6 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       if (LearningService.instance.signals.isNotEmpty) return true;
       if (LearningService.instance.savedLooks.isNotEmpty) return true;
+      if (isGuestUser && LearningService.instance.wardrobe.isNotEmpty) return true;
     } catch (_) {}
     if (LocalStorage.savedLookIds.isNotEmpty) return true;
     return false;
@@ -150,7 +152,11 @@ class _HomeScreenState extends State<HomeScreen> {
   // newly registered or exploring as guest) until they build wardrobe/scan history.
   // Returning login users or users with established history enter the established Home.
   bool get _isFirstVisit {
-    if (widget.onboardingData?['is_login'] == true) return false;
+    if (widget.onboardingData?['is_login'] == true) {
+      UserSession.isReturningUser = true;
+      return false;
+    }
+    if (UserSession.isReturningUser) return false;
     if (_hasEstablishedHistory) return false;
     final data = widget.onboardingData ?? _onboardingDataFromLocalStorage();
     return data != null;
@@ -179,6 +185,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final learningService = LearningService.instance;
+
+    if (!_isFirstVisit && !isGuestUser) {
+      _initEstablishedFuturesIfNeeded();
+    }
 
     final String chosenWidget;
     if (_isFirstVisit && _hasAnalysis) {

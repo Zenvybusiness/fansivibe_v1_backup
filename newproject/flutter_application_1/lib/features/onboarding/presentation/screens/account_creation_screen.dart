@@ -126,6 +126,7 @@ class _AccountCreationScreenState extends State<AccountCreationScreen>
       }
       if (_isLogin) {
         // Returning user logging in: enters established home
+        UserSession.isReturningUser = true;
         UserSession.hasSavedWardrobeItem = true;
         context.goNamed(
           RouteNames.home,

@@ -7,6 +7,7 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/presentation/widgets/first_time_wardrobe_view.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -55,10 +56,17 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   String? _errorMessage;
   late final Future<WardrobeInsightData?> _insightFuture;
   late final Future<WearSummary?> _wearSummaryFuture;
+  bool get _showFirstTimeExperience {
+    if (_isLoading) return false;
+    return UserSession.isNewUserInInitialExploration && _items.isEmpty;
+  }
 
   @override
   void initState() {
     super.initState();
+    LearningService.instance.addListener(_onLocalChanged);
+    UserSession.savedWardrobeItemNotifier.addListener(_onLocalChanged);
+
     // Phase 2.1 guests run the full wardrobe on-device: the local
     // repository serves the same list/detail/add/edit/delete flows with
     // zero API calls (insight/wear-summary have no on-device equivalent
@@ -68,7 +76,6 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       _repository = LocalWardrobeRepository();
       _insightFuture = Future.value(null);
       _wearSummaryFuture = Future.value(null);
-      LearningService.instance.addListener(_onLocalChanged);
       // Hydrate persisted on-device items, then render; live mutations
       // (add/edit/delete returns) refresh through the listener.
       LearningService.instance.load().then((_) {
@@ -91,9 +98,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
 
   @override
   void dispose() {
-    if (isGuestUser) {
-      LearningService.instance.removeListener(_onLocalChanged);
-    }
+    LearningService.instance.removeListener(_onLocalChanged);
+    UserSession.savedWardrobeItemNotifier.removeListener(_onLocalChanged);
     super.dispose();
   }
 
@@ -151,6 +157,19 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
 
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isWide = screenWidth > 600;
+
+    // First-time empty wardrobe experience for new users in initial exploration
+    if (_showFirstTimeExperience) {
+      return Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: SafeArea(
+          child: FirstTimeWardrobeView(
+            onAddFirstItem: () => _handleAddItem(context),
+            onImportFromPhotos: () => _handleImportFromPhotos(context),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -418,6 +437,10 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         ),
       );
     }
+  }
+
+  void _handleImportFromPhotos(BuildContext context) {
+    _handleAddItem(context);
   }
 
   void _handleItemTap(BuildContext context, WardrobeItemData item) async {
