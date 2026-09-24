@@ -247,3 +247,71 @@ After deploying to staging/production, execute these verification steps:
 | Reasoning queries return 429 `RATE_LIMITED` | Concurrency limit (2) saturated or IP rate limit exceeded | Increase `FANSIVIBE_REASONING_CONCURRENCY_LIMIT` if GPU VRAM allows, or scale backend replicas. |
 | Cold queries take ~15s, warm queries take ~1.5s | Ollama unloaded model from VRAM | Set `FANSIVIBE_REASONING_KEEP_ALIVE=-1` or `"30m"` to prevent unloading. |
 | Scans or reasoning disabled intentionally | Maintenance or degraded operation | Set `FANSIVIBE_DISABLE_REASONING=true`. API returns 503 AI_FAILURE and `/ready` reports `"reasoning": "disabled"`. |
+
+---
+
+## 13. Cloud Deployment Preparation (Phase 4B)
+
+Provider-neutral. No cloud provider is specified in this repo; the compose
+topology runs on any host with Docker + NVIDIA GPU for the Ollama node.
+
+### 13.1 Topology & Ollama placement
+
+`Flutter → HTTPS → nginx (80/443, canary split) → FastAPI primary/canary → Postgres 16 → Ollama (dedicated GPU node, `qwen2.5vl:3b`)`.
+Ollama is NOT published: no `ports:` on `ollama-prod`, reachable only over
+`fansivibe-prod-network` as `http://ollama-prod:11434`. Point
+`FANSIVIBE_OLLAMA_BASE_URL` and `FANSIVIBE_VISION_HOST` at that internal name
+(never localhost, never public). GPU floor: 4 GB VRAM resident for
+`qwen2.5vl:3b` Q4 (`ollama ps` must list it; digest `fb90415c…`).
+
+### 13.2 Secrets (all out-of-band, never committed)
+
+- Create `backend/.env.production` ONLY on the deploy host (or inject via
+  the platform secret manager: env vars, Docker secrets, or mounted volume).
+  Template: `backend/.env.production.example` (placeholders only).
+- Postgres password: prefer `POSTGRES_PASSWORD_FILE: /run/secrets/db_password`
+  (already wired) over env. JWT secret: ≥32 chars random, platform-managed.
+- Verified: no secrets in `Dockerfile`/images (source + requirements only,
+  non-root `appuser`), no secrets in Flutter source (dart-define defaults are
+  `dev`/localhost and prod builds fail fast without explicit values), no
+  secrets in logs (`errors.scrub_message` redacts URLs/tokens) or error
+  responses (frozen 12-category contract carries no payload data).
+- Residual: `.env.staging` on local disk holds dev-format values and is
+  git-ignored — rotate iff ever copied off-disk.
+
+### 13.3 TLS / domain (owner decision required)
+
+1. Owner provides domain + DNS A record → set `server_name` in
+   `deploy/nginx/production.conf` (currently `fansivibe.com` placeholders).
+2. Provision certs into `deploy/tls/` as `fullchain.pem` + `privkey.pem`
+   (Let's Encrypt/certbot or platform ACM — never commit `privkey.pem`).
+3. HTTP→HTTPS 301, HSTS preload, and TLSv1.2+ cipher floor are already
+   configured. CORS origins must be replaced with the real `https://` app
+   origin. TLS is NOT complete until a real cert + domain serve traffic.
+
+### 13.4 Database
+
+- Startup runs `alembic upgrade head` (forward-only, non-destructive; all 21
+  revisions ship `downgrade()` for per-step retreat). Rehearsed on a
+  disposable DB in Phase 4A (clean through `0022` head). Pool defaults
+  10/20/30s; append `?sslmode=require` to `DATABASE_URL` for managed Postgres.
+- Backup: `pg_dump -Fc fansivibe_prod` on schedule; restore rehearsal:
+  `pg_restore -d <fresh_db>` then `alembic current` must print the head.
+- App rollback: redeploy prior image tag (migrations are additive; a
+  retreating migration needs explicit `alembic downgrade -<n>` approval).
+
+### 13.5 Observability & security posture
+
+- Prometheus scrapes both backends internally (`deploy/prometheus/`
+  `prometheus.yml`); port 9090 is NOT published; nginx restricts `/metrics`
+  to private ranges. Docs endpoints 404 in prod; 2 MB body cap; vision
+  uploads JPEG/PNG/WebP ≤20 MB; rate + concurrency limits per §5.
+- PII/vision: image bytes are ephemeral (base64 in-flight only, never
+  logged/persisted); metrics carry counts and latencies, never prompts,
+  outputs, images, or tokens. No debug mode, no SSRF (Ollama host is
+  operator-configured, never user-supplied).
+
+### 13.6 Minimum owner decisions before first cloud deploy
+
+1. Cloud/GPU host + domain name. 2. Secret injection mechanism.
+3. Managed vs self-hosted Postgres (backup owner). 4. Cert provisioning path.

@@ -1,0 +1,17 @@
+# Fansivibe Prometheus scrape config (Phase 4B).
+# Internal-only: this file is mounted into the prometheus-prod service on the
+# private compose network. Do not publish port 9090 publicly.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: fansivibe-backend-primary
+    static_configs:
+      - targets: ["backend-primary:8000"]
+    metrics_path: /metrics
+
+  - job_name: fansivibe-backend-canary
+    static_configs:
+      - targets: ["backend-canary:8001"]
+    metrics_path: /metrics

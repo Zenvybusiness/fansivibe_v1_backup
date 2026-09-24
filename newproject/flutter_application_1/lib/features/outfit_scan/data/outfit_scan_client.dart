@@ -40,7 +40,9 @@ class OutfitScanClient {
   static String get devToken => AuthSession.effectiveToken(_devTokenDefault);
 
   final http.Client _client;
-  static const Duration _timeout = Duration(seconds: 12);
+  // Phase 4A: 30s exceeds the backend 20s vision budget + overhead, so a
+  // legitimate synchronous analysis never surfaces as a client timeout.
+  static const Duration _timeout = Duration(seconds: 30);
 
   /// Submits an outfit image for analysis (`POST /v1/analysis/outfit`).
   ///

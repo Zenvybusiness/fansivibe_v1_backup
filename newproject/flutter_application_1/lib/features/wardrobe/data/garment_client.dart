@@ -67,7 +67,9 @@ class GarmentClient {
 
   final http.Client _client;
   final Duration _pollInterval;
-  static const Duration _timeout = Duration(seconds: 12);
+  // Phase 4A: 30s exceeds the backend 20s vision budget + overhead, so a
+  // legitimate synchronous analysis never surfaces as a client timeout.
+  static const Duration _timeout = Duration(seconds: 30);
 
   /// Submits a garment photo for analysis.
   ///

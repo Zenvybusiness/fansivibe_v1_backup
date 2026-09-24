@@ -2,6 +2,59 @@
 
 ---
 
+## DATABASE SCHEMA AUDIT (executed 2026-09-23, verdict: PASS WITH FINDINGS — read-only, 0 code changes, 0 migrations, DB unmodified)
+
+- Scope: repo config + all 21 migrations + SQLAlchemy models + live runtime `information_schema`/`pg_catalog` reads (SELECT-only; secrets never printed). Tech: PostgreSQL + SQLAlchemy 2.x + Alembic (`backend/alembic/versions/`). HEAD 0022, linear chain (0007 numbering gap intentional), 21/21 downgrades present. Runtime: 20 tables + `alembic_version`, columns match migrations exactly, 2 plpgsql functions (`complete_analysis_run`, `fail_analysis_run`).
+- Ownership: 11 user-owned tables all `user_id → users CASCADE` with correctly owner-scoped uniques; 8 system tables ownerless by design (identity root + vocabularies); FK policy CASCADE-owned / RESTRICT-vocab / SET-NULL-history verified.
+- M14 tables (trend_sources/signals/entities/snapshots/products/product_sources): all NOT CREATED — zero `trend_*` in migrations, models, or runtime. No migration required now.
+- Findings (no fixes applied): F1 LOW model-only label CHECKs absent in DB; F2 MEDIUM `wear_group_id` no FK to wear_groups; F3 MEDIUM `register_idempotency_key` no UQ (app-enforced race window); F4–F6 INFORMATIONAL (undeclared indexes, rating CHECK pending, NULL legacy source_context by design).
+- Report: `docs/validation/DATABASE_SCHEMA_AUDIT.md`. Baselines untouched (backend 918, Flutter 1021, analyze 0 issues — no code changed, regression not rerun).
+
+---
+
+## M14.1 PROVIDER ACCESS CHECK (executed 2026-09-23, verdict: BLOCKED — CREDENTIALS REQUIRED, zero code changes)
+
+- Scope: Step 1 credential verification only. Checked process env, `backend/.env*` key names, and `app/config` for YouTube/Google-GCP/Flipkart/Amazon credentials (names only, values never read or printed). Result: MISSING across all four candidates. Per M14.1 stop conditions, no provider was selected and no adapter was implemented — no fake credentials, no fake live behavior, no domain rewrites.
+- Re-check (same day, after owner reported YouTube key configured): swept process env (full listing), User/Machine env targets, `backend/.env` (absent), `.env.staging` key names, app code, and recent files — no YouTube credential detectable. No live call attempted (nothing to authenticate with). Result recorded in `docs/validation/M14_TRENDING_REPORT.md` §M14.1. Next step: owner states the exact env var name / file path / secret manager holding the key, then Step 1 re-runs.
+- Docs: `docs/validation/M14_TRENDING_REPORT.md` gained an M14.1 blocked-audit section. No code, test, migration, or UI changes. Baselines untouched (backend 918, Flutter 1021, analyze 0 issues — no rerun needed, nothing modified).
+- Unblock: owner provisions one provider credential (YouTube v3 key is the cheapest first step) → M14.1 resumes at Step 2.
+
+---
+
+## M14 TRENDING INTELLIGENCE FOUNDATION (implemented 2026-09-23, verdict: PARTIALLY READY — contracts + deterministic engine + test adapter live, real providers NOT CONNECTED)
+
+- Scope: provider-agnostic domain contracts, deterministic normalization/scoring, stateless backend API, Flutter data layer, tests, report. Reused existing provider audits (`TRENDING_PROVIDER_VALIDATION.md`, `TRENDING_PROVIDER_ACCESS_MATRIX.md`) — no research redone, no scraping, no migration, frozen AI/FFO untouched.
+- Backend (4 new files + 1 router line in `main.py`): `app/trending/domain.py` (`TrendSignal`/`Trend`/`ProductCandidate`, alias normalization, deterministic velocity/confidence scoring with missing-metrics-stay-missing, ≥2-source corroboration gate, dedup by `(source, id)` never by name, `load_test_adapter` marked NOT CONNECTED), `api/schemas/trending.py`, `api/routers/trending.py` (`GET /v1/trending`, `GET /v1/trending/{trend_id}`, auth via `get_current_user_id`, read-only, no DB). DB decision: NONE (stateless; migration 0023 deferred until a real credential lands).
+- Flutter (data layer only, no UI change): `features/trending/data/` (`trending_models.dart`, `trending_client.dart`, `trending_repository.dart`) mirroring Discover patterns; never throws, no mock fallback, no direct provider integration.
+- Tests: backend `test_m14_trending.py` 11/11 (normalization, scoring, provenance, dedup, API auth/shape/404); Flutter `trending_client_test.dart` 8/8. Regression: backend 918 passed/537 skipped/0 failed; `flutter analyze` 0 issues; Flutter 1021/1021 pass. Report: `docs/validation/M14_TRENDING_REPORT.md`.
+- Remaining: credentials (YouTube v3, GCP/Trends BQ, Flipkart affiliate, Amazon PA-API) → real adapters; migration 0023 + batch worker; Discover 4th tab + wardrobe bridge (contract only this milestone).
+
+---
+
+## PHASE 4B CLOUD DEPLOYMENT PREPARATION (executed 2026-09-23, verdict: PASS WITH BLOCKERS — deploy-ready except owner decisions: domain, certs, secret injection, GPU host)
+
+- Scope: infra only. No trending/product/social/notifications/recommender/semantic work. Frozen 7/7 hashes OK before AND after (FFO digest live-confirmed). No reasoning/backend-logic change.
+- Topology (provider-neutral, already in repo): Flutter → HTTPS → nginx (80/443, 5% canary split) → FastAPI primary/canary → Postgres 16 → Ollama dedicated GPU node (`qwen2.5vl:3b` `fb90415c…`, 4 GB VRAM). Ollama unpublished (internal network only). No provider specified → owner decisions required: cloud/GPU host, domain, secret mechanism, managed-vs-self Postgres, cert path.
+- Changes: `.env.production.example` + `.env.staging.example` gained vision block (`VISION_HOST/MODEL=qwen2.5vl:3b/TIMEOUT_S=20.0`); `docker-compose.production.yml` unpublishes Prometheus 9090 (internal scrape only); new `deploy/prometheus/prometheus.yml` (compose referenced a missing file — deploy would have failed); `PRODUCTION_DEPLOYMENT.md` §13 (secrets/TLS/backup/owner checklist). Deliberately NOT changed: settings loopback-ollama enforcement (would break 6+ existing prod-invariant tests for documentation-grade gain — recorded P2).
+- Verified: no prod secrets committed (only placeholders/dev defaults + prod startup invariants); Dockerfile secret-free non-root; Flutter prod path fail-fast (no localhost survives `PRODUCTION=true`); logs/errors carry no secrets/images/PII; downgrades exist in 21/21 migrations; live `:8000` health/ready-detailed/metrics all green.
+- Regression (fresh): backend 907/0 failed/537 skipped; analyze 0 issues; Flutter 1013/1013. Reasoning smoke: denim 200/3, cotton-linen 200/2, sneakers 200/1 (model variance, contract-valid), kimono 502, price 502 — fail-closed intact. DB rehearsal reused from 4A (migrations unchanged). No real cloud deploy exists — "staging/cloud test" = local live verification only, no TLS claim.
+- Remaining: owner domain + certs into `deploy/tls/` (never commit key), `.env.production` on host only, GPU host provision + `ollama pull`, backup schedule. Next: first cloud deploy once decisions land. Do NOT start trending/product/social.
+
+---
+
+## PHASE 4A PRODUCTION HYGIENE + VISION UNBLOCK (executed 2026-09-23, verdict: PASS WITH BLOCKERS — vision available, secret/alembic cleared, timeouts aligned)
+
+- Scope: master-audit blockers only. No trending/product/social/notifications/recommender work. No architecture redesign. No semantic-retrieval wiring (audited read-only: `ffo_semantic.py` exists + tested, zero live-path imports — unchanged).
+- Frozen hashes (before AND after, all MATCH): reasoning_prompt `bf81162e…`, conclusion_admission `c8a7c68e…`, ffo_ref_selector `3450535b…`, ffo_reasoning `bdb5398d…`, ffo_benchmark `fb77f39a…`, benchmark_v01 `ba8d9547…`, heldout `94c383cc…`, FFO digest `967f891e…` (live `/ready?detailed` + response `versions` confirm).
+- Secret hygiene: master audit's "committed .env.staging" claim CONTRADICTED — `backend/.env.staging` is untracked + git-ignored (`backend/.gitignore:8` `.env.*`, `git log --all` empty, only `backend/.env.example` tracked). No git remediation needed, no values printed. Tracked dev defaults (`fansivibe:fansivibe_dev@localhost`, `dev-only-insecure-auth-secret`, `Bearer dev`) remain but are prod-rejected by startup invariants. Dumps (`fansivibe_backup.dump`, `windows_pre_restore.dump`) are 0-byte placeholders. ROTATION ADVISORY (P0 hygiene, not git exposure): untracked `.env.staging` holds a dev-format DB password + staging IP + staging secret — rotate if that file was ever shared/copied off-disk.
+- Alembic: "missing 0007" is numbering-only, NOT a defect. Graph linear base→0001→…→0006→0008→…→0022, single head, live DB at 0022. Fresh `upgrade head` on disposable `fansivibe_p4a_check` DB ran clean through 0006→0008→…→0022 (then dropped). No migration created.
+- Vision: VISION_PROVIDER_AVAILABLE. Production path already wired to real adapters (`analysis.py:113,223,265` `OllamaVisionAppearanceAdapter/GarmentAdapter`; dev adapter is tests-only default). Ollama serves vision-capable `qwen2.5vl:3b` (digest `fb90415c…`, loaded per `/api/ps`); env `FANSIVIBE_VISION_MODEL=qwen2.5vl:3b` overrides the uninstalled `llama3.2-vision` default. Live E2E (real auth + real PNG, :8000): hairstyle 202 (9.0s) → `failed/no_face_detected`; garment 202 (3.0s) → `failed/no_garment_detected`; outfit 202 (2.7s) → `failed/no_face_detected` — all honest fail-closed on blank image, zero mocks. Real-face success still UNVERIFIED (no face photo on hand).
+- Timeout fix (only product change, 3 files × 1 line + comment): `hairstyle_client.dart`, `garment_client.dart`, `outfit_scan_client.dart` `_timeout` 12s→30s (exceeds backend 20s vision budget; polls share the ceiling harmlessly). Hierarchy now: provider 20s < backend sync < Flutter 30s < proxy/nginx 90s. No test pinned 12s.
+- Regression (actually run, not historical): backend `907 passed, 537 skipped, 0 failed`; `flutter analyze lib test` 0 issues; Flutter `1013/1013 passed`. Canonical reasoning smoke (:8000, live): denim 200/3 conclusions, cotton-vs-linen 200/3, white-sneakers 502 unpermitted-ref, kimono 502 empty-evidence, price 502 unpermitted-ref — matches frozen fail-closed baseline; zero internal-ID tokens in prose; versions pin `1.0/967f891e…/2.0`.
+- Remaining P0: rotate staging creds if shared; real-face vision success unverified; cloud TLS/host/secrets still absent (local-canary only). Next: Phase 4B cloud-deploy prep or owner live-test of 2.1 + vision with a real selfie. Do NOT start trending/product/social yet.
+
+---
+
 ## PHASE 2.1 REMOVE UNNECESSARY GUEST WALLS (implemented 2026-09-23, awaiting owner live-test review; Phase 3 NOT started)
 
 - Scope: audit of all 21 Phase 2 walls → unlock wherever existing local/public capability suffices. New `lib/features/wardrobe/data/local_wardrobe_repository.dart` implements the existing `WardrobeRepository` contract over the already-persisted `LearningService` model (`LocalStore` shared_prefs JSON): list/get/create/update/delete work on-device with zero API calls; ids are `local-<microseconds>` (deliberately non-UUID, so the existing UUID gate keeps hiding wear-logging); insight/wear-summary/logWear return null (no on-device equivalent — slots already hide on null). No new dependencies, no backend/DB/migration/auth changes, no migration service, camera → guest-analysis flow untouched.

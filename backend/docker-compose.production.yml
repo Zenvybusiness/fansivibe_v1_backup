@@ -128,8 +128,10 @@ services:
     restart: always
     volumes:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "9090:9090"
+    # Phase 4B: no public port — scraped over the internal network only.
+    # /metrics is additionally restricted to private ranges in nginx.
+    expose:
+      - "9090"
     networks:
       - fansivibe-prod-network
 

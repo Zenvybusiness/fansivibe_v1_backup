@@ -36,6 +36,7 @@ from app.api.routers import (
     looks,
     outfits,
     reasoning,
+    trending,
     users,
     wardrobe,
 )
@@ -156,6 +157,7 @@ app.include_router(learning.router)
 app.include_router(looks.router)
 app.include_router(outfits.router)
 app.include_router(reasoning.router)
+app.include_router(trending.router)
 app.include_router(users.router)
 app.include_router(wardrobe.router)
 
