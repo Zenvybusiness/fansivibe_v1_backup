@@ -2,6 +2,32 @@
 
 ---
 
+## NEW-USER PROFILE SCREEN REDESIGN & VISUAL REFERENCE ALIGNMENT (executed 2026-09-25, verdict: PASS — Edge CDP runtime verified, 0 lints, 25/25 profile tests pass, 34/34 regression tests pass)
+
+- Scope: Complete redesign of the Fansivibe new-user profile page (`/profile` in `lib/features/profile/presentation/profile_screen.dart`) matching the provided visual reference image (`media_1790351931981.jpg`), adhering to Digital Atelier design tokens, luxury dark aesthetics, editorial serif typography, and real dynamic state reactivity (no hardcoded mock user data).
+- Route & Architecture:
+  - Route: `/profile` (named `RouteNames.profile`) within `StatefulShellBranch` in `lib/app/router/app_router.dart`.
+  - RouterShell & Bottom Navigation: `lib/app/router/router_shell.dart` with 5 destinations (Home, Discover, Stylist, Wardrobe, Profile [index 4] with gold accent).
+  - Screen Widget: `lib/features/profile/presentation/profile_screen.dart`.
+- Dynamic State & Reactive Integration:
+  - Header: Circular avatar with gold halo ring and initial/image; `NOVICE` pill badge; dynamic user display name in Noto Serif editorial typography; `@handle • NEW STYLE JOURNEY`; `Edit Profile` and `Share` pill buttons.
+  - Side-by-Side Cards:
+    - Current Style Score: `-- Uncalibrated` for new users with `+ Scan Outfit →` navigation to `RouteNames.scanOutfit`; reactively shows calibrated score (e.g. `82`, `+4.2% this week`) when learning summary/scan exists.
+    - Global Rank: `Not Ranked` with subtitle `"Complete style profile to unlock ranking"`.
+  - Style Progress: 30-Day Overview card with 7-column bar chart (W1-W6 inactive capsules, `Now` glowing gold capsule) and info callout `"Your style journey starts here. Complete your profile and explore Fansivibe to begin tracking precision over time."`.
+  - Achievements: `0 OF 4 UNLOCKED` for new users; 4 locked cards (`COLOR`, `FIT`, `OCCASION`, `TREND`). Unlocks reactively as user adds wardrobe pieces or sets preferences.
+  - Saved Looks: Visual empty-state card with gold coat hanger icon, `"No saved looks yet"`, `"Curate your personal digital archive or explore seasonal recommendations to save your favorite fits here."`, and `+ Curate First Outfit` CTA routing to `RouteNames.buildOutfit`. Auto-replaces with saved look items when user saves looks.
+  - Style DNA: 2x2 grid with pending biometric states (`SKIN TONE`, `FACE SHAPE`, `BODY TYPE`, `STYLE TYPE`) and full-width `✦ DISCOVER MY STYLE DNA` CTA routing to `RouteNames.hairstyle`.
+  - Lower Settings Menu: `PREFERENCES` (`Not configured yet >`), `SAVED LOOKS` (`0 items >`), `SUBSCRIPTION` (`FREE >`), `SUPPORT` (`Help & Concierge >`).
+  - Sign Out: Centered pill button (shows `SIGN OUT` for authenticated users, `SIGN IN` for guests).
+- Validation:
+  - Static analysis: `flutter analyze lib test` -> 0 issues found.
+  - Unit & Widget tests: `test/profile_screen_test.dart` -> 25/25 passed.
+  - Regression tests: `test/learning_summary_test.dart` & `test/guest_phase2_test.dart` -> 34/34 passed.
+  - Runtime verification: Live Edge CDP inspection on `http://127.0.0.1:8085/#/profile` with semantics text inspection and captured full-flow screenshots.
+
+---
+
 ## AUTHENTICATION IMPLEMENTATION & RUNTIME VERIFICATION (executed 2026-09-25, verdict: PASS — Edge CDP runtime verified, 0 lints, web build clean, all 6 flow verifications captured)
 
 - Scope: Verification of authentication implementation (`/create-account`, `/sign-in`, `/entry` navigation gates, email expansion, routing).

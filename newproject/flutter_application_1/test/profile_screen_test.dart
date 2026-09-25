@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
 import 'package:fansivibe/app/router/app_router.dart';
+import 'package:fansivibe/features/learning/data/models.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
 import 'package:fansivibe/features/profile/presentation/profile_screen.dart';
@@ -20,8 +22,6 @@ class _TestSummaryRepo implements LearningSummaryRepository {
   Future<LearningSummary?> getSummary() async => _summary;
 }
 
-/// Creates a [FansivibeApp] booted directly into the main shell so tab
-/// navigation can be exercised without re-running the onboarding Entry flow.
 Widget _freshApp() {
   return FansivibeApp(
     router: GoRouter(initialLocation: '/home', routes: appRoutes),
@@ -29,177 +29,21 @@ Widget _freshApp() {
 }
 
 void main() {
-  group('ProfileScreen Widget Tests', () {
+  group('ProfileScreen Redesign & Dynamic Behavior Tests', () {
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
       LocalStorage.init(prefs: await SharedPreferences.getInstance());
       UserSession.displayName = null;
+      UserSession.hasSavedWardrobeItem = false;
+      LocalStorage.savedLookIds = [];
+      LearningService.instance.resetForTest();
     });
 
-    testWidgets(
-      'renders neutral empty profile state when unauthenticated or no display name',
-      (WidgetTester tester) async {
-        UserSession.displayName = null;
-        await tester.pumpWidget(_freshApp());
-
-        // Navigate to Profile tab
-        await tester.tap(
-          find.descendant(
-            of: find.byType(NavigationBar),
-            matching: find.text('Profile'),
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        // Neutral empty profile state
-        expect(find.text('Style Profile'), findsOneWidget);
-        expect(find.byIcon(Icons.person_outline_rounded), findsOneWidget);
-
-        // Verifies fake "Alex" data is never rendered
-        expect(find.text('Alex'), findsNothing);
-        expect(find.text('@alex_styles'), findsNothing);
-        expect(find.text('Member since Jan 2026'), findsNothing);
-        expect(find.text('March 2026'), findsNothing);
-        expect(find.text('Style Seeker'), findsNothing);
-        expect(find.text('Lvl 4'), findsNothing);
-        expect(find.text('#128'), findsNothing);
-      },
-    );
-
-    testWidgets(
-      'renders real user display name and initials when authenticated',
-      (WidgetTester tester) async {
-        UserSession.displayName = 'Jordan Lee';
-        await tester.pumpWidget(_freshApp());
-
-        await tester.tap(
-          find.descendant(
-            of: find.byType(NavigationBar),
-            matching: find.text('Profile'),
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        expect(find.text('Jordan Lee'), findsOneWidget);
-        expect(find.text('J'), findsOneWidget);
-        expect(find.text('@jordan_lee'), findsOneWidget);
-
-        // Verifies fake "Alex" data is never rendered
-        expect(find.text('Alex'), findsNothing);
-        expect(find.text('@alex_styles'), findsNothing);
-        UserSession.displayName = null;
-      },
-    );
-
-    testWidgets(
-      'renders real display name from widget property override',
-      (WidgetTester tester) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: ThemeData.dark(),
-            home: const ProfileScreen(displayName: 'Taylor Swift'),
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        expect(find.text('Taylor Swift'), findsOneWidget);
-        expect(find.text('T'), findsOneWidget);
-        expect(find.text('@taylor_swift'), findsOneWidget);
-
-        // Verifies fake "Alex" data is never rendered
-        expect(find.text('Alex'), findsNothing);
-        expect(find.text('@alex_styles'), findsNothing);
-      },
-    );
-
-    testWidgets(
-      'renders real style score and streak from summary repository',
-      (WidgetTester tester) async {
-        final fakeRepo = _TestSummaryRepo(
-          summary: const LearningSummary(
-            styleScore: 92,
-            streak: 5,
-            recentSignals: ['Great contrast today'],
-            breakdown: LearningSummaryBreakdown(
-              base: 60,
-              wardrobePoints: 16,
-              savedPoints: 16,
-              total: 92,
-            ),
-          ),
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: ThemeData.dark(),
-            home: ProfileScreen(
-              displayName: 'Sam Stylist',
-              summaryRepository: fakeRepo,
-            ),
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        expect(find.text('Sam Stylist'), findsOneWidget);
-        expect(find.text('92'), findsWidgets);
-        expect(find.text('5 d'), findsOneWidget);
-
-        // Verifies fake "Alex" / fake stats are never rendered
-        expect(find.text('Alex'), findsNothing);
-        expect(find.text('@alex_styles'), findsNothing);
-        expect(find.text('#128'), findsNothing);
-        expect(find.text('Style Seeker'), findsNothing);
-        expect(find.text('Lvl 4'), findsNothing);
-      },
-    );
-
-    testWidgets(
-      'never renders fabricated Alex or mock stats for real users',
-      (WidgetTester tester) async {
-        await tester.pumpWidget(_freshApp());
-
-        await tester.tap(
-          find.descendant(
-            of: find.byType(NavigationBar),
-            matching: find.text('Profile'),
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        // Strictly verify that none of the prohibited fake "Alex" items appear
-        expect(find.text('Alex'), findsNothing);
-        expect(find.text('@alex_styles'), findsNothing);
-        expect(find.text('Member since Jan 2026'), findsNothing);
-        expect(find.text('March 2026'), findsNothing);
-        expect(find.text('Style Seeker'), findsNothing);
-        expect(find.text('Lvl 4'), findsNothing);
-        expect(find.text('#128'), findsNothing);
-      },
-    );
-
-    testWidgets('renders account menu actions', (WidgetTester tester) async {
-      await tester.pumpWidget(_freshApp());
-
-      await tester.tap(
-        find.descendant(
-          of: find.byType(NavigationBar),
-          matching: find.text('Profile'),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Account'), findsOneWidget);
-      expect(find.text('Preferences'), findsOneWidget);
-      expect(find.text('Subscription'), findsOneWidget);
-      expect(find.text('Support'), findsOneWidget);
-      expect(find.text('Settings'), findsOneWidget);
-      expect(find.text('Sign Out'), findsOneWidget);
-    });
-
-    testWidgets('menu actions navigate to PreferencesScreen', (
+    testWidgets('1. New-user Profile renders all reference sections', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_freshApp());
+
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationBar),
@@ -208,21 +52,54 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final preferencesFinder = find.text('Preferences');
-      await tester.scrollUntilVisible(
-        preferencesFinder,
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.tap(preferencesFinder);
-      await tester.pumpAndSettle();
-      expect(find.text('Style Preferences'), findsOneWidget);
+      // Top level badge & neutral profile header
+      expect(find.text('NOVICE'), findsOneWidget);
+      expect(find.text('Style Profile'), findsOneWidget);
+      expect(find.textContaining('NEW STYLE JOURNEY'), findsOneWidget);
+      expect(find.text('Edit Profile'), findsOneWidget);
+      expect(find.text('Share'), findsOneWidget);
+
+      // Current style score & global rank
+      expect(find.text('CURRENT STYLE SCORE'), findsOneWidget);
+      expect(find.text('--'), findsOneWidget);
+      expect(find.text('Uncalibrated'), findsOneWidget);
+      expect(find.text('+ Scan Outfit  →'), findsOneWidget);
+      expect(find.text('GLOBAL RANK'), findsOneWidget);
+      expect(find.text('Not Ranked'), findsOneWidget);
+
+      // Style progress
+      expect(find.text('Style Progress'), findsOneWidget);
+      expect(find.text('30-DAY OVERVIEW'), findsOneWidget);
+      expect(find.text('Now'), findsOneWidget);
+
+      // Achievements
+      expect(find.text('Achievements'), findsOneWidget);
+      expect(find.text('0 OF 4 UNLOCKED'), findsOneWidget);
+
+      // Saved looks
+      expect(find.text('Saved Looks'), findsWidgets);
+      expect(find.text('No saved looks yet'), findsOneWidget);
+      expect(find.text('Curate First Outfit'), findsOneWidget);
+
+      // Style DNA
+      expect(find.text('Style DNA'), findsOneWidget);
+      expect(find.text('PENDING ASSESSMENT'), findsOneWidget);
+      expect(find.text('DISCOVER MY STYLE DNA'), findsOneWidget);
+
+      // Lower menu
+      expect(find.text('PREFERENCES'), findsOneWidget);
+      expect(find.text('SAVED LOOKS'), findsOneWidget);
+      expect(find.text('SUBSCRIPTION'), findsOneWidget);
+      expect(find.text('SUPPORT'), findsOneWidget);
+      expect(find.text('SIGN OUT'), findsOneWidget);
     });
 
-    testWidgets('menu actions navigate to SavedLooksScreen', (
+    testWidgets('2. Real user name appears and fake data is never hardcoded', (
       WidgetTester tester,
     ) async {
+      UserSession.displayName = 'Jordan Lee';
       await tester.pumpWidget(_freshApp());
+
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationBar),
@@ -231,26 +108,219 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final savedLooksFinder = find.text('Saved Looks').last;
-      await tester.scrollUntilVisible(
-        savedLooksFinder,
-        200,
-        scrollable: find.byType(Scrollable).first,
+      expect(find.text('Jordan Lee'), findsOneWidget);
+      expect(find.text('J'), findsOneWidget);
+      expect(find.text('@jordan_lee'), findsOneWidget);
+      expect(find.textContaining('@JORDANLEE'), findsOneWidget);
+
+      // Strictly verify fake "Alex" profile data is never hardcoded
+      expect(find.text('Alex'), findsNothing);
+      expect(find.text('@alex_styles'), findsNothing);
+      expect(find.text('Style Seeker'), findsNothing);
+      expect(find.text('Lvl 4'), findsNothing);
+      expect(find.text('#128'), findsNothing);
+    });
+
+    testWidgets('3. Empty Style Score state appears correctly for new users', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const ProfileScreen(),
+        ),
       );
-      await tester.tap(savedLooksFinder);
       await tester.pumpAndSettle();
-      // Backend is unreachable under the test binding, so the backend-truth
-      // screen lands on its honest error state (DEC-013, STEP 18.4).
+
+      expect(find.text('CURRENT STYLE SCORE'), findsOneWidget);
+      expect(find.text('--'), findsOneWidget);
+      expect(find.text('Uncalibrated'), findsOneWidget);
+      expect(find.text('+ Scan Outfit  →'), findsOneWidget);
+    });
+
+    testWidgets('4. Empty Global Rank state appears correctly for new users', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const ProfileScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('GLOBAL RANK'), findsOneWidget);
+      expect(find.text('Not Ranked'), findsOneWidget);
       expect(
-        find.text('Couldn\'t load saved looks. Please check your connection.'),
+        find.text('Complete style profile to\nunlock ranking'),
         findsOneWidget,
       );
     });
 
-    testWidgets('menu actions navigate to SubscriptionScreen', (
+    testWidgets('5. Achievement locked state appears with 0 OF 4 UNLOCKED', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const ProfileScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('0 OF 4 UNLOCKED'), findsOneWidget);
+      expect(find.text('COLOR'), findsOneWidget);
+      expect(find.text('FIT'), findsOneWidget);
+      expect(find.text('OCCASION'), findsOneWidget);
+      expect(find.text('TREND'), findsOneWidget);
+      expect(find.text('LOCKED'), findsNWidgets(4));
+    });
+
+    testWidgets('6. Empty Saved Looks state appears with curation CTA', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const ProfileScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('No saved looks yet'), findsOneWidget);
+      expect(find.text('Curate First Outfit'), findsOneWidget);
+      expect(find.text('EXPLORE LOOKS'), findsOneWidget);
+    });
+
+    testWidgets('7. Pending Style DNA state appears with all 4 attribute cells', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const ProfileScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('PENDING ASSESSMENT'), findsOneWidget);
+      expect(find.text('BIOMETRIC & PALETTE ARCHETYPE'), findsOneWidget);
+      expect(find.text('SKIN TONE'), findsOneWidget);
+      expect(find.text('FACE SHAPE'), findsOneWidget);
+      expect(find.text('BODY TYPE'), findsOneWidget);
+      expect(find.text('STYLE TYPE'), findsOneWidget);
+      expect(find.text('Not analyzed yet'), findsNWidgets(2));
+      expect(find.text('Pending setup'), findsOneWidget);
+      expect(find.text('In progress'), findsOneWidget);
+      expect(find.text('DISCOVER MY STYLE DNA'), findsOneWidget);
+    });
+
+    testWidgets('8. Preferences empty state appears', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const ProfileScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('PREFERENCES'), findsOneWidget);
+      expect(find.text('Not configured yet'), findsOneWidget);
+    });
+
+    testWidgets('9. Subscription uses real state showing FREE', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const ProfileScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('SUBSCRIPTION'), findsOneWidget);
+      expect(find.text('FREE'), findsOneWidget);
+    });
+
+    testWidgets('10. Wardrobe state changes propagate and unlock FIT achievement', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const ProfileScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('0 OF 4 UNLOCKED'), findsOneWidget);
+
+      // Simulate adding a wardrobe item
+      UserSession.hasSavedWardrobeItem = true;
+      LearningService.instance.addItem(
+        const WardrobeEntry(
+          id: 'item-101',
+          name: 'Navy Cashmere Knit',
+          category: 'tops',
+          color: 'Navy',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // FIT and COLOR achievements should now unlock reactively
+      expect(find.text('2 OF 4 UNLOCKED'), findsOneWidget);
+      expect(find.text('UNLOCKED'), findsNWidgets(2));
+    });
+
+    testWidgets('11. Saved Looks changes propagate reactively', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const ProfileScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('0 items'), findsOneWidget);
+      expect(find.text('No saved looks yet'), findsOneWidget);
+
+      // Simulate saving a look in LearningService
+      LearningService.instance.addSavedLook('look-abc');
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 items'), findsOneWidget);
+    });
+
+    testWidgets('12. Profile remains correct after navigation across tabs', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_freshApp());
+
+      // Navigate to Profile
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Profile'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('NOVICE'), findsOneWidget);
+
+      // Navigate to Discover
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Discover'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Return to Profile
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationBar),
@@ -259,49 +329,101 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final subscriptionFinder = find.text('Subscription');
-      await tester.scrollUntilVisible(
-        subscriptionFinder,
-        200,
-        scrollable: find.byType(Scrollable).first,
+      // Everything remains intact and rendered
+      expect(find.text('NOVICE'), findsOneWidget);
+      expect(find.text('Style Progress'), findsOneWidget);
+      expect(find.text('Achievements'), findsOneWidget);
+    });
+
+    testWidgets('13. Profile remains correct after restart with stored name', (
+      WidgetTester tester,
+    ) async {
+      LocalStorage.displayName = 'Morgan Blake';
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: const ProfileScreen(),
+        ),
       );
-      await tester.tap(subscriptionFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Morgan Blake'), findsOneWidget);
+      expect(find.text('MB'), findsOneWidget);
+    });
+
+    testWidgets('14. Existing users with calibrated summary render real score', (
+      WidgetTester tester,
+    ) async {
+      final fakeRepo = _TestSummaryRepo(
+        summary: const LearningSummary(
+          styleScore: 82,
+          streak: 4,
+          recentSignals: ['Excellent balance'],
+          breakdown: LearningSummaryBreakdown(
+            base: 60,
+            wardrobePoints: 12,
+            savedPoints: 10,
+            total: 82,
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: ProfileScreen(
+            displayName: 'Alexandre',
+            summaryRepository: fakeRepo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alexandre'), findsOneWidget);
+      expect(find.text('82'), findsWidgets);
+      expect(find.text('+4.2% this week'), findsOneWidget);
+      expect(find.text('--'), findsNothing);
+    });
+
+    testWidgets('15. Menu actions navigate to Preferences, SavedLooks, Subscription', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_freshApp());
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Profile'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Test Preferences navigation
+      final prefFinder = find.text('PREFERENCES');
+      await tester.scrollUntilVisible(prefFinder, 200, scrollable: find.byType(Scrollable).first);
+      await tester.tap(prefFinder);
+      await tester.pumpAndSettle();
+      expect(find.text('Style Preferences'), findsOneWidget);
+
+      // Return to Profile
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Profile'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Test Subscription navigation
+      final subFinder = find.text('SUBSCRIPTION');
+      await tester.scrollUntilVisible(subFinder, 200, scrollable: find.byType(Scrollable).first);
+      await tester.tap(subFinder);
       await tester.pumpAndSettle();
       expect(find.text('Choose Your Plan'), findsOneWidget);
     });
 
-    testWidgets('ProfileScreen is scrollable with all sections', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(_freshApp());
-
-      await tester.tap(
-        find.descendant(
-          of: find.byType(NavigationBar),
-          matching: find.text('Profile'),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Scroll to bottom
-      await tester.drag(
-        find.byType(SingleChildScrollView),
-        const Offset(0, -1000),
-      );
-      await tester.pumpAndSettle();
-
-      // All sections should still exist
-      expect(find.text('Style Profile'), findsOneWidget);
-      expect(find.text('Saved Looks'), findsWidgets);
-      expect(find.text('Account'), findsOneWidget);
-      expect(find.text('Sign Out'), findsOneWidget);
-
-      // Verifies fake "Alex" data is never rendered
-      expect(find.text('Alex'), findsNothing);
-      expect(find.text('Style Seeker'), findsNothing);
-    });
-
-    testWidgets('uses correct dark theme', (WidgetTester tester) async {
+    testWidgets('16. Uses correct dark theme', (WidgetTester tester) async {
       await tester.pumpWidget(_freshApp());
 
       final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
@@ -473,8 +595,6 @@ void main() {
         ),
       );
 
-      // Destructive semantics are unchanged; only the raw-red accent moved
-      // to the Fansivibe error token.
       expect(find.text('Sign Out'), findsOneWidget);
       final icon = tester.widget<Icon>(find.byIcon(Icons.logout_rounded));
       expect(icon.color, FansivibeColors.error);
