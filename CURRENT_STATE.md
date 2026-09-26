@@ -2,6 +2,46 @@
 
 ---
 
+## DISCOVER SCREEN REDESIGN & EDITORIAL DUAL-TAB REFERENCE ALIGNMENT (executed 2026-09-26, verdict: PASS — 0 lints, 41/41 discover tests pass, live web server active)
+
+- Scope: Complete redesign of the Fansivibe Discover / Explore screen (`/discover` in `lib/features/discover/presentation/discover_screen.dart`) matching the two visual reference images:
+  - `Trending.jpg`: The DEFAULT Discover screen for new users (`Trending` active with gold glowing indicator, `For You` inactive).
+  - `ForYou.jpg`: The personalized feed & calibration path shown ONLY when the user explicitly taps the `For You` tab.
+- Route & Architecture:
+  - Route: `/discover` (named `RouteNames.discover`) within `StatefulShellBranch` in `lib/app/router/app_router.dart`.
+  - Architecture: Feature-first in `lib/features/discover/presentation/`. Internal tab controller (`_DiscoverTab.trending` default) without duplicate routes.
+  - Widget Architecture:
+    - Screen: `lib/features/discover/presentation/discover_screen.dart`.
+    - Modular components in `lib/features/discover/presentation/widgets/discover_editorial_widgets.dart` (exported via `discover_widgets.dart`).
+- Trending Tab (Trending.jpg implementation):
+  - Brand Header: `FANSIVIBE` uppercase letter-spaced wordmark, notification bell with gold dot, circular profile avatar with gold halo ring.
+  - Monograph: `EDITORIAL MONOGRAPH` gold label, `Discover` Noto Serif headline, `Fashion inspiration for your next chapter.` subtitle.
+  - Search Bar: Tonal input with glass border, search icon, placeholder `Search outfits, styles, brands...`, and gold-tinted filter button.
+  - Tab Bar: Minimalist serif tabs with animated gold glowing underline for active tab.
+  - 1. Spotlight Edit: `Trending Now` headline, `Quiet Luxury` hero card with dark editorial gradient overlay, badge, and gold circular action icon.
+  - 2. Explore by Category: Circular atelier rail (`Clothing`, `Sneakers`, `Accessories`, `Outfits`, `Grooming`, `Bags`, `Watches`, `Jewelry`).
+  - 3. Stylist Ensembles: `Trending Looks` section with 65/35 cards (`Urban Minimal`, `Modern Classics`), heart save buttons, save counts, and catalog counts.
+  - 4. Acquisition Watch: `Trending Items` commerce cards (`Tailored Wool Coat $179`, `Samba OG Archive $120`).
+  - 5. Editorial Moodboard: `Style Inspiration` asymmetric grid (`Texture & Drape`, `Silhouettes`, `Accents`).
+- For You Tab (ForYou.jpg implementation):
+  - Tilted editorial visual hero (`ARCHIVE VOL. 01`, `SILHOUETTE Nº 4`).
+  - Editorial headline: `Your personal style feed starts here.`.
+  - Primary CTA: `EXPLORE TRENDING LOOKS →` (returns back to Trending tab).
+  - Secondary CTA: `SET YOUR STYLE PREFERENCES` (routes to onboarding/preferences).
+  - Calibration Path: Vertical step progression with gold numbered badges (`01 Explore Curations`, `02 Save What Resonates`, `03 Catalog Wardrobe Pieces`, `04 Receive AI Directives`).
+  - Preview Archive: `Personalized Daily Directives` card with sartorial calibration indicator and tag pills.
+- Validation:
+  - Static analysis: `flutter analyze lib test` -> 0 issues found.
+  - Comprehensive unit/widget tests:
+    - `test/discover_editorial_flow_test.dart` -> 5/5 passed.
+    - `test/discover_screens_test.dart` -> 12/12 passed.
+    - `test/discover_widgets_test.dart` -> 3/3 passed.
+    - `test/discover_api_test.dart` -> 21/21 passed.
+    - Total: 41/41 discover tests passed (100% clean).
+  - Runtime verification: Live web server launched on `http://localhost:8085` and opened in Microsoft Edge.
+
+---
+
 ## NEW-USER PROFILE SCREEN REDESIGN & VISUAL REFERENCE ALIGNMENT (executed 2026-09-25, verdict: PASS — Edge CDP runtime verified, 0 lints, 25/25 profile tests pass, 34/34 regression tests pass)
 
 - Scope: Complete redesign of the Fansivibe new-user profile page (`/profile` in `lib/features/profile/presentation/profile_screen.dart`) matching the provided visual reference image (`media_1790351931981.jpg`), adhering to Digital Atelier design tokens, luxury dark aesthetics, editorial serif typography, and real dynamic state reactivity (no hardcoded mock user data).

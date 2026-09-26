@@ -163,6 +163,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Looks unavailable'), findsOneWidget);
 
+      await tester.ensureVisible(find.text('Try Again'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Try Again'));
       await tester.pumpAndSettle();
       expect(find.text('Textured Quiff'), findsOneWidget);
@@ -194,6 +196,8 @@ void main() {
 
       // Reset clears the (unsupported) selections and refetches unfiltered.
       repo.feedQueue.add(DiscoverFeedResult.page(page()));
+      await tester.ensureVisible(find.text('Reset filters'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Reset filters'));
       await tester.pumpAndSettle();
       expect(find.text('Textured Quiff'), findsOneWidget);
@@ -264,10 +268,10 @@ void main() {
       await tester.pumpWidget(discoverHarness(repo));
       await tester.pumpAndSettle();
       expect(find.text('Modern Minimalist'), findsNothing);
-      expect(find.text('Trending'), findsNothing);
+      expect(find.text('Trending'), findsOneWidget);
       // The For You tab is real UI backed by GET /v1/looks/for-you
       // (M12 P1) — not the dead forYouMock list: the tab exists while
-      // mock titles and the sourceless Trending tab do not.
+      // mock titles do not.
       expect(find.text('For You'), findsOneWidget);
     });
 
@@ -296,6 +300,8 @@ void main() {
         ],
       );
       await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byType(LookCard));
       await tester.pumpAndSettle();
       await tester.tap(find.byType(LookCard));
       await tester.pumpAndSettle();
