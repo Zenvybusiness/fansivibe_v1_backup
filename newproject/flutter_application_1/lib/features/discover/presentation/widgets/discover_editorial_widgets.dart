@@ -156,12 +156,55 @@ class DiscoverBrandHeader extends StatelessWidget {
   }
 }
 
-/// Editorial Monograph title block: EDITORIAL MONOGRAPH / Discover / subtitle.
+/// Editorial Monograph title block: EDITORIAL MONOGRAPH / Discover / subtitle,
+/// or PERSONAL EDIT / For You / Fashion selected around your style.
 class DiscoverMonographTitle extends StatelessWidget {
-  const DiscoverMonographTitle({super.key});
+  const DiscoverMonographTitle({
+    this.isForYouPersonalEdit = false,
+    super.key,
+  });
+
+  final bool isForYouPersonalEdit;
 
   @override
   Widget build(BuildContext context) {
+    if (isForYouPersonalEdit) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'PERSONAL EDIT',
+            style: FansivibeTypography.labelMediumWithFamily.copyWith(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 2.0,
+              color: FansivibeColors.primary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'For You',
+            style: TextStyle(
+              fontFamily: 'Noto Serif',
+              fontSize: 34,
+              fontWeight: FontWeight.w500,
+              color: FansivibeColors.onSurface,
+              height: 1.15,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Fashion selected around your style.',
+            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+              fontSize: 14,
+              color: FansivibeColors.secondary,
+              height: 1.4,
+            ),
+          ),
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -206,6 +249,7 @@ class DiscoverSearchBarWidget extends StatelessWidget {
     required this.onFilterTap,
     this.activeFilterCount = 0,
     this.onClear,
+    this.hintText,
     super.key,
   });
 
@@ -214,6 +258,7 @@ class DiscoverSearchBarWidget extends StatelessWidget {
   final VoidCallback onFilterTap;
   final int activeFilterCount;
   final VoidCallback? onClear;
+  final String? hintText;
 
   @override
   Widget build(BuildContext context) {
@@ -246,7 +291,7 @@ class DiscoverSearchBarWidget extends StatelessWidget {
               ),
               cursorColor: FansivibeColors.primary,
               decoration: InputDecoration(
-                hintText: 'Search outfits, styles, brands...',
+                hintText: hintText ?? 'Search outfits, styles, brands...',
                 hintStyle: FansivibeTypography.bodyMediumWithFamily.copyWith(
                   fontSize: 14,
                   color: FansivibeColors.secondary.withValues(alpha: 0.65),

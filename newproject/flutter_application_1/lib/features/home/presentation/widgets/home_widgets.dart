@@ -1,19 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
-import 'package:fansivibe/shared/components/fansi_badge.dart';
-import 'package:fansivibe/shared/components/fansi_button.dart';
-import 'package:fansivibe/shared/components/fansi_chip.dart';
-import 'package:fansivibe/shared/components/fansi_hero_card.dart';
-import 'package:fansivibe/shared/components/fansi_image_well.dart';
 import 'package:fansivibe/shared/components/fansi_insight_card.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/components/section_title.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
-import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
-import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/icon_utils.dart';
 import 'package:fansivibe/shared/utils/score_colors.dart';
+import 'package:fansivibe/features/home/presentation/widgets/existing_user_home_widgets.dart';
 
 typedef HomeCard = FansivibeCard;
 typedef HomeSectionTitle = SectionTitle;
@@ -325,70 +319,10 @@ class TodaysLookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FansiHeroCard(
-      eyebrow: "TODAY'S LOOK",
-      image: FansiImageWell(
-        icon: Icons.checkroom_rounded,
-        color: FansivibeColors.accentGold,
-      ),
-      badge: FansiBadge(score: data.styleScore),
-      title: data.title,
-      subtitle: data.occasion,
-      footer: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          FansivibeSpacing.lg,
-          0,
-          FansivibeSpacing.lg,
-          FansivibeSpacing.lg,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              data.description,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                color: FansivibeColors.textSecondary,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: FansivibeSpacing.md + 2),
-            Wrap(
-              spacing: FansivibeSpacing.sm,
-              runSpacing: FansivibeSpacing.sm,
-              children: data.items
-                  .map(
-                    (item) => FansiChip(
-                      label: item.name,
-                      icon: outfitCategoryIcon(item.category),
-                    ),
-                  )
-                  .toList(),
-            ),
-            const SizedBox(height: FansivibeSpacing.md + 6),
-            Row(
-              children: [
-                Expanded(
-                  child: FansiButton.primary(
-                    label: 'Try This Look',
-                    icon: Icons.check_circle_outline_rounded,
-                    onPressed: onTryThisLook,
-                  ),
-                ),
-                const SizedBox(width: FansivibeSpacing.sm + 4),
-                Expanded(
-                  child: FansiButton.secondary(
-                    label: 'Change Style',
-                    icon: Icons.refresh_rounded,
-                    onPressed: onChangeStyle,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+    return ExistingUserHeroCard(
+      data: data,
+      onWearThisLook: onTryThisLook,
+      onSwapItem: onChangeStyle,
     );
   }
 }

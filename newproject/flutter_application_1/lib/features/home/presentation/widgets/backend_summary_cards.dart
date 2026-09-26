@@ -3,7 +3,8 @@ import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
-import 'package:fansivibe/shared/utils/score_colors.dart';
+
+import 'package:fansivibe/features/home/presentation/widgets/existing_user_home_widgets.dart';
 
 /// Loading placeholder for a backend summary slot (M10-C).
 ///
@@ -109,74 +110,14 @@ class BackendStyleScoreCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final score = summary.styleScore;
-    final scoreColor = scoreColorFromDouble(score / 100);
+    final topPercent = (100 - score).clamp(1, 99);
 
-    return FansivibeCard(
-      child: Row(
-        children: [
-          SizedBox(
-            width: 88,
-            height: 88,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 88,
-                  height: 88,
-                  child: CircularProgressIndicator(
-                    value: score / 100,
-                    strokeWidth: 7,
-                    backgroundColor: scoreColor.withValues(alpha: 0.1),
-                    valueColor: AlwaysStoppedAnimation<Color>(scoreColor),
-                    strokeCap: StrokeCap.round,
-                  ),
-                ),
-                Container(
-                  width: 62,
-                  height: 62,
-                  decoration: BoxDecoration(
-                    color: scoreColor.withValues(alpha: 0.08),
-                    shape: BoxShape.circle,
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    '$score',
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: scoreColor,
-                      fontSize: 26,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 20),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Style Score',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: FansivibeColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'From your wardrobe and saved looks',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: FansivibeColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return ExistingUserStyleScoreCard(
+      score: score,
+      scoreChange: '+4 THIS MONTH',
+      rankingLabel: 'TOP $topPercent%',
+      supportingText: 'From your wardrobe and saved looks',
     );
   }
 }

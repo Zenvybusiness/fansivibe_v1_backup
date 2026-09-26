@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fansivibe/features/discover/data/discover_mock_data.dart';
 import 'package:fansivibe/features/discover/discover.dart';
 export 'discover_editorial_widgets.dart';
+export 'existing_user_for_you_widgets.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
     show WardrobeItemData;
 import 'package:fansivibe/shared/components/fansi_badge.dart';

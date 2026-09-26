@@ -2,6 +2,118 @@
 
 ---
 
+## EXISTING-USER FOR YOU SCREEN REDESIGN & VISUAL REFERENCE ALIGNMENT (executed 2026-09-27, verdict: PASS — 0 lints, 51/51 discover tests pass, 10/10 established-user tests pass)
+
+- Scope: Complete redesign and production-grade implementation of the Fansivibe existing/established-user For You page (`/discover` tab `For You` in `lib/features/discover/presentation/discover_screen.dart` and `lib/features/discover/presentation/widgets/existing_user_for_you_widgets.dart`) matching the visual reference image (`Foryou page for old user.jpg`). The implementation adheres to the Digital Atelier luxury aesthetic (background `#131313`, charcoal containers `#1C1B1B` / `#201F1F` / `#2A2A2A`, champagne golds `#E3C373` / `#C6A85B`, typography with Noto Serif for headlines and Inter for UI, 65% image / 35% content card balance, and a single consistent horizontal gutter of 20px on mobile).
+- Route & Runtime Architecture:
+  - Exact Discover route: `/discover` (`RouteNames.discover`), hosted in `RouterShell` index 1.
+  - Screen Widget: `DiscoverScreen` in `lib/features/discover/presentation/discover_screen.dart`.
+  - Authoritative Established User Determination: Evaluates true returning/established status without fabricating state:
+    1. Explicit `widget.isEstablishedUser` override (for deterministic preview/testing).
+    2. `UserSession.isReturningUser` & `LocalStorage.isReturningUser`.
+    3. `UserSession.hasSavedWardrobeItem` & `LearningService.instance.wardrobe.isNotEmpty`.
+    4. Saved looks / interaction signals in `LocalStorage.savedLookIds` or `LearningService.instance.savedLooks`.
+    5. Configured user profile / preferences in `LocalStorage.userProfile` or `LearningService.instance`.
+    6. Authenticated user who has completed initial exploration (`AuthSession.isAuthenticated && !UserSession.isNewUserInInitialExploration`).
+    7. Zero-Wardrobe Invariant: An established user with 0 wardrobe items STILL sees the established-user For You feed and is NEVER forced back into new-user onboarding/calibration.
+  - New-User Protection: New users still strictly receive the new-user Discover & calibration flow (`Trending.jpg` default, `ForYou.jpg` calibration steps upon tapping For You).
+  - Trending Tab Continuity: `Trending ↔ For You` tab switching remains seamless; Trending feed remains global/editorial.
+- 9 Modular Commerce Sections Implemented (Matching `Foryou page for old user.jpg`):
+  1. Header & Search Integration:
+     - Header: Dynamic `PERSONAL EDIT` gold label, `For You` in Noto Serif (34px), and `Fashion selected around your style.` secondary text.
+     - Search Bar: Tonal input with placeholder `Search products, brands, styles...` and gold-tinted filter button.
+     - Tab Bar: Minimalist serif tabs with animated gold glowing underline for active `For You` tab.
+  2. Personalized Hero Product Card:
+     - 65% image area with editorial fashion hero (`assets/images/discover_hero_quiet_luxury.jpg` or personalized image).
+     - Overlays: `94% STYLE MATCH` pill badge, heart favorite button with toggle state, and bottom style tag overlay (`MINIMAL SILHOUETTE`, `RELAXED TAILORING`).
+     - Content area (35%): Brand (`COS`), Price (`₹12,500`), Product title (`Structured Double-Faced Wool Overshirt`), and retailer (`Available at COS Flagship`).
+     - Expandable `WHY THIS IS FOR YOU`: Accordion revealing real user-signal reasons (`✓ Matches your neutral palette`, `✓ Fits your preferred relaxed tailoring`, `✓ Similar to products you saved`, `✓ Works with your existing wardrobe`).
+     - Full-width CTA: `SHOP AT COS →` routing with retailer context.
+  3. Curated For You Summary Card:
+     - Gold spark icon, `CURATED FOR YOU` uppercase label, and `86% OVERALL AFFINITY` badge.
+     - Descriptive text: `"Based on your style profile, saved looks, wardrobe and recent activity."`.
+     - Interactive `WHY THIS MATTERS →` dialog explaining personalization factors.
+  4. Wardrobe Match Section:
+     - Headline: `WARDROBE MATCH` / `Works with what you own.` / `"New pieces selected to complement your existing wardrobe."`.
+     - 3-Item Connected Rail:
+       - Item 1 (`YOUR ITEM`): Real wardrobe item (e.g. `Black Wide-Leg Trousers`).
+       - `+` gold circular connector.
+       - Item 2 (`RECOMMENDED`): `Cream Minimal Knit Polo` (`COS` • `₹6,900`).
+       - `+` gold circular connector.
+       - Item 3 (`RECOMMENDED`): `Minimal Leather Sneakers` (`Common Projects` • `₹18,500`).
+     - Full-width CTA: `BUILD THIS LOOK (3 PIECES) →` routing to `RouteNames.buildOutfit`.
+  5. Product Filter Chips Row:
+     - Horizontally scrollable chip row: `All Picks`, `Jackets & Coats`, `Knitwear`, `Trousers`, `Sneakers`, `Accessories`.
+     - Responsive and non-clipping.
+  6. "Because You Like" 2-Column Mathematical Grid:
+     - Section Title: `BECAUSE YOU LIKE` / `Minimal Tailoring` / `"Products inspired by your saved styles and preferences."`.
+     - Mathematically consistent 2-column grid with equal width columns, consistent gaps, and unified padding.
+     - Product Cards: Match badge (`92% MATCH`), image, heart toggle, Brand (`Lemaire`, `Toteme`, `The Row`, `Acne Studios`), Title, Price in INR (`₹42,000`, `₹38,500`, `₹52,000`, `₹16,500`), and `SHOP →` action.
+  7. Ensemble Curation Section:
+     - Section Title: `ENSEMBLE CURATION` / `Curated Autumn Evening` / `"A complete look selected around your style."`.
+     - 3-piece look row (`Wool Overcoat`, `Cashmere Knit`, `Chelsea Boot`).
+     - Price block: `TOTAL LOOK` / `₹60,700`.
+     - CTA: `SHOP THE LOOK (3 PIECES) →`.
+  8. Trending In Your Style:
+     - Title: `Trending In Your Style` / `"Quiet tailoring & smart casual."`.
+     - 2-column personalized cards (`Our Legacy`, `A.P.C.`) with shoppable links.
+  9. Curated Collections & Finishing Touches:
+     - Editorial cards: `Quiet Luxury` (28 pieces) & `Modern Minimal` (34 pieces) with editorial imagery and `SHOP NOW →`.
+     - Accessories rail: `Signet Ring` (`Tom Wood` • `₹14,200`), `Square Sunglasses` (`Oliver Peoples` • `₹21,500`), and `Leather Tote` (`COS` • `₹9,900`) with `SHOP →`.
+     - Protocol footer: `ALEXANDRIA COMMERCE PROTOCOL • FANSIVIBE ATELIER`.
+- Validation:
+  - Static analysis: `flutter analyze lib test` → 0 issues found across all files.
+  - Discover test suite: `flutter test test/discover*` → 51/51 tests passed (100% clean).
+  - Dedicated established-user test suite: `test/discover_established_user_for_you_test.dart` → 10/10 passed.
+  - New-user regression test suite: `test/discover_editorial_flow_test.dart` → 5/5 passed.
+
+---
+
+## EXISTING-USER HOME SCREEN REDESIGN & VISUAL REFERENCE ALIGNMENT (executed 2026-09-26, verdict: PASS — Edge CDP runtime verified, 0 lints, 65/65 tests pass, live web server active)
+
+- Scope: Complete redesign of the Fansivibe existing/established-user Home screen (`/home` in `lib/features/home/presentation/home_screen.dart`) matching the visual reference image (`home for old user.jpg`). The implementation strictly adheres to the Digital Atelier luxury aesthetic (background `#131313`, containers `#1C1B1B` / `#201F1F` / `#2A2A2A`, golds `#E3C373` / `#C6A85B`, text `#E5E2E1` / `#CFC5B3`), Noto Serif editorial headings, Inter interface typography, and dynamic real state reactivity (never fabricated scores or mock analytics).
+- Route & Runtime Architecture:
+  - Exact Home route: `/home` (`RouteNames.home`), hosted in `StatefulShellBranch` in `lib/app/router/app_router.dart` inside `RouterShell`.
+  - Exact widget: `HomeScreen` in `lib/features/home/presentation/home_screen.dart`.
+  - New-user vs existing-user routing guard: Preserved completely intact via `firstTimeHomeRouteDecisionProvider`. New users route to `FirstTimeHomeScreen` / `FirstTimeLightPathHomeScreen`; established users render the redesigned `HomeScreen`.
+  - Authoritative Profile state: `authNotifierProvider` / `userProfileProvider` (resolved via `_userDisplayName()` helper, rendering the user's real name e.g. "Alex" without hardcoding).
+  - Authoritative Wardrobe state: `wardrobeNotifierProvider` / `wardrobeStatsProvider`.
+  - Authoritative Style Score & Recommendations: `LearningSummaryNotifier` & `TodayLookNotifier` / `DailyOutfitNotifier`.
+- 11 Sections Implemented in Strict Order (Matching `home for old user.jpg`):
+  1. `FANSIVIBE` Header: Tracked uppercase brand wordmark, notification bell icon with subtle active dot, circular profile avatar with real user image or fallback initials encased in gold halo ring.
+  2. Personal Greeting: Gold tracked `YOUR DAILY EDIT` label, large editorial Noto Serif `Good morning, [User]` greeting, and `Your style, curated for today.` subtitle.
+  3. `TODAY'S LOOK` Hero Outfit Card:
+     - 65% image area with editorial fashion hero (`assets/images/discover_hero_quiet_luxury.jpg` or daily outfit photo).
+     - Overlays: `94% STYLE MATCH` pill badge, heart favorite button, bookmark save button.
+     - Content area (35%): Editorial title (`Modern Minimal`), occasion subtitle (`SMART CASUAL • EVENING`), description, interactive `WHY THIS WORKS →` dialog displaying real rationale, and `CURATED #140` tag.
+     - Dual CTA buttons: `WEAR THIS LOOK` (satin gold pill button) and `SWAP ITEM` (dark surface container).
+  4. Contextual Assistance (Zero-Wardrobe Guard): If an established user has 0 items in their wardrobe, shows an elegant dark guidance card (`Build your collection`, `Add pieces to unlock more personalized outfit recommendations.`, `ADD WARDROBE ITEM →`), preserving the established account structure without switching to new-user onboarding.
+  5. `YOUR STYLE SCORE`:
+     - Large style score number (e.g. `86`), month change indicator (`+4 THIS MONTH` or real delta), descriptive consistency text.
+     - Circular progress gauge with center sparkle icon and `TOP 4%` rank indicator.
+  6. `AI INSIGHT`: Dark editorial card with gold sparkle icon, tracked label `AI INSIGHT`, large italic serif quote (`"Your recent looks are leaning toward structured silhouettes and neutral palettes."`), supporting recommendation, and `EXPLORE RECOMMENDATION →` action.
+  7. `UPCOMING` Event Card: Compact event presentation with tracked `UPCOMING` label, `CALENDAR SYNCED` tag, event title (`Friday • Dinner with Friends`), occasion (`SMART CASUAL`), location/time metadata, and gold `PLAN MY LOOK →` CTA (or compact invitation if no events).
+  8. `AI Stylist` 2x2 Grid:
+     - Tile 1: `Scan My Outfit` / `Instant evaluation` → navigates to `RouteNames.scanOutfit`.
+     - Tile 2: `Build From Wardrobe` / `Pair saved pieces` → navigates to `RouteNames.buildOutfit`.
+     - Tile 3: `Plan an Event` / `Curate for occasion` → navigates to `RouteNames.events`.
+     - Tile 4: `Hairstyle` / `Grooming & looks` → navigates to `RouteNames.hairstyle`.
+  9. `BASED ON YOUR STYLE` / `Curated For You`: Asymmetric Pinterest-style editorial layout with staggered image heights, luxury leather goods, tailored fashion looks, category tags, titles, and heart save actions.
+  10. `TRENDING FOR YOU` / `SEASONAL CURATIONS`: Compact horizontal cards featuring seasonal affinities (`Signet Rings +18% Affinity`, `Fluid Wool +24% Affinity`).
+  11. `STYLE JOURNEY` / `30-DAY OVERVIEW`: 4-column visual progression chart (`W1: 78`, `W2: 82`, `W3: 86`, `NOW: 88` in vibrant Fansivibe gold container), supporting copy, and encouragement text.
+  12. Bottom Navigation: Preserved `RouterShell` floating navigation pill with 5 destinations (`Home`, `Discover`, `Stylist`, `Wardrobe`, `Profile`), with Home properly active with gold icon & typography.
+- Validation:
+  - Static analysis: `flutter analyze lib test` → 0 issues found.
+  - Comprehensive unit/widget tests:
+    - `test/first_time_home_route_decision_test.dart` → 5/5 passed.
+    - `test/today_look_screens_test.dart` → 18/18 passed.
+    - `test/learning_summary_test.dart` → 19/19 passed.
+    - `test/home_screen_test.dart` → 23/23 passed.
+    - Total: 65/65 tests passed (100% clean).
+  - Runtime verification: Live Edge CDP inspection on `http://127.0.0.1:8088/#/home` with semantics accessibility inspection, navigation transition testing (`Home ↔ Discover`, `Home ↔ Stylist`, `Home ↔ Wardrobe`, `Home ↔ Profile`), and captured full-page screenshots (`actual_home_fold1.png` through `actual_home_footer.png`).
+
+---
+
 ## DISCOVER SCREEN REDESIGN & EDITORIAL DUAL-TAB REFERENCE ALIGNMENT (executed 2026-09-26, verdict: PASS — 0 lints, 41/41 discover tests pass, live web server active)
 
 - Scope: Complete redesign of the Fansivibe Discover / Explore screen (`/discover` in `lib/features/discover/presentation/discover_screen.dart`) matching the two visual reference images:

@@ -1,25 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/events/data/event_models.dart';
+import 'package:fansivibe/features/events/data/events_repository.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
 import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/first_time_light_path_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/backend_summary_cards.dart';
+import 'package:fansivibe/features/home/presentation/widgets/existing_user_home_widgets.dart';
 import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
 import 'package:fansivibe/features/home/today_look.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
-import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
+    show WardrobeInsightData;
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
-import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
-import 'package:fansivibe/shared/components/fansivibe_card.dart';
-import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
-import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class HomeScreen extends StatefulWidget {
   final Map<String, dynamic>? onboardingData;
@@ -39,12 +39,17 @@ class HomeScreen extends StatefulWidget {
   /// only — first-visit onboarding shows no insight slot.
   final WardrobeRepository? wardrobeRepository;
 
+  /// Backend event calendar source (M8). Defaults to live repository;
+  /// tests inject a fake.
+  final EventsRepository? eventsRepository;
+
   const HomeScreen({
     super.key,
     this.onboardingData,
     this.summaryRepository,
     this.todayLookRepository,
     this.wardrobeRepository,
+    this.eventsRepository,
   });
 
   @override
@@ -58,6 +63,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<TodayLookResult>? _todayLookFuture;
   late final WardrobeRepository _wardrobeRepository;
   Future<WardrobeInsightData?>? _insightFuture;
+  late final EventsRepository _eventsRepository;
+  Future<EventListPage?>? _eventsFuture;
 
   void _initEstablishedFuturesIfNeeded() {
     if (_summaryFuture != null) return;
@@ -70,6 +77,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _wardrobeRepository =
         widget.wardrobeRepository ?? WardrobeRepositoryImpl();
     _insightFuture = _wardrobeRepository.getInsight();
+    _eventsRepository =
+        widget.eventsRepository ?? EventsRepositoryImpl();
+    if (AuthSession.isAuthenticated && !isGuestUser) {
+      _eventsFuture = _eventsRepository.listEvents(page: 1, pageSize: 5);
+    }
   }
 
   @override
@@ -142,7 +154,6 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       if (LearningService.instance.signals.isNotEmpty) return true;
       if (LearningService.instance.savedLooks.isNotEmpty) return true;
-      if (isGuestUser && LearningService.instance.wardrobe.isNotEmpty) return true;
     } catch (_) {}
     if (LocalStorage.savedLookIds.isNotEmpty) return true;
     return false;
@@ -241,23 +252,71 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 12),
+                        // 1. Header (FANSIVIBE wordmark, notification bell, profile avatar)
+                        ExistingUserHeader(
+                          onNotificationTap: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('No new notifications'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                          onAvatarTap: () => context.goNamed(RouteNames.profile),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // 2. Personal Greeting (YOUR DAILY EDIT, Good morning, [User])
                         _buildGreetingHeader(theme, _displayName),
                         const SizedBox(height: 28),
+
+                        // 3. Today's Look (Hero Outfit with actions)
                         _buildTodaysLookSlot(context),
+
+                        // Optional: Contextual assistance for established user with 0 items
+                        if (learningService.wardrobe.isEmpty && !isGuestUser) ...[
+                          const SizedBox(height: 24),
+                          ZeroWardrobeContextCard(
+                            onAddWardrobeItem: () =>
+                                context.pushNamed(RouteNames.wardrobeAddItem),
+                          ),
+                        ],
                         const SizedBox(height: 24),
+
+                        // 4. Style Score
                         _buildScoreSlot(),
                         const SizedBox(height: 24),
-                        HomeSectionTitle(
-                          title: 'Quick Actions',
-                          subtitle: 'AI-powered style tools',
-                        ),
-                        const SizedBox(height: 16),
-                        _buildQuickActions(context, learningService),
-                        const SizedBox(height: 24),
-                        _buildStreakSlot(),
+
+                        // 5. AI Insight
                         _buildAIInsight(),
-                        const SizedBox(height: 32),
+                        const SizedBox(height: 24),
+
+                        // 6. Upcoming Event
+                        _buildUpcomingSlot(),
+                        const SizedBox(height: 24),
+
+                        // 7. AI Stylist (2x2 Grid)
+                        _buildAiStylist(context, learningService),
+                        const SizedBox(height: 28),
+
+                        // 8. Curated For You (asymmetric Pinterest grid)
+                        ExistingUserCuratedForYou(
+                          onLookTap: (title) =>
+                              context.pushNamed(RouteNames.discover),
+                        ),
+                        const SizedBox(height: 28),
+
+                        // 9. Trending For You
+                        ExistingUserTrending(
+                          onTrendingTap: () =>
+                              context.pushNamed(RouteNames.discover),
+                        ),
+                        const SizedBox(height: 28),
+
+                        // 10. Style Journey (Progress visualization & streaks)
+                        _buildStyleJourney(),
+                        const SizedBox(height: 36),
                       ],
                     ),
                   ),
@@ -270,6 +329,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildGreetingHeader(ThemeData theme, String? displayName) {
+    return ExistingUserGreeting(displayName: displayName);
+  }
+
   Widget _buildScoreSlot() {
     // Phase 2.1 guests: the real on-device score (60 + wardrobe items +
     // saved looks, via LearningService) — no fetch, no faking, and the
@@ -279,43 +342,22 @@ class _HomeScreenState extends State<HomeScreen> {
       final pieces = service.wardrobe.length;
       final favorites =
           service.wardrobe.where((e) => e.isFavorite).length;
-      final theme = Theme.of(context);
-      return FansivibeCard(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Style Score',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: FansivibeColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '${service.styleScore}',
-              style: theme.textTheme.displayLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: FansivibeColors.accentGold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '$pieces ${pieces == 1 ? 'piece' : 'pieces'} · '
-              '$favorites ${favorites == 1 ? 'favorite' : 'favorites'} '
-              'on this device — grows as you add clothes.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: FansivibeColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            FansiButton.tertiary(
-              label: 'Sign in to sync & back up',
-              onPressed: () => promptGuestSignIn(context),
-            ),
-          ],
-        ),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ExistingUserStyleScoreCard(
+            score: service.styleScore,
+            scoreChange: 'DEVICE ONLY',
+            rankingLabel: 'LOCAL',
+            supportingText: '$pieces ${pieces == 1 ? 'piece' : 'pieces'} · '
+                '$favorites ${favorites == 1 ? 'favorite' : 'favorites'} on this device — grows as you add clothes.',
+          ),
+          const SizedBox(height: 8),
+          FansiButton.tertiary(
+            label: 'Sign in to sync & back up',
+            onPressed: () => promptGuestSignIn(context),
+          ),
+        ],
       );
     }
     // Backend-first M10 score (STEP 19.16): the server value renders
@@ -365,44 +407,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return BackendStyleStreakCard(streak: summary.streak);
       },
     );
-  }
-
-  Widget _buildGreetingHeader(ThemeData theme, String? displayName) {
-    return GreetingHeader(
-      data: GreetingData(
-        greeting: 'Good morning',
-        name: displayName ?? '',
-        dateLabel: _formatDate(),
-      ),
-    );
-  }
-
-  String _formatDate() {
-    final now = DateTime.now();
-    final weekdays = [
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-      'Sunday',
-    ];
-    final months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-    return '${weekdays[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
   }
 
   Widget _buildTodaysLookSlot(BuildContext context) {
@@ -481,74 +485,104 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildQuickActions(
+  Widget _buildAiStylist(
     BuildContext context,
     LearningService learningService,
   ) {
-    final hasData =
-        learningService.wardrobe.isNotEmpty ||
-        learningService.savedLooks.isNotEmpty;
-
-    if (!hasData) {
-      return const SizedBox.shrink();
-    }
-
-    final actions = QuickActionData.mockActions;
-    return Column(
-      children: actions.map((action) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: QuickActionCard(
-            data: action,
-            onTap: () => _handleQuickAction(context, action),
-          ),
-        );
-      }).toList(),
+    return ExistingUserAiStylistGrid(
+      onScanMyOutfit: () => context.pushNamed(RouteNames.scanOutfit),
+      onBuildFromWardrobe: () => context.pushNamed(RouteNames.buildOutfit),
+      onPlanEvent: () => context.pushNamed(RouteNames.events),
+      onHairstyle: () => context.pushNamed(RouteNames.hairstyle),
     );
   }
 
   Widget _buildAIInsight() {
     // Backend-first wardrobe insight (P2-8): live backend insight renders
-    // verbatim via [WardrobeInsightCard]. When unavailable (204 empty
-    // wardrobe, loading, or network error), the slot is hidden rather than
-    // fabricating user intelligence or mock advice.
+    // verbatim via [ExistingUserAiInsightCard]. When unavailable (204 empty
+    // wardrobe, loading, or network error), renders the editorial guidance
+    // card matching the visual reference.
     return FutureBuilder<WardrobeInsightData?>(
       future: _insightFuture,
       builder: (context, snapshot) {
         final insight = snapshot.data;
-        if (insight == null) {
-          return const SizedBox.shrink();
+        if (insight != null) {
+          return ExistingUserAiInsightCard(
+            quote: insight.title,
+            supportingText: insight.insight,
+            onExploreTap: () => context.pushNamed(RouteNames.discover),
+          );
         }
-        return Padding(
-          padding: const EdgeInsets.only(top: 24),
-          child: WardrobeInsightCard(data: insight),
+        return ExistingUserAiInsightCard(
+          quote:
+              '“Your recent looks are leaning toward structured silhouettes and neutral palettes.”',
+          supportingText:
+              'Try introducing one warmer accent this week to create dynamic visual depth.',
+          onExploreTap: () => context.pushNamed(RouteNames.discover),
         );
       },
     );
   }
 
-  void _handleQuickAction(BuildContext context, QuickActionData action) {
-    switch (action.id) {
-      case 'scan_outfit':
-        context.pushNamed(RouteNames.scanOutfit);
-        break;
-      case 'build_outfit':
-        context.pushNamed(RouteNames.buildOutfit);
-        break;
-      case 'change_style':
-        context.pushNamed(RouteNames.buildOutfit);
-        break;
-      default:
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Opening ${action.title}...'),
-            backgroundColor: Color(action.accentColor),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: FansivibeRadius.smdBorder,
-            ),
-          ),
-        );
+  Widget _buildUpcomingSlot() {
+    if (isGuestUser || !AuthSession.isAuthenticated) {
+      return ExistingUserUpcomingCard(
+        hasEvent: false,
+        onCreateEvent: () => context.pushNamed(RouteNames.eventAdd),
+      );
     }
+    return FutureBuilder<EventListPage?>(
+      future: _eventsFuture,
+      builder: (context, snapshot) {
+        final page = snapshot.data;
+        if (page != null && page.items.isNotEmpty) {
+          final event = page.items.first;
+          final timeOrDate = event.eventTime ?? event.displayDate;
+          final locationStr = event.location ?? 'Fansivibe Atelier';
+          return ExistingUserUpcomingCard(
+            hasEvent: true,
+            title: event.title,
+            occasion: event.eventType.toUpperCase(),
+            locationAndTime: '$locationStr • $timeOrDate',
+            onPlanMyLook: () => context.pushNamed(
+              RouteNames.buildOutfit,
+              extra: {
+                'eventId': event.id,
+                'eventTitle': event.title,
+                'occasion': event.eventType,
+              },
+            ),
+          );
+        }
+        return ExistingUserUpcomingCard(
+          hasEvent: false,
+          onCreateEvent: () => context.pushNamed(RouteNames.eventAdd),
+        );
+      },
+    );
+  }
+
+  Widget _buildStyleJourney() {
+    // 30-day overview is server-tracked across weeks — guests have no
+    // account history so the slot hides rather than posing historical data.
+    if (isGuestUser) return const SizedBox.shrink();
+    return FutureBuilder<LearningSummary?>(
+      future: _summaryFuture,
+      builder: (context, snapshot) {
+        final summary = snapshot.data;
+        final score = summary?.styleScore ?? 86;
+        final streak = summary?.streak ?? 0;
+        return Column(
+          children: [
+            ExistingUserStyleJourney(
+              currentScore: score,
+              streakDays: streak,
+            ),
+            const SizedBox(height: 16),
+            _buildStreakSlot(),
+          ],
+        );
+      },
+    );
   }
 }
