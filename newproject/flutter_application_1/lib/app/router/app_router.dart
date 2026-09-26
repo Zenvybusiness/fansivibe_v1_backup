@@ -485,7 +485,14 @@ GoRoute(
           GoRoute(
             path: '/profile',
             name: RouteNames.profile,
-            builder: (context, state) => const ProfileScreen(),
+            builder: (context, state) {
+              final isEstablished = state.extra is Map
+                  ? (state.extra as Map)['isEstablished'] as bool?
+                  : null;
+              return ProfileScreen(
+                isEstablishedUser: isEstablished,
+              );
+            },
             routes: [
               GoRoute(
                 path: 'preferences',

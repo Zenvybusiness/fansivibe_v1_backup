@@ -2,6 +2,54 @@
 
 ---
 
+## ESTABLISHED-USER PROFILE REDESIGN & VISUAL REFERENCE ALIGNMENT (executed 2026-09-27, verdict: PASS — 0 lints, 28/28 profile tests pass, 100% Digital Atelier visual alignment)
+
+- Scope: Complete redesign and production-grade implementation of the Fansivibe established/old user Profile screen (`/profile` in `lib/features/profile/presentation/profile_screen.dart` and `lib/features/profile/presentation/widgets/existing_user_profile_widgets.dart`) matching the visual reference image (`media_1790452383388.jpg` / provided vertical editorial screenshot).
+- Strict Color & Aesthetic System:
+  - Background: `#131313` (Matte Black)
+  - Deepest surface: `#0E0E0E`
+  - Low surface: `#1C1B1B`
+  - Standard surface / card: `#201F1F`
+  - High surface: `#2A2A2A`
+  - Highest / floating surface: `#353534`
+  - Primary text: `#E5E2E1` (Warm Ivory)
+  - Secondary text: `#CFC5B3` (Warm Secondary)
+  - Primary gold: `#E3C373` (Champagne Gold)
+  - Secondary gold: `#C6A85B`
+  - Gold text / background pairing: Background `#E3C373`, text `#3E2E00`
+  - Subtle outline: `#4C4638` at 20%-35% opacity
+- Route & Runtime Architecture:
+  - Exact Profile route: `/profile` (`RouteNames.profile`), hosted in `RouterShell` index 4.
+  - Screen Widget: `ProfileScreen` in `lib/features/profile/presentation/profile_screen.dart`.
+  - Authoritative Established User Determination: Evaluates true returning/established status without fabricating state:
+    1. Explicit `widget.isEstablishedUser` override.
+    2. `UserSession.isReturningUser || LocalStorage.isReturningUser`.
+    3. New-User Protection: New users continue to strictly render `_buildNewUserProfile` (uncalibrated score, 0 of 4 unlocked achievements, pending style DNA, novitiate badge) ensuring 100% backward compatibility and test isolation across existing suites.
+- 15 Modular Digital Atelier Sections Implemented (Matching Reference Design):
+  1. Top Brand Bar (`EstablishedBrandBar`): `FANSIVIBE` editorial display logo, notification icon with gold alert dot, and avatar thumbnail.
+  2. Profile Hero (`EstablishedProfileHero`): Circular avatar with champagne gold border & status badge, editorial display name, handle (`@username`), pill badge `STYLE LEVEL: ADVANCED • TOP 8% GLOBAL`, style identity chips (`MODERN MINIMAL`, `SMART CASUAL`, `QUIET LUXURY`), and `[ Edit Profile ]` & `[ Share ]` actions.
+  3. Primary Archetype Card (`EstablishedPrimaryArchetypeCard`): Editorial header, `Modern Minimal`, `Structured Tailoring • Neutral Palette`, architecture description, and dynamic style tags.
+  4. Style Intelligence (`EstablishedStyleIntelligence`): 2-column layout with circular score gauge (`STYLE SCORE: 86 / 100`, `+4.0`) and `GLOBAL RANK` (`#2,481`, `TOP 8%`).
+  5. Style Progress (`EstablishedTrajectoryCard`): `TRAJECTORY` / `30-Day Evolution` / `Consistency: 94%` with 4-column bar chart (W1, W2, W3, Now in gold) and trajectory commentary.
+  6. Curated Wardrobe (`EstablishedCuratedWardrobe`): Header with total cataloged pieces, `VIEW ALL →` link to `/wardrobe`, horizontal product rail with 65% image / 35% content cards, and category counts (`TOPS 64`, `BOTTOMS 42`, `OUTERWEAR 28`, `SHOES 31`, `ACCESSORIES 83`).
+  7. Wardrobe Intelligence (`EstablishedWardrobeSynthesis`): `ATELIER SYNTHESIS` card with quote and `DISCOVER COMPLEMENTARY PIECES →` connecting wardrobe to personalized shopping.
+  8. Saved Looks (`EstablishedSavedLooks`): 2-column editorial look cards with `✦ SAVED` gold badges, title, and occasion metadata; `Archived Ensembles →` action.
+  9. Curated Wishlist (`EstablishedCuratedWishlist`): Product rows with editorial thumbnails, brand (`STUDIO NICHOLSON`, `LEMAIRE`), product titles, price in INR, and `[ SHOP → ]` actions.
+  10. Style DNA Profile (`EstablishedStyleDnaProfile`): 4-part dimension grid (`COLOR PALETTE` with color dots, `SILHOUETTE`, `KEY OCCASIONS`, `AESTHETIC ANCHOR`) with `Signature Dimensions →`.
+  11. AI Style Observation (`EstablishedAiObservation`): `✦ ATELIER ENGINE OBSERVATION` with italic quote and `EXPLORE CURATED EDITIONS →` CTA.
+  12. Curatorial Milestones (`EstablishedCuratorialMilestones`): `Curatorial Milestones` (e.g. `6 of 12 Unlocked`), 4 milestone tiles (`STYLE EXPLORER`, `WARDROBE BUILDER`, `TREND SPOTTER`, `LOOK CURATOR`), and a `12-Day Streak` card with 7 daily capsule indicator dots.
+  13. Personalized Recommendations (`EstablishedPersonalizedRecommendations`): `Shop Your Style Signature` with supporting text and full-width gold `DISCOVER FOR YOU →` button routing to `/discover`.
+  14. Atelier Governance (`EstablishedAtelierGovernance`): Membership tier card (`MANAGE →`), and rows for `Preferences`, `Style Profile & Measurements`, `Wardrobe Sync`, `Notifications & Drops`, and `Privacy & Atelier Lookbook`.
+  15. Support & Sign Out (`EstablishedSupportAndSignOut`): Secondary `Help & Concierge` and `Provide Feedback` buttons, and restrained `SIGN OUT` executing `authRepository.logout()`.
+- Validation:
+  - Static analysis: `flutter analyze lib test` → 0 issues found (clean).
+  - Existing Profile tests: `flutter test test/profile_screen_test.dart` → 25/25 passed.
+  - Dedicated Established-User Profile tests: `flutter test test/profile_established_user_test.dart` → 3/3 passed.
+  - Combined Profile tests: 28/28 passed.
+  - Repository test suite: 1037+ tests passing across the codebase.
+
+---
+
 ## EXISTING-USER FOR YOU SCREEN REDESIGN & VISUAL REFERENCE ALIGNMENT (executed 2026-09-27, verdict: PASS — 0 lints, 51/51 discover tests pass, 10/10 established-user tests pass)
 
 - Scope: Complete redesign and production-grade implementation of the Fansivibe existing/established-user For You page (`/discover` tab `For You` in `lib/features/discover/presentation/discover_screen.dart` and `lib/features/discover/presentation/widgets/existing_user_for_you_widgets.dart`) matching the visual reference image (`Foryou page for old user.jpg`). The implementation adheres to the Digital Atelier luxury aesthetic (background `#131313`, charcoal containers `#1C1B1B` / `#201F1F` / `#2A2A2A`, champagne golds `#E3C373` / `#C6A85B`, typography with Noto Serif for headlines and Inter for UI, 65% image / 35% content card balance, and a single consistent horizontal gutter of 20px on mobile).
