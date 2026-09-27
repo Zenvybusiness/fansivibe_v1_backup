@@ -302,6 +302,33 @@ class LearningService extends ChangeNotifier implements LearningRepository {
     );
   }
 
+  /// Removes device-local wardrobe entries by id (Flow 1B conversion).
+  ///
+  /// Used for post-merge cleanup of successfully uploaded items and for
+  /// explicit Discard. Callers pass only `local-*` ids, so server-owned
+  /// rows (backend UUIDs) can never match. No backend call — server rows
+  /// are untouched. No signal is recorded: this is bookkeeping for an
+  /// explicit user choice, not a wardrobe edit.
+  void removeLocalItems(Set<String> ids) {
+    if (ids.isEmpty) return;
+    _mutate(() {
+      _model = _model.copyWith(
+        wardrobe:
+            _model.wardrobe.where((item) => !ids.contains(item.id)).toList(),
+      );
+    });
+  }
+
+  /// Clears locally stored preferred occasions (explicit Discard only).
+  ///
+  /// The server list is untouched; post-auth screens re-hydrate from it.
+  void clearPreferredOccasions() {
+    if (_model.preferredOccasions.isEmpty) return;
+    _mutate(() {
+      _model = _model.copyWith(preferredOccasions: const []);
+    });
+  }
+
   @override
   void updateItem(String itemId, WardrobeEntry item) {
     _mutate(

@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/auth/auth.dart';
+import 'package:fansivibe/features/auth/presentation/post_auth_flow.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -199,15 +202,13 @@ class _CreateAccountScreenState extends State<CreateAccountScreen>
     if (name != null && name.isNotEmpty) {
       LocalStorage.displayName = name;
     }
-    // New user registration leads to onboarding completion and first-time home
+    // New user registration leads to onboarding completion; the shared
+    // post-auth conversion consumes any pending save intent (return to
+    // origin, default /home), offers guest-data Merge/Keep/Discard when
+    // device data exists, then navigates. No manual guest-flag juggling:
+    // `isGuestUser` flips false through `AuthSession` alone.
     LocalStorage.onboardingComplete = true;
-    context.goNamed(
-      RouteNames.home,
-      extra: {
-        'onboarding_complete': true,
-        'display_name': name,
-      },
-    );
+    unawaited(handlePostAuthConversion(context));
   }
 
   void _onNavigateToSignIn() {

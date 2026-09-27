@@ -2,6 +2,113 @@
 
 ---
 
+## PHASE 1 STEP 1 P0-A IMPLEMENTATION (executed 2026-09-27, verdict: COMPLETE — P0-A scope only, no product decisions, no commit/push)
+
+- Implemented: num-safe confidence/matchScore (outfit screen), Map-safe error getter (mirror garment failureReason), String-safe grooming dates (`is` checks — new test caught `as String?`-on-int crash), outfit 404-stop + terminal-error display, garment 401 prompt-stop, local_storage docs + deprecated dead blob setter. Preserved: reason-list behavior, strict OutfitRecommendation, all poll intervals/timeouts, guest gates, engine, no backend changes.
+- Double-submit: audited wardrobe/event/analyze/save guards — all pre-exist, no code change. Keyless-POST retry dup risk documented, untouched.
+- Tests: 13 new (client shapes, widget ints, poll 404/completed/failed/401/500-retry, grooming dates, garment 401). Analyze 0 issues. Full flutter 1076 pass/19 pre-existing fails (identical file-set to Phase 0). Backend suite not rerun (zero backend changes; Phase 0 baseline stands).
+- Reports: `PHASE_1_STEP1_P0_IMPLEMENTATION_REPORT.md` (plan: `PHASE_1A_P0_CORRECTNESS_AND_CONTRACT_AUDIT.md`). Remaining: owner decisions D-01…D-10, item_added seed-check, garment-401 copy, interim-message display.
+- Validation: diff reviewed per-hunk (6 lib + 5 test files; backend empty); `git status` shows no unrelated source changes.
+
+---
+
+## PHASE 1A P0 CORRECTNESS + CONTRACT PREP (executed 2026-09-27, verdict: PHASE 1A COMPLETE — audit only, nothing implemented, no commit/push)
+
+- Scope: P0 re-audit (casts, polling ×6 flows, idempotency, preferred_ids lifecycle, item_added full search, analysisResult blob, profile writers) + product contracts B1–B6 (guest, mood/fit/palette, preferred_ids meaning, scan→generate, feedback, garment) + P0-A/B/C boundary + test/live matrices. No selections made on product calls.
+- P0-A safe (no product call): ~10 cast sites (outfit `as double`×2 + `error as String?` crash today; grooming date; reason maps; strict-model drift tests; non-dict bodies); poll unify toward garment precedent (outfit retries 404); analysisCached drift + dead blob setter; double-submit verify. Product calls D-01…D-10 catalogued (guest-anon, m/f/p, preferred_ids, scan→gen, feedback, sidecar, item_added seed-check first, blob, profile merge, analysis keys).
+- Key verifications: lib has ZERO preferredItemIds refs; `main.py:310` omits preferred_item_ids too (both live paths unwired); item_added backend-absent confirmed repo-wide (+20 doc refs vs DECISIONS aspirational note); blob setter callee-less; profile writers exactly 2 (wholesale replace); grooming 12s timeout justified (no vision on path); assistant has NO server chat (local+offline).
+- Report: `PHASE_1A_P0_CORRECTNESS_AND_CONTRACT_AUDIT.md` (§§1-20). Next: owner decisions D-01…D-10, then P0-A implementation.
+- Validation: read-only; `git status` shows no investigation-created source changes (only this entry + audit doc).
+
+---
+
+## PHASE 0 ARCHITECTURE FREEZE + BASELINE AUDIT (executed 2026-09-27, verdict: PHASE 0 COMPLETE — no code changed, no fixes, no commit/push)
+
+- Scope: repo/frontend/backend/DB/API/auth+guest/AI/generate/personalization/events/D1–D5 verification/security/tests/docs/target-comparison. Source = current code; D1–D5 referenced + key claims re-verified (adapters, save-noop, frozenset ×3 exact lines, no item_added, ForYou boost).
+- Freeze: setState + 5 ChangeNotifiers (no state lib); 14 routers, OW-1, idempotent saves, TRX-2/3/5/6; 20 tables, CASCADE-owned/RESTRICT-vocab; rules engines zero-AI; vision ×5 surfaces fail-closed; 3 live personalization mechanisms, no learner.
+- Test baseline (ran, unmodified): analyze 0 issues; flutter 1063 pass/19 pre-existing fails (identical file-set to stashed-HEAD proof); backend 915 pass/537 skip/3 fail — all 3 one CRLF-checkout frozen-hash artifact (tree clean, environmental).
+- Gaps genuinely new: anonymous derive, multi-item vision, verdict engine, online learner, dislike model, first-class pattern/style/fit. Everything else connection-only (§18 inventory).
+- Report: `AI_ARCHITECTURE_PHASE0_BASELINE_AUDIT.md` (§§1-20). Prerequisites before Phase 1: owner product calls → vision provision → PG CI → CRLF call.
+- Validation: read-only; `git status` shows no investigation-created source changes (only this entry + audit doc).
+
+---
+
+## DOMAIN 5 PERSONALIZATION + DATA ARCHITECTURE AUDIT (executed 2026-09-27, verdict: INVESTIGATION COMPLETE — no code changed, no fixes, no commit/push)
+
+- Scope: full personalization inventory (profile, prefs, wardrobe, runs, signals, saves, feedback, events, wear, guest migration, DB relations, sources-of-truth, loop, matrix, Ollama separation, security, tests, docs). Builds on D1–D4 audits (referenced, not repeated).
+- Verdict: DISCONNECTED DATA ISLANDS with exactly 3 live mechanisms — occasion/wardrobe/favorite scoring, ForYou saved-look +0.03 boost (sole behavioral backend consumer), Flutter-local established display. NO engine, NO learner, NO weights. Writes without consumers: feedback, wear (no Flutter UI at all), imageRef/provenance, 4/5 signal types, runs/results. Dead: preferred_item_ids (frozenset×3), item_added (docstring-only), mood/fit/palette scoring. Lost: pattern/style/fit at save. Guest migrates wardrobe+prefs only.
+- Ollama split: 5 vision surfaces require it (fail-closed); derives/saves/CRUD/prefs/discover/scores run model-free (~70% of value).
+- Report: `AI_STYLIST_PERSONALIZATION_DATA_ARCHITECTURE_AUDIT.md` (§§1-33). Next: live PG → preference call → mood/fit/palette call → Scan→Generate spike → guest policy → doc/test pass.
+- Validation: read-only; `git status` shows no investigation-created source changes (only this entry + audit doc).
+
+---
+
+## AI STYLIST GENERATE-OUTFIT DEEP AUDIT (executed 2026-09-27, verdict: INVESTIGATION COMPLETE — no code changed, no fixes, no commit/push)
+
+- Scope: Build/Generate Outfit system + connections (Wardrobe, Garment, Analyze My Style, profile, prefs, Saved Looks, Today Look, Events, Learning, Outfit Analysis, Guest/Auth). Builds on D1 (Scan) + D2 (Garment) + D3 (Outfit Analysis).
+- Architecture: deterministic RULES/RANKING engine over owned wardrobe + occasion lists — ZERO AI calls (pure functions; embeddings only in unused ffo path). Flow: build screen (4 pickers) → generation (single derive, replace-to-result) → recommendation (Save onc-guarded + Regenerate via `outfit-N` seeds). `POST /generate` TRX-2 read-only (200 / 204+`X-Outfit-Empty-Reason` / 422 / 503-defensive); `POST /saved` → SaveOutfit→M7 (validated, idempotent, look_saved+day). Siblings share ONE pipeline: TodayLook (#31/#32, +nearest-event + styleDna display) and Event outfit (#30, type-code-first, no save).
+- Data facts: reads ONLY wardrobe (id/cat/color/mat/fav/name) + occasions (request/event/persisted prefs). Mood/fit/palette validated+echoed, ZERO scoring effect. style_profile NEVER scores (TodayLook projects styleDna display-only). Preference sub-score structurally 0 on ALL live paths (`frozenset()` ×3 — P0 dead mechanism). Garment pattern/style/fit lost at save; imageRef/wear unread. Saves are the ONLY learning writes; zero scoring consumers.
+- Guest: inputs open, blocked at Generate button (no derive/result/save). Auth/security/ownership verified (OW-1, idempotent saves, 12s timeouts, honest 204/4xx/503 copies). No fake paths on builder (clean vs Scan).
+- Report: `AI_STYLIST_GENERATE_OUTFIT_DEEP_AUDIT.md` (§§1-28). Next: live PG suites → GenerationStage theater check → preference-wiring call → mood/fit/palette call → Scan→Generate spike → guest policy.
+- Validation: read-only; `git status` shows no investigation-created source changes (only this entry + audit doc).
+
+---
+
+## AI STYLIST OUTFIT-ANALYSIS OSI AUDIT (executed 2026-09-27, verdict: INVESTIGATION COMPLETE — no code changed, no fixes, no commit/push)
+
+- Scope: consolidated audit of Outfit Analysis (`POST /v1/analysis/outfit` flow) incl. relations to Analyze My Style, Garment, Wardrobe, Generate/Build Outfit, Saved Looks, Learning, Guest, errors, security, tests, OSI A–S, P0–P4, connection map, data-flow diagram. Builds on Scan (D1) + Garment (D2) audits.
+- Verdict: B — appearance/hairstyle analysis (face_shape only; NO garment/color/fit/coordination capability on path) + E partial. Real (authed): capture→202→poll→appearance+hairstyle result→runs+TRX-6+2 signals persisted. NOT real: Save Profile (snackbar-only), Share stub, retake/retry, 0/14 personalization reads, zero Scan↔garment/wardrobe/generate/saves wiring, guest blocked BEFORE analysis (intended: gate-on-save — supportable; anonymous-run would be genuinely new).
+- New ground: GenerateOutfit read-only+proven bridge (M11 P3) unwired to Scan; SaveRecommendation/TodayLook saves real+idempotent (ready targets for Save); learning write-only (no scoring consumer; `item_added` docstring-only repo-wide); 12 stale doc claims catalogued (sections/detectedItems/typed-fields/mock-NOW/async-workers/addSavedLook@screen:260 — code wins).
+- Report: `AI_STYLIST_OUTFIT_ANALYSIS_DEEP_AUDIT.md` (§§1-23). Next: provider live probe → save-button decision → guest-policy decision → garment-reuse spike → consumer contract → doc/test pass.
+- Validation: read-only; `git status` shows no investigation-created source changes (only this entry + audit doc).
+
+---
+
+## AI STYLIST GARMENT-ANALYSIS DEEP AUDIT (executed 2026-09-27, verdict: INVESTIGATION COMPLETE — no code changed, no fixes, no commit/push)
+
+- Scope: existing M11 garment path (`POST /v1/analysis/garment`) end-to-end — Wardrobe add-item photo flow → `GarmentClient` → `CreateGarmentRun` → `OllamaVisionGarmentAdapter` → poll → suggestion → prefill → `POST /wardrobe/items` — plus Scan-reuse question. Source-verified; zero garment refs under `features/outfit_scan` (disconnected, C).
+- Findings: complete honest authed pipeline (A); observation-only by design — NO engine, NO `user_state`, NO signals, NO wardrobe writes in `CreateGarmentRun` (deps: runs + required port only); strict typed parse (best-in-repo); `imageRef`+`sourceRunId` provenance on save; observed `category` displayed but never drives save-category (B/C); guest gated BEFORE analysis (policy delta vs intended analyze-then-gate-on-save); `item_added` emission is docstring-only — no such insert exists in `backend/app` (doc-vs-code conflict); single-subject contract (`ambiguous` on overlap) = genuine multi-item limit (I); same vision-provider runtime dep as Scan (D).
+- Reuse verdict: YES without new architecture — `GarmentClient`, `POST /garment`, garment adapter, `GarmentProfile.to_snapshot`, `GarmentAnalysisResult.fromJson`, review-prefill-save pattern, `POST /wardrobe/items`, `GenerateOutfit` all reusable as-is.
+- Report: `AI_STYLIST_GARMENT_ANALYSIS_DEEP_AUDIT.md` (§§1-25 + source index). Validation: read-only; `git status` shows no investigation-created source changes (only this entry + audit doc).
+
+---
+
+## AI STYLIST SCAN-OUTFIT DEEP AUDIT (executed 2026-09-27, verdict: INVESTIGATION COMPLETE — no code changed, no fixes, no commit/push)
+
+- Scope: end-to-end trace AI Stylist → Scan My Outfit (UI → image pipeline → `OutfitScanClient` → `POST /v1/analysis/outfit` → `CreateOutfitRun` → `OllamaVisionAppearanceAdapter` → poll → `OutfitAnalysisScreen` → save/profile/reco actions → DB → personalization → guest/auth → security → errors → tests). Source-verified; doc conflicts reported, not reconciled.
+- Findings: code path genuinely connected for authed happy path (A); "outfit" result is appearance/hairstyle snapshot (`recommend_hairstyle`, face_shape-only vision, skin/body/style `""` by design — garment adapter is `/garment`-only); `Save Profile` snackbar-only GRAY + `Share` stub GRAY + no Save/Retry/Retake (RED gaps); `See Recommendations` drops context (YELLOW); Flutter parse untyped with latent `as double`/`as String?` cast crashes (B); TRX-6 profile + 2 signals + styled-day written at completion; scan reads nothing back (no profile/prefs/wardrobe/saves/signals consumption — F); guests browse-free, button-gated honestly; provider availability + live DB E2E unverified (D — `FANSIVIBE_VISION_HOST`/`MODEL`, kill-switch noted, no live calls per instructions).
+- Report: `AI_STYLIST_SCAN_OUTFIT_DEEP_AUDIT.md` (§§1-42 + source index). Connection-only opportunities mapped (save→existing look-save, context-forward, retake copy, read-back). Skills used: `flutter-apply-architecture-best-practices` (lens only).
+- Validation: read-only; `git status` shows no investigation-created source changes (only this entry + audit doc).
+
+---
+
+## GUEST → AUTH CONVERSION IMPLEMENTATION (executed 2026-09-27, verdict: PASS WITH PRE-EXISTING FAILURES — analyze 0 issues, 20/20 new conversion tests pass, 107/107 affected-suite tests pass; full suite has 19 failures proven pre-existing at HEAD via stashed baseline run)
+
+- Scope: Flow 1B guest → authenticated conversion only. No architecture replaced (AuthSession, SecureTokenStorage, AuthClient, repos, FastAPI, DB, guest browsing all untouched); extended with one LocalStorage-backed intent slot, one migration service over existing contracts, one shared post-auth flow. Not committed/pushed.
+- Pending intent (`lib/shared/utils/pending_auth_intent.dart` NEW + `LocalStorage.pendingAuthIntent/migratedGuestIds`): `{action, route(path only), params(string-only), createdAt}`, single-use consume, 24h expiry, malformed→null. `resolvePostAuthDestination`: safe-route table (shell roots + optional-extra screens) pass; extra-dependent routes walk up (`/discover/look-details`→`/discover`, `.../generation`→`.../build-outfit`); auth screens/garbage→`/home` (today's default preserved).
+- Gates (all class D — return-to-origin + guidance; audited: no guest flow holds a replayable server payload, so nothing auto-POSTs): `promptGuestSignIn` now records origin path best-effort (try/catch, zero call-site edits, tests without router unaffected).
+- Return/resume (`lib/features/auth/presentation/post_auth_flow.dart` NEW): register + login success both run `handlePostAuthConversion` (replacing hardcoded `goNamed(home)`); guidance snackbar (`save_progress` vs generic continue copy) then `context.go(destination)`. Save is replayed explicitly by the user — never auto-POSTed, never faked.
+- Migration (`lib/features/auth/data/guest_data_migration.dart` NEW): wardrobe via `WardrobeRepository.createItem` (server UUIDs; `local-*` never sent; imageless `imageRef:null`; favorites via follow-up `updateItem`) + content-dedup against server list; prefs via `syncPreferredOccasion` (additive/idempotent). Non-transferable kept local + documented: face, signals (M10 sole-writer), saved-look titles (no IDs), styleType, vibe, analysis blob. Never mutates local state (caller removes on choice).
+- Merge/Keep/Discard: `showGuestMergeDialog` (counts, Digital Atelier tokens/buttons) pre-navigation when unmigrated locals/prefs exist; Discard double-confirmed; dismiss defaults to Keep. Duplicates prevented by `migratedGuestIds` ledger + server-tuple check. Failure: locals preserved, partial-result dialog with ledger-safe Retry, session stays valid.
+- State/profile: `isGuestUser` flips via `AuthSession` only (no manual flags). Login no longer forces `hasSavedWardrobeItem=true` (keeps `isReturningUser=true`: account pre-existed); established state resolves from backend providers + real adds. `LearningService.removeLocalItems/clearPreferredOccasions` added (post-merge cleanup / Discard). Save My Progress records `{save_progress,/home}` intent. Grooming input gated like other analyses (was ungated dead-end). Established-profile guest score `78` → real on-device `LearningService.styleScore` (Home precedent).
+- Deliberately unchanged + reported: logout keeps `savedLocally`/device data (product-semantics call); event create has no backend idempotency (router documents "no idempotency key" — remaining risk); `DEC-GUEST-01` still describes the old stylist-only exception vs whole-shell code.
+- Validation: `flutter analyze lib test` 0 issues. New `test/guest_auth_conversion_test.dart` 20/20 (intent CRUD/expiry/resolver/migration fakes incl. dedup+retry/favorites/dialog choices/grooming gate/save-progress intent/logout hygiene). Neighbors 107/107 (conversion+your_analysis+photo_capture+hairstyle×3+profile+router+entry+coldstart). Full suite: 19 failures reproduced IDENTICALLY on stashed HEAD baseline (auth_screens×5, clothes×6, for_you×5, guest_phase2-Discover×2, widget_test×2) — pre-existing, unrelated.
+
+---
+
+## ANALYZE MY STYLE REAL PIPELINE + VALIDATION + RETAKE FIX (executed 2026-09-27, verdict: PASS — analyze 0 issues, 19/19 new+neighbor service tests pass, 65/65 hairstyle+capture neighbor tests pass)
+
+- Scope: Flow 1 Analyze My Style only, existing architecture wired/fixed (no rewrites, no parallel system, no new packages, no mock APIs, no fabricated results). Live-test findings vs current code: gallery-car acceptance came from the guest mock chain (no backend call); mock result was `YourAnalysisScreen` statics (`_mockScore=82`, palette, 3 insight cards); Retake looped via `pop()` into the `AiAnalysis` timer which auto-forwards back.
+- Changes (3 lib files, no architecture change):
+  1. `lib/features/hairstyle/domain/hairstyle_service.dart` — `_describeError` now reads backend `details.reason` first (existing `OllamaVisionAppearanceAdapter → CreateHairstyleImageRun` fail-closed contract): `no_face_detected`/`ambiguous_subject`/`low_confidence` → `Please choose a photo with a person visible.`; `analyzer_unavailable`/`analyzer_timeout` keep honest retry copy; else backend message verbatim. Surfaces in the existing `FaceProcessingScreen` error state with Try Again + Back (no mock success; `isMockResult` paths still navigate to the explicit error screen).
+  2. `lib/features/onboarding/presentation/screens/photo_capture_screen.dart` — gallery `_pick` gains an extension-only format guard (JPG/PNG/WebP, matching backend authoritative validation; extensionless files still go through). Rejects stay on-screen with truthful copy; camera path, Continue fork (auth → `hairstyleProcessing` with bytes, guest → `aiAnalysis`), Retake-clear, Skip, and guards untouched.
+  3. `lib/features/onboarding/presentation/screens/your_analysis_screen.dart` — mock removed (score/palette/insights/progress + 5 now-unused imports/anims deleted); honest `Photo ready` handoff card (nothing analyzed yet, account unlocks real analysis, non-human photos rejected). `_onSave` → createAccount and `_onContinueWithoutAccount` → stylist unchanged. `_onRetake` fixed: `goNamed(photoCapture)` fresh instance (no stale bytes/result) instead of `pop()` into the processing timer.
+- Real pipeline (auth, preserved): `PhotoCapture(bytes)` → `FaceProcessingScreen.runAnalysis` → `HairstyleClient.submitHairstyleAnalysis` (`POST /v1/analysis/hairstyle` multipart `image`, Bearer session JWT, 30s) → `CreateHairstyleImageRun` + `OllamaVisionAppearanceAdapter` (POST `{FANSIVIBE_VISION_HOST}/api/chat`, 20s, strict `{face_shape,confidence}`, floor 0.35) → deterministic `recommend_hairstyle` → TRX-6 `style_profile` → poll `GET /v1/analysis/runs/{id}` 30×600ms → `HairstyleResultScreen` real snapshot (null → explicit error, never mock).
+- Validation: `flutter analyze lib test` → 0 issues. `flutter test your_analysis_screen_test + hairstyle_service_test` → 19/19 pass (4 new screen: no-mock/retake-capture/save/stylist; 2 new service: validation mapping ×3 reasons, outage copy). Neighbors `photo_capture + hairstyle_{processing,result,scan,client,models}` → 65/65 pass.
+- Remaining limitation: REAL ANALYSIS BLOCKED at runtime until a vision provider exists — `FANSIVIBE_VISION_HOST` (default `http://localhost:11434`) has no listener here, so live submits end `failed/reason=analyzer_unavailable` (honest error, now with retry copy). Owner provisions Ollama + vision model or repoints `FANSIVIBE_VISION_HOST`/`MODEL`; no code change needed for that step. Guest flow stays mock-free by design (sign-in gate for real analysis).
+
+---
+
 ## ESTABLISHED-USER PROFILE REDESIGN & VISUAL REFERENCE ALIGNMENT (executed 2026-09-27, verdict: PASS — 0 lints, 28/28 profile tests pass, 100% Digital Atelier visual alignment)
 
 - Scope: Complete redesign and production-grade implementation of the Fansivibe established/old user Profile screen (`/profile` in `lib/features/profile/presentation/profile_screen.dart` and `lib/features/profile/presentation/widgets/existing_user_profile_widgets.dart`) matching the visual reference image (`media_1790452383388.jpg` / provided vertical editorial screenshot).

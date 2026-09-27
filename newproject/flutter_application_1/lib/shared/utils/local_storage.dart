@@ -57,6 +57,11 @@ class LocalStorage {
     _prefs?.setBool('saved_locally', value);
   }
 
+  /// Legacy onboarding flag: true once the guest photo-capture path was
+  /// taken (set on "Continue without account" — no analysis actually ran).
+  /// It does NOT mean "analysis completed". Read-only legacy consumers
+  /// treat it as "has a local onboarding photo". Do not set it from new
+  /// code; do not treat it as proof of a server analysis.
   static bool get analysisCached =>
       _prefs?.getBool('analysis_cached') ?? false;
   static set analysisCached(bool value) {
@@ -76,13 +81,25 @@ class LocalStorage {
   }
 
   /// ----- Analysis Results Cache -----
-
+  ///
+  /// NOTE: the `analysis_result` blob currently has no production writer
+  /// (Phase 1A audit) — readers must keep treating null as "pending".
+  /// Do not start storing analysis results here; the server run history
+  /// (`GET /v1/analysis/runs`) is the source of truth for analyses.
   static Map<String, dynamic>? get analysisResult {
     if (_prefs == null) return null;
     final raw = _prefs!.getStringList('analysis_result');
     if (raw == null || raw.isEmpty) return null;
     return _decodeStringList(raw);
   }
+  /// Dead setter: no production code writes `analysis_result` (Phase 1A
+  /// audit). Kept so the key can be cleared; do not add new writers —
+  /// store nothing here (see [analysisResult]).
+  @Deprecated(
+    'No production code writes analysis_result; server run history is the source of truth.',
+  )
+  // No production code writes `analysis_result` (Phase 1A audit); the
+  // server run history is the source of truth for analyses.
   static set analysisResult(Map<String, dynamic>? value) {
     if (_prefs == null) return;
     if (value == null) {
@@ -96,6 +113,34 @@ class LocalStorage {
       _prefs?.getStringList('saved_look_ids') ?? [];
   static set savedLookIds(List<String> value) {
     _prefs?.setStringList('saved_look_ids', value);
+  }
+
+  /// ----- Pending Auth Intent (guest → auth conversion) -----
+  ///
+  /// Single-slot JSON for the one mechanism in `pending_auth_intent.dart`:
+  /// the account-gated action a guest attempted before signing in, so
+  /// post-auth success can return to its origin. Null-safe like the rest
+  /// of this class (reads null without init, writes dropped without
+  /// init). No database, no new persistence architecture.
+  static String? get pendingAuthIntent =>
+      _prefs?.getString('pending_auth_intent');
+  static set pendingAuthIntent(String? value) {
+    if (_prefs == null) return;
+    if (value != null) {
+      _prefs!.setString('pending_auth_intent', value);
+    } else {
+      _prefs!.remove('pending_auth_intent');
+    }
+  }
+
+  /// Local wardrobe ids already uploaded by guest-data migration.
+  ///
+  /// Retry ledger: migration skips these so a retried/duplicate merge
+  /// never creates duplicate server rows. Device-local only.
+  static List<String> get migratedGuestIds =>
+      _prefs?.getStringList('migrated_guest_ids') ?? [];
+  static set migratedGuestIds(List<String> value) {
+    _prefs?.setStringList('migrated_guest_ids', value);
   }
 
   /// ----- Capability State -----

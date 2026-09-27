@@ -30,7 +30,7 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
     final theme = Theme.of(context);
 
     final appearance = analysisResult?['appearance'] as Map<String, dynamic>?;
-    final confidence = (analysisResult?['confidence'] ?? 0.0) as double;
+    final confidence = (analysisResult?['confidence'] as num? ?? 0.0).toDouble();
     final needsMoreData = analysisResult?['needs_more_data'] as bool? ?? false;
     final recommendations =
         analysisResult?['recommendations'] as Map<String, dynamic>?;
@@ -248,7 +248,7 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
   ) {
     final name = topRecommendation['name'] as String?;
     final description = topRecommendation['description'] as String?;
-    final matchScore = (topRecommendation['matchScore'] ?? 0.0) as double;
+    final matchScore = (topRecommendation['matchScore'] as num? ?? 0.0).toDouble();
     final reasons = topRecommendation['reasons'] as List<dynamic>?;
 
     return Container(

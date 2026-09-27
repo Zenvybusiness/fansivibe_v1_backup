@@ -20,7 +20,27 @@ class OutfitAnalysisRunResult {
 
   bool get isCompleted => data?['status'] == 'completed';
   bool get isFailed => data?['status'] == 'failed';
-  String? get error => data?['error'] as String?;
+  /// Human-readable failure detail, or null.
+  ///
+  /// Map-safe: backend `failed` runs carry a structured error
+  /// (`{code, message, details: {reason}}`), mirroring
+  /// `GarmentAnalysisRun.failureReason` — the typed `details.reason`
+  /// wins, then `message`. A legacy plain-string error passes through.
+  /// Non-string/non-map values yield null (never a crash, never a fake).
+  String? get error {
+    final raw = data?['error'];
+    if (raw is String) return raw;
+    if (raw is Map<String, dynamic>) {
+      final details = raw['details'];
+      if (details is Map<String, dynamic>) {
+        final reason = details['reason'];
+        if (reason is String) return reason;
+      }
+      final message = raw['message'];
+      if (message is String) return message;
+    }
+    return null;
+  }
 }
 
 /// Canonical API client for Outfit Scan operations.

@@ -222,5 +222,33 @@ void main() {
       // No share payload exists: the button must not claim a share occurred.
       expect(find.text('Share feature coming soon'), findsOneWidget);
     });
+
+    testWidgets('renders integer confidence and matchScore without crashing', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: {
+              'appearance': {'faceShape': 'oval'},
+              // Backend JSON numbers may decode as int: must not throw.
+              'confidence': 1,
+              'needs_more_data': false,
+              'recommendations': {
+                'top': {
+                  'name': 'Test Look',
+                  'matchScore': 1,
+                  'reasons': ['Fits well', 42],
+                },
+              },
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('Recommended for you'), findsOneWidget);
+      expect(find.text('Fits well'), findsOneWidget);
+      expect(find.text('42'), findsOneWidget);
+    });
   });
 }

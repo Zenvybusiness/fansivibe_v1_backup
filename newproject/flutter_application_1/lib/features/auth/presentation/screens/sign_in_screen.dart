@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/auth/auth.dart';
+import 'package:fansivibe/features/auth/presentation/post_auth_flow.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -157,16 +160,15 @@ class _SignInScreenState extends State<SignInScreen>
     if (name != null && name.isNotEmpty) {
       LocalStorage.displayName = name;
     }
-    // Existing returning user: enters established home preserving wardrobe/preferences
+    // The account pre-existed, so its holder is returning by definition.
+    // `hasSavedWardrobeItem` is intentionally NOT forced true anymore:
+    // Profile/Home resolve established state from actual account data
+    // (backend wardrobe/summary providers + locally added items), so a
+    // data-empty account is never posed as established. Navigation goes
+    // through the shared conversion (pending-intent return, default
+    // /home) so both auth doors behave identically.
     UserSession.isReturningUser = true;
-    UserSession.hasSavedWardrobeItem = true;
-    context.goNamed(
-      RouteNames.home,
-      extra: {
-        'display_name': name,
-        'is_login': true,
-      },
-    );
+    unawaited(handlePostAuthConversion(context));
   }
 
   void _onNavigateToCreateAccount() {

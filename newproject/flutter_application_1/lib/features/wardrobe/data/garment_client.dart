@@ -146,7 +146,15 @@ class GarmentClient {
     try {
       for (var attempt = 0; attempt < attempts; attempt++) {
         final run = await getGarmentRun(runId: runId);
-        if (run.statusCode == 0 || run.statusCode == 404) return null;
+        // Unreachable (0) and missing (404) stop promptly. A 401 also
+        // stops: the session was already cleared via AuthSession.noteStatus
+        // in getGarmentRun, so further polls are a doomed loop — the
+        // caller surfaces its honest retry state instead.
+        if (run.statusCode == 0 ||
+            run.statusCode == 404 ||
+            run.statusCode == 401) {
+          return null;
+        }
         if (run.isCompleted || run.isFailed) return run;
         await Future<void>.delayed(_pollInterval);
       }

@@ -468,7 +468,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildEstablishedProfile(BuildContext context, LearningSummary? summary) {
     final resolvedName = _resolvedDisplayName ?? 'Alex Rivera';
     final resolvedHandle = _resolvedUsername.isNotEmpty ? _resolvedUsername.toLowerCase() : 'alexrivera';
-    final score = summary?.styleScore ?? (isGuestUser ? 78 : 86);
+    final score =
+        summary?.styleScore ??
+        // Guests have no backend summary: use the real on-device
+        // computation (60 + wardrobe + saved looks, same as Home) instead
+        // of a fabricated constant. Authenticated users without a summary
+        // keep the previous fallback untouched.
+        (isGuestUser ? LearningService.instance.styleScore : 86);
     final level = score >= 80 ? 'ADVANCED' : (score >= 65 ? 'INTERMEDIATE' : 'DEVELOPING');
     const rankText = 'TOP 8% GLOBAL';
     final wardrobeList = _resolvedWardrobeItems;

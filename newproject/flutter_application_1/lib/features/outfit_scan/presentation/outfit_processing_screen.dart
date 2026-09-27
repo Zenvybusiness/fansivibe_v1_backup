@@ -153,6 +153,17 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
         if (!mounted) return;
         context.goNamed(RouteNames.entry);
         return;
+      } else if (result.statusCode == 404) {
+        // The run cannot be found (expired, deleted, or never created):
+        // stop polling and surface the existing honest error state
+        // instead of retrying a missing run to timeout.
+        if (!mounted) return;
+        debugPrint('Outfit analysis run not found: run_id=$_runId');
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Analysis not found. Please try scanning again.';
+        });
+        return;
       } else {
         // Truthful connection diagnostics (Phase 22, Step 8): status 0 is
         // offline/unreachable, 429 is rate-limited — never silent retry.
@@ -269,11 +280,12 @@ class _OutfitProcessingScreenState extends State<OutfitProcessingScreen> {
                             },
                           ),
 
-                        // Null run id (camera capture failed before upload):
-                        // the spinner above never resolves, so surface the
-                        // truthful error with a way back instead of a dead
-                        // end. Happy-path polling is untouched.
-                        if (_runId == null && !_isLoading) ...[
+                        // Terminal error with no run status (missing run id,
+                        // or a stopped poll such as 404/timeout): the spinner
+                        // above never resolves, so surface the truthful error
+                        // with a way back instead of a dead end. Happy-path
+                        // polling is untouched.
+                        if (!_isLoading && _errorMessage != null) ...[
                           Text(
                             _errorMessage ?? 'No run ID available',
                             style: Theme.of(context).textTheme.bodyMedium

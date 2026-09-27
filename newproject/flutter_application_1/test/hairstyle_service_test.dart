@@ -315,6 +315,66 @@ void main() {
       expect(service.analysisError, "We couldn't finish this request.");
       expect(service.isMockResult, isTrue);
     });
+
+    test('non-human image maps to the person-visible validation message',
+        () async {
+      // Backend contract: analyzer refuses with details.reason; the car /
+      // building / landscape case must surface validation copy, never a
+      // fabricated success and never the generic failure text.
+      for (final reason in [
+        'no_face_detected',
+        'ambiguous_subject',
+        'low_confidence',
+      ]) {
+        final client = _FakeHairstyleClient()
+          ..submitResult = 'run-1'
+          ..pollResult = AnalysisRun(
+            runId: 'run-1',
+            runType: 'hairstyle',
+            status: 'failed',
+            error: {
+              'code': 'PROCESSING_FAILURE',
+              'message': "We couldn't finish this request.",
+              'details': {'run_id': 'run-1', 'reason': reason},
+            },
+          );
+        final service = HairstyleService(client: client);
+        addTearDown(service.dispose);
+
+        await service.runAnalysis(imageBytes: Uint8List.fromList([7, 7]));
+
+        expect(
+          service.analysisError,
+          'Please choose a photo with a person visible.',
+          reason: reason,
+        );
+        expect(service.isMockResult, isTrue);
+      }
+    });
+
+    test('analyzer outage keeps the honest retry message', () async {
+      final client = _FakeHairstyleClient()
+        ..submitResult = 'run-1'
+        ..pollResult = AnalysisRun(
+          runId: 'run-1',
+          runType: 'hairstyle',
+          status: 'failed',
+          error: const {
+            'code': 'PROCESSING_FAILURE',
+            'message': "We couldn't finish this request.",
+            'details': {'run_id': 'run-1', 'reason': 'analyzer_unavailable'},
+          },
+        );
+      final service = HairstyleService(client: client);
+      addTearDown(service.dispose);
+
+      await service.runAnalysis(imageBytes: Uint8List.fromList([7, 7]));
+
+      expect(
+        service.analysisError,
+        'Analysis is temporarily unavailable. Please try again later.',
+      );
+    });
   });
 
   group('HairstyleService.listRuns', () {

@@ -296,6 +296,25 @@ void main() {
 
       expect(await client.pollGarmentRun(runId: 'run-1', attempts: 2), isNull);
     });
+
+    test('poll stops promptly on 401 instead of looping to exhaustion',
+        () async {
+      var calls = 0;
+      final client = GarmentClient(
+        client: MockClient((_) async {
+          calls++;
+          return http.Response(
+            jsonEncode({'detail': 'Token expired'}),
+            401,
+          );
+        }),
+        pollInterval: Duration.zero,
+      );
+      addTearDown(client.dispose);
+
+      expect(await client.pollGarmentRun(runId: 'run-1'), isNull);
+      expect(calls, equals(1));
+    });
   });
 
   group('WardrobePhotoScreen', () {

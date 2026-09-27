@@ -5,6 +5,7 @@ import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class GroomingInputScreen extends StatefulWidget {
   const GroomingInputScreen({super.key});
@@ -25,6 +26,16 @@ class _GroomingInputScreenState extends State<GroomingInputScreen> {
   }
 
   void _analyze() {
+    // Guests: grooming analysis (POST /v1/analysis/grooming) is
+    // account-only — prompt at the button instead of pushing into the
+    // inert processing screen (same gate as outfit/hairstyle flows).
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in for grooming suggestions. Browsing stays free.',
+      );
+      return;
+    }
     // Every field is user-chosen: never invent defaults (no silent 'oval').
     if (_selectedFaceShape == null ||
         _selectedBeardStyle == null ||

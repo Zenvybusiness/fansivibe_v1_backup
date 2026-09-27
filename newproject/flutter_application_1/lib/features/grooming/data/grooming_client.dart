@@ -109,13 +109,15 @@ class GroomingClient {
           runId: decoded['run_id'] as String? ?? '',
           runType: decoded['run_type'] as String? ?? '',
           status: decoded['status'] as String? ?? 'pending',
-          createdAt: decoded['created_at'] != null
+          // String-safe dates (hairstyle-model convention): non-string
+          // values degrade to null dates inside the honest null-run path,
+          // never a crash (`as String?` alone still throws on int/list).
+          createdAt: decoded['created_at'] is String
               ? DateTime.tryParse(decoded['created_at'] as String)
               : null,
-          completedAt:
-              decoded['completed_at'] != null
-                  ? DateTime.tryParse(decoded['completed_at'] as String)
-                  : null,
+          completedAt: decoded['completed_at'] is String
+              ? DateTime.tryParse(decoded['completed_at'] as String)
+              : null,
           result: decoded['result'] as Map<String, dynamic>?,
           error: decoded['error'] as Map<String, dynamic>?,
         );

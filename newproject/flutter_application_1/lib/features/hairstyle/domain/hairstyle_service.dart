@@ -253,7 +253,30 @@ class HairstyleService extends ChangeNotifier {
     }
   }
 
+  /// Maps a failed-run `error` (`{code, message, details?}`) to user copy.
+  ///
+  /// The backend analyzer is the single authority on image suitability
+  /// (OllamaVisionAppearanceAdapter → CreateHairstyleImageRun fails the
+  /// run with `details.reason`): `no_face_detected` (car/building/
+  /// landscape/object/screenshot without a person), `ambiguous_subject`
+  /// and `low_confidence` all mean "no usable person visible" and map to
+  /// the validation message so the user picks another photo instead of
+  /// seeing a fabricated success. Service outages keep their honest
+  /// retry copy. Otherwise the backend message wins verbatim.
   String _describeError(Map<String, dynamic>? error) {
+    final details = error?['details'];
+    final reason = details is Map ? details['reason'] as String? : null;
+    if (reason == 'no_face_detected' ||
+        reason == 'ambiguous_subject' ||
+        reason == 'low_confidence') {
+      return 'Please choose a photo with a person visible.';
+    }
+    if (reason == 'analyzer_unavailable') {
+      return 'Analysis is temporarily unavailable. Please try again later.';
+    }
+    if (reason == 'analyzer_timeout') {
+      return 'Analysis timed out. Please try again.';
+    }
     if (error == null) return 'Hairstyle analysis failed. Please try again.';
     final message = error['message'] as String?;
     final code = error['code'] as String?;

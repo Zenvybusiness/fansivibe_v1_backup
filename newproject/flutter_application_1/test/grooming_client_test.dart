@@ -85,6 +85,29 @@ void main() {
 
       expect(run, isNull);
     });
+
+    test('non-string dates degrade to null dates, never a crash', () async {
+      final client = GroomingClient(
+        client: MockClient((request) async {
+          return http.Response(
+            jsonEncode({
+              'run_id': 'run-1',
+              'status': 'completed',
+              'created_at': 12345,
+              'completed_at': ['not', 'a', 'date'],
+            }),
+            200,
+          );
+        }),
+      );
+
+      final run = await client.getGroomingRun(runId: 'run-1');
+
+      expect(run, isNotNull);
+      expect(run!.isCompleted, isTrue);
+      expect(run.createdAt, isNull);
+      expect(run.completedAt, isNull);
+    });
   });
 
   group('GroomingClient.pollGroomingRun', () {

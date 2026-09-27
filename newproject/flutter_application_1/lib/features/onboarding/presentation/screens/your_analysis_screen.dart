@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
-import 'package:fansivibe/features/onboarding/data/onboarding_data.dart';
-import 'package:fansivibe/features/onboarding/presentation/widgets/animated_score_counter.dart';
-import 'package:fansivibe/features/onboarding/presentation/widgets/color_palette_display.dart';
-import 'package:fansivibe/features/onboarding/presentation/widgets/ai_capability_icon.dart';
-import 'package:fansivibe/features/onboarding/presentation/widgets/analysis_insight_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
+import 'package:fansivibe/shared/utils/pending_auth_intent.dart';
 
+/// Guest handoff after the Analyze My Style photo step (unauthenticated).
+///
+/// No backend analysis runs here: real appearance analysis is account-only
+/// (`POST /v1/analysis/hairstyle` behind `get_current_user_id`). This
+/// screen therefore shows NO style score, palette, or insights — a
+/// fabricated result would pose mock data as analysis. It confirms the
+/// photo step is done and routes to account creation (real analysis runs
+/// after sign-in) or to guest browsing. Camera flow and buttons below
+/// are otherwise untouched.
 class YourAnalysisScreen extends StatefulWidget {
   const YourAnalysisScreen({super.key});
 
@@ -23,38 +28,18 @@ class YourAnalysisScreen extends StatefulWidget {
 class _YourAnalysisScreenState extends State<YourAnalysisScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _scoreAnim;
-  late Animation<double> _paletteAnim;
-  late Animation<double> _insight1Anim;
-  late Animation<double> _insight2Anim;
-  late Animation<double> _insight3Anim;
-  late Animation<double> _progressAnim;
+  late Animation<double> _statusAnim;
   late Animation<double> _ctaAnim;
-
-  static const _mockPalette = [
-    PaletteSwatch(color: 0xFF2D2D2D, label: 'Charcoal'),
-    PaletteSwatch(color: 0xFF8B7D6B, label: 'Taupe'),
-    PaletteSwatch(color: 0xFFC5A059, label: 'Gold'),
-    PaletteSwatch(color: 0xFFF5F0EB, label: 'Cream'),
-    PaletteSwatch(color: 0xFF4A6741, label: 'Sage'),
-  ];
-
-  static const _mockScore = 82;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400),
+      duration: const Duration(milliseconds: 1000),
     );
-    _scoreAnim = _buildAnim(0.0, 0.3);
-    _paletteAnim = _buildAnim(0.2, 0.45);
-    _insight1Anim = _buildAnim(0.3, 0.55);
-    _insight2Anim = _buildAnim(0.4, 0.65);
-    _insight3Anim = _buildAnim(0.5, 0.75);
-    _progressAnim = _buildAnim(0.55, 0.85);
-    _ctaAnim = _buildAnim(0.7, 1.0);
+    _statusAnim = _buildAnim(0.0, 0.5);
+    _ctaAnim = _buildAnim(0.4, 1.0);
     _controller.forward();
   }
 
@@ -74,6 +59,18 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   }
 
   void _onSave() {
+    // Onboarding conversion: remember that a real account should resume
+    // the product journey (default /home) with local progress kept.
+    // No analysis payload exists to resume (guest analyses never run),
+    // so this stores origin context only — never fabricated results.
+    recordPendingAuthIntent(
+      PendingAuthIntent(
+        action: 'save_progress',
+        route: '/home',
+        params: const {'source': 'your_analysis'},
+        createdAt: DateTime.now(),
+      ),
+    );
     context.pushNamed(RouteNames.createAccount);
   }
 
@@ -93,11 +90,12 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   }
 
   void _onRetake() {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.goNamed(RouteNames.photoCapture);
-    }
+    // Fresh capture: a new PhotoCaptureScreen instance holds no image
+    // bytes, so the previous photo can never be reused or resubmitted
+    // and no stale result survives. goNamed (not pop) is required:
+    // popping would land on the AiAnalysis timer, which auto-forwards
+    // back here and looks like "Retake opens processing".
+    context.goNamed(RouteNames.photoCapture);
   }
 
   @override
@@ -124,11 +122,10 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         SizedBox(height: FansivibeSpacing.lg),
-                        // Phase 22 (Step 6): this onboarding preview shows
-                        // illustrative sample content — never a real backend
-                        // analysis. Real appearance analysis runs post-auth
-                        // in Scan flows via Ollama vision (see analysis
-                        // endpoints) and never fabricates scores.
+                        // Honest state: nothing has been analyzed yet. Real
+                        // appearance analysis runs post-auth in Scan flows
+                        // via Ollama vision (see analysis endpoints) and
+                        // never fabricates scores.
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(FansivibeSpacing.md),
@@ -151,7 +148,7 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                               SizedBox(width: FansivibeSpacing.sm),
                               Expanded(
                                 child: Text(
-                                  'Sample preview — your personal analysis appears after you add a photo in Scan.',
+                                  'Photo step complete — your personal analysis runs after you create an account. Nothing has been analyzed yet.',
                                   style: FansivibeTypography.bodyMediumWithFamily
                                       .copyWith(
                                         color: FansivibeColors.secondary,
@@ -162,50 +159,10 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                           ),
                         ),
                         SizedBox(height: FansivibeSpacing.lg),
-                        _buildScoreSection(),
-                        SizedBox(height: FansivibeSpacing.xl),
                         _buildAnimatedSection(
-                          _paletteAnim,
-                          ColorPaletteDisplay(swatches: _mockPalette),
+                          _statusAnim,
+                          _buildStatusCard(),
                         ),
-                        SizedBox(height: FansivibeSpacing.xl),
-                        Text(
-                          'AI Insights',
-                          style: FansivibeTypography.headlineMediumWithFamily
-                              .copyWith(fontSize: 20),
-                        ),
-                        SizedBox(height: FansivibeSpacing.md),
-                        _buildAnimatedSection(
-                          _insight1Anim,
-                          const AnalysisInsightCard(
-                            icon: Icons.accessibility_new_rounded,
-                            title: 'Strong Silhouette',
-                            body:
-                                'Your balanced proportions create a clean foundation. Structured shoulders enhance your natural frame.',
-                          ),
-                        ),
-                        SizedBox(height: FansivibeSpacing.sm + 4),
-                        _buildAnimatedSection(
-                          _insight2Anim,
-                          const AnalysisInsightCard(
-                            icon: Icons.palette_outlined,
-                            title: 'Color Harmony',
-                            body:
-                                'Your palette leans toward warm neutrals. Jewel tones would add depth while maintaining your refined aesthetic.',
-                          ),
-                        ),
-                        SizedBox(height: FansivibeSpacing.sm + 4),
-                        _buildAnimatedSection(
-                          _insight3Anim,
-                          const AnalysisInsightCard(
-                            icon: Icons.tune_rounded,
-                            title: 'Refinement Tip',
-                            body:
-                                'Try a tapered hem on your trousers for a cleaner line from waist to shoe. Small adjustments, big impact.',
-                          ),
-                        ),
-                        SizedBox(height: FansivibeSpacing.xl),
-                        _buildProgressSection(),
                         SizedBox(height: FansivibeSpacing.xl),
                         _buildAnimatedSection(
                           _ctaAnim,
@@ -258,72 +215,29 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
     );
   }
 
-  Widget _buildScoreSection() {
-    return _buildAnimatedSection(
-      _scoreAnim,
-      Center(
-        child: Column(
-          children: [
-            Container(
-              width: 160,
-              height: 160,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    FansivibeColors.primary.withValues(alpha: 0.06),
-                    Colors.transparent,
-                  ],
-                  stops: const [0.0, 1.0],
-                ),
-              ),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    AnimatedScoreCounter(targetScore: _mockScore, fontSize: 64),
-                    Text(
-                      'Style Score',
-                      style: FansivibeTypography.labelMediumWithFamily.copyWith(
-                        color: FansivibeColors.secondary,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            SizedBox(height: FansivibeSpacing.sm),
-            Text(
-              'Strong foundation with room to evolve.',
-              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                color: FansivibeColors.secondary,
-              ),
-            ),
-          ],
-        ),
+  /// What happens next — static guidance only, no scores or insights.
+  Widget _buildStatusCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(FansivibeSpacing.md),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.mdBorder,
       ),
-    );
-  }
-
-  Widget _buildProgressSection() {
-    return _buildAnimatedSection(
-      _progressAnim,
-      Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Icon(
-                Icons.auto_awesome_rounded,
-                size: 16,
+                Icons.check_circle_outline_rounded,
+                size: 18,
                 color: FansivibeColors.primary,
               ),
               SizedBox(width: FansivibeSpacing.sm),
               Flexible(
                 child: Text(
-                  'Appearance Intelligence',
+                  'Photo ready',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: FansivibeTypography.titleLargeWithFamily.copyWith(
@@ -335,45 +249,61 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
             ],
           ),
           SizedBox(height: FansivibeSpacing.md),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(FansivibeSpacing.md),
-            decoration: BoxDecoration(
-              color: FansivibeColors.surfaceContainerLow,
-              borderRadius: FansivibeRadius.mdBorder,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '2 of 7 capabilities active',
-                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                    color: FansivibeColors.secondary,
-                  ),
-                ),
-                SizedBox(height: FansivibeSpacing.md),
-                SizedBox(
-                  height: 80,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    children: allCapabilities.map((cap) {
-                      return AiCapabilityIcon(capability: cap);
-                    }).toList(),
-                  ),
-                ),
-                SizedBox(height: FansivibeSpacing.sm),
-                Text(
-                  'Try more features to unlock your full Appearance Intelligence',
-                  style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                    color: FansivibeColors.secondary.withValues(alpha: 0.5),
-                  ),
-                ),
-              ],
-            ),
+          _buildStepRow(
+            '1',
+            'Create your account to unlock the real AI analysis.',
+          ),
+          SizedBox(height: FansivibeSpacing.sm),
+          _buildStepRow(
+            '2',
+            'We analyze your photo for face shape and style matches.',
+          ),
+          SizedBox(height: FansivibeSpacing.sm),
+          _buildStepRow(
+            '3',
+            'Photos without a person visible are rejected — pick one with you in it.',
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildStepRow(String number, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 22,
+          height: 22,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: FansivibeColors.primary.withValues(alpha: 0.6),
+            ),
+          ),
+          child: Center(
+            child: Text(
+              number,
+              style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                color: FansivibeColors.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+        SizedBox(width: FansivibeSpacing.sm),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              text,
+              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                color: FansivibeColors.secondary,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

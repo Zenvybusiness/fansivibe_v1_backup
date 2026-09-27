@@ -182,6 +182,87 @@ void main() {
     });
   });
 
+  group('OutfitScanClient P0 error-shape hardening (Phase 1 Step 1)', () {
+    OutfitScanClient runClient(Object body, int status) {
+      return OutfitScanClient(
+        client: MockClient((request) async {
+          final payload = body is String ? body : jsonEncode(body);
+          return http.Response(payload, status);
+        }),
+      );
+    }
+
+    test('structured Map error resolves the typed details reason', () async {
+      final client = runClient({
+        'run_id': 'run-1',
+        'status': 'failed',
+        'error': {
+          'code': 'PROCESSING_FAILURE',
+          'message': "We couldn't finish this request. Please try again.",
+          'details': {'run_id': 'run-1', 'reason': 'analyzer_unavailable'},
+        },
+      }, 200);
+
+      final result = await client.getAnalysisRun('run-1');
+      expect(result.isFailed, isTrue);
+      expect(result.error, equals('analyzer_unavailable'));
+    });
+
+    test('Map error without reason falls back to message', () async {
+      final client = runClient({
+        'run_id': 'run-1',
+        'status': 'failed',
+        'error': {'code': 'PROCESSING_FAILURE', 'message': 'Broken.'},
+      }, 200);
+
+      final result = await client.getAnalysisRun('run-1');
+      expect(result.isFailed, isTrue);
+      expect(result.error, equals('Broken.'));
+    });
+
+    test('legacy string error passes through; other shapes yield null', () async {
+      final stringClient = runClient(
+        {'run_id': 'run-1', 'status': 'failed', 'error': 'boom'},
+        200,
+      );
+      expect(
+        (await stringClient.getAnalysisRun('run-1')).error,
+        equals('boom'),
+      );
+
+      final intClient = runClient(
+        {'run_id': 'run-1', 'status': 'failed', 'error': 42},
+        200,
+      );
+      final intResult = await intClient.getAnalysisRun('run-1');
+      expect(intResult.isFailed, isTrue);
+      expect(intResult.error, isNull);
+    });
+
+    test('malformed top-level JSON resolves to the unreachable path', () async {
+      final client = runClient('[1, 2, 3]', 200);
+
+      final result = await client.getAnalysisRun('run-1');
+      expect(result.statusCode, equals(0));
+      expect(result.data, isNull);
+    });
+
+    test('non-string run_id resolves null instead of throwing', () async {
+      final client = runClient({'run_id': 12345}, 202);
+
+      final tempDir = Directory.systemTemp.createTempSync('scan_p0_');
+      final testFile = File('${tempDir.path}/test_outfit.jpg')
+        ..writeAsBytesSync([1, 2, 3, 4]);
+      try {
+        final runId =
+            await client.submitOutfitAnalysis(XFile(testFile.path));
+        expect(runId, isNull);
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+  });
+
   group('Outfit-Scan Implementation Hygiene', () {
     test('no hardcoded localhost or raw dev-token in screens', () {
       final scanScreenFile =

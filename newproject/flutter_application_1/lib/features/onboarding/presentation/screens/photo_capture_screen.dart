@@ -229,6 +229,19 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
         });
         return;
       }
+      // Transport-level format guard (JPEG/PNG/WebP, matching the
+      // backend's authoritative media validation). Extension-only: files
+      // without an extension still go through — the backend validates
+      // content authoritatively. Rejected files stay on this screen with
+      // a truthful message; no analysis starts, nothing is fabricated.
+      if (!_isSupportedImage(picked.name)) {
+        setState(() {
+          _isPicking = false;
+          _errorMessage =
+              "That photo format isn't supported. Please choose a JPG, PNG, or WebP image.";
+        });
+        return;
+      }
       if (bytes.lengthInBytes > _maxBytes) {
         setState(() {
           _isPicking = false;
@@ -259,6 +272,16 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
       _imageBytes = null;
       _errorMessage = null;
     });
+  }
+
+  /// Extension-only format hint for gallery files (see [_pick]).
+  static bool _isSupportedImage(String filename) {
+    final lower = filename.toLowerCase();
+    if (!lower.contains('.')) return true;
+    return lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.webp');
   }
 
   void _onContinue() {
