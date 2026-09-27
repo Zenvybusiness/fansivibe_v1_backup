@@ -10,7 +10,8 @@ mutation — and no commit call at all).
 The canonical generate → score → rank → select pipeline is reused
 verbatim (no second engine, no second scoring). Scoring occasions are
 `[occasion] + persisted preferred_occasions`, deduped (M8-C/M9
-precedent); the preferred-item set stays empty (M8-C/M9 precedent —
+precedent); the preferred-item set carries the request's explicit
+C-03 `preferredItemIds` (absent/empty ≡ empty baseline;
 `resolve_preferred_item_ids` is never consulted here).
 
 `seed` (UC-29) only selects among the ranked legal candidates: absent →
@@ -78,6 +79,26 @@ _SLOT_ATTRS = {
 # Preference/seed bound (M9 `_SELECTOR_MAX_LENGTH` precedent: no
 # authoritative maximum; BC-13 family ceiling, enforced as 422).
 _VALUE_MAX_LENGTH = 200
+
+
+def _normalize_preferred_item_ids(value: object) -> frozenset:
+    """Normalize request preferred IDs to a deduped frozenset of strings.
+
+    C-03 explicit picks: absent/None/empty ≡ empty (baseline). UUID
+    objects → canonical strings; strings pass through (scoring
+    canonicalizes; malformed never match → 0). Duplicates collapse by
+    set semantics. No DB lookup here — owner-scoped candidates stay the
+    security boundary (foreign/unknown IDs contribute 0, never 404).
+    """
+    if value is None:
+        return frozenset()
+    if isinstance(value, (str, bytes)):
+        return frozenset()
+    try:
+        items = list(value)  # type: ignore[arg-type]
+    except TypeError:
+        return frozenset()
+    return frozenset(str(item) for item in items if item is not None)
 
 
 def _field_error(field: str, error: str) -> ApiError:
@@ -294,6 +315,7 @@ class GenerateOutfit:
         fit: object,
         color_palette: object,
         seed: object = None,
+        preferred_item_ids: object = None,
     ) -> Optional[OutfitRecommendation]:
         record, _ = self.derive_with_reason(
             user_id=user_id,
@@ -302,6 +324,7 @@ class GenerateOutfit:
             fit=fit,
             color_palette=color_palette,
             seed=seed,
+            preferred_item_ids=preferred_item_ids,
         )
         return record
 
@@ -314,6 +337,7 @@ class GenerateOutfit:
         fit: object,
         color_palette: object,
         seed: object = None,
+        preferred_item_ids: object = None,
     ) -> tuple[Optional[OutfitRecommendation], Optional[str]]:
         """Derive one outfit plus the M11 P4 typed empty reason.
 
@@ -327,6 +351,7 @@ class GenerateOutfit:
         clean_fit = _validate_preference("fit", fit)
         clean_palette = _validate_preference("colorPalette", color_palette)
         key = _validate_selector("seed", seed)
+        preferred = _normalize_preferred_item_ids(preferred_item_ids)
         try:
             return _derive_outfit(
                 wardrobe_items=self._wardrobe_items,
@@ -337,6 +362,7 @@ class GenerateOutfit:
                 fit=clean_fit,
                 color_palette=clean_palette,
                 key=key,
+                preferred_item_ids=preferred,
             )
         except _DerivationFailed:
             raise ai_failure()
@@ -352,6 +378,7 @@ def _derive_outfit(
     fit: str,
     color_palette: str,
     key: Optional[str],
+    preferred_item_ids: frozenset = frozenset(),
 ) -> Optional[OutfitRecommendation]:
     """Shared derivation for UC-28 (no seed) and UC-29 (seeded).
 
@@ -382,6 +409,8 @@ def _derive_outfit(
             color=record.color,
             material=record.material,
             is_favorite=record.is_favorite,
+            fit=record.fit,
+            fit_confidence=record.fit_confidence,
         )
         for record in wardrobe
     ]
@@ -389,7 +418,11 @@ def _derive_outfit(
     try:
         ranked = rank_outfit_candidates(
             [
-                score_outfit_candidate(candidate, items_by_id, frozenset(), occasions)
+                score_outfit_candidate(
+                    candidate, items_by_id, preferred_item_ids, occasions,
+                    preferred_palette=color_palette,
+                    preferred_fit=fit,
+                )
                 for candidate in generate_outfit_candidates(adapted)
             ]
         )

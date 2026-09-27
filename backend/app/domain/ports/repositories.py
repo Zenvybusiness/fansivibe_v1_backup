@@ -259,6 +259,10 @@ class WardrobeItemRecord:
     image_ref: Optional[dict[str, Any]]
     created_at: datetime
     updated_at: datetime
+    # STEP 2.9 (C-02-F Option B): persisted fit evidence; trailing defaults
+    # keep every existing construction valid (absent = None = neutral).
+    fit: Optional[str] = None
+    fit_confidence: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -627,6 +631,8 @@ class WardrobeItemRepository(Protocol):
         material: Optional[str],
         isFavorite: bool,
         image_ref: Optional[dict[str, Any]] = None,
+        fit: Optional[str] = None,
+        fit_confidence: Optional[float] = None,
     ) -> "WardrobeItemRecord": ...
 
     def update(
@@ -642,6 +648,10 @@ class WardrobeItemRepository(Protocol):
         isFavorite: Optional[bool],
         image_ref: Optional[dict[str, Any]] = None,
         image_ref_set: bool = False,
+        fit: Optional[str] = None,
+        fit_set: bool = False,
+        fit_confidence: Optional[float] = None,
+        fit_confidence_set: bool = False,
     ) -> Optional["WardrobeItemRecord"]: ...
 
     def delete(

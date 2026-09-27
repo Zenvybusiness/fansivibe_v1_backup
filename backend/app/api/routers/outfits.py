@@ -121,6 +121,7 @@ def generate_outfit(
         fit=request.fit,
         color_palette=request.colorPalette,
         seed=request.seed,
+        preferred_item_ids=request.preferredItemIds,
     )
     if record is None:
         return Response(

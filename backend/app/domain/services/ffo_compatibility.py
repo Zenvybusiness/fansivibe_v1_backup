@@ -38,11 +38,14 @@ _HEURISTICS_PATH = (
 )
 
 # Native maxima of the reused point scales (analysis_rules constants).
-_COLOR_RANGE = (-10.0, 10.0)
+# STEP 2.8 (C-02-P Option A, owner-locked): color bonus 10→5 (penalty −10
+# kept), coverage 7/category (max 35). Rescale targets track the native
+# maxima so a maxed signal still projects to 1.0.
+_COLOR_RANGE = (-10.0, 5.0)
 _MATERIAL_MAX = 5.0
 _SEASON_RANGE = (-5.0, 5.0)
 _OCCASION_MAX = 5.0
-_COVERAGE_MAX = 40.0  # +8 x 5 generator categories
+_COVERAGE_MAX = 35.0  # +7 x 5 generator categories
 _PREFERENCE_MAX = 15.0
 
 _ATTEMPTED_DIMS = (

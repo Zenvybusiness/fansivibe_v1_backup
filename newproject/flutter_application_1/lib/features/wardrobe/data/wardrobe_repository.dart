@@ -151,6 +151,8 @@ abstract class WardrobeRepository {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   });
 
   /// Partially updates a wardrobe item.
@@ -163,6 +165,8 @@ abstract class WardrobeRepository {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   });
 
   /// Deletes a wardrobe item.
@@ -263,6 +267,8 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   }) async {
     final apiItem = await _client.createItem(
       name: name,
@@ -270,6 +276,8 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
       color: _vocabCode(color),
       material: material == null ? null : _vocabCode(material),
       imageRef: imageRef,
+      fit: fit,
+      fitConfidence: fitConfidence,
     );
 
     if (apiItem != null) {
@@ -293,6 +301,8 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) async {
     final apiItem = await _client.updateItem(
       itemId: itemId,
@@ -301,6 +311,8 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
       color: color == null ? null : _vocabCode(color),
       material: material == null ? null : _vocabCode(material),
       isFavorite: isFavorite,
+      fit: fit,
+      fitConfidence: fitConfidence,
     );
 
     if (apiItem != null) {

@@ -75,6 +75,7 @@ def test_knowledge_seed_run_and_signal_types(db):
     assert signal_types == [
         "analysis_updated",
         "assistant_navigation",
+        "item_added",
         "look_saved",
         "outfit_selected",
         "suggestion_opened",

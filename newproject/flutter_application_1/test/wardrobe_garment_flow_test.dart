@@ -85,6 +85,8 @@ class _RecordingRepo implements WardrobeRepository {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   }) async {
     savedPayload = {
       'name': name,
@@ -92,6 +94,8 @@ class _RecordingRepo implements WardrobeRepository {
       'color': color,
       'material': material,
       'imageRef': imageRef?.toJson(),
+      'fit': fit,
+      'fitConfidence': fitConfidence,
     };
     return WardrobeItemData(
       id: 'server-uuid',
@@ -123,6 +127,8 @@ class _RecordingRepo implements WardrobeRepository {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) async => null;
 
   @override
@@ -496,7 +502,17 @@ void main() {
       expect(imageRef!['objectKey'], 'users/u/scans/r/input.jpg');
       expect(imageRef['contentHash'], 'abc123');
       expect(imageRef['sourceRunId'], 'run-1');
-      // Screen popped with the server item.
+      // Post-save actions (C-04): screen stays with confirmation and the
+      // build action; Done pops with the server item.
+      expect(find.text('Build with this item'), findsOneWidget);
+      expect(find.text('Done'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Done'),
+        200.0,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
       expect(find.text('Add Tops'), findsNothing);
     });
 

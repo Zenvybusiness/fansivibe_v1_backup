@@ -20,6 +20,7 @@ abstract class OutfitBuilderRepository {
     required String fit,
     required String colorPalette,
     String? seed,
+    List<String>? preferredItemIds,
   });
 
   /// Freezes one derived outfit (#42 `POST /v1/outfits/saved`).
@@ -53,6 +54,7 @@ class OutfitBuilderRepositoryImpl implements OutfitBuilderRepository {
     required String fit,
     required String colorPalette,
     String? seed,
+    List<String>? preferredItemIds,
   }) {
     // Verbatim passthrough: derivation, determinism, and envelope
     // semantics stay server-authoritative. Null is never fabricated —
@@ -63,6 +65,7 @@ class OutfitBuilderRepositoryImpl implements OutfitBuilderRepository {
       fit: fit,
       colorPalette: colorPalette,
       seed: seed,
+      preferredItemIds: preferredItemIds,
     );
   }
 

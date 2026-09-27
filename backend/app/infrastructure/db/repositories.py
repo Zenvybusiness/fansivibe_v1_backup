@@ -577,6 +577,8 @@ class WardrobeItemRepositorySQL:
         material: Optional[str],
         isFavorite: bool,
         image_ref: Optional[dict[str, Any]] = None,
+        fit: Optional[str] = None,
+        fit_confidence: Optional[float] = None,
     ) -> "WardrobeItemRecord":
         row = WardrobeItems(
             user_id=user_id,
@@ -586,6 +588,8 @@ class WardrobeItemRepositorySQL:
             material_id=material,
             is_favorite=isFavorite,
             image_ref=image_ref,
+            fit=fit,
+            fit_confidence=fit_confidence,
         )
         self._session.add(row)
         self._session.flush()
@@ -605,6 +609,10 @@ class WardrobeItemRepositorySQL:
         isFavorite: Optional[bool],
         image_ref: Optional[dict[str, Any]] = None,
         image_ref_set: bool = False,
+        fit: Optional[str] = None,
+        fit_set: bool = False,
+        fit_confidence: Optional[float] = None,
+        fit_confidence_set: bool = False,
     ) -> Optional["WardrobeItemRecord"]:
         row = self._session.execute(
             select(WardrobeItems).where(
@@ -629,6 +637,14 @@ class WardrobeItemRepositorySQL:
             # Explicit null clears the image reference; an omitted field
             # never reaches here (the use case passes image_ref_set=False).
             row.image_ref = image_ref
+        if fit_set:
+            # Explicit null clears the observed fit; an omitted field never
+            # reaches here (the use case passes fit_set=False).
+            row.fit = fit
+        if fit_confidence_set:
+            # Explicit null clears the fit confidence; an omitted field never
+            # reaches here (the use case passes fit_confidence_set=False).
+            row.fit_confidence = fit_confidence
         # W-4 contract: the server refreshes updatedAt on every update.
         row.updated_at = func.now()
         self._session.flush()
@@ -696,6 +712,8 @@ class WardrobeItemRepositorySQL:
             color=row.color_id,
             material=row.material_id,
             is_favorite=row.is_favorite,
+            fit=row.fit,
+            fit_confidence=row.fit_confidence,
             image_ref=row.image_ref,
             created_at=row.created_at,
             updated_at=row.updated_at,

@@ -37,7 +37,7 @@ def test_emits_computed_dimensions_bounded_no_single_score():
     assert set(dims) == {"color", "material", "climate", "wardrobe"}
     for score in dims.values():
         assert 0.0 <= score <= 1.0
-    assert dims["color"] == 1.0  # neutral-vocabulary harmony (+10)
+    assert dims["color"] == 1.0  # neutral-vocabulary harmony (+5, Option A)
     assert dims["material"] == 1.0  # all natural (+5)
     assert "score" not in result and "matchScore" not in result
     assert set(result["uncertainties"]) == {"silhouette", "occasion", "user_preference"}

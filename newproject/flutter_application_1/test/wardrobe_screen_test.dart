@@ -510,6 +510,8 @@ class _MockWardrobeRepository implements WardrobeRepository {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   }) async => null;
 
   @override
@@ -520,6 +522,8 @@ class _MockWardrobeRepository implements WardrobeRepository {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) async => null;
 
   @override

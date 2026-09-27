@@ -117,6 +117,8 @@ class WardrobeItem {
     required this.color,
     this.material,
     this.isFavorite = false,
+    this.fit,
+    this.fitConfidence,
     this.imageRef,
     this.createdAt,
     this.updatedAt,
@@ -128,6 +130,10 @@ class WardrobeItem {
   final String color;
   final String? material;
   final bool isFavorite;
+  // STEP 2.9 (C-02-F Option B): vision-observed fit + analyzer confidence,
+  // null when absent. Readback only — never fabricated client-side.
+  final String? fit;
+  final double? fitConfidence;
   final MediaRef? imageRef;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -139,6 +145,8 @@ class WardrobeItem {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
     MediaRef? imageRef,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -150,6 +158,8 @@ class WardrobeItem {
         color: color ?? this.color,
         material: material ?? this.material,
         isFavorite: isFavorite ?? this.isFavorite,
+        fit: fit ?? this.fit,
+        fitConfidence: fitConfidence ?? this.fitConfidence,
         imageRef: imageRef ?? this.imageRef,
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
@@ -162,6 +172,8 @@ class WardrobeItem {
         color: json['color'] as String,
         material: json['material'] as String?,
         isFavorite: json['isFavorite'] as bool? ?? false,
+        fit: json['fit'] as String?,
+        fitConfidence: (json['fitConfidence'] as num?)?.toDouble(),
         imageRef: json['imageRef'] != null
             ? MediaRef.fromJson(json['imageRef'] as Map<String, dynamic>)
             : null,
@@ -180,6 +192,8 @@ Map<String, dynamic> toJson() => {
         'color': color,
         'material': material,
         'isFavorite': isFavorite,
+        'fit': fit,
+        'fitConfidence': fitConfidence,
         'imageRef': imageRef?.toJson(),
         if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
         if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
@@ -194,6 +208,8 @@ class WardrobeItemCreate {
     required this.category,
     required this.color,
     this.material,
+    this.fit,
+    this.fitConfidence,
     this.imageRef,
   });
 
@@ -201,6 +217,9 @@ class WardrobeItemCreate {
   final String category;
   final String color;
   final String? material;
+  // Vision-observed fit + confidence (C-02-F); null unless analysis produced them.
+  final String? fit;
+  final double? fitConfidence;
   final MediaRef? imageRef;
 
   WardrobeItemCreate copyWith({
@@ -208,12 +227,16 @@ class WardrobeItemCreate {
     String? category,
     String? color,
     String? material,
+    String? fit,
+    double? fitConfidence,
     MediaRef? imageRef,
   }) => WardrobeItemCreate(
         name: name ?? this.name,
         category: category ?? this.category,
         color: color ?? this.color,
         material: material ?? this.material,
+        fit: fit ?? this.fit,
+        fitConfidence: fitConfidence ?? this.fitConfidence,
         imageRef: imageRef ?? this.imageRef,
       );
 
@@ -222,6 +245,8 @@ class WardrobeItemCreate {
         category: json['category'] as String,
         color: json['color'] as String,
         material: json['material'] as String?,
+        fit: json['fit'] as String?,
+        fitConfidence: (json['fitConfidence'] as num?)?.toDouble(),
         imageRef: json['imageRef'] != null
             ? MediaRef.fromJson(json['imageRef'] as Map<String, dynamic>)
             : null,
@@ -232,6 +257,8 @@ class WardrobeItemCreate {
         'category': category,
         'color': color,
         'material': material,
+        if (fit != null) 'fit': fit,
+        if (fitConfidence != null) 'fitConfidence': fitConfidence,
         'imageRef': imageRef?.toJson(),
       };
 }
@@ -245,6 +272,8 @@ class WardrobeItemPatch {
     this.color,
     this.material,
     this.isFavorite,
+    this.fit,
+    this.fitConfidence,
   });
 
   final String? name;
@@ -252,6 +281,8 @@ class WardrobeItemPatch {
   final String? color;
   final String? material;
   final bool? isFavorite;
+  final String? fit;
+  final double? fitConfidence;
 
   WardrobeItemPatch copyWith({
     String? name,
@@ -259,12 +290,16 @@ class WardrobeItemPatch {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) => WardrobeItemPatch(
         name: name ?? this.name,
         category: category ?? this.category,
         color: color ?? this.color,
         material: material ?? this.material,
         isFavorite: isFavorite ?? this.isFavorite,
+        fit: fit ?? this.fit,
+        fitConfidence: fitConfidence ?? this.fitConfidence,
       );
 
   factory WardrobeItemPatch.fromJson(Map<String, dynamic> json) => WardrobeItemPatch(
@@ -273,6 +308,8 @@ class WardrobeItemPatch {
         color: json['color'] as String?,
         material: json['material'] as String?,
         isFavorite: json['isFavorite'] as bool?,
+        fit: json['fit'] as String?,
+        fitConfidence: (json['fitConfidence'] as num?)?.toDouble(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -281,6 +318,8 @@ class WardrobeItemPatch {
         if (color != null) 'color': color!,
         if (material != null) 'material': material!,
         if (isFavorite != null) 'isFavorite': isFavorite!,
+        if (fit != null) 'fit': fit!,
+        if (fitConfidence != null) 'fitConfidence': fitConfidence!,
       };
 }
 

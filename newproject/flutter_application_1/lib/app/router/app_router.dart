@@ -244,6 +244,7 @@ GoRoute(
                     eventId: extra?['eventId'],
                     eventTitle: extra?['eventTitle'],
                     initialOccasion: extra?['occasion'],
+                    preferredItemId: extra?['preferredItemId'],
                   );
                 },
                 routes: [
@@ -266,6 +267,7 @@ GoRoute(
                         // only; the backend derive call stays prefs-only.
                         eventId: data['eventId'],
                         eventTitle: data['eventTitle'],
+                        preferredItemId: data['preferredItemId'],
                       );
                     },
                     routes: [

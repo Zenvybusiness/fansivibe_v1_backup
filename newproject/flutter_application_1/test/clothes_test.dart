@@ -61,6 +61,8 @@ class ScriptedWardrobeRepository implements WardrobeRepository {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   }) => throw UnimplementedError();
 
   @override
@@ -71,6 +73,8 @@ class ScriptedWardrobeRepository implements WardrobeRepository {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) => throw UnimplementedError();
 
   @override

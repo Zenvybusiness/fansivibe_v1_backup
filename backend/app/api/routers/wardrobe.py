@@ -40,6 +40,7 @@ from app.application.wardrobe import (
     DeleteWardrobeItem,
 )
 from app.infrastructure.db.repositories import (
+    LearningSignalRepositorySQL,
     SavedLookRepositorySQL,
     WardrobeItemRepositorySQL,
     WearEventRepositorySQL,
@@ -59,6 +60,8 @@ def _to_wire(record) -> WardrobeItem:
         color=record.color,
         material=record.material,
         isFavorite=record.is_favorite,
+        fit=record.fit,
+        fitConfidence=record.fit_confidence,
         imageRef=record.image_ref,
         createdAt=record.created_at,
         updatedAt=record.updated_at,
@@ -167,8 +170,13 @@ def add_wardrobe_item(
     Category and color are validated against the controlled vocabulary server-side.
     Material is optional and validated if provided. An optional `imageRef`
     photo reference (M11 garment-analysis media ref) is stored verbatim.
+    Optional vision-observed `fit` + `fitConfidence` (0-1) persist as
+    structured evidence (C-02-F); absent → NULL.
     """
-    use_case = AddWardrobeItem(wardrobe=WardrobeItemRepositorySQL(db))
+    use_case = AddWardrobeItem(
+        wardrobe=WardrobeItemRepositorySQL(db),
+        signals=LearningSignalRepositorySQL(db),
+    )
     record = use_case(
         user_id=user_id,
         name=request.name,
@@ -177,6 +185,8 @@ def add_wardrobe_item(
         material=request.material,
         isFavorite=request.isFavorite,
         image_ref=request.imageRef,
+        fit=request.fit,
+        fit_confidence=request.fitConfidence,
     )
     return _to_wire(record)
 
@@ -225,6 +235,8 @@ def update_wardrobe_item(
     category/color must be valid vocabulary codes,
     material optional; null clears material,
     isFavorite optional,
+    fit optional (observed string); null clears fit,
+    fitConfidence optional (0-1); null clears it,
     imageRef optional; explicit null clears it,
     server updates updatedAt.
     Foreign/non-existent item → 404.
@@ -241,6 +253,10 @@ def update_wardrobe_item(
         isFavorite=request.isFavorite,
         image_ref=request.imageRef,
         image_ref_set="imageRef" in request.model_fields_set,
+        fit=request.fit,
+        fit_set="fit" in request.model_fields_set,
+        fit_confidence=request.fitConfidence,
+        fit_confidence_set="fitConfidence" in request.model_fields_set,
     )
     return _to_wire(record)
 

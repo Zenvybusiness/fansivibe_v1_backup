@@ -102,6 +102,7 @@ class _EmptyOutfitRepository implements OutfitBuilderRepository {
     required String fit,
     required String colorPalette,
     String? seed,
+    List<String>? preferredItemIds,
   }) async => const OutfitResult.noneAvailable();
 
   @override

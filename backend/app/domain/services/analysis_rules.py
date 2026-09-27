@@ -1473,8 +1473,11 @@ def generate_outfit_candidates(wardrobe_items: list) -> list:
 
 # Compatibility budget (0–70) sub-terms. Each mirrors an existing OI rule at
 # candidate level; every constant is named (no hidden multipliers).
-_COVERAGE_PER_CATEGORY = 8.0  # mirrors OI per-category coverage preference
-_COLOR_HARMONY_BONUS = 10.0
+# STEP 2.8 (C-02-P Option A, owner-locked): coverage 8→7/category (max 40→35),
+# color harmony bonus 10→5 (conflict penalty −10 UNCHANGED), new palette term
+# +5; fit +5 reserved (NOT implemented here). Budget stays exactly 70.
+_COVERAGE_PER_CATEGORY = 7.0  # mirrors OI per-category coverage preference
+_COLOR_HARMONY_BONUS = 5.0
 _COLOR_CONFLICT_PENALTY = -10.0
 _MATERIAL_CONSISTENCY_BONUS = 5.0
 _SEASON_CONSISTENCY_BONUS = 5.0
@@ -1487,8 +1490,10 @@ def _candidate_members(candidate: OutfitCandidate, items_by_id) -> list:
     """Per-member facts in deterministic (skeleton, then bucket) order.
 
     Each member: category (from its bucket — always known), color/material
-    (from items_by_id when present, else unknown-neutral), is_favorite flag.
-    Missing items or attributes degrade to neutral; nothing is fabricated.
+    (from items_by_id when present, else unknown-neutral), fit/fit_confidence
+    (persisted C-02-F evidence when present, else unknown-neutral),
+    is_favorite flag. Missing items or attributes degrade to neutral;
+    nothing is fabricated.
     """
     lookup = items_by_id or {}
     members: list = []
@@ -1497,6 +1502,10 @@ def _candidate_members(candidate: OutfitCandidate, items_by_id) -> list:
             item = lookup.get(item_id)
             color = getattr(item, "color", None) if item is not None else None
             material = getattr(item, "material", None) if item is not None else None
+            fit = getattr(item, "fit", None) if item is not None else None
+            fit_confidence = (
+                getattr(item, "fit_confidence", None) if item is not None else None
+            )
             flag = False
             if item is not None:
                 flag = bool(
@@ -1508,6 +1517,8 @@ def _candidate_members(candidate: OutfitCandidate, items_by_id) -> list:
                     "category": category,
                     "color": color if isinstance(color, str) and color else None,
                     "material": material if isinstance(material, str) and material else None,
+                    "fit": fit,
+                    "fit_confidence": fit_confidence,
                     "is_favorite": flag,
                 }
             )
@@ -1515,14 +1526,119 @@ def _candidate_members(candidate: OutfitCandidate, items_by_id) -> list:
 
 
 def _coverage_points(members: list) -> float:
-    """+8 per distinct filled category (mirrors OI coverage preference)."""
+    """+7 per distinct filled category (mirrors OI coverage preference)."""
     return round(_COVERAGE_PER_CATEGORY * len({m["category"] for m in members}), 2)
+
+
+# C-02-P palette contract (STEP 2.8, owner-locked) — deterministic soft ranking
+# signal, max +5, never a filter. Sets use ONLY existing `colors` codes
+# (migration 0005); monochrome == the existing neutral set (no second
+# taxonomy); blush/stone match no palette → neutral. No AI/LLM involvement:
+# membership is set intersection over persisted `color_id` codes.
+_PALETTE_MAP_VERSION = "c02-p/1"
+_PALETTE_MATCH_BONUS = 5.0
+_PALETTE_COLOR_SETS = {
+    "monochrome": frozenset({"black", "white", "charcoal", "grey"}),
+    "warm": frozenset({"beige", "burgundy", "olive", "khaki", "cream", "tan", "gold"}),
+    "cool": frozenset({"navy", "light_blue", "indigo", "silver"}),
+}
+
+
+# C-02-F fit contract (STEP 2.9, owner-locked) — deterministic evidence-gated
+# soft ranking signal, max +5, never a filter. Request classes are the two
+# locked ids; evidence values are the FFO fit names. `tailored` has no exact
+# FFO value and is NOT mapped (unsupported → neutral). Confidence is the
+# adapter's 0-1 analyzer certainty, GATE ONLY (>= 0.6 eligible) — never a
+# multiplier (no confidence-weighted term exists on this path; the 0-100
+# score scale stays separate from 0-1 confidence by design).
+_FIT_MAP_VERSION = "c02-f/1"
+_FIT_MATCH_BONUS = 5.0
+_FIT_CONFIDENCE_GATE = 0.6
+_FIT_REQUEST_MAP = {
+    "slim": frozenset({"slim", "fitted", "compression"}),
+    "relaxed": frozenset({"relaxed", "loose", "oversized"}),
+}
+_FIT_EVIDENCE_CLASS = {
+    value: request for request, values in _FIT_REQUEST_MAP.items() for value in values
+}
+
+
+def _usable_fit_evidence(fit, confidence):
+    """(class | None) for one member's persisted fit evidence.
+
+    Usable iff fit is a non-empty string in the locked evidence vocabulary
+    AND confidence is a real 0-1 number at/above the gate. Anything else —
+    missing, unmapped (incl. `tailored`), low/out-of-range confidence, bools —
+    is None (missing evidence stays missing, never a veto, never fabricated).
+    """
+    if not isinstance(fit, str):
+        return None
+    evidence = fit.strip().lower()
+    if evidence not in _FIT_EVIDENCE_CLASS:
+        return None
+    if (
+        not isinstance(confidence, (int, float))
+        or isinstance(confidence, bool)
+        or not 0.0 <= float(confidence) <= 1.0
+        or float(confidence) < _FIT_CONFIDENCE_GATE
+    ):
+        return None
+    return _FIT_EVIDENCE_CLASS[evidence]
+
+
+def _fit_points(members: list, preferred_fit) -> float:
+    """+5 when every member WITH usable fit evidence matches the requested class.
+
+    Unknown/absent request (incl. `tailored`) → neutral 0. No usable evidence
+    on any member → neutral 0. Members without usable evidence are skipped
+    (never a veto). A usable-evidence member of another class → 0 (soft
+    mismatch, never a filter — generation is untouched).
+    """
+    wanted = (
+        _FIT_REQUEST_MAP.get(preferred_fit.strip().lower())
+        if isinstance(preferred_fit, str) and preferred_fit.strip()
+        else None
+    )
+    if not wanted:
+        return 0.0
+    classes = [
+        cls
+        for m in members
+        if (cls := _usable_fit_evidence(m.get("fit"), m.get("fit_confidence"))) is not None
+    ]
+    if not classes:
+        return 0.0
+    if all(cls in wanted for cls in classes):
+        return _FIT_MATCH_BONUS
+    return 0.0
+
+
+def _palette_points(members: list, preferred_palette) -> float:
+    """+5 when every KNOWN member color belongs to the requested palette set.
+
+    Unknown/absent palette id → neutral 0. No known colors → neutral 0.
+    Unknown member colors are skipped (missing evidence stays missing: never
+    a veto, never fabricated). Generation is untouched — signal only.
+    """
+    palette = (
+        _PALETTE_COLOR_SETS.get(preferred_palette)
+        if isinstance(preferred_palette, str)
+        else None
+    )
+    if not palette:
+        return 0.0
+    known = [m["color"] for m in members if m["color"]]
+    if not known:
+        return 0.0
+    if all(color in palette for color in known):
+        return _PALETTE_MATCH_BONUS
+    return 0.0
 
 
 def _color_points(members: list) -> float:
     """Pairwise neutral-vocabulary gate: every pair needs a neutral member
-    for harmony (+10); any bright–bright pair is a conflict (−10); fewer
-    than two known colors is neutral (0). Material register is NOT reused
+    for harmony (+5); any bright–bright pair is a conflict (−10, UNCHANGED);
+    fewer than two known colors is neutral (0). Material register is NOT reused
     here (it has its own term — no double counting). Analogous/hue-family
     and light/dark rules do not exist in the codebase and are not invented.
     """
@@ -1614,16 +1730,26 @@ def score_outfit_candidate(
     items_by_id=None,
     preferred_item_ids: Optional[FrozenSet[str]] = None,
     preferred_occasions=None,
+    preferred_palette: Optional[str] = None,
+    preferred_fit: Optional[str] = None,
 ) -> OutfitCandidate:
     """Score one candidate deterministically (STEP 13.4 — scoring only).
 
     Compatibility sums the rule-faithful sub-terms (coverage, color,
-    material, season, formality, occasion); preference reuses the exact Step
+    material, season, formality, occasion, palette, fit); preference reuses the exact Step
     11 mechanism over the candidate's own IDs (saved_looks never read here,
     learning_signals never touched); favorite reuses the Step 13.2
     candidate term. Each mechanism counted exactly once. Returns an
     immutable replacement with compatibility/preference/favorite/score
     populated; the input is untouched. Identical inputs → identical output.
+
+    STEP 2.8 (C-02-P Option A, owner-locked): palette is a +5 soft signal over
+    the frozen `_PALETTE_COLOR_SETS` (map version `_PALETTE_MAP_VERSION`);
+    absent/unknown palette or no known colors → neutral 0, never a filter.
+    STEP 2.9 (C-02-F Option B, owner-locked): fit is a +5 soft signal over
+    persisted evidence (map version `_FIT_MAP_VERSION`); usable evidence needs
+    a mapped fit class AND confidence >= 0.6 (gate only, never multiplied);
+    absent/unknown/`tailored` request or no usable evidence → neutral 0.
     """
     members = _candidate_members(candidate, items_by_id)
     ids = [member["id"] for member in members]
@@ -1633,7 +1759,9 @@ def score_outfit_candidate(
         + _material_points(members)
         + _season_points(members)
         + _formality_points(members)
-        + _occasion_points(members, preferred_occasions),
+        + _occasion_points(members, preferred_occasions)
+        + _palette_points(members, preferred_palette)
+        + _fit_points(members, preferred_fit),
         2,
     )
     preference = candidate_preference_points(preferred_item_ids, ids)

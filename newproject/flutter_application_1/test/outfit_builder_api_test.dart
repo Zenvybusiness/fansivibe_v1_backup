@@ -162,6 +162,42 @@ void main() {
         'office',
       );
     });
+
+    test('OutfitGenerateRequest omits preferredItemIds by default', () {
+      const request = OutfitGenerateRequest(
+        occasion: 'office',
+        mood: 'classic',
+        fit: 'tailored',
+        colorPalette: 'warm',
+      );
+
+      expect(request.toJson().containsKey('preferredItemIds'), isFalse);
+      expect(
+        OutfitGenerateRequest.fromJson(request.toJson()).preferredItemIds,
+        isNull,
+      );
+      // Explicit picks round-trip verbatim; empty collapses to baseline.
+      const picked = OutfitGenerateRequest(
+        occasion: 'office',
+        mood: 'classic',
+        fit: 'tailored',
+        colorPalette: 'warm',
+        preferredItemIds: [_uuid1],
+      );
+      expect(picked.toJson()['preferredItemIds'], [_uuid1]);
+      expect(
+        OutfitGenerateRequest.fromJson(picked.toJson()).preferredItemIds,
+        [_uuid1],
+      );
+      const none = OutfitGenerateRequest(
+        occasion: 'office',
+        mood: 'classic',
+        fit: 'tailored',
+        colorPalette: 'warm',
+        preferredItemIds: [],
+      );
+      expect(none.toJson().containsKey('preferredItemIds'), isFalse);
+    });
   });
 
   group('OutfitBuilderClient generate path', () {
@@ -220,6 +256,33 @@ void main() {
       );
 
       expect(body['seed'], 'outfit-1');
+    });
+
+    test('generate sends preferredItemIds only when non-empty', () async {
+      late Map<String, dynamic> body;
+      final client = OutfitBuilderClient(
+        client: MockClient((request) async {
+          body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(jsonEncode(wireOutfit()), 200);
+        }),
+      );
+
+      await client.generateOutfit(
+        occasion: 'office',
+        mood: 'classic',
+        fit: 'tailored',
+        colorPalette: 'warm',
+        preferredItemIds: [_uuid1],
+      );
+      expect(body['preferredItemIds'], [_uuid1]);
+
+      await client.generateOutfit(
+        occasion: 'office',
+        mood: 'classic',
+        fit: 'tailored',
+        colorPalette: 'warm',
+      );
+      expect(body.containsKey('preferredItemIds'), isFalse);
     });
 
     test('generate maps 204 to noneAvailable (not an error)', () async {

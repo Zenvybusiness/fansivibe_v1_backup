@@ -89,6 +89,8 @@ class _NullInsightRepository implements WardrobeRepository {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   }) => throw UnimplementedError();
 
   @override
@@ -99,6 +101,8 @@ class _NullInsightRepository implements WardrobeRepository {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) => throw UnimplementedError();
 
   @override
@@ -129,6 +133,7 @@ class _NoneAvailableOutfitRepository implements OutfitBuilderRepository {
     required String fit,
     required String colorPalette,
     String? seed,
+    List<String>? preferredItemIds,
   }) async =>
       const OutfitResult.noneAvailable();
 

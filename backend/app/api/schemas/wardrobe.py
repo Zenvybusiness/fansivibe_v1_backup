@@ -19,6 +19,8 @@ class WardrobeItem(BaseModel):
     color: str
     material: Optional[str] = None
     isFavorite: bool = False
+    fit: Optional[str] = None
+    fitConfidence: Optional[float] = None
     imageRef: Optional[dict[str, Any]] = None
     createdAt: datetime
     updatedAt: datetime
@@ -32,6 +34,10 @@ class WardrobeItemCreate(BaseModel):
     color: str
     material: Optional[str] = None
     isFavorite: bool = False
+    # STEP 2.9 (C-02-F Option B): vision-observed fit + analyzer confidence
+    # (0-1). Optional; absent → NULL (missing evidence, never fabricated).
+    fit: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    fitConfidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     imageRef: Optional[dict[str, Any]] = None
 
 
@@ -39,7 +45,7 @@ class WardrobeItemPatch(BaseModel):
     """Request body for `PATCH /v1/wardrobe/items/{item_id}` (W-4).
 
     PATCH partial merge — only present fields change. `null` material or
-    `null` imageRef clears it.
+    `null` imageRef clears it. Same for `fit`/`fitConfidence`.
     """
 
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
@@ -47,6 +53,8 @@ class WardrobeItemPatch(BaseModel):
     color: Optional[str] = None
     material: Optional[str] = None
     isFavorite: Optional[bool] = None
+    fit: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    fitConfidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     imageRef: Optional[dict[str, Any]] = None
 
 

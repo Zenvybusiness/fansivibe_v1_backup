@@ -32,6 +32,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -437,6 +438,12 @@ class WardrobeItems(Base):
     is_favorite: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    # STEP 2.9 (C-02-F Option B, owner-locked): vision-observed garment fit
+    # (free-form observed string, NULL when absent) + its analyzer confidence
+    # (0-1 float, NULL when unavailable). No CHECK: bounds live at the API
+    # schema and the scoring gate; historical NULLs never fail.
+    fit: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    fit_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     image_ref: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSONB, nullable=True
     )

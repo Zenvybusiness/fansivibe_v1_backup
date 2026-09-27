@@ -77,6 +77,7 @@ class _OutfitRecommendationScreenState
       fit: widget.request.fit,
       colorPalette: widget.request.colorPalette,
       seed: 'outfit-$_regenCount',
+      preferredItemIds: widget.request.preferredItemIds,
     );
     if (!mounted) return;
     if (result.available) {

@@ -28,6 +28,7 @@ class OutfitGenerationScreen extends StatefulWidget {
     required this.colorPalette,
     this.eventId,
     this.eventTitle,
+    this.preferredItemId,
     this.outfitRepository,
     super.key,
   });
@@ -41,6 +42,10 @@ class OutfitGenerationScreen extends StatefulWidget {
   /// backend derive call stays prefs-only until it accepts an event).
   final String? eventId;
   final String? eventTitle;
+
+  /// C-04 handoff: saved wardrobe UUID sent as the single C-03
+  /// preferred item. Null/empty ≡ baseline (omitted from the wire).
+  final String? preferredItemId;
 
   /// Backend outfit source. Defaults to the live repository; tests
   /// inject a fake.
@@ -68,6 +73,7 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
 
   void _generate() {
     if (isGuestUser) return;
+    final preferredItemId = widget.preferredItemId;
     setState(() {
       _forwarded = false;
       _generationFuture = _repository.generateOutfit(
@@ -75,6 +81,9 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
         mood: widget.mood,
         fit: widget.fit,
         colorPalette: widget.colorPalette,
+        preferredItemIds: preferredItemId == null || preferredItemId.isEmpty
+            ? null
+            : [preferredItemId],
       );
     });
   }
@@ -82,17 +91,20 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
   void _forward(OutfitRecommendation outfit) {
     if (_forwarded || !mounted) return;
     _forwarded = true;
+    final preferredItemId = widget.preferredItemId;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.replaceNamed(
         RouteNames.outfitRecommendation,
         extra: <String, dynamic>{
           'recommendation': outfit.snapshot,
-          'request': <String, String>{
+          'request': <String, dynamic>{
             'occasion': widget.occasion,
             'mood': widget.mood,
             'fit': widget.fit,
             'colorPalette': widget.colorPalette,
+            if (preferredItemId != null && preferredItemId.isNotEmpty)
+              'preferredItemIds': [preferredItemId],
           },
         },
       );

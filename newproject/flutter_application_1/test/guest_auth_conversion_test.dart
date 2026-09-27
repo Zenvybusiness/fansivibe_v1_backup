@@ -57,6 +57,8 @@ class _FakeWardrobeRepo implements WardrobeRepository {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   }) async {
     if (failNames.contains(name)) return null;
     createdNames.add(name);
@@ -79,6 +81,8 @@ class _FakeWardrobeRepo implements WardrobeRepository {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) async {
     if (isFavorite == true) favoritedIds.add(itemId);
     return null;

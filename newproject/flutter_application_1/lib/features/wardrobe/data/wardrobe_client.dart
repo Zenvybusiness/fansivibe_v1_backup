@@ -116,6 +116,8 @@ class WardrobeClient {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   }) async {
     try {
       final payload = {
@@ -124,6 +126,9 @@ class WardrobeClient {
         'color': color,
         if (material != null) 'material': material,
         if (imageRef != null) 'imageRef': imageRef.toJson(),
+        // C-02-F: vision-observed fit evidence; omitted (null) unless analyzed.
+        if (fit != null) 'fit': fit,
+        if (fitConfidence != null) 'fitConfidence': fitConfidence,
       };
       final response = await _client
           .post(
@@ -159,6 +164,8 @@ class WardrobeClient {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) async {
     try {
       final payload = <String, dynamic>{};
@@ -167,6 +174,8 @@ class WardrobeClient {
       if (color != null) payload['color'] = color;
       if (material != null) payload['material'] = material;
       if (isFavorite != null) payload['isFavorite'] = isFavorite;
+      if (fit != null) payload['fit'] = fit;
+      if (fitConfidence != null) payload['fitConfidence'] = fitConfidence;
 
       final response = await _client
           .patch(

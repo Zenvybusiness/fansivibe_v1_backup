@@ -303,6 +303,77 @@ void main() {
 
       expect(item, isNull);
     });
+
+    test('sends vision fit evidence verbatim when analyzed; omits when absent',
+        () async {
+      Map<String, dynamic>? seenBody;
+      final client = WardrobeClient(
+        client: MockClient((request) async {
+          seenBody = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'id': 'fit-item-1',
+              'name': 'Analyzed Trousers',
+              'category': 'bottoms',
+              'color': 'Navy',
+              'isFavorite': false,
+              'fit': 'relaxed',
+              'fitConfidence': 0.83,
+              'createdAt': '2024-01-15T10:00:00Z',
+              'updatedAt': '2024-01-15T10:00:00Z',
+            }),
+            201,
+          );
+        }),
+      );
+
+      final item = await client.createItem(
+        name: 'Analyzed Trousers',
+        category: 'bottoms',
+        color: 'Navy',
+        fit: 'relaxed',
+        fitConfidence: 0.83,
+      );
+
+      expect(seenBody!['fit'], 'relaxed');
+      expect(seenBody!['fitConfidence'], 0.83);
+      expect(item, isNotNull);
+      expect(item!.fit, 'relaxed');
+      expect(item.fitConfidence, 0.83);
+    });
+
+    test('omits fit keys when no analysis produced them', () async {
+      Map<String, dynamic>? seenBody;
+      final client = WardrobeClient(
+        client: MockClient((request) async {
+          seenBody = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'id': 'manual-item-1',
+              'name': 'Manual Tee',
+              'category': 'tops',
+              'color': 'White',
+              'isFavorite': false,
+              'createdAt': '2024-01-15T10:00:00Z',
+              'updatedAt': '2024-01-15T10:00:00Z',
+            }),
+            201,
+          );
+        }),
+      );
+
+      final item = await client.createItem(
+        name: 'Manual Tee',
+        category: 'tops',
+        color: 'White',
+      );
+
+      expect(seenBody!.containsKey('fit'), isFalse);
+      expect(seenBody!.containsKey('fitConfidence'), isFalse);
+      expect(item, isNotNull);
+      expect(item!.fit, isNull);
+      expect(item.fitConfidence, isNull);
+    });
   });
 
   group('WardrobeClient.updateItem', () {

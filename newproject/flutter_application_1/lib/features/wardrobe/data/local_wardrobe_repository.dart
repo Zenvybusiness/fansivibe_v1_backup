@@ -75,6 +75,8 @@ class LocalWardrobeRepository implements WardrobeRepository {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   }) async {
     final entry = WardrobeEntry(
       id: newLocalId(),
@@ -95,6 +97,8 @@ class LocalWardrobeRepository implements WardrobeRepository {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) async {
     WardrobeEntry? current;
     for (final entry in _service.wardrobe) {

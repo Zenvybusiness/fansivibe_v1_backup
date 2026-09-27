@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/wardrobe/data/garment_client.dart';
 import 'package:fansivibe/features/wardrobe/data/garment_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
@@ -55,6 +57,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
   String? _selectedTextureName;
   String? _errorMessage;
   bool _isSubmitting = false;
+  WardrobeItemData? _savedItem;
   late final WardrobeRepository _repository;
   late final GarmentClient _garmentClient;
 
@@ -118,13 +121,21 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
         color: newItem.color,
         material: newItem.material,
         imageRef: _buildImageRef(),
+        // C-02-F: persist the analyzer's own fit observation + confidence
+        // verbatim (null unless this save follows a garment analysis).
+        fit: _garmentResult?.fit,
+        fitConfidence: _garmentResult?.confidence,
       );
 
       if (!mounted) return;
 
       if (createdItem != null) {
-        // Success: return the server-created item as source of truth
-        Navigator.pop<WardrobeItemData>(context, createdItem);
+        // Success: keep the created item as source of truth and show the
+        // post-save actions (C-04). The caller still receives it on Done.
+        setState(() {
+          _isSubmitting = false;
+          _savedItem = createdItem;
+        });
       } else {
         // API failure
         setState(() {
@@ -140,6 +151,75 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
         _isSubmitting = false;
       });
     }
+  }
+
+  /// Server UUID usable as a C-03 preferred item (C-04 Scan → Save →
+  /// Build). Guest-local (`local-*`) and empty ids are never buildable —
+  /// the builder is account-only and the backend accepts UUIDs.
+  String? _buildableItemId(WardrobeItemData item) {
+    final id = item.id;
+    if (id.isEmpty || id.startsWith('local-')) return null;
+    return id;
+  }
+
+  /// C-04: opens the existing Outfit Builder carrying the saved wardrobe
+  /// UUID as the C-03 preferred item. Navigation args only — the builder
+  /// still derives through the existing repository/client.
+  void _buildWithThisItem(String itemId) {
+    context.pushNamed(
+      RouteNames.buildOutfit,
+      extra: <String, String>{'preferredItemId': itemId},
+    );
+  }
+
+  /// Post-save actions: confirmation plus Done (existing pop contract)
+  /// and, for server-saved items only, Build with this item.
+  Widget _buildSavedActions(ThemeData theme, WardrobeItemData item) {
+    final buildableId = _buildableItemId(item);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(
+              Icons.check_circle_rounded,
+              size: 20,
+              color: FansivibeColors.success,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Saved ${item.name} to your wardrobe.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: FansivibeColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (buildableId != null) ...[
+          SizedBox(
+            width: double.infinity,
+            child: FansiButton.primary(
+              label: 'Build with this item',
+              icon: Icons.checkroom_rounded,
+              onPressed: () => _buildWithThisItem(buildableId),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        SizedBox(
+          width: double.infinity,
+          child: FansiButton.secondary(
+            label: 'Done',
+            onPressed: () =>
+                Navigator.pop<WardrobeItemData>(context, item),
+          ),
+        ),
+      ],
+    );
   }
 
   /// Builds the photo reference for the save payload from the garment
@@ -516,32 +596,36 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                           const SizedBox(height: 16),
                         ],
 
-                        // Save button (shared primary action)
-                        SizedBox(
-                          width: double.infinity,
-                          child: _isSubmitting
-                              ? const Center(
-                                  child: SizedBox(
-                                    width: 24,
-                                    height: 24,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 3,
-                                      valueColor:
-                                          AlwaysStoppedAnimation<Color>(
-                                        FansivibeColors.primary,
+                        // Save button (shared primary action), or the
+                        // post-save actions once the item exists (C-04).
+                        if (_savedItem != null)
+                          _buildSavedActions(theme, _savedItem!)
+                        else
+                          SizedBox(
+                            width: double.infinity,
+                            child: _isSubmitting
+                                ? const Center(
+                                    child: SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 3,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                          FansivibeColors.primary,
+                                        ),
                                       ),
                                     ),
+                                  )
+                                : FansiButton.primary(
+                                    label: 'Save Item',
+                                    icon: Icons.save_rounded,
+                                    // Keep enabled so tapping with no
+                                    // selection surfaces the validation
+                                    // message (see _saveItem).
+                                    onPressed: _saveItem,
                                   ),
-                                )
-                              : FansiButton.primary(
-                                  label: 'Save Item',
-                                  icon: Icons.save_rounded,
-                                  // Keep enabled so tapping with no
-                                  // selection surfaces the validation
-                                  // message (see _saveItem).
-                                  onPressed: _saveItem,
-                                ),
-                        ),
+                          ),
                         const SizedBox(height: 32),
                       ],
                     ),

@@ -467,29 +467,29 @@ def test_13_4_score_range_and_neutral_base():
 
 
 def test_13_4_top_bottom_exact_score():
-    """3+17. Hand-computed: coverage 16 + harmony 10 + season 5 + formality 5."""
+    """3+17. Hand-computed: coverage 14 + harmony 5 + season 5 + formality 5 (Option A)."""
     out = score_outfit_candidate(_13_4_cand((_A,), (_B,)), _13_4_items())
-    assert out.compatibility == 36.0
+    assert out.compatibility == 29.0
     assert out.preference == 0.0 and out.favorite == 0.0
-    assert out.score == 36.0
+    assert out.score == 29.0
 
 
 def test_13_4_color_harmony_improves_conflict_reduces():
-    """4+5+9. Neutral pair +10; bright–bright pair −10 (delta 20)."""
+    """4+5+9. Neutral pair +5; bright–bright pair −10 (penalty UNCHANGED, Option A)."""
     bright = score_outfit_candidate(_13_4_cand((_A,), (_B,)),
                                     _13_4_items(**{_A: ("tops", "red", "cotton", False),
                                                    _B: ("bottoms", "olive", "denim", False)}))
-    assert bright.compatibility == 16.0  # 16 − 10 + 0 + 5 + 5
-    assert bright.score == 16.0
+    assert bright.compatibility == 14.0  # 14 − 10 + 0 + 5 + 5
+    assert bright.score == 14.0
 
 
 def test_13_4_season_and_formality_terms():
     """6+7. Consistency bonuses present; mixed formality loses its +5."""
     two = score_outfit_candidate(_13_4_cand((_A,), (_B,)), _13_4_items())
     three = score_outfit_candidate(_13_4_cand((_A,), (_B,), shoe=(_C,)), _13_4_items())
-    # three: coverage 24 + harmony 10 + season 5 + formality 0 (casual+formal mix)
-    assert three.compatibility == 39.0
-    assert two.compatibility == 36.0
+    # three: coverage 21 + harmony 5 + season 5 + formality 0 (casual+formal mix, Option A)
+    assert three.compatibility == 31.0
+    assert two.compatibility == 29.0
 
 
 def test_13_4_preference_points_and_cap():
@@ -536,7 +536,7 @@ def test_13_4_unknown_attributes_degrade_safely():
     items = {_A: _13_4_NS(id=_A, category="tops"),
              _B: _13_4_NS(id=_B, category="bottoms", color="", material=None, isFavorite=False)}
     out = score_outfit_candidate(_13_4_cand((_A,), (_B,)), items)
-    assert out.compatibility == 26.0  # 16 coverage + 0 + 0 + 5 season + 5 formality
+    assert out.compatibility == 24.0  # 14 coverage + 0 + 0 + 5 season + 5 formality (Option A)
     ghost = score_outfit_candidate(_13_4_cand(("missing-id",), (_B,)), _13_4_items())
     assert ghost.score >= 0.0
 

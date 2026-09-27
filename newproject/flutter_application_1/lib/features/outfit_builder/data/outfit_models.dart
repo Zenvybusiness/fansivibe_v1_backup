@@ -151,6 +151,7 @@ class OutfitGenerateRequest {
     required this.mood,
     required this.fit,
     required this.colorPalette,
+    this.preferredItemIds,
   });
 
   final String occasion;
@@ -158,12 +159,19 @@ class OutfitGenerateRequest {
   final String fit;
   final String colorPalette;
 
+  /// C-03 explicit preferred wardrobe IDs (owned UUIDs only).
+  /// Null/empty ≡ baseline (omitted from the wire).
+  final List<String>? preferredItemIds;
+
   factory OutfitGenerateRequest.fromJson(Map<String, dynamic> json) =>
       OutfitGenerateRequest(
         occasion: json['occasion'] as String,
         mood: json['mood'] as String,
         fit: json['fit'] as String,
         colorPalette: json['colorPalette'] as String,
+        preferredItemIds: (json['preferredItemIds'] as List?)
+            ?.map((e) => e as String)
+            .toList(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -171,6 +179,8 @@ class OutfitGenerateRequest {
     'mood': mood,
     'fit': fit,
     'colorPalette': colorPalette,
+    if (preferredItemIds != null && preferredItemIds!.isNotEmpty)
+      'preferredItemIds': preferredItemIds,
   };
 }
 

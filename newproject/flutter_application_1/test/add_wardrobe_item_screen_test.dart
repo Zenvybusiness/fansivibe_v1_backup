@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
@@ -89,7 +91,7 @@ void main() {
       expect(find.text('Please select a type and color.'), findsOneWidget);
     });
 
-    testWidgets('saves item and pops with data when valid (repository-backed)', (
+    testWidgets('saves item and shows post-save actions, Done pops with data', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -127,8 +129,127 @@ void main() {
       await tester.tap(find.text('Save Item'));
       await tester.pumpAndSettle();
 
-      // Screen should be popped
+      // Screen stays with the post-save actions (C-04), not popped.
+      expect(find.text('Add Tops'), findsOneWidget);
+      expect(find.text('Build with this item'), findsOneWidget);
+
+      // Done pops with the created item.
+      await tester.scrollUntilVisible(
+        find.text('Done'),
+        300.0,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+
       expect(find.text('Add Tops'), findsNothing);
+    });
+
+    testWidgets('Build action hidden for guest-local ids', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        createTestApp(
+          topsCategory,
+          repository: _MockAddRepo(success: true, itemId: 'local-123'),
+        ),
+      );
+
+      await tester.tap(find.text('T-Shirt'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Black'),
+        200.0,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Black'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Save Item'),
+        300.0,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Save Item'));
+      await tester.pumpAndSettle();
+
+      // Saved, but no build action for a non-UUID id; Done still pops.
+      expect(find.text('Build with this item'), findsNothing);
+      expect(find.text('Done'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Done'),
+        300.0,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+      expect(find.text('Add Tops'), findsNothing);
+    });
+
+    testWidgets('Build with this item navigates with the saved UUID', (
+      WidgetTester tester,
+    ) async {
+      const savedUuid = '78ff3686-c950-4cd6-84c3-7e18d6634dfa';
+      Map<String, String>? seenExtra;
+      final router = GoRouter(
+        initialLocation: '/',
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => AddWardrobeItemScreen(
+              category: topsCategory,
+              repository: _MockAddRepo(success: true, itemId: savedUuid),
+            ),
+          ),
+          GoRoute(
+            path: '/build-outfit',
+            name: RouteNames.buildOutfit,
+            builder: (context, state) {
+              seenExtra = state.extra as Map<String, String>?;
+              return const Text('builder reached');
+            },
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp.router(
+          theme: FansivibeTheme.darkTheme,
+          routerConfig: router,
+        ),
+      );
+
+      await tester.tap(find.text('T-Shirt'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Black'),
+        200.0,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Black'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Save Item'),
+        300.0,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Save Item'));
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.text('Build with this item'),
+        300.0,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Build with this item'));
+      await tester.pumpAndSettle();
+
+      // Navigation carries exactly the saved wardrobe UUID.
+      expect(seenExtra, {'preferredItemId': savedUuid});
+      expect(find.text('builder reached'), findsOneWidget);
+
+      // Back navigation returns normally.
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.text('Add Tops'), findsOneWidget);
     });
 
     testWidgets('tapping back button pops the screen', (
@@ -205,8 +326,9 @@ void main() {
 }
 
 class _MockAddRepo implements WardrobeRepository {
-  _MockAddRepo({this.success = true});
+  _MockAddRepo({this.success = true, this.itemId = 'mock-uuid-1'});
   final bool success;
+  final String itemId;
 
   @override
   Future<WardrobeItemData?> createItem({
@@ -215,10 +337,12 @@ class _MockAddRepo implements WardrobeRepository {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   }) async {
     if (!success) return null;
     return WardrobeItemData(
-      id: 'mock-uuid-1',
+      id: itemId,
       name: name,
       category: category,
       color: color,
@@ -245,6 +369,8 @@ class _MockAddRepo implements WardrobeRepository {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) async => null;
   @override
   Future<bool?> deleteItem({required String itemId}) async => null;
@@ -271,6 +397,8 @@ class _CompleterAddRepo implements WardrobeRepository {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   }) => completer.future;
 
   @override
@@ -292,6 +420,8 @@ class _CompleterAddRepo implements WardrobeRepository {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) async => null;
   @override
   Future<bool?> deleteItem({required String itemId}) async => null;

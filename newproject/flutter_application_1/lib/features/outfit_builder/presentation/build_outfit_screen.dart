@@ -16,11 +16,17 @@ class BuildOutfitScreen extends StatefulWidget {
     this.eventId,
     this.eventTitle,
     this.initialOccasion,
+    this.preferredItemId,
   });
 
   final String? eventId;
   final String? eventTitle;
   final String? initialOccasion;
+
+  /// C-04 handoff: saved wardrobe UUID carried as the C-03 preferred
+  /// item. Display-neutral — the user still picks all four prefs; the id
+  /// only rides into the generation request.
+  final String? preferredItemId;
 
   @override
   State<BuildOutfitScreen> createState() => _BuildOutfitScreenState();
@@ -71,6 +77,8 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
         'colorPalette': _selectedColorPalette!,
         if (widget.eventId != null) 'eventId': widget.eventId!,
         if (widget.eventTitle != null) 'eventTitle': widget.eventTitle!,
+        if (widget.preferredItemId != null)
+          'preferredItemId': widget.preferredItemId!,
       },
     );
   }

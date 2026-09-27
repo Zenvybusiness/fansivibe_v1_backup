@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.errors import ApiError, conflict, database_failure, not_found, validation
 from app.api.schemas.wardrobe import WardrobeInsight
 from app.domain.ports.repositories import (
+    LearningSignalRepository,
     SavedLookRepository,
     WardrobeItemRepository,
     WearEventRecord,
@@ -124,12 +125,21 @@ class AddWardrobeItem:
     """UC-10 — `POST /v1/wardrobe/items` (W-3).
 
     Creates a new wardrobe item with vocab-validated category/color/material.
-    Server-generated id and timestamps. Emits item_added learning signal
-    (handled by caller / transaction boundary).
+    Server-generated id and timestamps. Emits one `item_added` learning
+    signal (C-07 history fact, no recommendation effect) in a separate
+    sequential unit AFTER the item commit (TRX-7 precedent): the item 201
+    stands even if the signal write fails. `signals=None` (tests, callers
+    without a ledger) preserves the exact pre-C-07 behavior.
     """
 
-    def __init__(self, *, wardrobe: WardrobeItemRepository) -> None:
+    def __init__(
+        self,
+        *,
+        wardrobe: WardrobeItemRepository,
+        signals: LearningSignalRepository | None = None,
+    ) -> None:
         self._wardrobe = wardrobe
+        self._signals = signals
 
     def __call__(
         self,
@@ -141,6 +151,8 @@ class AddWardrobeItem:
         material: str | None,
         isFavorite: bool,
         image_ref: dict | None = None,
+        fit: str | None = None,
+        fit_confidence: float | None = None,
     ) -> WardrobeItemRecord:
         if len(name) < 1 or len(name) > 100:
             raise validation(
@@ -156,9 +168,10 @@ class AddWardrobeItem:
                 material=material,
                 isFavorite=isFavorite,
                 image_ref=image_ref,
+                fit=fit,
+                fit_confidence=fit_confidence,
             )
             self._wardrobe.commit()
-            return record
         except IntegrityError as exc:
             self._wardrobe.rollback()
             mapped = _vocab_validation_error(
@@ -167,6 +180,22 @@ class AddWardrobeItem:
             if mapped is None:
                 raise
             raise mapped from exc
+        if self._signals is not None:
+            # C-07: exactly one history row per successful server-side
+            # create. Post-commit by design — failures above raise before
+            # reaching here (no signal on failed/422 saves); a signal-write
+            # failure degrades to rollback of the signal unit only.
+            try:
+                self._signals.insert_look_saved(
+                    user_id=user_id,
+                    signal_type="item_added",
+                    label=name,
+                    context={"wardrobe_item_id": str(record.id)},
+                )
+                self._signals.commit()
+            except Exception:
+                self._signals.rollback()
+        return record
 
 
 class GetWardrobeItem:
@@ -219,6 +248,10 @@ class UpdateWardrobeItem:
         isFavorite: bool | None,
         image_ref: dict | None = None,
         image_ref_set: bool = False,
+        fit: str | None = None,
+        fit_set: bool = False,
+        fit_confidence: float | None = None,
+        fit_confidence_set: bool = False,
     ) -> WardrobeItemRecord:
         record = self._wardrobe.get_by_id(user_id=user_id, item_id=item_id)
         if record is None:
@@ -241,6 +274,10 @@ class UpdateWardrobeItem:
                 isFavorite=isFavorite,
                 image_ref=image_ref,
                 image_ref_set=image_ref_set,
+                fit=fit,
+                fit_set=fit_set,
+                fit_confidence=fit_confidence,
+                fit_confidence_set=fit_confidence_set,
             )
             self._wardrobe.commit()
         except IntegrityError as exc:

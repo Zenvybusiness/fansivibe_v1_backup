@@ -101,6 +101,8 @@ class _CountingWardrobeRepository implements WardrobeRepository {
     required String color,
     String? material,
     MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
   }) async {
     calls++;
     return null;
@@ -114,6 +116,8 @@ class _CountingWardrobeRepository implements WardrobeRepository {
     String? color,
     String? material,
     bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
   }) async {
     calls++;
     return null;
@@ -195,6 +199,7 @@ class _CountingOutfitRepository implements OutfitBuilderRepository {
     required String fit,
     required String colorPalette,
     String? seed,
+    List<String>? preferredItemIds,
   }) async {
     genCalls++;
     throw StateError('must not be called for guests');

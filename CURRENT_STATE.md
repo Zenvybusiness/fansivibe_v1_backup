@@ -2,6 +2,198 @@
 
 ---
 
+## PHASE 1 STEP 8 C-08 ANALYSIS CACHE AUDIT (executed 2026-09-27, verdict: AUDIT ONLY — 1 new doc, no source/tests/schema/API/Flutter changes, no commit/push)
+
+- Verified prior claims (`PHASE_1_STEP8_C08_ANALYSIS_CACHE_AUDIT.md`): analysisCached = photo-taken/onboarding flag (sole writer = guest continue; readers = first-time gating + achievement/display only; backend/wire zero hits). Blob setter dead (@Deprecated, zero callers); getter read only by null-safe profile fallbacks (always null in prod); route-extra analysisResult is a separate live namespace. Authoritative completion = analysis_runs pending/completed/failed + result JSONB (already used by poll clients) — no new state needed.
+- Classification: flag = valid-but-misnamed (rename candidate, removal breaks gating); blob + UserSession mirror = dead (safe removal candidates). Safest path: delete dead setter/getter, optionally rename flag with reads, add nothing; no migration. Tests inspected read-only. C-01…C-07 verified untouched. STOPPED; C-08 NOT implemented.
+
+---
+
+## PHASE 1 STEP 7 C-07 ITEM_ADDED IMPLEMENTATION (executed 2026-09-27, verdict: PASS — backend-only history event, C-02…C-06 untouched, no commit/push)
+
+- C-07 live (Option A): migration 0024 seeds `('item_added', 'Wardrobe item added', 5)` (0008/0015 precedent; downgrade deletes only it; head now 0024); `AddWardrobeItem` emits one `insert_look_saved("item_added", label=name, context={wardrobe_item_id})` post-commit (TRX-7 style; signal failure rolls back signal unit only); router wires the SQL repo; failures/422s and edits emit nothing; guest `local-*` never reaches the writer. Zero recommendation effect; no C-03 derivation.
+- Tests: new `test_c07_item_added.py` 9 pass/1 PG-skip; required baseline maintenance (seed list, head assertion). Full backend 977 pass/416 skip/3 fail+6 errors = Step-3 baseline class + 9 new. Flutter untouched; C-04 suites re-green (51/51). C-02/C-03/C-04/C-05 re-verified unchanged.
+- Docs: report `PHASE_1_STEP7_C07_IMPLEMENTATION_REPORT.md`. STOPPED after C-07; C-08 NOT started.
+
+---
+
+## PHASE 1 STEP 7 C-07 ITEM_ADDED AUDIT (executed 2026-09-27, verdict: AUDIT ONLY — 1 new doc, no source/tests/schema/API/Flutter changes, no commit/push)
+
+- Exhaustive trace (`PHASE_1_STEP7_C07_ITEM_ADDED_AUDIT.md`): wardrobe create/update emit NOTHING (docstring-only); sole writer method `insert_look_saved` has 5 call sites (look_saved/analysis_updated/outfit_selected/suggestion pair); seed = exactly 5 codes, item_added ABSENT (RESTRICT FK 500s unseeded); zero readers/consumers (only type-blind recents labels). Verdict: MEANINGFUL-but-gated (new history info, duplicates nothing; WARDROBE_API marks it Required) — but emit-vs-docfix stays OWNER-PENDING.
+- Readiness (on owner A only): seed migration (0008/0015 precedent) + one post-commit `insert_look_saved("item_added")` (TRX-7 style; keyless caveat accepted) + writer test; guest `local-*` never eligible. Recommendation impact: none. Tests inspected read-only. C-01…C-06 verified untouched. STOPPED; C-07 NOT implemented.
+
+---
+
+## PHASE 1 STEP 6 C-06 GARMENT ATTRIBUTES AUDIT (executed 2026-09-27, verdict: AUDIT ONLY — 1 new doc, no source/tests/schema/API/Flutter changes, no commit/push)
+
+- Traced all 10 garment attributes pixels → scoring (`PHASE_1_STEP6_C06_GARMENT_ATTRIBUTES_AUDIT.md`). Durable + scored: category (structure), color (± + palette +5), material (+5), fit + fit_confidence (C-02-F +5 gated). Lost after result screen: pattern, style (no vocab/column/term; summary-display only), subcategory (name/chips only), overall confidence. image_ref = media provenance only (zero analysis attrs; never scored; must not be promoted). needs_review = derived UI-only. Style explicitly FFO-incompatible (free text vs weight-dict schemas, no mapping/wiring). Confidence = one number, three jobs (0.35 fail floor, 0.6 review flag, fit gate; never multiplied).
+- Verdict: NO implementation — everything safely consumable is live; pattern/style need vocab + persistence + weight + owner calls. No migration required. Tests inspected read-only (baselines stand). C-01…C-05 verified untouched. STOPPED; C-06 NOT implemented.
+
+---
+
+## PHASE 1 STEP 5 C-05 FEEDBACK CONTRACT LOCK (executed 2026-09-27, verdict: LOCKED — docs only, no source/tests/schema/API/Flutter/ranking changes, no commit/push)
+
+- C-05 semantics locked (`PHASE_1_STEP5_C05_FEEDBACK_CONTRACT.md`): like = outfit-level positive evidence; dislike = outfit-level negative (no blacklist, decay not implemented); skip = DOES NOT EXIST; wear = behavioral evidence (≠ save/like/favorite/preferredItemIds); share = dormant. ALL weights UNASSIGNED; 0–100 formula, C-02, C-03 untouched; no C-03 derivation, no double counting (six signals independent). Persistence preserved (feedback_events / saved_looks+look_saved / wear ledger); save stays the sole live effect. Weights/decay/Skip/wear-scoring need separate contracts.
+- Docs: new contract; OWNER_DECISIONS C-05 → LOCKED (options superseded); CONTRACTS C-05 → LOCKED. Audit stands, no addendum. STOPPED; C-05 NOT implemented; C-06 NOT started.
+
+---
+
+## PHASE 1 STEP 5 C-05 FEEDBACK AUDIT (executed 2026-09-27, verdict: AUDIT ONLY — 1 new doc, no source/tests/schema/API/Flutter changes, no commit/push)
+
+- Traced save/like/dislike/skip/wear/share end-to-end (`PHASE_1_STEP5_C05_FEEDBACK_AUDIT.md`). Save = class A (live: M7 + look_saved + ForYou +0.03 + score counts). Like/dislike = class B persisted (#35, idempotent) with ZERO consumers (learning.py explicitly excludes feedback; discover/AI Stylist never read). Skip = absent (no control/field). Wear = ledger + display only (logWear seam + summary; no ranking consumer per DEC-012). Share = stub ("coming soon").
+- Verdict: NO implementation — every activation needs pending D-05 semantics (Like-A/B/C, Dislike-A/B/C, Skip-A/B/C, Wear-A/B/C, share existence, C-03 double-count) and/or a new ranking weight (stop condition). Smallest implementable C-05 = none; save path already live. Tests inspected read-only (baselines stand). C-01…C-04 verified untouched; C-06…C-10 untouched. STOPPED; C-05 NOT implemented.
+
+---
+
+## PHASE 1 STEP 4 C-04 IMPLEMENTATION (executed 2026-09-27, verdict: PASS — Flutter-only Option A, backend/C-02/C-03 untouched, no commit/push)
+
+- C-04 live: garment save → post-save "Build with this item" (server UUIDs only; hidden on failure/empty/guest `local-*`) → builder (`preferredItemId` extra) → generation `preferredItemIds: [uuid]` → regenerate preserves. Existing 4 prefs + event context + guest gates + back-nav preserved; UUID-only identity (no image/run/raw JSON). Unsaved generation explicitly OUT.
+- Changed (Flutter only): add-item screen (success card + Done + Build), build/generation/recommendation screens (optional id threading), router extras (1 key). No backend/ranking/vision/schema/migration changes. No new screens/endpoints/models.
+- Tests: add-item 13/13 (incl. navigation-extra + back-nav), outfit screens 40/40 + api 22/22 (new C-04 group of 4), garment flow 17/17 (save step updated); analyze 0 issues; full Flutter 1086 pass/19 fail = recorded pre-existing file set, zero in touched files. Backend C-02/C-03 suites re-green.
+- Docs: CONTRACTS C-04 → Option A implemented; OWNER_DECISIONS C-04 → A LOCKED; report `PHASE_1_STEP4_C04_IMPLEMENTATION_REPORT.md`. STOPPED after C-04.
+
+---
+
+## PHASE 1 STEP 4 C-04 SCAN → GENERATE AUDIT (executed 2026-09-27, verdict: AUDIT ONLY — 1 new doc, no source/tests/schema/API/Flutter changes, no commit/push)
+
+- Audited garment scan → outfit generate end-to-end (`PHASE_1_STEP4_C04_SCAN_GENERATE_AUDIT.md`). Facts: garment run → `GarmentProfile` (canonical category or null; free color/material/pattern/style/fit or null; confidence 0-1; no IDs) → strict Flutter parse → exact-match prefill → user-confirmed wardrobe save (vocab FKs, 422 on unknown). Generation reads owned wardrobe rows only (id/category for candidates; color/material/favorite/fit-evidence for scoring). Backend garment→outfit transform: NONE (verified zero hits); outfit_builder has zero scan/garment refs. Flows 1/2/5 work (scan-only, scan→save, scan→edit); flows 3/4/6/7 do NOT exist. Lost at save: pattern/style (no columns/terms), subcategory (name/chip only), vocab-missing color/material (neutral unless user maps).
+- Reuse find: live C-03 `preferredItemIds` enables scan→generate with ZERO backend changes (post-save CTA → builder with new UUID → +5 boost). Recommendation: Option A (save-then-generate, backend-free) first; Option B (ephemeral unsaved input) needs its own contract + new validation surface. Owner decision required: post-save "build with this item" vs unsaved generation. Step-2 C-04 A–D (appearance-scan framing) stays PENDING, separate. C-02/C-03 verified untouched. STOPPED; C-04 NOT implemented.
+
+---
+
+## PHASE 1 STEP 3 C-03 IMPLEMENTATION (executed 2026-09-27, verdict: PASS — outfit generate path only, C-02 untouched, no commit/push)
+
+- C-03 live on #41 only: optional `preferredItemIds?: UUID[]` (absent/null/`[]` ≡ empty baseline; malformed → 422; unknown/foreign → 0, never 404; no per-ID DB lookup — owner-scoped candidates stay the boundary). Existing +5/cap-15 soft term + OI +0.05/cap-0.15 unchanged; no filter/generation/tie-break/budget change; no favorites derivation (double-count → C-05).
+- Changed: `schemas/outfits.py` (field), `application/outfits.py` (normalizer + kwarg threading), `routers/outfits.py` (forward); Flutter DTO/client/repo passthrough only (no UI, no auto-populate) + 4 test-fake signature updates. Events/today/assistant intentionally left empty (no explicit source). No length cap shipped (wears-10 vs reasoning-20 conflict — owner picks; scoring caps bound effects). No migration.
+- Tests: new `test_c03_preferred_item_ids.py` 23/23; neighbors 261 pass/3 PG-skip; full backend 968 pass/415 skip/3 fail+6 collection-errors = Step 2.11 baseline class (environmental sqlite/PG artifacts) + 23 new. Flutter analyze 0 issues; outfit suites pass (+2 new); guest_phase2-Discover×2 = known pre-existing.
+- Docs: CONTRACTS C-03 → IMPLEMENTED; OWNER_DECISIONS status; report `PHASE_1_STEP3_C03_IMPLEMENTATION_REPORT.md`. STOPPED after C-03; C-04…C-10 untouched.
+
+---
+
+## PHASE 1 STEP 3 C-03 CONTRACT LOCK (executed 2026-09-27, verdict: LOCKED — docs only, no source/tests/schema/API/Flutter/ranking changes, no commit/push)
+
+- C-03 locked: preferred_item_ids = EXPLICIT user-selected preferred wardrobe items (not favorites/saves/inference/palette/fit/mood/catalog-codes). Rules: UUID-only/canonicalized/deduped; owner-scoped, foreign/nonexistent → 0 (degrade, not 404); +5/cap-15 + OI +0.05/cap-0.15 unchanged; never a filter; budget/tie-break/generation untouched. Production stays empty (no wiring/UI/API/callers). Double-count → C-05; wording deferred; cap undecided (wears-10/width-5 cited).
+- Docs: `PHASE_1_STEP3_C03_CONTRACT.md` (new; FACT/LOCKED/FUTURE/DEFERRED + wire shape from camelCase-UUID-list + DEC-010 precedents + later call sites); OWNER_DECISIONS/CONTRACTS flipped LOCKED. Audit stands, no addendum needed. C-02 verified untouched. STOPPED; C-03 NOT implemented.
+
+---
+
+## PHASE 1 STEP 3 C-03 PREFERRED_ITEM_IDS AUDIT (executed 2026-09-27, verdict: AUDIT ONLY — 1 new doc, no source/tests/schema/API/Flutter changes, no commit/push)
+
+- Audited C-03 end-to-end (`PHASE_1_STEP3_C03_PREFERRED_ITEM_IDS_AUDIT.md`; C-03 NOT locked, options A–D + unknowns U-1…U-5 recorded, nothing selected). Facts: 3 namespaces separated (outfit wardrobe-UUID sets vs hairstyle catalog codes vs resolver); resolver tested-but-uncalled; ALL production call sites empty (`outfits/events/today` frozenset, `main.py:310` omits); Flutter zero refs; NO wire field; ZERO `docs/` product language. Consumers mapped (ranking-only: candidate +5/cap-15, OI +0.05/cap-0.15, FFO projection); edge/auth/overlap analysis done; fewest-changes = C (effort fact only).
+- OWNER_DECISIONS C-03 → PENDING-with-audit; CONTRACTS C-03 → audited link. C-02 verified untouched. STOPPED after audit.
+
+---
+
+## PHASE 1 STEP 2.12 C-02-M MOOD CLOSE (executed 2026-09-27, verdict: CLOSED — docs only, zero source/test/migration/API changes, no commit/push)
+
+- C-02-M recorded CLOSED/LOCKED: ranking 0, context/explanation only, no taxonomy/weighting/filter/LLM. Verification: repo-wide backend `mood` grep hits ONLY request validation (schemas/outfits.py:34, outfits.py:326) + prose echo (`selected_mood`, port docs); ZERO scoring/filter traces (`analysis_rules.py` clean, no mood param). No violation → no code touched.
+- Confirmed intact: palette +5, fit +5, compatibility 70 (targeted 101 pass/1 PG-skip rerun). Palette/Fit/Mood docs + matrix + CONTRACTS + OWNER_DECISIONS updated. C-02 complete: P+F live, M closed. C-03…C-10 untouched.
+
+---
+
+## PHASE 1 STEP 2.11 C-02-F FIT IMPLEMENTATION (executed 2026-09-27, verdict: PASS — fit live end-to-end, Mood/others untouched, no commit/push)
+
+- Implemented ONLY C-02-F (Option B): migration `0023` (nullable fit Text + fit_confidence Float, clean downgrade, no CHECK) + `WardrobeItems` columns + record/protocol/repo + Add/Update use cases + Create/Patch/response schemas (fit 1–200, fitConfidence 0–1; additive-optional) + router passthrough + `_fit_points` (+5 iff ≥1 usable member and all usable match; gate conf ≥ 0.6 LOCKED, NO multiplier; tailored/unknown/missing neutral) wired via `preferred_fit=` in `_derive_outfit` (events/today default None). Budget now live at 35+5+5+5+5+5+5+5=70. Flutter: DTOs/client/repo/local-repo/add-screen persist `_garmentResult` fit+confidence verbatim (absent → omitted → NULL).
+- Tests: new `test_c02_fit.py` (22 pass + 1 PG-skip: chain/model/record/round-trip/passthrough/map/gate/no-multiplier/cap+65.0/regression); chain test extended to 0023; Flutter +2 client tests; 12 test-double signature updates. Backend targeted 221/221; full 945 pass/415 skip/3 fail+6 errors — byte-identical to Step 2.8 baseline (environmental: psycopg blocked, no PG; sqlite-override artifacts). PG suites (migration round-trip, HTTP persistence) BLOCKED. Flutter analyze 0 issues; full 1078 pass/19 fail — identical pre-existing set (+2 new passes).
+- Reports: `PHASE_1_STEP2_C02_F_IMPLEMENTATION_REPORT.md`; matrix/CONTRACTS flip C-02-F IMPLEMENTED. STOPPED after C-02-F; C-02-M NOT started.
+
+---
+
+## PHASE 1 STEP 2.10 C-02-F PERSISTENCE LOCK (executed 2026-09-27, verdict: LOCKED — docs only, no source/Flutter/tests/migration/API changes, no commit/push)
+
+- Owner locked C-02-F persistence = OPTION B: nullable `fit` (Text) + `fit_confidence` (Float 0–1) as structured attributes on existing `wardrobe_items` (model `models.py:410`, table `0006`, head `0022` → future slot `0023` NOT created). Re-confirmed: fit +5, gate ≥ 0.6, no multiplier, missing/unknown = 0, tailored unsupported, no LLM, no filter, no backfill/inference.
+- Compatible because: sibling scored attrs already on-row; nullable-additive = all existing rows neutral-honest; CASCADE/RESTRICT untouched; full-row reads + optional-set updates already exist. Dependencies: migration → model → write path → read path → scoring → fit tests → regression (all pending).
+- Docs: BLOCKER (decision+location+deps), OWNER_DECISIONS, CONTRACTS, MATRIX. Palette intact; C-02-F/M NOT implemented.
+
+---
+
+## PHASE 1 STEP 2.9 C-02-F FIT BLOCKED (executed 2026-09-27, verdict: STOPPED — docs only, zero source/test/migration/API changes, no commit/push)
+
+- C-02-F implementation STOPPED per locked contract + step STOP condition: fit evidence with confidence is ABSENT at the scoring boundary. Verified read-only: `_candidate_members` reads id/category/color/material/is_favorite only; `_derive_outfit` namespace has no fit/confidence; sole `image_ref` writer (`_buildImageRef`) stores media provenance only (zero fit/confidence); `GarmentProfile.fit`+confidence are transient with no wardrobe-row link at scoring (sourceRunId→run join would be new hot-path behavior); no fit/confidence columns exist. Scoring a never-firing term or ranking by request echo would fabricate — refused.
+- Blocker doc: `PHASE_1_STEP2_C02_F_BLOCKER.md` (exact missing path + unblock options A sidecar-population / B columns+migration / C run-join / D dormant-like-mood; none selected). Palette intact; fit +5 stays RESERVED; ceiling 70 holds (practice max 65). No tests added (nothing honest to assert); no regressions possible (zero code touched).
+- Awaiting owner unblock choice. C-02-M NOT started.
+
+---
+
+## PHASE 1 STEP 2.8 C-02-P PALETTE IMPLEMENTATION (executed 2026-09-27, verdict: PASS — palette live, Fit/Mood untouched, no migration/API/Flutter changes, no commit/push)
+
+- Implemented ONLY C-02-P: `_palette_points` (+5 iff all known member `color_id`s ∈ frozen set; else 0; unknown skipped) + `_PALETTE_COLOR_SETS`/`_PALETTE_MATCH_BONUS`/`_PALETTE_MAP_VERSION="c02-p/1"` in `analysis_rules.py`; Option A rebalance (`_COVERAGE_PER_CATEGORY` 8→7, `_COLOR_HARMONY_BONUS` 10→5, penalty −10 kept; ceiling 70 intact); wired validated `color_palette` → `preferred_palette=` at `outfits.py:392` (events/today/engine callers default None → unchanged); FFO rescale maxima track native scales (`_COLOR_RANGE` (−10,5), `_COVERAGE_MAX` 35.0).
+- Tests: new `test_c02_palette.py` 9/9 (12 required proofs); updated 4 invalidated expectations in `test_analysis_rules.py` (36→29, 16→14, 39→31, 26→24) + 1 rescale comment. Targeted 182/182 pass. Full backend 924 pass/414 skip(DB)/3 fail+6 collection-errors — ALL proven pre-existing environmental via stashed-HEAD baseline (identical without changes): psycopg blocked + no PG here, runs used `DATABASE_URL=sqlite://` (env-only); PG suites BLOCKED, not passed. Flutter untouched (no analyze needed).
+- Report: `PHASE_1_STEP2_C02_P_IMPLEMENTATION_REPORT.md`. STOPPED after C-02-P; C-02-F NOT started.
+
+---
+
+## PHASE 1 STEP 2.7 C-02 BUDGET LOCK (executed 2026-09-27, verdict: LOCKED — docs only, no source/ranking/schema/API/test changes, no commit/push)
+
+- C-02 budget rebalance locked as Option A: compatibility remains 0–70 with coverage 35, color 5, material 5, season 5, formality 5, occasion 5, palette 5, fit 5. No implementation performed.
+- Weights LOCKED: palette +5, fit +5 (gate ≥ 0.6, NO multiplier), mood 0, tailored unsupported. Global 0–100, caps, tie-break, hard constraints untouched. Remaining inputs: warm/cool set freeze, fit map `tailored` ruling (weights/budget now locked).
+- Docs updated: proposal (OPTION A LOCKED + formula), palette/fit weight sections (+5 LOCKED + version-pin requirement), matrix (weights + budget LOCKED), OWNER_DECISIONS + CONTRACTS (final C-02 contract recorded).
+- Validation: docs only; `git status` shows only this entry + doc edits.
+
+---
+
+## PHASE 1 STEP 2.6 C-02 WEIGHT + BUDGET LOCK (executed 2026-09-27, verdict: PROPOSAL ONLY — 1 new doc, no source/ranking/schema/API/test changes, no commit/push)
+
+- C-02 Palette and Fit weights are locked at +5 each; Mood remains non-ranking; compatibility budget rebalance remains owner approval required.
+- Locked: palette +5 (soft, missing/unknown neutral, `_color_points` unchanged); fit +5 (soft, gate conf ≥ 0.6 LOCKED, no multiplier, missing/low/unmapped neutral, no column); mood 0 context-only; tailored unsupported. Naïve 70+5+5=80 stacking FORBIDDEN (would rewrite 0–100 contract).
+- Proposal (`PHASE_1_STEP2_C02_BUDGET_REBALANCE_PROPOSAL.md`): current max 40+10+5+5+5+5=70; options A (coverage 8→7/cat=35 + color bonus +10→+5, penalty −10 kept — RECOMMENDED: all signals survive, coverage stays dominant, conflict behavior identical) vs B (coverage→30, largest drift) vs C (delete occasion — REJECTED); forbidden: pref/fav caps, total, tie-break, hard constraints. Final formula max 70 with palette+fit terms. Versioning home identified (module constant + snapshot echo), not created.
+- Validation: docs only; `git status` shows only this entry + proposal doc.
+
+---
+
+## PHASE 1 STEP 2.5 C-02 WEIGHT ANALYSIS (executed 2026-09-27, verdict: ANALYSIS ONLY — 1 new doc, no source/ranking/schema/API/test changes, no commit/push)
+
+- C-02 ranking weight analysis completed; no source or ranking behavior changed.
+- Scale verified (`analysis_rules.py`): 0–100 = compatibility 0–70 (coverage 8/cat max 40; color ±10; material/season/formality/occasion +5) + preference 0–15 + favorite 0–15; per-component clamps; tie-break score→count→canonical IDs; weights are module constants, no config/flags; NO ranking version pin exists on STEP-13 path (FFO pins cover a different subsystem).
+- Palette: +5 recommended (occasion-analog; range +5…+10; adding any term overflows the exact-70 budget → rebalance is an owner call). Fit: +5 fixed-after-gate recommended; confidence stays GATE ONLY (no multiplier exists anywhere; scales deliberately separated); tailored LOCKED unsupported (61-hit repo-wide search: prose/ids/mocks only, no FFO/adapters/seeds value). Domination structurally impossible at +5…+10 (⅛ of coverage, below taste caps). Mood N/A. All numbers recommendations pending approval, not selections.
+- Validation: docs only; `git status` shows only this entry + analysis doc.
+
+---
+
+## PHASE 1 STEP 2.4 C-02 SUB-CONTRACT LOCK (executed 2026-09-27, verdict: LOCKED — docs only, no source/tests/migration/API/ranking/event changes, no commit/push)
+
+- C-02-P, C-02-F, and C-02-M are now locked. Implementation has not started.
+- C-02-P Palette = deterministic RANKING SIGNAL (never a hard filter; missing color neutral; LLM never decides membership; versioned weight pending approval). Monochrome = existing neutral set by reference; warm PROPOSED {beige,burgundy,olive,khaki,cream,tan,gold}, cool PROPOSED {navy,light_blue,indigo,silver}, blush/stone unassigned-neutral — all IMPLEMENTATION INPUT, OWNER APPROVAL REQUIRED. No migration/column; `_color_points` untouched.
+- C-02-F Fit = EVIDENCE-GATED RANKING SIGNAL (threshold conf ≥ 0.6 LOCKED; missing/below neutral; never from prose/LLM; never a hard filter). Request map proposed (slim/relaxed supported; `tailored` ruling OPEN) + deterministic weight pending approval. No column/migration.
+- C-02-M Mood = CONTEXT/EXPLANATION ONLY (zero backend mood data; style_type/occasions/FFO/GarmentProfile.style rejected as sources); mood weight NOT APPLICABLE; future ranking needs a separate contract.
+- Docs updated: 3 sub-contract docs (LOCKED + inputs), matrix (all LOCKED), OWNER_DECISIONS (C-02 stays B), CONTRACTS (sub-contract refs). Matrix order stands: Palette → Fit → Mood.
+- Validation: docs only; `git status` shows only this entry + doc edits.
+
+---
+
+## PHASE 1 STEP 2.3 C-02 SUB-CONTRACT FREEZE (executed 2026-09-27, verdict: DOCS ONLY — 4 new contract docs, no source/tests/migration/API/ranking/event changes, no commit/push)
+
+- C-02 was decomposed into Palette, Fit, and Mood sub-contracts; implementation remains blocked pending owner approval of the three sub-contract semantics.
+- Evidence (read-only): palette — 17 `colors` codes (0005), per-item `color_id` FK, `_color_points` + `_NEUTRAL_COLOR_CODES==monochrome` (`analysis_rules.py:866,1522`), zero backend palette mapping; fit — `GarmentProfile.fit` nullable + 0.35 floor/0.6 review gate (`vision_garment_adapter.py`), FFO fit docs, no column (sidecar `image_ref` only), zero fit scoring; mood — NO backend data, all style/vibe candidates rejected, interim = context/explanation-only.
+- Proposed (all PENDING): palette = ranking signal over frozen color sets (monochrome fixed, warm/cool to freeze); fit = evidence-gated signal (map + ≥0.6 gate + weight to approve); mood = forbidden from ranking until an approved taxonomy lands. Matrix order: Palette → Fit → Mood. LLM never source of truth; missing evidence stays missing.
+- Validation: docs only; `git status` shows only this entry + 4 new docs.
+
+---
+
+## PHASE 1 STEP 2.2 C-02 MOOD/FIT/PALETTE LOCK (executed 2026-09-27, verdict: LOCKED — docs only, no source/tests/migration/API/ranking/event changes, no commit/push)
+
+- Owner approved C-02 OPTION B: Mood/Fit/Palette are genuine recommendation inputs (deterministic; normalize-then-use; rank/filter only where repo data supports; honest degradation; AI attrs as evidence; engine intact; LLM never source of truth). `OWNER_DECISIONS.md` C-02 → B — LOCKED; `CONTRACTS.md` C-02 → LOCKED — OWNER APPROVED.
+- Read-only pipeline verification (`PHASE_1_STEP2_C02_IMPLEMENTATION_READINESS.md`): ids created in `outfit_builder_mock_data.dart:50-117` (mood minimal/bold/classic/eclectic; fit slim/relaxed/tailored; palette monochrome/warm/cool) → build screen → router:262 → client POST → `outfits.py:325-328` free-string validate → prose echo `:250-264`; derive via `GenerateOutfit` + `generate_outfit_candidates(:1410)` + `score_outfit_candidate(:1612)`; `UserContext(schemas.py:32)` is assistant-path-only, NOT consumed by derive. Data: palette CLOSEST (real `color_id` + `colors` vocab + `_color_points`; map missing); fit PARTIAL (no column; vision `GarmentProfile.fit` + FFO fit docs as evidence only); mood NONE (no backend data — context/explanation-only until a mapping is designed).
+- Implementation NOT started (weights/schema/APIs frozen). STOPPED per stop condition; other contracts still PENDING/BLOCKED.
+
+---
+
+## PHASE 1 STEP 2B OWNER DECISION DOCUMENT (executed 2026-09-27, verdict: SPEC READY — doc only, no source/tests/migration/API/ranking/event changes, no commit/push)
+
+- Created `PHASE_1_STEP2_OWNER_DECISIONS.md` (exact required structure; C-01/C-08 reproduced LOCKED untouched; all other contracts OWNER DECISION: PENDING, nothing chosen). Read-only C-07 seed verification: `signal_types` = exactly 5 codes (0001: look_saved/analysis_updated; 0008: outfit_selected; 0015: suggestion_opened/assistant_navigation) — item_added ABSENT (sole backend hit = `wardrobe.py:127` aspirational docstring; RESTRICT FK would 500 unseeded inserts); option A therefore blocked on a seed migration, not created.
+- Decision matrix + dependency-safe order recorded (no-migration → schema/event → ranking → learning/ledger → concurrency; scoring never concurrent; idempotency last). STOPPED per stop condition; awaiting owner picks.
+- Validation: doc-only; `git status` shows only this entry + decision doc.
+
+---
+
+## PHASE 1 STEP 2A AI STYLIST CONTRACT SPECIFICATION (executed 2026-09-27, verdict: SPEC READY — doc only, no source/tests/migration/API changes, no commit/push)
+
+- Created `PHASE_1_STEP2_AI_STYLIST_CONTRACTS.md` (C-01…C-10, each FACT / EXISTING BEHAVIOR / PRODUCT DECISION / PROPOSED CONTRACT / UNKNOWN-BLOCKER). Pre-verified: clean tree (`status`/`diff` empty), Step 1 intact (error getter `outfit_scan_client:32,37,40`, date guards `grooming_client:115,118`, `@Deprecated` setter `local_storage:98`). Skills: `.agents/skills/` inspected, none match spec authoring, none loaded.
+- Statuses: LOCKED C-01 (gates+conversion as DEC-GUEST-01/Phase 1/2/2.1 shipped; anon-runs out, D-01 only to relax), C-08 (flag=photo-taken Step-1 docs; blob dead+deprecated). PRODUCT DECISION REQUIRED C-02 (terms/drop/relabel), C-03 (meaning A–D, do NOT activate), C-04 (display/transform/run-link), C-05 (dislike/skip/wear scope; save→look_saved+ForYou boost locked per DEC-019/DEC-012), C-06 (attrs+weights; imageRef sidecar path needs no migration), C-09 (REPLACE/MERGE/concurrency), C-10 (duplicate-cost tolerance vs run keying). BLOCKED C-07 (seed-file check first, default DO NOT EMIT per DEC-019 §G).
+- Validation: spec-only; `git status` shows only this entry + contracts doc. STOPPED before C-01 implementation per Step 2A; awaiting owner approval.
+
+---
+
 ## PHASE 1 STEP 1 P0-A IMPLEMENTATION (executed 2026-09-27, verdict: COMPLETE — P0-A scope only, no product decisions, no commit/push)
 
 - Implemented: num-safe confidence/matchScore (outfit screen), Map-safe error getter (mirror garment failureReason), String-safe grooming dates (`is` checks — new test caught `as String?`-on-int crash), outfit 404-stop + terminal-error display, garment 401 prompt-stop, local_storage docs + deprecated dead blob setter. Preserved: reason-list behavior, strict OutfitRecommendation, all poll intervals/timeouts, guest gates, engine, no backend changes.

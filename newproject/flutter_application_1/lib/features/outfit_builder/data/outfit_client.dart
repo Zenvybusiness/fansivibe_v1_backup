@@ -68,6 +68,7 @@ class OutfitBuilderClient {
     required String fit,
     required String colorPalette,
     String? seed,
+    List<String>? preferredItemIds,
   }) async {
     try {
       final payload = <String, dynamic>{
@@ -76,6 +77,8 @@ class OutfitBuilderClient {
         'fit': fit,
         'colorPalette': colorPalette,
         if (seed != null) 'seed': seed,
+        if (preferredItemIds != null && preferredItemIds.isNotEmpty)
+          'preferredItemIds': preferredItemIds,
       };
       final response = await _client
           .post(

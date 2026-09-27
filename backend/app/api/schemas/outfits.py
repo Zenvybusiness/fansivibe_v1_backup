@@ -16,6 +16,7 @@ alternatives: the canonical DTO carries none. Save reuses M7's
 from __future__ import annotations
 
 from typing import Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -28,6 +29,12 @@ class OutfitGenerateRequest(BaseModel):
     selections — structural validation only, invalid values → 422).
     `seed` is the opaque UC-29 variety selector (absent → the winner;
     same seed repeats the backend result).
+
+    C-03: `preferredItemIds` carries explicit user-selected preferred
+    wardrobe item UUIDs (absent/null ≡ empty; `[]` ≡ empty; malformed →
+    422 via UUID parsing; unknown/foreign → ignored downstream to 0,
+    never 404 — preference is advisory). No length cap (undecided;
+    scoring caps bound all effects).
     """
 
     occasion: str = Field(min_length=1, max_length=200)
@@ -35,6 +42,7 @@ class OutfitGenerateRequest(BaseModel):
     fit: str = Field(min_length=1, max_length=200)
     colorPalette: str = Field(min_length=1, max_length=200)
     seed: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    preferredItemIds: Optional[list[UUID]] = None
 
 
 class OutfitComponent(BaseModel):

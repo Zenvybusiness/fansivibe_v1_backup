@@ -96,6 +96,7 @@ class ScriptedOutfitRepository implements OutfitBuilderRepository {
   int genCalls = 0;
   int saveCalls = 0;
   final List<String?> genSeeds = [];
+  final List<List<String>?> genPreferredIds = [];
   final List<String> saveTitles = [];
   final List<Map<String, dynamic>> saveSnapshots = [];
   final List<String> saveKeys = [];
@@ -107,9 +108,11 @@ class ScriptedOutfitRepository implements OutfitBuilderRepository {
     required String fit,
     required String colorPalette,
     String? seed,
+    List<String>? preferredItemIds,
   }) {
     genCalls += 1;
     genSeeds.add(seed);
+    genPreferredIds.add(preferredItemIds);
     return genHandler!();
   }
 
@@ -324,6 +327,134 @@ void main() {
       await tester.pump();
 
       expect(find.text('Building Outfit'), findsOneWidget);
+    });
+  });
+
+  group('C-04 Scan → Save → Build with this item', () {
+    Future<void> selectAllPrefs(WidgetTester tester) async {
+      await tester.tap(find.text('Casual'));
+      await tester.pump();
+      await tester.scrollUntilVisible(find.text('Classic'), 200);
+      await tester.tap(find.text('Classic'));
+      await tester.pump();
+      await tester.scrollUntilVisible(find.text('Tailored'), 200);
+      await tester.tap(find.text('Tailored'));
+      await tester.pump();
+      await tester.scrollUntilVisible(find.text('Warm'), 200);
+      await tester.tap(find.text('Warm'));
+      await tester.pump();
+    }
+
+    testWidgets('builder carries the saved UUID into generation extra', (
+      WidgetTester tester,
+    ) async {
+      Map<String, String>? seenExtra;
+      final router = GoRouter(
+        initialLocation: '/build',
+        routes: [
+          GoRoute(
+            path: '/build',
+            builder: (context, state) =>
+                const BuildOutfitScreen(preferredItemId: _uuid1),
+          ),
+          GoRoute(
+            path: '/gen',
+            name: RouteNames.outfitGeneration,
+            builder: (context, state) {
+              seenExtra = state.extra as Map<String, String>?;
+              return const Text('generation reached');
+            },
+          ),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pumpAndSettle();
+
+      await selectAllPrefs(tester);
+      final buildButton = find.widgetWithText(FilledButton, 'Build Outfit');
+      await tester.scrollUntilVisible(buildButton, 200);
+      await tester.tap(buildButton);
+      await tester.pumpAndSettle();
+
+      // Existing prefs intact plus exactly the saved UUID.
+      expect(seenExtra, {
+        'occasion': 'casual',
+        'mood': 'classic',
+        'fit': 'tailored',
+        'colorPalette': 'warm',
+        'preferredItemId': _uuid1,
+      });
+      expect(find.text('generation reached'), findsOneWidget);
+    });
+
+    testWidgets('generation forwards the saved UUID as preferredItemIds', (
+      WidgetTester tester,
+    ) async {
+      final repo = ScriptedOutfitRepository()
+        ..genHandler = () => Completer<OutfitResult>().future;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitGenerationScreen(
+            occasion: 'office',
+            mood: 'classic',
+            fit: 'tailored',
+            colorPalette: 'warm',
+            preferredItemId: _uuid1,
+            outfitRepository: repo,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(repo.genCalls, 1);
+      expect(repo.genPreferredIds, [
+        [_uuid1],
+      ]);
+    });
+
+    testWidgets('generation without a saved UUID keeps baseline (null)', (
+      WidgetTester tester,
+    ) async {
+      final repo = ScriptedOutfitRepository()
+        ..genHandler = () => Completer<OutfitResult>().future;
+      await tester.pumpWidget(_generationWith(repo));
+      await tester.pump();
+
+      expect(repo.genCalls, 1);
+      expect(repo.genPreferredIds, [isNull]);
+    });
+
+    testWidgets('regenerate preserves the saved UUID', (
+      WidgetTester tester,
+    ) async {
+      final repo = ScriptedOutfitRepository()
+        ..genHandler = () async => OutfitResult.available(_rec(_wire()));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitRecommendationScreen(
+            recommendation: _rec(_wire()),
+            request: const OutfitGenerateRequest(
+              occasion: 'office',
+              mood: 'classic',
+              fit: 'tailored',
+              colorPalette: 'warm',
+              preferredItemIds: [_uuid1],
+            ),
+            outfitRepository: repo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Regenerate'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Regenerate'));
+      await tester.pumpAndSettle();
+
+      expect(repo.genCalls, 1);
+      expect(repo.genPreferredIds, [
+        [_uuid1],
+      ]);
     });
   });
 
