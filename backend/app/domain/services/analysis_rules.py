@@ -789,6 +789,7 @@ from app.domain.value_objects import (
     OutfitCandidate,
     FeedbackContext,
     WardrobeContext,
+    OutfitIntelligence,
 )
 
 

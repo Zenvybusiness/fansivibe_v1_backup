@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from typing import Optional, Protocol
+from typing import Any, Optional, Protocol
 from uuid import UUID
 
 
