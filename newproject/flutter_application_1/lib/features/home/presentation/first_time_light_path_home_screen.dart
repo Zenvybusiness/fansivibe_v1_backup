@@ -59,7 +59,7 @@ class _FirstTimeLightPathHomeScreenState
     }
   }
 
-  bool get _hasScannedOutfit => LocalStorage.analysisCached;
+  bool get _hasScannedOutfit => LocalStorage.onboardingPhotoCaptured;
 
   @override
   void initState() {

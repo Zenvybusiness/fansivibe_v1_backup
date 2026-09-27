@@ -36,7 +36,7 @@ class FakeRuns:
     rows: dict[UUID, dict] = field(default_factory=dict)
     next_id: UUID = field(default_factory=uuid4)
 
-    def create(self, *, user_id, run_type, engine_version="rules-v1", input_media=None, knowledge_version=None) -> UUID:
+    def create(self, *, user_id, run_type, engine_version="rules-v1", input_media=None, knowledge_version=None, idempotency_key=None) -> UUID:
         run_id = self.next_id
         self.next_id = uuid4()
         self.rows[run_id] = {
@@ -51,6 +51,7 @@ class FakeRuns:
             "result": None,
             "error": None,
             "knowledge_version": knowledge_version,
+            "idempotency_key": idempotency_key,
         }
         return run_id
 
@@ -59,6 +60,12 @@ class FakeRuns:
         if row is None or row["user_id"] != user_id:
             return None
         return AnalysisRunRecord(**{k: v for k, v in row.items() if k != "user_id"})
+
+    def get_by_idempotency(self, *, user_id: UUID, idempotency_key: str) -> Optional[AnalysisRunRecord]:
+        for row in self.rows.values():
+            if row["user_id"] == user_id and row.get("idempotency_key") == idempotency_key:
+                return AnalysisRunRecord(**{k: v for k, v in row.items() if k != "user_id"})
+        return None
 
     def list_for_user(self, *, user_id, page, page_size):
         return [], 0
@@ -1352,8 +1359,9 @@ def test_11_2_1_router_injects_saved_look_repo_into_create_hairstyle_run(monkeyp
         def __init__(self, **kwargs) -> None:
             captured["kwargs"] = kwargs
 
-        def __call__(self, *, user_id):
+        def __call__(self, *, user_id, **kwargs):
             captured["user_id"] = user_id
+            captured.update(kwargs)
             return run_id
 
     monkeypatch.setattr(analysis_router, "CreateHairstyleRun", SpyCreateHairstyleRun)
@@ -1636,8 +1644,9 @@ def test_11_3_router_injects_saved_look_repo_into_create_grooming_run(monkeypatc
         def __init__(self, **kwargs) -> None:
             captured["kwargs"] = kwargs
 
-        def __call__(self, *, user_id):
+        def __call__(self, *, user_id, **kwargs):
             captured["user_id"] = user_id
+            captured.update(kwargs)
             return run_id
 
     monkeypatch.setattr(analysis_router, "CreateGroomingRun", SpyCreateGroomingRun)

@@ -79,7 +79,7 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
     // the AI Stylist tab. Camera flow and UI above are untouched.
     LocalStorage.onboardingComplete = true;
     LocalStorage.savedLocally = true;
-    LocalStorage.analysisCached = true;
+    LocalStorage.onboardingPhotoCaptured = true;
     context.goNamed(RouteNames.stylist, extra: {
       'onboarding_complete': true,
       'display_name': null,

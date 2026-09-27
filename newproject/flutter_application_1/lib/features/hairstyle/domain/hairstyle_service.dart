@@ -69,6 +69,10 @@ class HairstyleService extends ChangeNotifier {
     _learning = learning;
   }
 
+  String? _activeIdempotencyKey;
+  String? get activeIdempotencyKey => _activeIdempotencyKey;
+  void resetIdempotencyKey() => _activeIdempotencyKey = null;
+
   /// Runs the analysis and returns the result.
   ///
   /// When [imageBytes] are supplied (real face-scan photo held in memory by
@@ -85,7 +89,10 @@ class HairstyleService extends ChangeNotifier {
     Uint8List? imageBytes,
     String? imageFilename,
     String? imageContentType,
+    String? idempotencyKey,
   }) async {
+    final effectiveKey =
+        idempotencyKey ?? (_activeIdempotencyKey ??= newHairstyleIdempotencyKey());
     _isProcessing = true;
     _completedStageCount = 0;
     _analysisError = null;
@@ -100,6 +107,7 @@ class HairstyleService extends ChangeNotifier {
           imageBytes: imageBytes,
           imageFilename: imageFilename,
           imageContentType: imageContentType,
+          idempotencyKey: effectiveKey,
         ),
       );
     } else {
@@ -110,9 +118,13 @@ class HairstyleService extends ChangeNotifier {
         resolved = HairstyleAnalysisResult.mock;
       } else {
         resolved = await _resolveBackendRun(
-          _client.submitHairstyleAnalysis(),
+          _client.submitHairstyleAnalysis(idempotencyKey: effectiveKey),
         );
       }
+    }
+
+    if (_analysisError == null && !_usedMockResult) {
+      _activeIdempotencyKey = null;
     }
 
     // Emit appearance_scan_completed exactly once per analysis run with an

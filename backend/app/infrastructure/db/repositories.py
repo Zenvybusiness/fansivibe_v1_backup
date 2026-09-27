@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import and_, cast, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.ports.repositories import (
@@ -96,6 +97,7 @@ class AnalysisRunRepositorySQL:
         engine_version: str = _ENGINE_VERSION,
         input_media: Optional[dict] = None,
         knowledge_version: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> UUID:
         row = AnalysisRuns(
             user_id=user_id,
@@ -104,11 +106,16 @@ class AnalysisRunRepositorySQL:
             engine_version=engine_version,
             knowledge_version=knowledge_version,
             input_media=input_media,
+            idempotency_key=idempotency_key,
         )
-        self._session.add(row)
-        self._session.commit()
-        self._session.refresh(row)
-        return row.id
+        try:
+            self._session.add(row)
+            self._session.commit()
+            self._session.refresh(row)
+            return row.id
+        except IntegrityError:
+            self._session.rollback()
+            raise
 
     def get_for_user(self, *, user_id: UUID, run_id: UUID) -> Optional[AnalysisRunRecord]:
         row = self._session.execute(
@@ -119,6 +126,17 @@ class AnalysisRunRepositorySQL:
         if row is None:
             return None
         return self._to_record(row)
+
+    def get_by_idempotency(
+        self, *, user_id: UUID, idempotency_key: str
+    ) -> Optional[AnalysisRunRecord]:
+        row = self._session.execute(
+            select(AnalysisRuns).where(
+                AnalysisRuns.user_id == user_id,
+                AnalysisRuns.idempotency_key == idempotency_key,
+            )
+        ).scalar_one_or_none()
+        return self._to_record(row) if row else None
 
     def list_for_user(
         self, *, user_id: UUID, page: int, page_size: int
@@ -176,6 +194,7 @@ class AnalysisRunRepositorySQL:
             result=row.result,
             error=row.error,
             knowledge_version=row.knowledge_version,
+            idempotency_key=getattr(row, "idempotency_key", None),
         )
 
     @staticmethod
@@ -205,29 +224,41 @@ class UserStateRepositorySQL:
         self,
         *,
         user_id: UUID,
-        face_shape: str,
-        skin_tone: str,
-        body_type: str,
-        style_type: str,
-        source_run_id: str,
+        face_shape: Optional[str] = None,
+        skin_tone: Optional[str] = None,
+        body_type: Optional[str] = None,
+        style_type: Optional[str] = None,
+        source_run_id: Optional[str] = None,
     ) -> None:
-        """Update user_state.style_profile with image-derived appearance attributes (TRX-6).
+        """Merge non-empty image-derived appearance attributes into user_state.style_profile (C-09).
 
-        Only the approved appearance fields are updated; other profile data is preserved.
-        This is the profile projection update step that makes the appearance data reusable
-        for future hairstyle/grooming runs without needing re-capture.
+        Uses PostgreSQL `||` JSONB concatenation (`existing || patch`) so previously known
+        attributes and any unrelated keys survive partial vision analysis runs.
+        Only non-empty incoming strings replace existing values; empty strings, missing keys,
+        or nulls do not erase existing data. `source_run_id` is updated to the latest successful run.
         """
+        patch: dict[str, Any] = {}
+        for key, val in (
+            ("face_shape", face_shape),
+            ("skin_tone", skin_tone),
+            ("body_type", body_type),
+            ("style_type", style_type),
+        ):
+            if val is not None and isinstance(val, str) and val.strip() != "":
+                patch[key] = val
+        if source_run_id is not None and str(source_run_id).strip() != "":
+            patch["source_run_id"] = str(source_run_id)
+
+        if not patch:
+            return
+
         self._session.execute(
             update(UserState)
             .where(UserState.user_id == user_id)
             .values(
-                style_profile={
-                    "face_shape": face_shape,
-                    "skin_tone": skin_tone,
-                    "body_type": body_type,
-                    "style_type": style_type,
-                    "source_run_id": source_run_id,
-                }
+                style_profile=func.coalesce(
+                    UserState.style_profile, cast({}, JSONB)
+                ).op("||")(cast(patch, JSONB))
             )
         )
         self._session.commit()

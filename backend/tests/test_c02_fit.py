@@ -87,8 +87,11 @@ def test_0023_revision_chain_and_static_contract():
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
-    # C-07 extended the head: 0024 (item_added seed) on top of 0023.
-    assert tuple(script.get_heads()) == ("0024",)
+    # C-10 extended the head: 0025 (analysis_runs idempotency) on top of 0024.
+    assert tuple(script.get_heads()) == ("0025",)
+    rev25 = script.get_revision("0025")
+    assert rev25 is not None
+    assert rev25.down_revision == "0024"
     rev = script.get_revision("0024")
     assert rev is not None
     assert rev.down_revision == "0023"

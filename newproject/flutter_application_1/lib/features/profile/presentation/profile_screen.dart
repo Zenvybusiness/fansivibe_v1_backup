@@ -277,8 +277,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // Achievements evaluation
   bool get _colorAchievementUnlocked {
-    return LocalStorage.analysisCached ||
-        LocalStorage.analysisResult != null ||
+    return LocalStorage.onboardingPhotoCaptured ||
         (UserSession.hasSavedWardrobeItem &&
             LearningService.instance.wardrobe.any((item) => item.color.isNotEmpty));
   }
@@ -306,28 +305,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // Style DNA evaluation
   String? get _skinTone {
-    final appearance = LocalStorage.analysisResult?['appearance'] as Map<String, dynamic>?;
-    return (appearance?['skinTone'] as String?) ??
-        (LocalStorage.userProfile['skinTone'] as String?);
+    return LocalStorage.userProfile['skinTone'] as String?;
   }
 
   String? get _faceShape {
     return LearningService.instance.face?.faceShape ??
-        ((LocalStorage.analysisResult?['appearance'] as Map<String, dynamic>?)?['faceShape']
-            as String?) ??
         (LocalStorage.userProfile['faceShape'] as String?);
   }
 
   String? get _bodyType {
-    final appearance = LocalStorage.analysisResult?['appearance'] as Map<String, dynamic>?;
-    return (appearance?['bodyType'] as String?) ??
-        (LocalStorage.userProfile['bodyType'] as String?);
+    return LocalStorage.userProfile['bodyType'] as String?;
   }
 
   String? get _styleType {
     return LearningService.instance.styleType ??
-        ((LocalStorage.analysisResult?['appearance'] as Map<String, dynamic>?)?['styleType']
-            as String?) ??
         LocalStorage.vibe ??
         (LocalStorage.userProfile['styleType'] as String?);
   }

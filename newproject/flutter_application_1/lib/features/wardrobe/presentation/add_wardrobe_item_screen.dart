@@ -70,6 +70,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
   Map<String, dynamic>? _garmentInputMedia;
   String? _garmentRunId;
   Timer? _stillAnalyzingTimer;
+  String? _garmentIdempotencyKey;
 
   bool get _isValid => _selectedType != null && _selectedColor != null;
 
@@ -287,6 +288,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
         _analysisStatus = null;
         _stillAnalyzing = false;
         _errorMessage = null;
+        _garmentIdempotencyKey = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -307,6 +309,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       _analysisStatus = null;
       _stillAnalyzing = false;
       _errorMessage = null;
+      _garmentIdempotencyKey = null;
     });
   }
 
@@ -347,9 +350,11 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       });
     });
 
+    final key = _garmentIdempotencyKey ??= newGarmentIdempotencyKey();
     final runId = await _garmentClient.submitGarmentAnalysisBytes(
       bytes,
       filename: _photoFilename ?? 'wardrobe_item.jpg',
+      idempotencyKey: key,
     );
     if (!mounted) return;
     if (runId == null) {
@@ -409,6 +414,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       _garmentResult = result;
       _garmentInputMedia = run.inputMedia;
       _garmentRunId = runId;
+      _garmentIdempotencyKey = null;
     });
     _prefillFromGarment(result);
   }

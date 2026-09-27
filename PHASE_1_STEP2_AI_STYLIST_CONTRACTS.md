@@ -300,7 +300,7 @@ concurrency (dual-submit → documented winner, no corruption), negative (stale-
 
 ## CONTRACT C-10 — ANALYSIS IDEMPOTENCY
 
-STATUS: **PRODUCT DECISION REQUIRED** (D-10).
+STATUS: **IMPLEMENTED** (Option B — client-generated Idempotency-Key).
 
 FACT — which POSTs are non-idempotent: all 4 analysis submits (new run per POST; manual re-tap → NEW run;
 double AI/provider cost risk). Keyed (safe): saves, #35 feedback, wears (UQ(user,key), replay→original,
@@ -309,10 +309,9 @@ events CRUD. Register PARTIAL (key, no UQ — frozen race window). Migration YES
 Retry behavior: client polls/loops retry READS safely; only user re-tap re-POSTs (all submit paths have
 double-tap guards — Step 1 verified — but network-retry duplicates on keyless POSTs remain).
 
-PRODUCT DECISION REQUIRED — D-10: is duplicate AI/provider cost acceptable now, or is keying required
-now vs later? (Keying runs = product + schema call — P0-C, do NOT implement keys merely because useful.)
-CURRENT CODE: analyses honestly non-idempotent per `FANSIVIBE_API_CONTRACT_V1.md` (202-`{run_id}` never-idempotent).
-IMPACT: keys need schema (run-key UQ), router, client, and replay-vs-new semantics.
+PRODUCT DECISION REQUIRED — D-10: Owner selected Option B (client-generated Idempotency-Key).
+CURRENT CODE: Idempotency-Key header accepted across all analysis routers (/hairstyle, /grooming, /outfit, /garment). DB unique constraint `uq_analysis_runs_idempotency` added in migration 0025. Repositories and use cases replay existing run on same user+key, bypass adapters and side effects, and raise 409 CONFLICT on payload mismatch. Flutter clients send client-generated UUIDv4 keys and retain them across timeouts/retries.
+IMPACT: duplicate analysis runs and duplicate AI spend prevented.
 
 DEPENDENCIES: D-09 (replay + replace interaction).
 IMPLEMENTATION FILES (post-decision): analysis routers/schemas, run tables (migration proposal + STOP),
@@ -335,7 +334,8 @@ concurrent same-key submits, cost accounting (provider-call count asserted, not 
 | C-07 | BLOCKED | Seed-file check → owner emit-vs-docfix |
 | C-08 | LOCKED | Done (Step 1); setter removal = optional cleanup |
 | C-09 | PRODUCT DECISION REQUIRED | Owner picks REPLACE/MERGE + concurrency posture |
-| C-10 | PRODUCT DECISION REQUIRED | Owner accepts cost or orders keying (schema STOP first) |
+| C-10 | IMPLEMENTED (Option B) | Done (Step 10) |
+
 
 STOP CONDITIONS (unchanged): missing product decision · contradiction with DECISIONS.md · migration
 necessary · unknown provider behavior · ambiguous auth · weight/profile-semantic changes · unrelated

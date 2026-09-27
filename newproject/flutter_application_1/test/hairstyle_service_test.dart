@@ -25,6 +25,7 @@ class _FakeHairstyleClient extends HairstyleClient {
     Uint8List? imageBytes,
     String? imageFilename,
     String? imageContentType,
+    String? idempotencyKey,
   }) async {
     submitCalls++;
     lastImageBytes = imageBytes;

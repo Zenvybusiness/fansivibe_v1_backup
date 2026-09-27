@@ -2,6 +2,34 @@
 
 ---
 
+## PHASE 1 STEP 10 C-10 ANALYSIS IDEMPOTENCY IMPLEMENTATION (executed 2026-09-27, verdict: PASS — client-generated Idempotency-Key, migration 0025, Phase 1 100% complete, no commit/push)
+
+- C-10 live (Option B): Migration 0025 adds nullable `idempotency_key` Text column to `analysis_runs` with unique constraint `uq_analysis_runs_idempotency` on `(user_id, idempotency_key)` (child of 0024, clean downgrade). ORM model `AnalysisRuns` mapped. `AnalysisRunRepository.get_by_idempotency(user_id, idempotency_key)` and `create(..., idempotency_key)` implemented in SQL repo with `IntegrityError` rollback.
+- All 5 analysis execution paths updated (`CreateHairstyleRun`, `CreateOutfitRun`, `CreateHairstyleImageRun`, `CreateGroomingRun`, `CreateGarmentRun`): replay returns existing `run_id`, bypasses AI/vision adapters, recommendation engine, style profile updates, learning signals, and activity day writes. Payload mismatch (`run_type` clash or `contentHash`/`sha256` mismatch) raises 409 CONFLICT. Concurrency race safely handled via DB unique constraint + rollback + re-read winner.
+- Routers: `POST /v1/analysis/hairstyle`, `/grooming`, `/outfit`, `/garment` accept optional `Idempotency-Key: str | None = Header(None)`.
+- Flutter: `GarmentClient`, `OutfitScanClient`, `HairstyleClient`, and `GroomingClient` generate UUIDv4 keys at start of logical action, send `Idempotency-Key` header, preserve key across timeout/network retries, clear on 202 Accepted. Polling behavior untouched.
+- Tests: `test_c10_analysis_idempotency.py` (8 passed, 1 PG-skip); `test/c10_analysis_idempotency_test.dart` (9/9 passed); `flutter analyze` 0 issues; migration chain tests (0025 head); full regressions across C-02, C-03, C-04, C-07, C-09 all green.
+- Phase 1 Status: ALL 10 contracts (C-01 through C-10) are complete. STOPPED after C-10. Phase 2 NOT started.
+
+---
+
+## PHASE 1 STEP 9 C-09 STYLE PROFILE MERGE IMPLEMENTATION (executed 2026-09-27, verdict: PASS — backend-only JSONB merge, C-01…C-08 untouched, no commit/push)
+
+- C-09 live (Option B): `UserStateRepositorySQL.update_style_profile` implements non-empty field MERGE semantics via PostgreSQL JSONB concatenation (`func.coalesce(UserState.style_profile, cast({}, JSONB)).op("||")(cast(patch, JSONB))`). Incoming empty strings (`""`), missing/null values, and whitespace-only values are excluded from the patch, preventing partial vision analysis passes from erasing previously stored appearance attributes. Incoming non-empty strings replace existing values; `source_run_id` is updated on every successful run; unrelated JSONB keys survive; empty incoming profiles execute no SQL; `{}` behavior preserved for new users.
+- Public port: `UserStateRepository.update_style_profile` signature added to `backend/app/domain/ports/repositories.py`.
+- Tests: new `backend/tests/test_c09_style_profile_merge.py` (10 passed / 1 PG-skip): SQL statement emission with `||` and JSONB casting; omission of empty/null/whitespace attributes; early exit on all-empty profile; survival of existing non-empty fields (A); replacement by non-empty fields (B); survival of unrelated JSONB keys (C); source_run_id update (D); empty existing + populated incoming (E); all-empty incoming safety (F); reader compatibility for `StyleProfile` wire shape and `ProfileView` (G); live PostgreSQL round-trip test.
+- Regression: C-02 palette/fit (12 pass / 1 PG-skip), C-03 preferredItemIds (23/23 pass), C-07 item_added (9 pass / 1 PG-skip) total 62 pass / 2 PG-skip (exact baseline); neighbor profile/users API suites (84 pass / 23 PG-skip); Flutter C-04 suites (68/68 pass). Zero migrations; zero Flutter production changes; zero API schema changes. STOPPED after C-09; C-10 NOT started.
+
+---
+
+## PHASE 1 STEP 8 C-08 ANALYSIS CACHE IMPLEMENTATION (executed 2026-09-27, verdict: PASS — Flutter-only semantic cleanup, C-02…C-07 untouched, no commit/push)
+
+- C-08 live: `LocalStorage.analysisResult` dead setter & getter removed; dead `UserSession.analysisCached` mirror removed; `LocalStorage.analysisCached` renamed to `LocalStorage.onboardingPhotoCaptured` across all readers (`home_screen.dart`, `first_time_home_screen.dart`, `first_time_light_path_home_screen.dart`, `profile_screen.dart`, `your_analysis_screen.dart`, `guest_phase2_test.dart`); underlying SharedPreferences key `'analysis_cached'` preserved for zero-migration compatibility; dead `ProfileScreen` fallback blob chains removed in favor of real active sources (`LearningService.instance`, `LocalStorage.userProfile`, `LocalStorage.vibe`).
+- Tests: new `test/c08_onboarding_photo_captured_test.dart` (7/7 pass); analyze 0 issues; profile suites (56/56), route-decision (5/5), your_analysis (4/4), C-04 garment flow (29/29), C-04/C-03 outfit builder (60/60) pass. Backend C-02/C-03/C-07 suites re-verified green (62 pass / 2 PG-skip). Zero backend/migration changes.
+- Docs: `PHASE_1_STEP8_C08_ANALYSIS_CACHE_AUDIT.md` marked implemented; report `PHASE_1_STEP8_C08_IMPLEMENTATION_REPORT.md`. STOPPED after C-08; C-09 NOT started.
+
+---
+
 ## PHASE 1 STEP 8 C-08 ANALYSIS CACHE AUDIT (executed 2026-09-27, verdict: AUDIT ONLY — 1 new doc, no source/tests/schema/API/Flutter changes, no commit/push)
 
 - Verified prior claims (`PHASE_1_STEP8_C08_ANALYSIS_CACHE_AUDIT.md`): analysisCached = photo-taken/onboarding flag (sole writer = guest continue; readers = first-time gating + achievement/display only; backend/wire zero hits). Blob setter dead (@Deprecated, zero callers); getter read only by null-safe profile fallbacks (always null in prod); route-extra analysisResult is a separate live namespace. Authoritative completion = analysis_runs pending/completed/failed + result JSONB (already used by poll clients) — no new state needed.

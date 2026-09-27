@@ -12,12 +12,13 @@ from dataclasses import replace
 from typing import Callable, Optional
 from uuid import UUID
 
-from app.api.errors import ApiError, validation, not_found
+from app.api.errors import ApiError, conflict, not_found, validation
 from app.application.enrichment import enrich_hairstyle_result
 from app.application.learning import mark_styled_today
 from app.application.media import build_media_ref, read_image_bytes
 from app.ai.vision_appearance_adapter import AppearanceAnalysisError
 from app.ai.vision_garment_adapter import GarmentAnalysisError
+from sqlalchemy.exc import IntegrityError
 from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.domain.ports.garment_analysis import GarmentAnalysisPort
 from app.domain.ports.external import KnowledgeSource
@@ -113,17 +114,40 @@ class CreateHairstyleRun:
             preferred.add(look_id)
         return HairstylePreferences(preferredLookIds=frozenset(preferred))
 
-    def __call__(self, *, user_id: UUID) -> UUID:
+    def __call__(
+        self, *, user_id: UUID, idempotency_key: Optional[str] = None
+    ) -> UUID:
         profile = self._user_state.get_style_profile(user_id=user_id)
         if not profile or not profile.get("face_shape"):
             raise insufficient_user_data("face")
 
-        run_id = self._runs.create(
-            user_id=user_id,
-            run_type="hairstyle",
-            input_media=None,  # profile-only pass; no image (MS10.3 sealed)
-            knowledge_version=knowledge_provenance(),
-        )
+        if idempotency_key is not None:
+            existing = self._runs.get_by_idempotency(
+                user_id=user_id, idempotency_key=idempotency_key
+            )
+            if existing is not None:
+                if existing.run_type != "hairstyle":
+                    raise conflict("duplicate")
+                return existing.id
+
+        try:
+            run_id = self._runs.create(
+                user_id=user_id,
+                run_type="hairstyle",
+                input_media=None,  # profile-only pass; no image (MS10.3 sealed)
+                knowledge_version=knowledge_provenance(),
+                idempotency_key=idempotency_key,
+            )
+        except IntegrityError:
+            if idempotency_key is not None:
+                existing = self._runs.get_by_idempotency(
+                    user_id=user_id, idempotency_key=idempotency_key
+                )
+                if existing is not None:
+                    if existing.run_type != "hairstyle":
+                        raise conflict("duplicate")
+                    return existing.id
+            raise
 
         appearance = AppearanceProfile(
             faceShape=str(profile["face_shape"]),
@@ -202,7 +226,9 @@ class CreateOutfitRun:
         self._learning_signal = learning_signal
         self._activity_days = activity_days
 
-    def __call__(self, *, user_id: UUID, image: any) -> UUID:
+    def __call__(
+        self, *, user_id: UUID, image: any, idempotency_key: Optional[str] = None
+    ) -> UUID:
         # Validate image content-type
         content_type = getattr(image, "content_type", None)
         if content_type not in {"image/jpeg", "image/png", "image/webp"}:
@@ -227,14 +253,45 @@ class CreateOutfitRun:
             analyzer=getattr(self._appearance_port, "adapter_id", "unknown"),
         )
 
+        if idempotency_key is not None:
+            existing = self._runs.get_by_idempotency(
+                user_id=user_id, idempotency_key=idempotency_key
+            )
+            if existing is not None:
+                if existing.run_type != "outfit":
+                    raise conflict("duplicate")
+                if existing.input_media and media_ref:
+                    existing_hash = existing.input_media.get("contentHash") or existing.input_media.get("sha256")
+                    incoming_hash = media_ref.get("contentHash") or media_ref.get("sha256")
+                    if existing_hash and incoming_hash and existing_hash != incoming_hash:
+                        raise conflict("duplicate")
+                return existing.id
+
         # Step 1: Create analysis run (pending)
-        run_id = self._runs.create(
-            user_id=user_id,
-            run_type="outfit",
-            engine_version="vision-v1",
-            input_media=media_ref,
-            knowledge_version=knowledge_provenance(),
-        )
+        try:
+            run_id = self._runs.create(
+                user_id=user_id,
+                run_type="outfit",
+                engine_version="vision-v1",
+                input_media=media_ref,
+                knowledge_version=knowledge_provenance(),
+                idempotency_key=idempotency_key,
+            )
+        except IntegrityError:
+            if idempotency_key is not None:
+                existing = self._runs.get_by_idempotency(
+                    user_id=user_id, idempotency_key=idempotency_key
+                )
+                if existing is not None:
+                    if existing.run_type != "outfit":
+                        raise conflict("duplicate")
+                    if existing.input_media and media_ref:
+                        existing_hash = existing.input_media.get("contentHash") or existing.input_media.get("sha256")
+                        incoming_hash = media_ref.get("contentHash") or media_ref.get("sha256")
+                        if existing_hash and incoming_hash and existing_hash != incoming_hash:
+                            raise conflict("duplicate")
+                    return existing.id
+            raise
 
         # Step 2: Run appearance analysis adapter
         try:
@@ -373,7 +430,9 @@ class CreateHairstyleImageRun:
         self._activity_days = activity_days
         self._enrich = enrich or enrich_hairstyle_result
 
-    def __call__(self, *, user_id: UUID, image: any) -> UUID:
+    def __call__(
+        self, *, user_id: UUID, image: any, idempotency_key: Optional[str] = None
+    ) -> UUID:
         # Validate image content-type
         content_type = getattr(image, "content_type", None)
         if content_type not in {"image/jpeg", "image/png", "image/webp"}:
@@ -400,14 +459,45 @@ class CreateHairstyleImageRun:
             analyzer=getattr(self._appearance_port, "adapter_id", "unknown"),
         )
 
+        if idempotency_key is not None:
+            existing = self._runs.get_by_idempotency(
+                user_id=user_id, idempotency_key=idempotency_key
+            )
+            if existing is not None:
+                if existing.run_type != "hairstyle":
+                    raise conflict("duplicate")
+                if existing.input_media and media_ref:
+                    existing_hash = existing.input_media.get("contentHash") or existing.input_media.get("sha256")
+                    incoming_hash = media_ref.get("contentHash") or media_ref.get("sha256")
+                    if existing_hash and incoming_hash and existing_hash != incoming_hash:
+                        raise conflict("duplicate")
+                return existing.id
+
         # Step 1: Create hairstyle-typed analysis run (pending)
-        run_id = self._runs.create(
-            user_id=user_id,
-            run_type="hairstyle",
-            engine_version="vision-v1",
-            input_media=media_ref,
-            knowledge_version=knowledge_provenance(),
-        )
+        try:
+            run_id = self._runs.create(
+                user_id=user_id,
+                run_type="hairstyle",
+                engine_version="vision-v1",
+                input_media=media_ref,
+                knowledge_version=knowledge_provenance(),
+                idempotency_key=idempotency_key,
+            )
+        except IntegrityError:
+            if idempotency_key is not None:
+                existing = self._runs.get_by_idempotency(
+                    user_id=user_id, idempotency_key=idempotency_key
+                )
+                if existing is not None:
+                    if existing.run_type != "hairstyle":
+                        raise conflict("duplicate")
+                    if existing.input_media and media_ref:
+                        existing_hash = existing.input_media.get("contentHash") or existing.input_media.get("sha256")
+                        incoming_hash = media_ref.get("contentHash") or media_ref.get("sha256")
+                        if existing_hash and incoming_hash and existing_hash != incoming_hash:
+                            raise conflict("duplicate")
+                    return existing.id
+            raise
 
         # Step 2: Run appearance analysis through the injected port.
         # The port receives the actual image bytes (STEP 10 boundary fix);
@@ -587,18 +677,41 @@ class CreateGroomingRun:
             preferred.add(look_id)
         return HairstylePreferences(preferredLookIds=frozenset(preferred))
 
-    def __call__(self, *, user_id: UUID) -> UUID:
+    def __call__(
+        self, *, user_id: UUID, idempotency_key: Optional[str] = None
+    ) -> UUID:
         profile = self._user_state.get_style_profile(user_id=user_id)
         if not profile or not profile.get("face_shape"):
             raise insufficient_user_data("face")
 
-        run_id = self._runs.create(
-            user_id=user_id,
-            run_type="grooming",
-            engine_version="rules-v1",
-            input_media=None,  # profile-only pass; no image (MS10.3 sealed)
-            knowledge_version=knowledge_provenance(),
-        )
+        if idempotency_key is not None:
+            existing = self._runs.get_by_idempotency(
+                user_id=user_id, idempotency_key=idempotency_key
+            )
+            if existing is not None:
+                if existing.run_type != "grooming":
+                    raise conflict("duplicate")
+                return existing.id
+
+        try:
+            run_id = self._runs.create(
+                user_id=user_id,
+                run_type="grooming",
+                engine_version="rules-v1",
+                input_media=None,  # profile-only pass; no image (MS10.3 sealed)
+                knowledge_version=knowledge_provenance(),
+                idempotency_key=idempotency_key,
+            )
+        except IntegrityError:
+            if idempotency_key is not None:
+                existing = self._runs.get_by_idempotency(
+                    user_id=user_id, idempotency_key=idempotency_key
+                )
+                if existing is not None:
+                    if existing.run_type != "grooming":
+                        raise conflict("duplicate")
+                    return existing.id
+            raise
 
         appearance = AppearanceProfile(
             faceShape=str(profile["face_shape"]),
@@ -666,7 +779,9 @@ class CreateGarmentRun:
         self._runs = runs
         self._garment_port = garment_port
 
-    def __call__(self, *, user_id: UUID, image: any) -> UUID:
+    def __call__(
+        self, *, user_id: UUID, image: any, idempotency_key: Optional[str] = None
+    ) -> UUID:
         # Validate image content-type
         content_type = getattr(image, "content_type", None)
         if content_type not in {"image/jpeg", "image/png", "image/webp"}:
@@ -691,14 +806,45 @@ class CreateGarmentRun:
             analyzer=getattr(self._garment_port, "adapter_id", "unknown"),
         )
 
+        if idempotency_key is not None:
+            existing = self._runs.get_by_idempotency(
+                user_id=user_id, idempotency_key=idempotency_key
+            )
+            if existing is not None:
+                if existing.run_type != "garment":
+                    raise conflict("duplicate")
+                if existing.input_media and media_ref:
+                    existing_hash = existing.input_media.get("contentHash") or existing.input_media.get("sha256")
+                    incoming_hash = media_ref.get("contentHash") or media_ref.get("sha256")
+                    if existing_hash and incoming_hash and existing_hash != incoming_hash:
+                        raise conflict("duplicate")
+                return existing.id
+
         # Step 1: Create analysis run (pending)
-        run_id = self._runs.create(
-            user_id=user_id,
-            run_type="garment",
-            engine_version="vision-v1",
-            input_media=media_ref,
-            knowledge_version=knowledge_provenance(),
-        )
+        try:
+            run_id = self._runs.create(
+                user_id=user_id,
+                run_type="garment",
+                engine_version="vision-v1",
+                input_media=media_ref,
+                knowledge_version=knowledge_provenance(),
+                idempotency_key=idempotency_key,
+            )
+        except IntegrityError:
+            if idempotency_key is not None:
+                existing = self._runs.get_by_idempotency(
+                    user_id=user_id, idempotency_key=idempotency_key
+                )
+                if existing is not None:
+                    if existing.run_type != "garment":
+                        raise conflict("duplicate")
+                    if existing.input_media and media_ref:
+                        existing_hash = existing.input_media.get("contentHash") or existing.input_media.get("sha256")
+                        incoming_hash = media_ref.get("contentHash") or media_ref.get("sha256")
+                        if existing_hash and incoming_hash and existing_hash != incoming_hash:
+                            raise conflict("duplicate")
+                    return existing.id
+            raise
 
         # Step 2: Run garment analysis adapter
         try:

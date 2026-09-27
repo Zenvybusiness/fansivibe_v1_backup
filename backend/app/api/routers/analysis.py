@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id
@@ -79,10 +79,11 @@ def _run_summary_to_schema(record) -> AnalysisRunSummary:
     "/hairstyle",
     response_model=AsyncAccepted,
     status_code=202,
-    responses={422: {"model": dict}, 401: {"model": dict}},
+    responses={422: {"model": dict}, 401: {"model": dict}, 409: {"model": dict}},
 )
 def create_hairstyle_run(
     image: UploadFile | None = File(default=None),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> AsyncAccepted:
@@ -115,7 +116,7 @@ def create_hairstyle_run(
             learning_signal=LearningSignalRepositorySQL(db),
             activity_days=ActivityDayRepositorySQL(db),
         )
-        run_id = use_case(user_id=user_id, image=image)
+        run_id = use_case(user_id=user_id, image=image, idempotency_key=idempotency_key)
         return AsyncAccepted(run_id=run_id)
     use_case = CreateHairstyleRun(
         runs=AnalysisRunRepositorySQL(db),
@@ -123,7 +124,7 @@ def create_hairstyle_run(
         knowledge=CatalogKnowledgeSource(),
         saved_looks=SavedLookRepositorySQL(db),
     )
-    run_id = use_case(user_id=user_id)
+    run_id = use_case(user_id=user_id, idempotency_key=idempotency_key)
     return AsyncAccepted(run_id=run_id)
 
 
@@ -169,9 +170,10 @@ def list_analysis_runs(
     "/grooming",
     response_model=AsyncAccepted,
     status_code=202,
-    responses={422: {"model": dict}, 401: {"model": dict}},
+    responses={422: {"model": dict}, 401: {"model": dict}, 409: {"model": dict}},
 )
 def create_grooming_run(
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> AsyncAccepted:
@@ -188,7 +190,7 @@ def create_grooming_run(
         knowledge=CatalogKnowledgeSource(),
         saved_looks=SavedLookRepositorySQL(db),
     )
-    run_id = use_case(user_id=user_id)
+    run_id = use_case(user_id=user_id, idempotency_key=idempotency_key)
     return AsyncAccepted(run_id=run_id)
 
 
@@ -198,6 +200,7 @@ def create_grooming_run(
     status_code=202,
     responses={
         401: {"model": dict},
+        409: {"model": dict},
         413: {"model": dict},
         422: {"model": dict},
         503: {"model": dict},
@@ -205,6 +208,7 @@ def create_grooming_run(
 )
 def create_outfit_run(
     image: UploadFile = File(...),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> AsyncAccepted:
@@ -225,7 +229,7 @@ def create_outfit_run(
         learning_signal=LearningSignalRepositorySQL(db),
         activity_days=ActivityDayRepositorySQL(db),
     )
-    run_id = use_case(user_id=user_id, image=image)
+    run_id = use_case(user_id=user_id, image=image, idempotency_key=idempotency_key)
     return AsyncAccepted(run_id=run_id)
 
 
@@ -235,6 +239,7 @@ def create_outfit_run(
     status_code=202,
     responses={
         401: {"model": dict},
+        409: {"model": dict},
         413: {"model": dict},
         422: {"model": dict},
         503: {"model": dict},
@@ -242,6 +247,7 @@ def create_outfit_run(
 )
 def create_garment_run(
     image: UploadFile = File(...),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> AsyncAccepted:
@@ -264,6 +270,6 @@ def create_garment_run(
         runs=AnalysisRunRepositorySQL(db),
         garment_port=OllamaVisionGarmentAdapter(),
     )
-    run_id = use_case(user_id=user_id, image=image)
+    run_id = use_case(user_id=user_id, image=image, idempotency_key=idempotency_key)
     return AsyncAccepted(run_id=run_id)
 

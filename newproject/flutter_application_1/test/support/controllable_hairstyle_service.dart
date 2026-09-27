@@ -20,6 +20,7 @@ class ControllableHairstyleService extends HairstyleService {
     Uint8List? imageBytes,
     String? imageFilename,
     String? imageContentType,
+    String? idempotencyKey,
   }) {
     started = true;
     receivedImageBytes = imageBytes;

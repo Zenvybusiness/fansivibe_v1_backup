@@ -61,11 +61,4 @@ class UserSession {
   static set savedLocally(bool value) {
     LocalStorage.savedLocally = value;
   }
-
-  /// Whether analysis results were cached during onboarding.
-  static bool get analysisCached => LocalStorage.analysisCached;
-
-  static set analysisCached(bool value) {
-    LocalStorage.analysisCached = value;
-  }
 }

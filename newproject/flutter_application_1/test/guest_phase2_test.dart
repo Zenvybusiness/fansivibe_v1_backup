@@ -156,7 +156,7 @@ Future<void> _initGuest() async {
   LocalStorage.onboardingComplete = false;
   // Explicit guest (Continue Without Account): no session token.
   LocalStorage.savedLocally = true;
-  LocalStorage.analysisCached = true;
+  LocalStorage.onboardingPhotoCaptured = true;
 }
 
 class _CountingDiscoverRepository implements DiscoverRepository {

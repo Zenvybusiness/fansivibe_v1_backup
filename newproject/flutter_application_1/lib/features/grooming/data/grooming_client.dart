@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -34,6 +35,10 @@ class GroomingClient {
   static const Duration _timeout = Duration(seconds: 12);
   final Duration _pollInterval;
 
+  String? _activeIdempotencyKey;
+  String? get activeIdempotencyKey => _activeIdempotencyKey;
+  void resetIdempotencyKey() => _activeIdempotencyKey = null;
+
   /// Submits a grooming analysis for the authenticated user's stored style
   /// profile (profile-only pass).
   ///
@@ -44,7 +49,9 @@ class GroomingClient {
   /// multipart endpoints.
   ///
   /// Returns the submitted run id, or null when the backend is unreachable.
-  Future<String?> submitGroomingAnalysis() async {
+  Future<String?> submitGroomingAnalysis({String? idempotencyKey}) async {
+    final effectiveKey =
+        idempotencyKey ?? (_activeIdempotencyKey ??= newGroomingIdempotencyKey());
     try {
       final response = await _client
           .post(
@@ -52,6 +59,7 @@ class GroomingClient {
             headers: {
               'Content-Type': 'application/json; charset=UTF-8',
               'Authorization': 'Bearer $_devToken',
+              'Idempotency-Key': effectiveKey,
             },
             body: jsonEncode({}),
           )
@@ -59,6 +67,7 @@ class GroomingClient {
 
       AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 202) {
+        _activeIdempotencyKey = null;
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return decoded['run_id'] as String?;
       }
@@ -225,3 +234,15 @@ class GroomingClient {
 
   void dispose() => _client.close();
 }
+
+/// Generates a fresh v4-style client idempotency key for one grooming analysis attempt.
+String newGroomingIdempotencyKey() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0F) | 0x40;
+  bytes[8] = (bytes[8] & 0x3F) | 0x80;
+  String hex(int v) => v.toRadixString(16).padLeft(2, '0');
+  final h = bytes.map(hex).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-'
+      '${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
+}

@@ -36,7 +36,8 @@ class _FakeGroomingClient extends GroomingClient {
   GroomingRun? pollResult;
 
   @override
-  Future<String?> submitGroomingAnalysis() async => submitResult;
+  Future<String?> submitGroomingAnalysis({String? idempotencyKey}) async =>
+      submitResult;
 
   @override
   Future<GroomingRun?> pollGroomingRun({required String runId}) async =>

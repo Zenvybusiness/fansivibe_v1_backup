@@ -57,7 +57,7 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
     }
   }
 
-  bool get _hasScannedOutfit => LocalStorage.analysisCached;
+  bool get _hasScannedOutfit => LocalStorage.onboardingPhotoCaptured;
 
   @override
   void initState() {

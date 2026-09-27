@@ -500,7 +500,7 @@ OWNER DECISION: PENDING
 | C-07 | PENDING (A blocked on seed migration) | No | Yes only if A (seed row) | No | No | Yes if A (new signal) |
 | C-08 | Photo-taken flag; blob non-authoritative, setter deprecated | LOCKED | No | No | No | No |
 | C-09 | PENDING | No | Yes only if C/D (version column) | Only if C/D (preconditions) | No | No |
-| C-10 | PENDING | No | Yes if B/C/D (key store) | Yes if B/C (keys/receipts) | No | No (run replay only) |
+| C-10 | IMPLEMENTED (Option B — client-generated Idempotency-Key) | LOCKED | Yes (0025) | Yes (Idempotency-Key header) | No | No (run replay only) |
 
 ## IMPLEMENTATION ORDER
 

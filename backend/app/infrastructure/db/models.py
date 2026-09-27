@@ -179,6 +179,7 @@ class AnalysisRuns(Base):
             "status IN ('pending', 'completed', 'failed')",
             name="ck_analysis_runs_status",
         ),
+        UniqueConstraint("user_id", "idempotency_key", name="uq_analysis_runs_idempotency"),
         Index("ix_analysis_runs_user_id_created_at", "user_id", "created_at"),
         Index(
             "ix_analysis_runs_user_id_run_type_created_at",
@@ -206,6 +207,7 @@ class AnalysisRuns(Base):
     input_media: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     error: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

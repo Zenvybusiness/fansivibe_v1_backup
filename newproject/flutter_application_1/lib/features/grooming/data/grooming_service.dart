@@ -49,6 +49,10 @@ class GroomingService extends ChangeNotifier {
 
   bool _disposed = false;
 
+  String? _activeIdempotencyKey;
+  String? get activeIdempotencyKey => _activeIdempotencyKey;
+  void resetIdempotencyKey() => _activeIdempotencyKey = null;
+
   /// Wire the learning repository so the analysis uses the user's stored face
   /// profile instead of falling back to the offline mock result.
   void attachLearning(LearningRepository learning) {
@@ -63,7 +67,9 @@ class GroomingService extends ChangeNotifier {
   /// run ends in `failed`, [analysisError] is set so callers can surface the
   /// typed failure; the offline fallback still resolves so the flow never
   /// breaks (documented Stage 6-7 design decision).
-  Future<GroomingAnalysisResult> runAnalysis() async {
+  Future<GroomingAnalysisResult> runAnalysis({String? idempotencyKey}) async {
+    final effectiveKey =
+        idempotencyKey ?? (_activeIdempotencyKey ??= newGroomingIdempotencyKey());
     _isProcessing = true;
     _completedStageCount = 0;
     _analysisError = null;
@@ -84,7 +90,7 @@ class GroomingService extends ChangeNotifier {
       _analysisError = 'No face profile yet. Complete a face scan first.';
       resolved = GroomingAnalysisResult.mock;
     } else {
-      final runId = await _client.submitGroomingAnalysis();
+      final runId = await _client.submitGroomingAnalysis(idempotencyKey: effectiveKey);
       if (runId == null) {
         _usedMockResult = true;
         _analysisError = 'Grooming service unreachable. Please try again.';
@@ -106,6 +112,10 @@ class GroomingService extends ChangeNotifier {
         }
         _isCompleted = true;
       }
+    }
+
+    if (_analysisError == null && !_usedMockResult) {
+      _activeIdempotencyKey = null;
     }
 
     if (_disposed) return resolved;

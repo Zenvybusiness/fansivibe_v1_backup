@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -71,6 +72,10 @@ class GarmentClient {
   // legitimate synchronous analysis never surfaces as a client timeout.
   static const Duration _timeout = Duration(seconds: 30);
 
+  String? _activeIdempotencyKey;
+  String? get activeIdempotencyKey => _activeIdempotencyKey;
+  void resetIdempotencyKey() => _activeIdempotencyKey = null;
+
   /// Submits a garment photo for analysis.
   ///
   /// Returns the accepted `run_id` on 202, or null when the image is
@@ -78,15 +83,19 @@ class GarmentClient {
   Future<String?> submitGarmentAnalysisBytes(
     Uint8List bytes, {
     String filename = 'wardrobe_item.jpg',
+    String? idempotencyKey,
   }) async {
     if (bytes.isEmpty || bytes.length > maxImageBytes) {
       debugPrint('Garment submit refused image (${bytes.length} bytes).');
       return null;
     }
+    final effectiveKey =
+        idempotencyKey ?? (_activeIdempotencyKey ??= newGarmentIdempotencyKey());
     try {
       final uri = Uri.parse('$baseUrl/v1/analysis/garment');
       final request = http.MultipartRequest('POST', uri)
-        ..headers['Authorization'] = 'Bearer $_devToken';
+        ..headers['Authorization'] = 'Bearer $_devToken'
+        ..headers['Idempotency-Key'] = effectiveKey;
       request.files.add(
         http.MultipartFile.fromBytes(
           'image',
@@ -100,6 +109,7 @@ class GarmentClient {
           await http.Response.fromStream(streamed).timeout(_timeout);
       AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 202) {
+        _activeIdempotencyKey = null;
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return decoded['run_id'] as String?;
       }
@@ -172,4 +182,16 @@ class GarmentClient {
   }
 
   void dispose() => _client.close();
+}
+
+/// Generates a fresh v4-style client idempotency key for one garment analysis attempt.
+String newGarmentIdempotencyKey() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0F) | 0x40;
+  bytes[8] = (bytes[8] & 0x3F) | 0x80;
+  String hex(int v) => v.toRadixString(16).padLeft(2, '0');
+  final h = bytes.map(hex).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-'
+      '${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
 }

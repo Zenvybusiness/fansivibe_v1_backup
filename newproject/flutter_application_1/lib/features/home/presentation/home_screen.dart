@@ -141,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
         'onboarding_complete': hasCompleted,
         'display_name': storedDisplayName,
         'vibe': storedVibe,
-        'analysis_cached': LocalStorage.analysisCached,
+        'analysis_cached': LocalStorage.onboardingPhotoCaptured,
         'saved_locally': LocalStorage.savedLocally,
       };
     }
@@ -176,7 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool get _hasAnalysis {
     final data = widget.onboardingData ?? _onboardingDataFromLocalStorage();
     return data?['onboarding_complete'] == true ||
-        LocalStorage.analysisCached ||
+        LocalStorage.onboardingPhotoCaptured ||
         (data?['display_name'] != null &&
             (data!['display_name'] as String).trim().isNotEmpty);
   }

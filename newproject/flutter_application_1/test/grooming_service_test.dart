@@ -11,7 +11,7 @@ class _FakeGroomingClient extends GroomingClient {
   int submitCalls = 0;
 
   @override
-  Future<String?> submitGroomingAnalysis() async {
+  Future<String?> submitGroomingAnalysis({String? idempotencyKey}) async {
     submitCalls++;
     return submitResult;
   }

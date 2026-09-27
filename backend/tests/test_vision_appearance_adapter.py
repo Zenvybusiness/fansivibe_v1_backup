@@ -300,7 +300,7 @@ class FakeRuns:
     rows: dict[UUID, dict] = field(default_factory=dict)
     next_id: UUID = field(default_factory=uuid4)
 
-    def create(self, *, user_id, run_type, engine_version="rules-v1", input_media=None, knowledge_version=None) -> UUID:
+    def create(self, *, user_id, run_type, engine_version="rules-v1", input_media=None, knowledge_version=None, idempotency_key=None) -> UUID:
         run_id = self.next_id
         self.next_id = uuid4()
         self.rows[run_id] = {
@@ -315,6 +315,7 @@ class FakeRuns:
             "result": None,
             "error": None,
             "knowledge_version": knowledge_version,
+            "idempotency_key": idempotency_key,
         }
         return run_id
 
@@ -323,6 +324,12 @@ class FakeRuns:
         if row is None or row["user_id"] != user_id:
             return None
         return AnalysisRunRecord(**{k: v for k, v in row.items() if k != "user_id"})
+
+    def get_by_idempotency(self, *, user_id: UUID, idempotency_key: str) -> Optional[AnalysisRunRecord]:
+        for row in self.rows.values():
+            if row["user_id"] == user_id and row.get("idempotency_key") == idempotency_key:
+                return AnalysisRunRecord(**{k: v for k, v in row.items() if k != "user_id"})
+        return None
 
     def complete(self, *, run_id, user_id, status, result) -> bool:
         row = self.rows.get(run_id)

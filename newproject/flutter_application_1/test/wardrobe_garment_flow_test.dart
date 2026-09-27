@@ -63,6 +63,7 @@ class _ScriptedGarmentClient extends GarmentClient {
   Future<String?> submitGarmentAnalysisBytes(
     Uint8List bytes, {
     String filename = 'wardrobe_item.jpg',
+    String? idempotencyKey,
   }) async {
     submitCalls++;
     return runId;

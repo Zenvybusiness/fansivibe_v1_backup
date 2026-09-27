@@ -57,14 +57,13 @@ class LocalStorage {
     _prefs?.setBool('saved_locally', value);
   }
 
-  /// Legacy onboarding flag: true once the guest photo-capture path was
+  /// Onboarding milestone flag: true once the guest photo-capture path was
   /// taken (set on "Continue without account" — no analysis actually ran).
-  /// It does NOT mean "analysis completed". Read-only legacy consumers
-  /// treat it as "has a local onboarding photo". Do not set it from new
-  /// code; do not treat it as proof of a server analysis.
-  static bool get analysisCached =>
+  /// Renamed from analysisCached (C-08 cleanup). Persisted key remains
+  /// 'analysis_cached' for compatibility with existing stored user state.
+  static bool get onboardingPhotoCaptured =>
       _prefs?.getBool('analysis_cached') ?? false;
-  static set analysisCached(bool value) {
+  static set onboardingPhotoCaptured(bool value) {
     _prefs?.setBool('analysis_cached', value);
   }
 
@@ -78,35 +77,6 @@ class LocalStorage {
       _prefs?.getBool('is_returning_user') ?? false;
   static set isReturningUser(bool value) {
     _prefs?.setBool('is_returning_user', value);
-  }
-
-  /// ----- Analysis Results Cache -----
-  ///
-  /// NOTE: the `analysis_result` blob currently has no production writer
-  /// (Phase 1A audit) — readers must keep treating null as "pending".
-  /// Do not start storing analysis results here; the server run history
-  /// (`GET /v1/analysis/runs`) is the source of truth for analyses.
-  static Map<String, dynamic>? get analysisResult {
-    if (_prefs == null) return null;
-    final raw = _prefs!.getStringList('analysis_result');
-    if (raw == null || raw.isEmpty) return null;
-    return _decodeStringList(raw);
-  }
-  /// Dead setter: no production code writes `analysis_result` (Phase 1A
-  /// audit). Kept so the key can be cleared; do not add new writers —
-  /// store nothing here (see [analysisResult]).
-  @Deprecated(
-    'No production code writes analysis_result; server run history is the source of truth.',
-  )
-  // No production code writes `analysis_result` (Phase 1A audit); the
-  // server run history is the source of truth for analyses.
-  static set analysisResult(Map<String, dynamic>? value) {
-    if (_prefs == null) return;
-    if (value == null) {
-      _prefs!.setStringList('analysis_result', []);
-    } else {
-      _prefs!.setStringList('analysis_result', _encodeMap(value));
-    }
   }
 
   static List<String> get savedLookIds =>

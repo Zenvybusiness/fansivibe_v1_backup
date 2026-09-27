@@ -54,6 +54,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   // No fake percentages — indeterminate progress only.
   bool _isUploading = false;
   String? _statusMessage;
+  String? _outfitScanIdempotencyKey;
   bool get _isTestMode {
     final bindingType = WidgetsBinding.instance.runtimeType.toString();
     return bindingType.contains('TestWidgetsFlutterBinding');
@@ -228,6 +229,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
         // IMAGE_SELECTED: preview renders immediately; the user submits
         // explicitly via Analyze Photo (no silent auto-upload).
         _statusMessage = 'Photo selected';
+        _outfitScanIdempotencyKey = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -268,11 +270,16 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     });
     final stopwatch = Stopwatch()..start();
     try {
-      final runId = await _client.submitOutfitAnalysis(imageFile);
+      final key = _outfitScanIdempotencyKey ??= newOutfitScanIdempotencyKey();
+      final runId = await _client.submitOutfitAnalysis(
+        imageFile,
+        idempotencyKey: key,
+      );
 
       if (!context.mounted) return;
 
       if (runId != null) {
+        _outfitScanIdempotencyKey = null;
         debugPrint(
           'Outfit scan upload ok: '
           'bytes=${_selectedImageBytes?.length ?? -1}, '

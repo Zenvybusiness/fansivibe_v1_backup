@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -64,6 +65,10 @@ class OutfitScanClient {
   // legitimate synchronous analysis never surfaces as a client timeout.
   static const Duration _timeout = Duration(seconds: 30);
 
+  String? _activeIdempotencyKey;
+  String? get activeIdempotencyKey => _activeIdempotencyKey;
+  void resetIdempotencyKey() => _activeIdempotencyKey = null;
+
   /// Submits an outfit image for analysis (`POST /v1/analysis/outfit`).
   ///
   /// Web-safe: takes a cross-platform [XFile] (camera, gallery, or picked
@@ -74,13 +79,20 @@ class OutfitScanClient {
   ///
   /// Returns the accepted [run_id] on 202, or null when the backend rejects
   /// or is unreachable.
-  Future<String?> submitOutfitAnalysis(XFile imageFile) async {
+  Future<String?> submitOutfitAnalysis(
+    XFile imageFile, {
+    String? idempotencyKey,
+  }) async {
     try {
       final bytes = await imageFile.readAsBytes();
       final filename = imageFile.name.isNotEmpty
           ? imageFile.name
           : 'outfit_scan.jpg';
-      return await submitOutfitAnalysisBytes(bytes, filename: filename);
+      return await submitOutfitAnalysisBytes(
+        bytes,
+        filename: filename,
+        idempotencyKey: idempotencyKey,
+      );
     } catch (error) {
       debugPrint('Outfit scan backend unreachable during submit: $error');
       return null;
@@ -92,15 +104,19 @@ class OutfitScanClient {
   Future<String?> submitOutfitAnalysisBytes(
     Uint8List bytes, {
     String filename = 'outfit_scan.jpg',
+    String? idempotencyKey,
   }) async {
     if (bytes.isEmpty) {
       debugPrint('Outfit scan submit refused empty image bytes.');
       return null;
     }
+    final effectiveKey =
+        idempotencyKey ?? (_activeIdempotencyKey ??= newOutfitScanIdempotencyKey());
     try {
       final uri = Uri.parse('$baseUrl/v1/analysis/outfit');
       final request = http.MultipartRequest('POST', uri)
-        ..headers['Authorization'] = 'Bearer $devToken';
+        ..headers['Authorization'] = 'Bearer $devToken'
+        ..headers['Idempotency-Key'] = effectiveKey;
 
       final contentType = _contentTypeForFilename(filename);
 
@@ -119,6 +135,7 @@ class OutfitScanClient {
 
       AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 202) {
+        _activeIdempotencyKey = null;
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return decoded['run_id'] as String?;
       }
@@ -165,4 +182,16 @@ class OutfitScanClient {
     if (lower.endsWith('.webp')) return 'image/webp';
     return 'image/jpeg';
   }
+}
+
+/// Generates a fresh v4-style client idempotency key for one outfit analysis attempt.
+String newOutfitScanIdempotencyKey() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0F) | 0x40;
+  bytes[8] = (bytes[8] & 0x3F) | 0x80;
+  String hex(int v) => v.toRadixString(16).padLeft(2, '0');
+  final h = bytes.map(hex).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-'
+      '${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
 }

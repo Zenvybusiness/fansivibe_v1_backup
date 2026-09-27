@@ -29,6 +29,7 @@ class AnalysisRunRecord:
     result: Optional[dict]
     error: Optional[dict]
     knowledge_version: Optional[str] = None
+    idempotency_key: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -405,9 +406,14 @@ class AnalysisRunRepository(Protocol):
         engine_version: str,
         input_media: Optional[dict] = None,
         knowledge_version: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> UUID: ...
 
     def get_for_user(self, *, user_id: UUID, run_id: UUID) -> Optional[AnalysisRunRecord]: ...
+
+    def get_by_idempotency(
+        self, *, user_id: UUID, idempotency_key: str
+    ) -> Optional[AnalysisRunRecord]: ...
 
     def list_for_user(
         self, *, user_id: UUID, page: int, page_size: int
@@ -426,6 +432,17 @@ class UserStateRepository(Protocol):
     def get_profile(self, *, user_id: UUID) -> Optional[UserProfileRecord]: ...
 
     def update_preferences(self, *, user_id: UUID, preferences: dict) -> None: ...
+
+    def update_style_profile(
+        self,
+        *,
+        user_id: UUID,
+        face_shape: Optional[str] = None,
+        skin_tone: Optional[str] = None,
+        body_type: Optional[str] = None,
+        style_type: Optional[str] = None,
+        source_run_id: Optional[str] = None,
+    ) -> None: ...
 
 
 class SavedLookRepository(Protocol):
