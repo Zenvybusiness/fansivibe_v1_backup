@@ -448,7 +448,18 @@ class OutfitCandidate:
     compatibility: float = 0.0
     preference: float = 0.0
     favorite: float = 0.0
+    feedback: float = 0.0
+    wear: float = 0.0
     score: float = 0.0
+
+
+@dataclass(frozen=True)
+class FeedbackContext:
+    """Feedback and wear evidence for outfit candidate personalization (Phase 2 Step 1)."""
+
+    liked_outfits: tuple[frozenset[str], ...] = ()
+    disliked_outfits: tuple[frozenset[str], ...] = ()
+    worn_combinations: tuple[frozenset[str], ...] = ()
 
 
 @dataclass(frozen=True)

@@ -33,10 +33,12 @@ from app.application.outfits import (
 from app.domain.ports.repositories import OutfitRecommendation as OutfitRecord
 from app.infrastructure.db.repositories import (
     ActivityDayRepositorySQL,
+    FeedbackRepositorySQL,
     LearningSignalRepositorySQL,
     SavedLookRepositorySQL,
     UserStateRepositorySQL,
     WardrobeItemRepositorySQL,
+    WearEventRepositorySQL,
 )
 from app.infrastructure.db.session import get_db
 from app.infrastructure.external.knowledge import CatalogKnowledgeSource
@@ -113,6 +115,9 @@ def generate_outfit(
     use_case = GenerateOutfit(
         wardrobe_items=WardrobeItemRepositorySQL(db),
         user_state=UserStateRepositorySQL(db),
+        feedback=FeedbackRepositorySQL(db),
+        saved_looks=SavedLookRepositorySQL(db),
+        wears=WearEventRepositorySQL(db),
     )
     record, empty_reason = use_case.derive_with_reason(
         user_id=user_id,

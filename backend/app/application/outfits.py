@@ -40,14 +40,17 @@ from app.application.saved_looks import SaveRecommendation
 from app.domain.ports.external import KnowledgeSource
 from app.domain.ports.repositories import (
     ActivityDayRepository,
+    FeedbackRepository,
     LearningSignalRepository,
     OutfitComponent,
     OutfitRecommendation,
     SavedLookRepository,
     UserStateRepository,
     WardrobeItemRepository,
+    WearEventRepository,
 )
 from app.domain.services.analysis_rules import (
+    build_feedback_context,
     generate_outfit_candidates,
     rank_outfit_candidates,
     score_outfit_candidate,
@@ -246,6 +249,12 @@ def _to_recommendation(
         + ", ".join(covered),
     ]
     reasons.extend(f"Includes your favorite {name}" for name in favorites)
+    if getattr(winner, "feedback", 0.0) > 0.0:
+        reasons.append("Similar to outfits you've liked")
+    elif getattr(winner, "feedback", 0.0) < 0.0:
+        reasons.append("Reduced because of previous negative feedback")
+    if getattr(winner, "wear", 0.0) > 0.0:
+        reasons.append("Previously worn combination")
 
     # Metric prose states only request/composition/score facts — never
     # engine-signal claims, comfort, flattery, or invented score points
@@ -302,9 +311,15 @@ class GenerateOutfit:
         *,
         wardrobe_items: WardrobeItemRepository,
         user_state: UserStateRepository,
+        feedback: Optional[FeedbackRepository] = None,
+        saved_looks: Optional[SavedLookRepository] = None,
+        wears: Optional[WearEventRepository] = None,
     ) -> None:
         self._wardrobe_items = wardrobe_items
         self._user_state = user_state
+        self._feedback = feedback
+        self._saved_looks = saved_looks
+        self._wears = wears
 
     def __call__(
         self,
@@ -363,6 +378,9 @@ class GenerateOutfit:
                 color_palette=clean_palette,
                 key=key,
                 preferred_item_ids=preferred,
+                feedback=self._feedback,
+                saved_looks=self._saved_looks,
+                wears=self._wears,
             )
         except _DerivationFailed:
             raise ai_failure()
@@ -379,6 +397,9 @@ def _derive_outfit(
     color_palette: str,
     key: Optional[str],
     preferred_item_ids: frozenset = frozenset(),
+    feedback: Optional[FeedbackRepository] = None,
+    saved_looks: Optional[SavedLookRepository] = None,
+    wears: Optional[WearEventRepository] = None,
 ) -> Optional[OutfitRecommendation]:
     """Shared derivation for UC-28 (no seed) and UC-29 (seeded).
 
@@ -415,6 +436,12 @@ def _derive_outfit(
         for record in wardrobe
     ]
     items_by_id = {item.id: item for item in adapted}
+    feedback_context = build_feedback_context(
+        user_id=user_id,
+        feedback=feedback,
+        saved_looks=saved_looks,
+        wears=wears,
+    )
     try:
         ranked = rank_outfit_candidates(
             [
@@ -422,6 +449,7 @@ def _derive_outfit(
                     candidate, items_by_id, preferred_item_ids, occasions,
                     preferred_palette=color_palette,
                     preferred_fit=fit,
+                    feedback_context=feedback_context,
                 )
                 for candidate in generate_outfit_candidates(adapted)
             ]

@@ -2,6 +2,19 @@
 
 ---
 
+## PHASE 2 STEP 1 FEEDBACK-DRIVEN AI STYLIST PERSONALIZATION (executed 2026-09-27, verdict: PASS — bounded deterministic feedback and wear scoring, C-01…C-10 intact, no migration, no commit/push)
+
+- Feedback personalization live: Added deterministic, bounded feedback and wear scoring terms consuming existing `feedback_events` (migration 0019) and `wardrobe_wear_events` (migration 0013) without creating new database tables or event systems.
+- Scoring rules (`backend/app/domain/services/analysis_rules.py`):
+  - `feedback`: Exact liked combination matches score +4.0; similar matches (>=2 common items) score +2.0. Exact disliked combination matches score -4.0; similar matches score -2.0. Positive bonus capped at +6.0; negative penalty capped at -6.0. Contradictory feedback on same outfit resolves deterministically to the latest event timestamp. Dislikes never blacklist or filter candidates.
+  - `wear`: Previously worn co-occurring wardrobe combinations in the wear ledger score +2.0; similar worn combinations score +1.0. Bonus strictly capped at +2.0.
+  - Composition: `compose_candidate_score` adds clamped feedback `[-6.0, +6.0]` and wear `[0.0, +2.0]`, clamping total final score to `[0.0, 100.0]`. Lexical and cardinality tie-break rules remain completely untouched.
+  - Explanations: `_to_recommendation` in `backend/app/application/outfits.py` emits grounded reasons only when actual evidence contributed: `"Similar to outfits you've liked"` (winner.feedback > 0), `"Reduced because of previous negative feedback"` (winner.feedback < 0), and `"Previously worn combination"` (winner.wear > 0).
+- Wiring: `GenerateOutfit` use-case loads owner feedback events, saved looks, and wear events via repository ports and builds `FeedbackContext` via `build_feedback_context`. `POST /v1/outfits/generate` router injects SQL repos.
+- Tests: `test_p2s1_feedback_personalization.py` (15/15 passed covering all requirements 1-13 + end-to-end integration); full regression suites green across C-03 (23/23 pass), C-02 palette (9/9 pass), C-02 fit (21/21 pass), and analysis rules (71/71 pass). Total 139 passed without regression.
+
+---
+
 ## PHASE 1 STEP 10 C-10 ANALYSIS IDEMPOTENCY IMPLEMENTATION (executed 2026-09-27, verdict: PASS — client-generated Idempotency-Key, migration 0025, Phase 1 100% complete, no commit/push)
 
 - C-10 live (Option B): Migration 0025 adds nullable `idempotency_key` Text column to `analysis_runs` with unique constraint `uq_analysis_runs_idempotency` on `(user_id, idempotency_key)` (child of 0024, clean downgrade). ORM model `AnalysisRuns` mapped. `AnalysisRunRepository.get_by_idempotency(user_id, idempotency_key)` and `create(..., idempotency_key)` implemented in SQL repo with `IntegrityError` rollback.

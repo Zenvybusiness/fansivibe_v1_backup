@@ -1258,6 +1258,21 @@ class FeedbackRepositorySQL:
         ).scalar_one_or_none()
         return self._to_record(row) if row else None
 
+    def list_for_user(
+        self, *, user_id: UUID, limit: int = 100
+    ) -> list[FeedbackEventRecord]:
+        rows = (
+            self._session.execute(
+                select(FeedbackEvents)
+                .where(FeedbackEvents.user_id == user_id)
+                .order_by(FeedbackEvents.occurred_at.asc(), FeedbackEvents.id.asc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        return [self._to_record(row) for row in rows]
+
     def commit(self) -> None:
         self._session.commit()
 

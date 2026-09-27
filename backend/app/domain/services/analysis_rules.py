@@ -22,6 +22,7 @@ The LLM (when wired) may only rewrite *wording* — never structure or scores
 from dataclasses import dataclass, field, replace
 from itertools import product
 from typing import FrozenSet, Optional, List
+from uuid import UUID
 
 from app.domain.ports.external import KnowledgeError, KnowledgeSource
 from app.domain.value_objects import (
@@ -31,7 +32,7 @@ from app.domain.value_objects import (
     HairstyleRecommendation,
     GroomingRecommendation,
 )
-from app.infrastructure.db.repositories import SavedLookRecord
+from app.domain.ports.repositories import SavedLookRecord
 
 
 @dataclass
@@ -786,6 +787,7 @@ from app.domain.value_objects import (
     CompatibleCategory,
     OccasionContext,
     OutfitCandidate,
+    FeedbackContext,
     WardrobeContext,
 )
 
@@ -1095,6 +1097,9 @@ __all__ = [
     "CANDIDATE_SKELETONS",
     "candidate_preference_points",
     "candidate_favorite_points",
+    "candidate_feedback_points",
+    "candidate_wear_points",
+    "build_feedback_context",
     "compose_candidate_score",
     "candidate_item_ids",
     "rank_outfit_candidates",
@@ -1192,6 +1197,96 @@ def resolve_preferred_item_ids(*, saved_looks, user_id) -> FrozenSet[str]:
     return frozenset(preferred)
 
 
+def _extract_saved_look_item_ids(look) -> frozenset[str]:
+    """Extract canonical wardrobe item IDs from a saved look record."""
+    snapshot = getattr(look, "snapshot", None)
+    if not isinstance(snapshot, dict):
+        return frozenset()
+    raw_ids = snapshot.get("selectedItemIds")
+    ids = set()
+    if isinstance(raw_ids, list):
+        for raw in raw_ids:
+            canonical = _canonical_item_id(raw)
+            if canonical is not None:
+                ids.add(canonical)
+    if not ids:
+        raw_components = snapshot.get("components")
+        if isinstance(raw_components, list):
+            for comp in raw_components:
+                if isinstance(comp, dict):
+                    canonical = _canonical_item_id(comp.get("id"))
+                    if canonical is not None:
+                        ids.add(canonical)
+    return frozenset(ids)
+
+
+def build_feedback_context(
+    *,
+    user_id: UUID,
+    feedback=None,
+    saved_looks=None,
+    wears=None,
+) -> FeedbackContext:
+    """Build deterministic FeedbackContext for candidate scoring (Phase 2 Step 1).
+
+    Reads feedback_events and wear history for the user.
+    Handles duplicate events and contradictory like/dislike deterministically
+    via timestamp/id ordering (latest user sentiment per saved look wins).
+    Any repository failure degrades to neutral empty context.
+    """
+    liked_outfits: list[frozenset[str]] = []
+    disliked_outfits: list[frozenset[str]] = []
+    worn_combinations: list[frozenset[str]] = []
+
+    if feedback is not None and saved_looks is not None:
+        try:
+            events = feedback.list_for_user(user_id=user_id, limit=100)
+            sorted_events = sorted(
+                [e for e in (events or []) if getattr(e, "target_saved_look_id", None) is not None],
+                key=lambda e: (e.occurred_at, str(e.id)),
+            )
+            latest_by_look: dict[UUID, str] = {}
+            for e in sorted_events:
+                rating = str(getattr(e, "rating", "")).strip().lower()
+                if rating in ("like", "dislike"):
+                    latest_by_look[e.target_saved_look_id] = rating
+
+            for look_id, rating in sorted(latest_by_look.items(), key=lambda x: str(x[0])):
+                try:
+                    look = saved_looks.get_for_user(user_id=user_id, saved_look_id=look_id)
+                except Exception:
+                    continue
+                if look is None:
+                    continue
+                item_ids = _extract_saved_look_item_ids(look)
+                if not item_ids:
+                    continue
+                if rating == "like":
+                    liked_outfits.append(item_ids)
+                elif rating == "dislike":
+                    disliked_outfits.append(item_ids)
+        except Exception:
+            pass
+
+    if wears is not None:
+        try:
+            wear_events, _ = wears.list_for_user(user_id=user_id, page=1, page_size=100)
+            groups: dict[UUID, set[str]] = {}
+            for we in (wear_events or []):
+                groups.setdefault(we.wear_group_id, set()).add(str(we.wardrobe_item_id))
+            for group_items in sorted(groups.values(), key=lambda s: sorted(s)):
+                if len(group_items) >= 2:
+                    worn_combinations.append(frozenset(group_items))
+        except Exception:
+            pass
+
+    return FeedbackContext(
+        liked_outfits=tuple(liked_outfits),
+        disliked_outfits=tuple(disliked_outfits),
+        worn_combinations=tuple(worn_combinations),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Outfit candidate contract — deterministic selection primitives (STEP 13.2)
 # Internal domain contract only: representation + score composition +
@@ -1256,32 +1351,123 @@ def candidate_favorite_points(is_favorite_flags: list) -> float:
     return round(min(_CANDIDATE_FAVORITE_MAX, _CANDIDATE_FAVORITE_PER_ITEM * count), 2)
 
 
+# Phase 2 Step 1 — Feedback-driven AI Stylist personalization constants.
+# Signals are strictly bounded and deterministic.
+# Like: positive outfit-level evidence (+4.0 exact, +2.0 similar >=2 items, capped at +6.0).
+# Dislike: negative outfit-level evidence (-4.0 exact, -2.0 similar >=2 items, floor -6.0).
+# Wear: behavioral evidence (+2.0 exact, +1.0 similar >=2 items, capped at +2.0).
+_FEEDBACK_LIKE_EXACT_BONUS = 4.0
+_FEEDBACK_LIKE_SIMILAR_BONUS = 2.0
+_FEEDBACK_DISLIKE_EXACT_PENALTY = -4.0
+_FEEDBACK_DISLIKE_SIMILAR_PENALTY = -2.0
+_FEEDBACK_POSITIVE_CAP = 6.0
+_FEEDBACK_NEGATIVE_CAP = -6.0
+
+_WEAR_COMBINATION_BONUS = 2.0
+_WEAR_SIMILAR_BONUS = 1.0
+_WEAR_BONUS_CAP = 2.0
+
+
+def candidate_feedback_points(
+    feedback_context: Optional[FeedbackContext],
+    candidate_item_ids: list,
+) -> float:
+    """Feedback sub-score (bounded between -6.0 and +6.0).
+
+    Positive evidence from liked outfits; negative evidence from disliked outfits.
+    Repeats are capped deterministically. Missing feedback degrades to 0.0.
+    """
+    if not feedback_context:
+        return 0.0
+    cand = frozenset(
+        canonical
+        for raw in candidate_item_ids
+        if (canonical := _canonical_item_id(raw)) is not None
+    )
+    if not cand:
+        return 0.0
+
+    like_score = 0.0
+    for liked in feedback_context.liked_outfits:
+        if cand == liked:
+            like_score += _FEEDBACK_LIKE_EXACT_BONUS
+        elif len(cand & liked) >= 2:
+            like_score += _FEEDBACK_LIKE_SIMILAR_BONUS
+    like_score = min(_FEEDBACK_POSITIVE_CAP, like_score)
+
+    dislike_score = 0.0
+    for disliked in feedback_context.disliked_outfits:
+        if cand == disliked:
+            dislike_score += _FEEDBACK_DISLIKE_EXACT_PENALTY
+        elif len(cand & disliked) >= 2:
+            dislike_score += _FEEDBACK_DISLIKE_SIMILAR_PENALTY
+    dislike_score = max(_FEEDBACK_NEGATIVE_CAP, dislike_score)
+
+    net = like_score + dislike_score
+    return round(max(_FEEDBACK_NEGATIVE_CAP, min(_FEEDBACK_POSITIVE_CAP, net)), 2)
+
+
+def candidate_wear_points(
+    feedback_context: Optional[FeedbackContext],
+    candidate_item_ids: list,
+) -> float:
+    """Wear behavioral sub-score (0.0 to +2.0).
+
+    Positive evidence when candidate pieces were previously worn together in a wear group.
+    """
+    if not feedback_context or not feedback_context.worn_combinations:
+        return 0.0
+    cand = frozenset(
+        canonical
+        for raw in candidate_item_ids
+        if (canonical := _canonical_item_id(raw)) is not None
+    )
+    if not cand:
+        return 0.0
+
+    wear_score = 0.0
+    for worn in feedback_context.worn_combinations:
+        if cand == worn:
+            wear_score += _WEAR_COMBINATION_BONUS
+        elif len(cand & worn) >= 2:
+            wear_score += _WEAR_SIMILAR_BONUS
+    return round(min(_WEAR_BONUS_CAP, wear_score), 2)
+
+
 def compose_candidate_score(
-    compatibility: float, preference: float, favorite: float
+    compatibility: float,
+    preference: float,
+    favorite: float,
+    feedback: float = 0.0,
+    wear: float = 0.0,
 ) -> float:
     """Compose the bounded candidate score (0–100) from separated signals.
 
     Each component is clamped to its sub-range (compatibility 0–70,
-    preference 0–15, favorite 0–15); non-numeric input degrades to 0 for
-    that component. Deterministic: identical inputs → identical score.
+    preference 0–15, favorite 0–15, feedback -6..+6, wear 0..2);
+    non-numeric input degrades to 0 for that component.
+    Final score is bounded in [0.0, 100.0].
+    Deterministic: identical inputs → identical score.
     This is NOT final confidence and MUST NOT be mapped to confidence
     thresholds.
     """
-    def _clamp(value: object, maximum: float) -> float:
+    def _clamp(value: object, minimum: float, maximum: float) -> float:
         try:
             number = float(value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             return 0.0
         if number != number:  # NaN guard
             return 0.0
-        return max(0.0, min(maximum, number))
+        return max(minimum, min(maximum, number))
 
-    return round(
-        _clamp(compatibility, _CANDIDATE_COMPATIBILITY_MAX)
-        + _clamp(preference, _CANDIDATE_PREFERENCE_MAX)
-        + _clamp(favorite, _CANDIDATE_FAVORITE_MAX),
-        2,
-    )
+    comp = _clamp(compatibility, 0.0, _CANDIDATE_COMPATIBILITY_MAX)
+    pref = _clamp(preference, 0.0, _CANDIDATE_PREFERENCE_MAX)
+    fav = _clamp(favorite, 0.0, _CANDIDATE_FAVORITE_MAX)
+    fb = _clamp(feedback, _FEEDBACK_NEGATIVE_CAP, _FEEDBACK_POSITIVE_CAP)
+    wr = _clamp(wear, 0.0, _WEAR_BONUS_CAP)
+
+    raw = comp + pref + fav + fb + wr
+    return round(max(0.0, min(100.0, raw)), 2)
 
 
 def candidate_item_ids(candidate: OutfitCandidate) -> tuple[str, ...]:
@@ -1732,6 +1918,7 @@ def score_outfit_candidate(
     preferred_occasions=None,
     preferred_palette: Optional[str] = None,
     preferred_fit: Optional[str] = None,
+    feedback_context: Optional[FeedbackContext] = None,
 ) -> OutfitCandidate:
     """Score one candidate deterministically (STEP 13.4 — scoring only).
 
@@ -1739,8 +1926,9 @@ def score_outfit_candidate(
     material, season, formality, occasion, palette, fit); preference reuses the exact Step
     11 mechanism over the candidate's own IDs (saved_looks never read here,
     learning_signals never touched); favorite reuses the Step 13.2
-    candidate term. Each mechanism counted exactly once. Returns an
-    immutable replacement with compatibility/preference/favorite/score
+    candidate term; feedback consumes positive/negative outfit reactions
+    (Phase 2 Step 1); wear consumes behavioral wear history. Each mechanism counted exactly once.
+    Returns an immutable replacement with compatibility/preference/favorite/feedback/wear/score
     populated; the input is untouched. Identical inputs → identical output.
 
     STEP 2.8 (C-02-P Option A, owner-locked): palette is a +5 soft signal over
@@ -1766,12 +1954,18 @@ def score_outfit_candidate(
     )
     preference = candidate_preference_points(preferred_item_ids, ids)
     favorite = candidate_favorite_points([m["is_favorite"] for m in members])
-    score = compose_candidate_score(compatibility, preference, favorite)
+    feedback = candidate_feedback_points(feedback_context, ids)
+    wear = candidate_wear_points(feedback_context, ids)
+    score = compose_candidate_score(
+        compatibility, preference, favorite, feedback=feedback, wear=wear
+    )
     return replace(
         candidate,
         compatibility=compatibility,
         preference=preference,
         favorite=favorite,
+        feedback=feedback,
+        wear=wear,
         score=score,
     )
 
