@@ -114,6 +114,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     if (widget.isEstablishedUser != null) {
       return widget.isEstablishedUser!;
     }
+    // Auth boundary: local leftovers (returning flags, saved items,
+    // wardrobe, signals, prefs) are not a session. Without a live
+    // session there is no personalized For You — only Trending/guest.
+    if (!AuthSession.isAuthenticated) return false;
     // 1. Returning user explicitly marked
     if (UserSession.isReturningUser || LocalStorage.isReturningUser) {
       return true;
@@ -215,6 +219,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Future<void> _refreshForYou() async {
+    // Auth boundary: never request the personalized feed while signed
+    // out (injected test repos keep their scripted contract).
+    if (!AuthSession.isAuthenticated && widget.repository == null) return;
     if (isGuestUser && widget.repository == null) return;
     setState(() {
       _forYouLoading = true;
@@ -241,6 +248,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Future<void> _loadMoreForYou() async {
+    if (!AuthSession.isAuthenticated && widget.repository == null) return;
     if (isGuestUser && widget.repository == null) return;
     if (_forYouLoadingMore || !_forYouHasMore || _forYouCursor == null) return;
     setState(() => _forYouLoadingMore = true);
@@ -417,7 +425,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final displayName = UserSession.displayName;
+    // Account identity is session-derived: never show a stored name
+    // while signed out.
+    final displayName =
+        AuthSession.isAuthenticated ? UserSession.displayName : null;
 
     return Scaffold(
       backgroundColor: FansivibeColors.surface,

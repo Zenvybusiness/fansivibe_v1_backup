@@ -6,6 +6,7 @@ import 'package:fansivibe/features/events/data/event_models.dart';
 import 'package:fansivibe/features/events/data/events_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
@@ -92,8 +93,8 @@ class StylistScreen extends StatefulWidget {
 }
 
 class _StylistScreenState extends State<StylistScreen> {
-  late final WardrobeRepository _wardrobeRepository;
-  late final EventsRepository _eventsRepository;
+  late WardrobeRepository _wardrobeRepository;
+  late EventsRepository _eventsRepository;
 
   Future<int>? _wardrobeCountFuture;
   Future<EventListPage?>? _eventsFuture;
@@ -104,12 +105,33 @@ class _StylistScreenState extends State<StylistScreen> {
     super.initState();
     _initRepositories();
     _loadData();
+    // Data sources are session-derived: a sign-in/out on a mounted
+    // shell branch must swap local <-> server sources instead of
+    // keeping the initState snapshot (same pattern as DailyOutfit).
+    AuthSession.authVersion.addListener(_onAuthChanged);
+  }
+
+  @override
+  void dispose() {
+    AuthSession.authVersion.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    _initRepositories();
+    _loadData();
+    setState(() {});
   }
 
   void _initRepositories() {
+    // Auth boundary: only a live session uses server sources (or the
+    // injected test fakes); every signed-out state stays local.
     _wardrobeRepository =
         widget.wardrobeRepository ??
-        (isGuestUser ? LocalWardrobeRepository() : WardrobeRepositoryImpl());
+        (AuthSession.isAuthenticated
+            ? WardrobeRepositoryImpl()
+            : LocalWardrobeRepository());
 
     _eventsRepository = widget.eventsRepository ?? EventsRepositoryImpl();
   }
@@ -122,7 +144,7 @@ class _StylistScreenState extends State<StylistScreen> {
         .catchError((_) => 0);
 
     // Fetch upcoming events for authenticated users
-    if (isGuestUser) {
+    if (!AuthSession.isAuthenticated) {
       _eventsFuture = Future.value(null);
     } else {
       _eventsFuture = _eventsRepository.listEvents(pageSize: 5);
@@ -137,6 +159,9 @@ class _StylistScreenState extends State<StylistScreen> {
   }
 
   String? get _resolvedDisplayName {
+    // Account identity is session-derived: never resolve a stored name
+    // while signed out.
+    if (!AuthSession.isAuthenticated) return null;
     final stored = LocalStorage.displayName;
     if (stored != null && stored.trim().isNotEmpty) {
       return stored.trim();

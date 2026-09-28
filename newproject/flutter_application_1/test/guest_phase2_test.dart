@@ -254,7 +254,7 @@ void main() {
   group('Phase 2 guest Home', () {
     setUp(_initGuest);
 
-    testWidgets('guest Home shows local score, never backend slots', (
+    testWidgets('guest Home shows no personal score, only guest slots', (
       WidgetTester tester,
     ) async {
       final summary = _CountingSummaryRepository();
@@ -271,11 +271,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Local score card (24 seeded items -> 60 + 20 = 80), no streak
-      // invention, Today's Look stays account-only.
-      expect(find.text('Style Score'), findsOneWidget);
-      expect(find.text('80'), findsOneWidget);
-      expect(find.textContaining('on this device'), findsOneWidget);
+      // Auth boundary: local data is not a session, so no Style Score
+      // renders while signed out — neither backend nor device-labeled.
+      expect(find.text('Style Score'), findsNothing);
+      expect(find.text('DEVICE ONLY'), findsNothing);
+      expect(find.textContaining('on this device'), findsNothing);
       expect(find.text('Style Streak'), findsNothing);
       // Today's Look stays account-only: its wall keeps the Sign In CTA.
       expect(find.text("Today's Look"), findsOneWidget);

@@ -8,6 +8,7 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_error_view.dart';
 import 'package:fansivibe/shared/components/fansi_hero_card.dart';
 import 'package:fansivibe/shared/components/fansi_image_well.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_loading_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -53,18 +54,40 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
     super.initState();
     _repository = widget.repository ?? SavedLooksRepositoryImpl();
     _feedbackRepository = widget.feedbackRepository ?? FeedbackRepositoryImpl();
-    // Phase 2 guests never fetch: GET /v1/looks/saved 401s without a
-    // session. The build below renders the sign-in prompt instead.
-    if (isGuestUser) {
+    // No session, no fetch: GET /v1/looks/saved 401s without one. The
+    // build below renders the sign-in prompt instead.
+    if (!AuthSession.isAuthenticated) {
       _isLoading = false;
       _loadFailed = false;
+    } else {
+      _loadSavedLooks();
+    }
+    // A sign-in/out on a mounted route must reload instead of keeping
+    // the initState snapshot (same pattern as DailyOutfit).
+    AuthSession.authVersion.addListener(_onAuthChanged);
+  }
+
+  @override
+  void dispose() {
+    AuthSession.authVersion.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    if (!AuthSession.isAuthenticated) {
+      setState(() {
+        _looks = [];
+        _isLoading = false;
+        _loadFailed = false;
+      });
       return;
     }
     _loadSavedLooks();
   }
 
   Future<void> _loadSavedLooks() async {
-    if (isGuestUser) return;
+    if (!AuthSession.isAuthenticated) return;
     final page = await _repository.listSavedLooks(page: 1, pageSize: 20);
 
     if (!mounted) return;
@@ -77,7 +100,7 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
   }
 
   Future<void> _retryLoad() async {
-    if (isGuestUser) return;
+    if (!AuthSession.isAuthenticated) return;
     setState(() {
       _isLoading = true;
       _loadFailed = false;

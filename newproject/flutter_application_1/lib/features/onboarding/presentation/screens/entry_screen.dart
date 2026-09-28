@@ -164,7 +164,12 @@ class _EntryScreenState extends State<EntryScreen>
                         _Reveal(
                           anim: _gateAnim,
                           offset: 10,
-                          child: _AccountGate(onSignIn: _onSignIn),
+                          // Authenticated users never see Sign In here:
+                          // the guard already sends them home, and this
+                          // covers the hop window on cold start.
+                          child: AuthSession.isAuthenticated
+                              ? const SizedBox.shrink()
+                              : _AccountGate(onSignIn: _onSignIn),
                         ),
                         SizedBox(height: FansivibeSpacing.lg + 8),
                         _Reveal(

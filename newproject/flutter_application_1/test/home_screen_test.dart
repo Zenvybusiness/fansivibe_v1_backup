@@ -16,6 +16,7 @@ import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 
@@ -199,8 +200,18 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       LocalStorage.init(prefs: await SharedPreferences.getInstance());
       LearningService.instance.resetForTest();
+      AuthSession.resetForTest();
+      // Auth boundary: these tests exercise the authenticated Home, so
+      // they sign in. Unauthenticated rendering is covered by
+      // `auth_data_boundary_test.dart`.
+      await AuthSession.saveSession('home-test-token');
       LocalStorage.displayName = null;
       LocalStorage.onboardingComplete = false;
+    });
+
+    tearDown(() async {
+      AuthSession.resetForTest();
+      await AuthSession.clearSession();
     });
 
     testWidgets('renders greeting header truthfully without fabricated name', (

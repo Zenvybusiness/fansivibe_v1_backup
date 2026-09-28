@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/features/events/data/event_models.dart';
 import 'package:fansivibe/features/events/data/events_repository.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
@@ -187,6 +190,21 @@ GoRouter _eventRouter(Widget child, {FakeEventsRepository? repository}) {
 }
 
 void main() {
+  // Auth boundary: these tests exercise the authenticated event flow,
+  // so they sign in.
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    LocalStorage.init(prefs: await SharedPreferences.getInstance());
+    AuthSession.resetForTest();
+    await AuthSession.saveSession('events-test-token');
+  });
+
+  tearDown(() async {
+    AuthSession.resetForTest();
+    await AuthSession.clearSession();
+    LocalStorage.resetForTest();
+  });
+
   group('EventListScreen backend-first', () {
     testWidgets('renders app bar and header', (WidgetTester tester) async {
       final repository = FakeEventsRepository();

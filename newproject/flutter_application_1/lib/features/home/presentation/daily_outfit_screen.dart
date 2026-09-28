@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:fansivibe/features/home/data/today_look_client.dart';
 import 'package:fansivibe/features/home/data/today_look_models.dart';
 import 'package:fansivibe/features/home/data/today_look_repository.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -83,9 +84,26 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     if (isGuestUser) {
       _guestBlocked = true;
       _loading = false;
-      return;
+    } else {
+      _fetchToday();
     }
-    _fetchToday();
+    // A guest who signs in while this screen is mounted (shell keeps
+    // branch state) must flip to the authenticated fetch instead of
+    // keeping the sign-in prompt.
+    AuthSession.authVersion.addListener(_onAuthChanged);
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    if (!isGuestUser && _guestBlocked) {
+      setState(() {
+        _guestBlocked = false;
+        _loading = true;
+        _failure = null;
+        _noneAvailable = false;
+      });
+      _fetchToday();
+    }
   }
 
   Animation<double> _buildAnim(double start, double end) {
@@ -99,6 +117,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
 
   @override
   void dispose() {
+    AuthSession.authVersion.removeListener(_onAuthChanged);
     _controller.dispose();
     super.dispose();
   }

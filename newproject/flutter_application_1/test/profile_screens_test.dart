@@ -13,6 +13,8 @@ import 'package:fansivibe/features/profile/presentation/saved_looks_screen.dart'
 import 'package:fansivibe/features/profile/presentation/subscription_screen.dart';
 import 'package:fansivibe/features/profile/presentation/support_screen.dart';
 import 'package:fansivibe/features/profile/presentation/settings_screen.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 Widget wrapApp(Widget child) {
   return MaterialApp(theme: ThemeData.dark(), home: child);
@@ -55,8 +57,19 @@ SavedLookItem _row(String id, String title, String? sourceContext) {
 }
 
 void main() {
-  setUp(() {
+  setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    LocalStorage.init(prefs: await SharedPreferences.getInstance());
+    AuthSession.resetForTest();
+    // Auth boundary: the SavedLooks tests exercise the authenticated
+    // collection, so they sign in.
+    await AuthSession.saveSession('profile-screens-test-token');
+  });
+
+  tearDown(() async {
+    AuthSession.resetForTest();
+    await AuthSession.clearSession();
+    LocalStorage.resetForTest();
   });
 
   group('PreferencesScreen Widget Tests', () {

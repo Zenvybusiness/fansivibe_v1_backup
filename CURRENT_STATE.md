@@ -2,6 +2,55 @@
 
 ---
 
+## FULL SIGN-IN/OUT PIPELINE FIX (executed 2026-09-28, verdict: PASS — 6 more lib files + 5 aligned tests + 1 new suite, no backend/data/algorithm changes, no commit/push)
+
+- Sweep found one systemic hole class beyond the screen gates: Stylist/Wardrobe/SavedLooks/Events/ItemDetails cached the guest/server data source in `initState` and never re-evaluated, so a sign-in/out on a mounted shell branch kept the wrong source (local rows while authed, server rows/fetches while signed out). All six now subscribe to `AuthSession.authVersion` and re-resolve + reload on flip (DailyOutfit pattern); fetch guards use `!isAuthenticated` instead of `isGuestUser` so no session ever touches account endpoints. Stylist/Profile/Discover headers resolve names only when authed. Settings has no account UI; Assistant auth is token-based (untouched); transient flow screens remount on navigation.
+- Tests: new `test/auth_pipeline_test.dart` 11/11 (mounted local↔server swaps for all five screens, mounted logout invalidation, unit feature matrix, lifecycles A/B/C/D/E). Aligned to the contract (server behavior needs a session): `wardrobe/wardrobe_details/saved_looks/events/profile_screens` setUp now signs in; one client header expectation updated to the session token.
+- Validation: 45-file sweep 555 pass / 19 fail — all 19 pre-existing (auth_screens ×5, guest_phase2 ×2, save_continuation ×2, for_you ×4 proven on reverted HEAD, clothes ×6). `flutter analyze`: only the pre-existing `app_router:30` duplicate_import.
+- Remaining: none in the pipeline. (Neither-guest-nor-authed is transient by router design; pushNamed stacks under sign-in resolve via post-auth `go()`.)
+
+---
+
+## AUTH DATA BOUNDARY FIX (executed 2026-09-28, verdict: PASS — 4 lib files + 5 updated tests + 1 new test, no backend/data/algorithm changes, no commit/push)
+
+- Exact root cause: Home/Discover/Profile keyed personalized UI off local leftovers instead of `AuthSession.isAuthenticated` — Home score/name off device data + `displayName`, Discover For You off `isReturningUser`/wardrobe/signals, Profile established off `isReturningUser` + `displayName`. With `auth=false` + leftovers present (logout/expiry/legacy), all three rendered the previous account. No `currentUser`/userId cache exists anywhere (verified); 401-expiry also left identity behind.
+- Fix (presentation/authorization boundary only; zero data deleted): `AuthSession.notifyUnauthorized` now clears session-derived identity like logout does; Home score/streak/journey hidden + Today's Look sign-in card + null name + no authed fetches while `!isAuthenticated`; Discover `_isEstablishedUser` false + null header name + no For You fetch while `!isAuthenticated` (Trending/guest hero intact); Profile `_resolvedDisplayName` null while `!isAuthenticated`. Explicit `isEstablishedUser` test overrides still honored. Re-login restores everything from the new session.
+- Tests: new `test/auth_data_boundary_test.dart` 5/5 (exact `auth=false/displayName/isReturningUser/analysis/prefs/data` repro per screen, authed opposite, 12-step sign-out→guest→re-login). Updated to the corrected contract: `home/today_look/profile/profile_established` setUp now signs in (authed experience requires a session), `guest_phase2` home-score asserts no score. `for_you` ×4 proven pre-existing stale-copy on reverted HEAD (untouched).
+- Validation: 36-file sweep 391 pass / 19 fail — all 19 pre-existing (auth_screens ×5, guest_phase2 ×2, save_continuation ×2, for_you ×4, clothes ×6; each class proven identical on stashed/reverted HEAD). `flutter analyze` on all touched files: clean.
+- Remaining: none in the boundary. (401-expiry now matches logout identity semantics by design.)
+
+---
+
+## REAL SIGN-OUT STATE FIX (executed 2026-09-28, verdict: PASS — 2 lib files + 1 updated test + 1 new test, no backend changes, no commit/push)
+
+- Exact root cause (proven by code trace, no guessing): no `currentUser`/userId cache exists anywhere — identity was `token + LocalStorage.displayName + LocalStorage.isReturningUser`. Profile's `_isEstablishedUser` keyed off stale `isReturningUser` (never cleared) and rendered the established UI with the preserved `displayName`, while AI Stylist keyed off `AuthSession`/`isGuestUser`. Two predicates → post-logout guest saw the old account in Profile and the guest state in Stylist.
+- Fix: `AuthClient.logout` now also clears the session-derived identity (`displayName=null`, `isReturningUser=false`; both are written only from sign-in/register server responses). Wardrobe/saved looks/learning/prefs/vibe/ledgers/intents untouched. `ProfileScreen._isEstablishedUser` returns false when `!AuthSession.isAuthenticated` (explicit `isEstablishedUser` test override still honored) — Profile now uses the same authority as Stylist/router/guard. No new booleans, no UI hiding, no backend change.
+- Tests: new `test/auth_identity_consistency_test.dart` 6/6 (exact manual repro as widget test: A → logout → guest onboarding → Stylist guest + Profile shows 'On this device', never 'Account A'; onboarding-no-restore; kill+reopen; A→B isolation; 4-way consistency). Updated `sign_out_flow_test` preservation expectations (displayName/returning-flag now invalidated).
+- Validation: 30-file sweep 362 pass / 9 fail — all 9 proven pre-existing on stashed HEAD in prior runs (auth_screens ×5, guest_phase2 Discover ×2, save_continuation ×2). `flutter analyze` on touched files: clean. Prior sign-out navigation tests still pass.
+- Remaining: none in sign-out/identity. (`_buildSignOutButton` shows 'Sign Out' in the unreachable neither-guest-nor-authed state; guard prevents reaching it — cosmetic, untouched.)
+
+---
+
+## GLOBAL SIGN-OUT FLOW FIX (executed 2026-09-28, verdict: PASS — 1 lib file + 1 updated test + 1 new test, no backend changes, no commit/push)
+
+- Root cause: single sign-out path already existed (both Profile buttons → `_handleSignOut` → `AuthClient.logout` → `AuthSession.clearSession` → `goNamed(entry)`), but explicit logout left journey flags behind: stale `savedLocally=true` kept posing the signed-out device as guest (shell stayed guard-reachable) and stale `onboardingComplete=true` made Entry auto-hop straight back into the shell 1500ms after sign-out. No refresh token exists (access-token only); nothing stored can restore an account, so ledgers/intents/user data were correctly preserved.
+- Fix: `AuthClient.logout` (the one authoritative sign-out path, every UI converges there) now also resets `savedLocally=false` + `onboardingComplete=false` after clearing the session — device restarts at true onboarding. `clearSession` itself stays credential-only (still safe for login-failure cleanup). Navigation unchanged (`goNamed(entry)` stack-replaces; `authVersion` bump + guard redirect back it up, so back-button cannot re-enter the shell).
+- Tests: new `test/sign_out_flow_test.dart` 8/8 (session+store cleared, offline logout, version bump, guard matrix, restart-stays-out, data-preserved/flags-reset, established-SIGN-OUT tap → entry → back goes nowhere, post-logout authed route still lands entry). Updated `guest_auth_conversion_test` logout-hygiene to the corrected contract.
+- Validation: 27-file sweep 333 pass / 7 fail — all 7 proven pre-existing on stashed HEAD (auth_screens ×5 Row-overflow+stale-copy, guest_save_continuation ×2 duplicate-Save). `flutter analyze` on touched files: 0 errors, 1 pre-existing warning (`guest_auth_conversion_test.dart:517` inference, untouched).
+- Remaining: none in the sign-out flow. (401-expiry path intentionally keeps journey flags — unchanged behavior, out of scope.)
+
+---
+
+## AUTHENTICATED ACCESS FIX (executed 2026-09-28, verdict: PASS — 5 lib files + 2 updated tests + 1 new test, no backend changes, no commit/push)
+
+- Root cause (session state was right, reactivity + routing were wrong): `AuthSession`/`SecureTokenStorage`/`isGuestUser` were already the single source of truth, but (1) the router had no `refreshListenable`, so session flips never re-triggered the guard and stale guest/sign-in UI stuck; (2) the guard never redirected authenticated users away from auth-only routes (`/entry`, `/sign-in`, `/create-account`, `/onboarding/account`), so Sign In rendered with a valid session; (3) `savedLocally` was never cleared on sign-in, leaving a stale guest flag forever; (4) `DailyOutfitScreen._guestBlocked` was frozen in `initState`, so its Sign In card survived login on a mounted shell branch; (5) `EntryScreen` showed the Sign In gate during the 1500ms returning-user hop.
+- Fix (all through the existing `AuthSession` mechanism, no new auth state, no backend change): `AuthSession.authVersion` notifier bumped on save/clear/genuine-401-expiry + `saveSession` clears stale `savedLocally`; `appRouter` uses it as `refreshListenable`; `authRedirect` sends authed users on auth-only routes to `/home` (all other authed verdicts still null — no loops); `EntryScreen` hides the gate when authenticated; `DailyOutfitScreen` subscribes to `authVersion` and flips to the authenticated fetch on sign-in. Logout/401-expiry still land on entry with Sign In available.
+- Tests: new `test/authenticated_access_test.dart` 14/14 (all 10 required scenarios: fresh launch, sign-in, tabs, restart-restore, expiry, logout, new + returning users, init-race signal, backend-intact incl. token-less-200 never faking a session, entry gate hide/show). Updated `router_auth_guard_test.dart` (authed auth-only → `/home`) and `guest_auth_conversion_test.dart` (save clears stale guest flag) to the corrected contract.
+- Validation: focused 23-file suite 285/285 PASS (`flutter analyze` on touched files: 0 errors, 2 pre-existing warnings left untouched — `app_router.dart:30` duplicate_import, `guest_auth_conversion_test.dart:517` inference). Proven pre-existing on stashed HEAD (identical failures with zero changes): `auth_screens` ×5, `guest_phase2` Discover ×2, `clothes` ×6, `guest_save_continuation` ×2.
+- Remaining: `DailyOutfit/Stylist/Profile/Home` still choose their data repos/futures in `initState` (guest → server source switches only on remount); per-build Sign In branches now all heal via router refresh, but a guest→login without navigation may show briefly stale data (not stale Sign In). No prod session validation probe on startup (`validateSession` still call-on-demand; first 401 ejects) — unchanged by design.
+
+---
+
 ## D-01 STEP 2 FINAL VERIFICATION (executed 2026-09-28, verdict: READY TO COMMIT — verification only, zero code changed, no commit/push)
 
 - Relevant Flutter suite (40 files: auth/guest/conversion/migration/save, hairstyle, grooming, outfit scan, wardrobe/garment): 468 passed / 13 failed; all 13 are class C pre-existing baseline (auth_screens ×5 Row-overflow+stale-copy, guest_phase2 Discover ×2 stale copy, clothes ×6 tab-helper No-element — all in the Phase-0 stashed-HEAD failure file-set; zero D-01/obsolete/unrelated failures). Focused D-01 (ephemeral 25/25) + both updated gate tests PASS. Backend `test_ephemeral_analysis.py` 25/25 PASS.

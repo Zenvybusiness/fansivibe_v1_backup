@@ -185,14 +185,29 @@ void main() {
   });
 
   group('authenticated', () {
-    test('never forced away from any route (no loops)', () {
+    test('auth-only routes send signed-in users home (no Sign In UI)', () {
       for (final location in [
         '/entry',
-        '/splash',
+        '/sign-in',
+        '/create-account',
         '/onboarding/account',
+      ]) {
+        expect(
+          authRedirect(location, isAuthenticated: true),
+          '/home',
+          reason: location,
+        );
+      }
+    });
+
+    test('every other route stays reachable (no loops)', () {
+      for (final location in [
+        '/splash',
+        '/onboarding/vibe',
         '/assistant',
         '/reasoning',
         '/home',
+        '/home/daily-outfit',
         '/discover',
         '/stylist/scan-outfit',
         '/wardrobe',

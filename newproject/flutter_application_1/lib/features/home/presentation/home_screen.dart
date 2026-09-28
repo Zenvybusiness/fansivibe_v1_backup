@@ -16,7 +16,6 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
     show WardrobeInsightData;
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
-import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
@@ -95,7 +94,9 @@ class _HomeScreenState extends State<HomeScreen> {
         if (mounted) setState(() {});
       });
     }
-    if (!_isFirstVisit && !isGuestUser) {
+    if (!_isFirstVisit &&
+        !isGuestUser &&
+        AuthSession.isAuthenticated) {
       _initEstablishedFuturesIfNeeded();
     }
   }
@@ -117,7 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onLocalChanged() {
     if (!mounted) return;
-    if (!_isFirstVisit && !isGuestUser) {
+    if (!_isFirstVisit && !isGuestUser && AuthSession.isAuthenticated) {
       _initEstablishedFuturesIfNeeded();
     }
     setState(() {});
@@ -182,6 +183,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String? get _displayName {
+    // Display names are account identity: never resolve one while signed
+    // out, no matter what local leftovers exist.
+    if (!AuthSession.isAuthenticated) return null;
     final raw = widget.onboardingData?['display_name'] as String? ??
         _onboardingDataFromLocalStorage()?['display_name'] as String? ??
         LocalStorage.displayName;
@@ -197,7 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final learningService = LearningService.instance;
 
-    if (!_isFirstVisit && !isGuestUser) {
+    if (!_isFirstVisit && !isGuestUser && AuthSession.isAuthenticated) {
       _initEstablishedFuturesIfNeeded();
     }
 
@@ -275,7 +279,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         _buildTodaysLookSlot(context),
 
                         // Optional: Contextual assistance for established user with 0 items
-                        if (learningService.wardrobe.isEmpty && !isGuestUser) ...[
+                        if (learningService.wardrobe.isEmpty &&
+                            AuthSession.isAuthenticated) ...[
                           const SizedBox(height: 24),
                           ZeroWardrobeContextCard(
                             onAddWardrobeItem: () =>
@@ -334,32 +339,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildScoreSlot() {
-    // Phase 2.1 guests: the real on-device score (60 + wardrobe items +
-    // saved looks, via LearningService) — no fetch, no faking, and the
-    // limitation (device-only until sign-in) is stated on the card.
-    if (isGuestUser) {
-      final service = LearningService.instance;
-      final pieces = service.wardrobe.length;
-      final favorites =
-          service.wardrobe.where((e) => e.isFavorite).length;
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ExistingUserStyleScoreCard(
-            score: service.styleScore,
-            scoreChange: 'DEVICE ONLY',
-            rankingLabel: 'LOCAL',
-            supportingText: '$pieces ${pieces == 1 ? 'piece' : 'pieces'} · '
-                '$favorites ${favorites == 1 ? 'favorite' : 'favorites'} on this device — grows as you add clothes.',
-          ),
-          const SizedBox(height: 8),
-          FansiButton.tertiary(
-            label: 'Sign in to sync & back up',
-            onPressed: () => promptGuestSignIn(context),
-          ),
-        ],
-      );
-    }
+    // Auth boundary: the style score is personal data. While signed out
+    // it must not render at all — neither the backend value nor a
+    // locally computed one relabeled "device only". Same hide pattern as
+    // the streak slot below.
+    if (!AuthSession.isAuthenticated) return const SizedBox.shrink();
     // Backend-first M10 score (STEP 19.16): the server value renders
     // verbatim. Loading and error states keep the slot title with no
     // value — there is deliberately no mock fallback here.
@@ -386,7 +370,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildStreakSlot() {
     // Phase 2.1 guests: streaks are server-tracked — no on-device
     // equivalent exists, so the slot hides rather than inventing one.
-    if (isGuestUser) return const SizedBox.shrink();
+    // Same for any signed-out state (stale local data is not a session).
+    if (!AuthSession.isAuthenticated) return const SizedBox.shrink();
     // Backend-first M10 streak (STEP 19.16): same future as the score
     // slot, so one GET feeds both — no second request, no local math.
     return FutureBuilder<LearningSummary?>(
@@ -411,8 +396,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildTodaysLookSlot(BuildContext context) {
     // Phase 2 guests: no session, no fetch — honest sign-in prompt
-    // instead of a 401-backed error card.
-    if (isGuestUser) {
+    // instead of a 401-backed error card. Applies to every signed-out
+    // state, not just the guest flag (stale flags are not a session).
+    if (!AuthSession.isAuthenticated) {
       return const GuestSignInCard(
         title: "Today's Look",
         message:
@@ -565,7 +551,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildStyleJourney() {
     // 30-day overview is server-tracked across weeks — guests have no
     // account history so the slot hides rather than posing historical data.
-    if (isGuestUser) return const SizedBox.shrink();
+    // Same for any signed-out state.
+    if (!AuthSession.isAuthenticated) return const SizedBox.shrink();
     return FutureBuilder<LearningSummary?>(
       future: _summaryFuture,
       builder: (context, snapshot) {

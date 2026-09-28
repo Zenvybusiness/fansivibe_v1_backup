@@ -8,6 +8,7 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 /// Converts a [WardrobeItemData] to a [WardrobeEntry] for LearningService sync.
 WardrobeEntry _toEntry(WardrobeItemData item) => WardrobeEntry(
@@ -55,7 +56,7 @@ class WardrobeItemDetailsScreen extends StatefulWidget {
 
 class _WardrobeItemDetailsScreenState
     extends State<WardrobeItemDetailsScreen> {
-  late final WardrobeRepository _repository;
+  late WardrobeRepository _repository;
   WardrobeItemData? _item;
   bool _isLoading = true;
   bool _isEditing = false;
@@ -77,10 +78,23 @@ class _WardrobeItemDetailsScreenState
   @override
   void initState() {
     super.initState();
-    // Phase 2.1 guests read/edit/delete through the local repository —
-    // same screen, zero API calls. Injected fakes are ignored for
-    // guests, so guest tests can assert the backend is never touched.
-    if (isGuestUser) {
+    // Signed-out screens read/edit/delete through the local repository —
+    // same screen, zero API calls. Injected fakes are ignored without
+    // a session, so guest tests can assert the backend is never touched.
+    if (!AuthSession.isAuthenticated) {
+      _repository = LocalWardrobeRepository();
+    } else {
+      _repository = widget.repository ?? WardrobeRepositoryImpl();
+    }
+    _loadItem();
+    // The data source is session-derived: re-resolve it when the
+    // session flips under this mounted route.
+    AuthSession.authVersion.addListener(_onAuthChanged);
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    if (!AuthSession.isAuthenticated) {
       _repository = LocalWardrobeRepository();
     } else {
       _repository = widget.repository ?? WardrobeRepositoryImpl();
@@ -90,6 +104,7 @@ class _WardrobeItemDetailsScreenState
 
   @override
   void dispose() {
+    AuthSession.authVersion.removeListener(_onAuthChanged);
     super.dispose();
   }
 

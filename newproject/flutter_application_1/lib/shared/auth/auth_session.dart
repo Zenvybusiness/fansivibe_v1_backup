@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:fansivibe/shared/auth/secure_token_storage.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 /// Canonical auth/session mechanism (D-AUTH-1).
 ///
@@ -24,6 +26,17 @@ class AuthSession {
 
   static bool _expiryNotified = false;
 
+  /// Reactivity signal for the existing session state above (not a second
+  /// auth boolean — it only counts session transitions). The router
+  /// observes it as its `refreshListenable` so guards re-evaluate the
+  /// moment a sign-in persists or a logout/expiry clears the session,
+  /// instead of stranding screens on stale guest UI.
+  static final ValueNotifier<int> authVersion = ValueNotifier<int>(0);
+
+  static void _bump() {
+    authVersion.value++;
+  }
+
   /// The persisted session token, or null when signed out.
   static String? get token => SecureTokenStorage.currentToken;
 
@@ -44,6 +57,10 @@ class AuthSession {
   static Future<void> saveSession(String accessToken) async {
     _expiryNotified = false;
     await SecureTokenStorage.writeToken(accessToken);
+    // A valid session outranks the stale guest flag: explicit guests who
+    // later sign in must never keep `savedLocally` shadowing them.
+    LocalStorage.savedLocally = false;
+    _bump();
   }
 
   /// Clears the session (logout). Local journey state is preserved —
@@ -51,6 +68,7 @@ class AuthSession {
   static Future<void> clearSession() async {
     _expiryNotified = false;
     await SecureTokenStorage.deleteToken();
+    _bump();
   }
 
   /// Handles an HTTP 401 from any authenticated client: drops the dead
@@ -68,6 +86,12 @@ class AuthSession {
     if (!hadSession) return;
     if (_expiryNotified) return;
     _expiryNotified = true;
+    // A dead session invalidates the session-derived identity with it —
+    // otherwise an expired login leaves the same stale account behind
+    // that explicit logout clears (see `AuthClient.logout`).
+    LocalStorage.displayName = null;
+    LocalStorage.isReturningUser = false;
+    _bump();
     onSessionExpired?.call();
   }
 

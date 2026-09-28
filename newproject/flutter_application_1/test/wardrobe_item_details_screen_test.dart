@@ -10,6 +10,9 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 Widget _wrapScreen(WardrobeItemData item, {bool deleteSucceeds = true}) {
   final httpClient = MockClient((request) async {
@@ -40,6 +43,21 @@ Widget _wrapScreen(WardrobeItemData item, {bool deleteSucceeds = true}) {
 }
 
 void main() {
+  // Auth boundary: these tests exercise the authenticated details
+  // screen, so they sign in.
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    LocalStorage.init(prefs: await SharedPreferences.getInstance());
+    AuthSession.resetForTest();
+    await AuthSession.saveSession('wardrobe-details-test-token');
+  });
+
+  tearDown(() async {
+    AuthSession.resetForTest();
+    await AuthSession.clearSession();
+    LocalStorage.resetForTest();
+  });
+
   group('WardrobeItemDetailsScreen Widget Tests', () {
     testWidgets('renders visual placeholder with item name', (
       WidgetTester tester,

@@ -546,8 +546,13 @@ GoRoute(
 final GoRouter appRouter = GoRouter(
   initialLocation: '/entry',
   routes: appRoutes,
+  // Re-evaluates the guard the moment the session flips (sign-in
+  // persists, logout/expiry clears) instead of stranding the UI on a
+  // stale guest/sign-in snapshot. Navigation stays explicit elsewhere.
+  refreshListenable: AuthSession.authVersion,
   // 21.2 (M1) declarative auth guard: unauthenticated deep links into
-  // the shell land on entry; authenticated users are never forced away
+  // the shell land on entry; authenticated users leave auth-only routes
+  // (/entry, /sign-in, /create-account, /onboarding/account) for /home
   // (no loops, no network on navigation — see auth_guard.dart).
   // Explicit guests (Continue Without Account, no session token) may
   // browse all five shell tabs + nested read screens; account-required

@@ -8,6 +8,7 @@ import 'package:fansivibe/features/profile/data/saved_looks_repository.dart';
 import 'package:fansivibe/features/profile/presentation/profile_screen.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -144,6 +145,14 @@ void main() {
       LocalStorage.init(prefs: await SharedPreferences.getInstance());
       UserSession.displayName = 'Alex Rivera';
       UserSession.isReturningUser = true;
+      AuthSession.resetForTest();
+      // Auth boundary: the established account UI requires a session.
+      await AuthSession.saveSession('established-test-token');
+    });
+
+    tearDown(() async {
+      AuthSession.resetForTest();
+      await AuthSession.clearSession();
     });
 
     testWidgets('1. Renders all 15 visual reference sections for established user', (

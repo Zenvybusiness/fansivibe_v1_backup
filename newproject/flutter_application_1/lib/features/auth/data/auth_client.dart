@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/auth/data/auth_models.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 /// HTTP client for real authentication (D-AUTH-1, M1, endpoints #02–05).
 ///
@@ -99,6 +100,17 @@ class AuthClient {
   /// The local session is cleared even when the server answers 401
   /// (already-dead session) or is unreachable — logout is locally
   /// complete either way, so no signed-out device keeps a token.
+  /// Explicit sign-out also drops the guest/onboarding journey flags so
+  /// a stale `savedLocally` can never pose the signed-out device as a
+  /// guest and a stale `onboardingComplete` can never auto-hop entry
+  /// back into the shell: the device restarts at true onboarding.
+  /// Session-derived identity goes too: `displayName` is only ever
+  /// written from a sign-in/register server response and
+  /// `isReturningUser` only on sign-in, so both describe the previous
+  /// account — keeping them would let Profile resolve the old account
+  /// after logout. Everything else is preserved (wardrobe, saved looks,
+  /// learning, prefs, vibe, migration ledgers, pending intents) —
+  /// sign-out ends the session, never deletes user data.
   Future<AuthStatus> logout() async {
     final token = AuthSession.token;
     if (token != null && token.isNotEmpty) {
@@ -114,6 +126,10 @@ class AuthClient {
       }
     }
     await AuthSession.clearSession();
+    LocalStorage.savedLocally = false;
+    LocalStorage.onboardingComplete = false;
+    LocalStorage.displayName = null;
+    LocalStorage.isReturningUser = false;
     return AuthStatus.signedOut;
   }
 

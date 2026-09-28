@@ -9,6 +9,7 @@ import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/profile/data/profile_mock_data.dart';
 import 'package:fansivibe/features/profile/presentation/profile_screen.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/profile_widgets.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
@@ -37,6 +38,16 @@ void main() {
       UserSession.hasSavedWardrobeItem = false;
       LocalStorage.savedLookIds = [];
       LearningService.instance.resetForTest();
+      AuthSession.resetForTest();
+      // Auth boundary: these tests exercise the authenticated Profile,
+      // so they sign in. Unauthenticated rendering is covered by
+      // `auth_data_boundary_test.dart`.
+      await AuthSession.saveSession('profile-test-token');
+    });
+
+    tearDown(() async {
+      AuthSession.resetForTest();
+      await AuthSession.clearSession();
     });
 
     testWidgets('1. New-user Profile renders all reference sections', (

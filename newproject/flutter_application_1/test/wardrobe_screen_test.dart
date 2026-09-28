@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/app/app.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
@@ -12,6 +13,8 @@ import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_category_s
 import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_item_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_item_details_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 /// Creates a [FansivibeApp] booted directly into the main shell so tab
 /// navigation can be exercised without re-running the onboarding Entry flow.
@@ -108,6 +111,21 @@ Widget _freshApp({WardrobeRepository? repository}) {
 }
 
 void main() {
+  // Auth boundary: these tests exercise the authenticated Wardrobe, so
+  // they sign in. Guest behavior is covered by `guest_phase2_test.dart`.
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    LocalStorage.init(prefs: await SharedPreferences.getInstance());
+    AuthSession.resetForTest();
+    await AuthSession.saveSession('wardrobe-test-token');
+  });
+
+  tearDown(() async {
+    AuthSession.resetForTest();
+    await AuthSession.clearSession();
+    LocalStorage.resetForTest();
+  });
+
   group('WardrobeScreen Widget Tests', () {
     testWidgets('renders wardrobe header with title, count, and style type', (
       WidgetTester tester,

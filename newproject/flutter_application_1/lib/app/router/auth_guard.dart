@@ -18,24 +18,24 @@
 ///   `AuthSession` and 401 honestly.
 /// - Guests stay blocked from `/assistant` and `/reasoning` (redirect to
 ///   `/entry`), even though `/assistant` is public for everyone else.
-/// - Authenticated users are NEVER forced away from public routes: entry,
-///   onboarding, login/register, and `/assistant` (frozen-public chat)
-///   stay reachable so onboarding, Maybe-Later, and sign-in flows keep
-///   working, including cold start (EntryScreen performs its own
-///   returning-user hop to home after the launch animation).
+/// - Authenticated users are redirected away from the auth-only routes
+///   (`/entry`, `/sign-in`, `/create-account`, `/onboarding/account`):
+///   Sign In UI must never render while a valid session exists. Every
+///   other route stays reachable (no loops): onboarding steps, shell,
+///   `/assistant`, and unknown paths return null.
 /// - Unknown paths return null (error handling owns them; the guard
 ///   invents no destinations).
 ///
-/// Reactivity note: the guard re-evaluates on every navigation. Login,
-/// logout, and session-expiry already navigate explicitly (`goNamed`),
-/// so no `refreshListenable` is attached — `AuthSession` is static state
-/// and a listenable would only add rebuild churn for zero new coverage.
+/// Reactivity note: the guard re-evaluates on every navigation and on
+/// every session transition (`AuthSession.authVersion` is the router's
+/// `refreshListenable`), so a fresh sign-in or a logout/expiry moves
+/// immediately even when the user stays on the same route.
 String? authRedirect(
   String location, {
   required bool isAuthenticated,
   bool isGuest = false,
 }) {
-  if (isAuthenticated) return null;
+  if (isAuthenticated) return _authedRedirect(location);
   // Phase 1 guest scope: reasoning + assistant stay blocked for guests
   // (checked before the public list, since /assistant is public for
   // everyone else).
@@ -45,6 +45,21 @@ String? authRedirect(
   // screens). Account-required writes stay gated at their buttons.
   if (isGuest && _isGuestSafe(location)) return null;
   if (_isAuthenticatedRoute(location)) return '/entry';
+  return null;
+}
+
+/// Auth-only routes: sign-in UI lives here and nowhere else. An
+/// authenticated session redirects these to `/home` so Sign In never
+/// renders for signed-in users (new, existing, or returning).
+bool _isAuthOnlyRoute(String location) {
+  return location == '/entry' ||
+      location == '/sign-in' ||
+      location == '/create-account' ||
+      location == '/onboarding/account';
+}
+
+String? _authedRedirect(String location) {
+  if (_isAuthOnlyRoute(location)) return '/home';
   return null;
 }
 

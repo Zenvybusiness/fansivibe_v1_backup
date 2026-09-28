@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_client.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_repository.dart';
@@ -141,6 +143,22 @@ Future<void> _tapFirstRemove(WidgetTester tester) async {
 }
 
 void main() {
+  // Auth boundary: the screen tests below exercise the authenticated
+  // collection, so they sign in. Guest behavior is covered by
+  // `guest_phase2_test.dart`.
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    LocalStorage.init(prefs: await SharedPreferences.getInstance());
+    AuthSession.resetForTest();
+    await AuthSession.saveSession('saved-looks-test-token');
+  });
+
+  tearDown(() async {
+    AuthSession.resetForTest();
+    await AuthSession.clearSession();
+    LocalStorage.resetForTest();
+  });
+
   group('SavedLookItem decoding (A)', () {
     test('paginated envelope decodes with UUID and sourceContext intact', () {
       final page = SavedLookListPage.fromJson(
@@ -231,7 +249,9 @@ void main() {
       expect(seen.path, '/v1/looks/saved');
       expect(seen.queryParameters['page'], '1');
       expect(seen.queryParameters['page_size'], '20');
-      expect(seenHeaders?['Authorization'], 'Bearer dev');
+      // Session-first token resolution (D-AUTH-1): the signed-in
+      // session wins over the logged-out dev fallback.
+      expect(seenHeaders?['Authorization'], 'Bearer saved-looks-test-token');
     });
 
     test(

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fansivibe/features/home/data/today_look_client.dart';
 import 'package:fansivibe/features/home/data/today_look_models.dart';
@@ -12,7 +13,9 @@ import 'package:fansivibe/features/home/data/today_look_repository.dart';
 import 'package:fansivibe/features/home/presentation/daily_outfit_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 const String _uuid1 = '78ff3686-c950-4cd6-84c3-7e18d6634dfa';
 const String _uuid2 = '4412f646-56a9-4afa-8717-b330da03b3d0';
@@ -170,6 +173,22 @@ Widget _dailyWith(TodayLookRepository repo) {
 }
 
 void main() {
+  // Auth boundary: these tests exercise the authenticated Today's Look
+  // slot, so they sign in. Unauthenticated rendering is covered by
+  // `auth_data_boundary_test.dart`.
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    LocalStorage.init(prefs: await SharedPreferences.getInstance());
+    AuthSession.resetForTest();
+    await AuthSession.saveSession('today-look-test-token');
+  });
+
+  tearDown(() async {
+    AuthSession.resetForTest();
+    await AuthSession.clearSession();
+    LocalStorage.resetForTest();
+  });
+
   group('F–I, X. Home Today\'s Look slot', () {
     testWidgets('F. successful look renders backend data verbatim', (
       WidgetTester tester,

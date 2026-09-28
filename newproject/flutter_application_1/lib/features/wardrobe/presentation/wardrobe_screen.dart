@@ -9,6 +9,7 @@ import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart'
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/first_time_wardrobe_view.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
@@ -50,12 +51,12 @@ class WardrobeScreen extends StatefulWidget {
 
 class _WardrobeScreenState extends State<WardrobeScreen> {
   String _selectedCategory = 'all';
-  late final WardrobeRepository _repository;
+  late WardrobeRepository _repository;
   List<WardrobeItemData> _items = [];
   bool _isLoading = true;
   String? _errorMessage;
-  late final Future<WardrobeInsightData?> _insightFuture;
-  late final Future<WearSummary?> _wearSummaryFuture;
+  late Future<WardrobeInsightData?> _insightFuture;
+  late Future<WearSummary?> _wearSummaryFuture;
   bool get _showFirstTimeExperience {
     if (_isLoading) return false;
     return UserSession.isNewUserInInitialExploration && _items.isEmpty;
@@ -66,13 +67,22 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     super.initState();
     LearningService.instance.addListener(_onLocalChanged);
     UserSession.savedWardrobeItemNotifier.addListener(_onLocalChanged);
+    _initDataSource();
+    // Data sources are session-derived: a sign-in/out on a mounted
+    // shell branch must swap local <-> server sources instead of
+    // keeping the initState snapshot (same pattern as DailyOutfit).
+    AuthSession.authVersion.addListener(_onAuthChanged);
+  }
 
-    // Phase 2.1 guests run the full wardrobe on-device: the local
-    // repository serves the same list/detail/add/edit/delete flows with
-    // zero API calls (insight/wear-summary have no on-device equivalent
-    // and stay hidden). Injected fakes are ignored for guests, so guest
-    // tests can assert the backend is never touched.
-    if (isGuestUser) {
+  /// Selects the data source for the current session state and loads.
+  ///
+  /// Signed-out screens run the full wardrobe on-device: the local
+  /// repository serves the same list/detail/add/edit/delete flows with
+  /// zero API calls (insight/wear-summary have no on-device equivalent
+  /// and stay hidden). Injected fakes are ignored without a session, so
+  /// guest tests can assert the backend is never touched.
+  void _initDataSource() {
+    if (!AuthSession.isAuthenticated) {
       _repository = LocalWardrobeRepository();
       _insightFuture = Future.value(null);
       _wearSummaryFuture = Future.value(null);
@@ -96,8 +106,15 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     _loadItems();
   }
 
+  void _onAuthChanged() {
+    if (!mounted) return;
+    _initDataSource();
+    setState(() {});
+  }
+
   @override
   void dispose() {
+    AuthSession.authVersion.removeListener(_onAuthChanged);
     LearningService.instance.removeListener(_onLocalChanged);
     UserSession.savedWardrobeItemNotifier.removeListener(_onLocalChanged);
     super.dispose();

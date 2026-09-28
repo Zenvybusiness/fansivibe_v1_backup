@@ -186,8 +186,12 @@ void main() {
       expect(isGuestUser, isTrue);
       await AuthSession.saveSession('token-1');
       expect(isGuestUser, isFalse);
+      // A successful sign-in clears the stale guest flag, so it can
+      // never shadow the session (or a later logout).
+      expect(LocalStorage.savedLocally, isFalse);
       await AuthSession.clearSession();
-      expect(isGuestUser, isTrue);
+      expect(AuthSession.isAuthenticated, isFalse);
+      expect(isGuestUser, isFalse);
     });
 
     test('no token and no guest flag is neither guest nor authed', () {
@@ -649,11 +653,14 @@ void main() {
       );
       await AuthSession.saveSession('dead-token');
       LocalStorage.savedLocally = true;
+      LocalStorage.onboardingComplete = true;
       final status = await client.logout();
       expect(status.name, 'signedOut');
       expect(AuthSession.isAuthenticated, isFalse);
-      // Guest flags intentionally untouched (reported, not changed).
-      expect(LocalStorage.savedLocally, isTrue);
+      // Explicit sign-out restarts journey flags (no stale guest pose,
+      // no entry auto-hop back into the shell); user data is untouched.
+      expect(LocalStorage.savedLocally, isFalse);
+      expect(LocalStorage.onboardingComplete, isFalse);
     });
   });
 }

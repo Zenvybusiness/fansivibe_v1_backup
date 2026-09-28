@@ -6,6 +6,7 @@ import 'package:fansivibe/features/events/data/events_repository.dart';
 import 'package:fansivibe/features/events/presentation/widgets/events_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_error_view.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_loading_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
@@ -42,17 +43,38 @@ class _EventListScreenState extends State<EventListScreen> {
   @override
   void initState() {
     super.initState();
-    // Phase 2 guests never fetch: GET /v1/events 401s without a
-    // session. The build below renders the sign-in prompt instead.
-    if (isGuestUser) {
+    // No session, no fetch: GET /v1/events 401s without one. The
+    // build below renders the sign-in prompt instead.
+    if (!AuthSession.isAuthenticated) {
       _future = Future.value(null);
+    } else {
+      _future = Future.sync(() => _repository.listEvents());
+    }
+    // A sign-in/out on a mounted route must reload instead of keeping
+    // the initState snapshot (same pattern as DailyOutfit).
+    AuthSession.authVersion.addListener(_onAuthChanged);
+  }
+
+  @override
+  void dispose() {
+    AuthSession.authVersion.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    if (!AuthSession.isAuthenticated) {
+      setState(() {
+        _selectedEvent = null;
+        _future = Future.value(null);
+      });
       return;
     }
-    _future = Future.sync(() => _repository.listEvents());
+    _reload();
   }
 
   void _reload() {
-    if (isGuestUser) return;
+    if (!AuthSession.isAuthenticated) return;
     setState(() {
       _future = Future.sync(() => _repository.listEvents());
     });

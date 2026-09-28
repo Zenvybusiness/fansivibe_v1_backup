@@ -11,6 +11,7 @@ import 'package:fansivibe/features/profile/presentation/widgets/style_summary_se
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
     show WardrobeInsightData, WardrobeItemData;
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -82,12 +83,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _wardrobeRepository =
         widget.wardrobeRepository ?? WardrobeRepositoryImpl();
 
-    _summaryFuture =
-        isGuestUser ? Future.value(null) : _summaryRepository.getSummary();
+    _summaryFuture = AuthSession.isAuthenticated
+        ? _summaryRepository.getSummary()
+        : Future.value(null);
 
     // Listen to real application state changes reactively
     LearningService.instance.addListener(_onStateChanged);
     UserSession.savedWardrobeItemNotifier.addListener(_onStateChanged);
+    // A sign-in/out on a mounted route must swap data sources instead
+    // of keeping the initState snapshot (same pattern as DailyOutfit).
+    AuthSession.authVersion.addListener(_onAuthChanged);
 
     if (isGuestUser) {
       LearningService.instance.load().then((_) {
@@ -108,8 +113,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  /// Drops stale authenticated data on sign-out and loads the account
+  /// on sign-in, so a mounted Profile can never show the previous
+  /// session's rows/identity.
+  void _onAuthChanged() {
+    if (!mounted) return;
+    if (isGuestUser) {
+      setState(() {
+        _summaryFuture = Future.value(null);
+        _backendSavedLooks = [];
+        _wardrobeItems = [];
+        _wardrobeInsight = null;
+      });
+      return;
+    }
+    if (AuthSession.isAuthenticated) {
+      setState(() {
+        _summaryFuture = _summaryRepository.getSummary();
+      });
+      _loadSavedLooks();
+      _loadWardrobeData();
+      return;
+    }
+    // Signed out without a guest flag: no session fetches; the build
+    // renders the unauthenticated design from local state only.
+    setState(() {
+      _backendSavedLooks = [];
+      _wardrobeItems = [];
+      _wardrobeInsight = null;
+    });
+  }
+
   @override
   void dispose() {
+    AuthSession.authVersion.removeListener(_onAuthChanged);
     LearningService.instance.removeListener(_onStateChanged);
     UserSession.savedWardrobeItemNotifier.removeListener(_onStateChanged);
     super.dispose();
@@ -125,7 +162,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadSavedLooks() async {
-    if (isGuestUser) return;
+    // Session fetches require a session: guests and any other
+    // signed-out state never touch account endpoints.
+    if (!AuthSession.isAuthenticated) return;
     try {
       final page = await _savedLooksRepository.listSavedLooks(page: 1, pageSize: 20);
       if (mounted && page != null) {
@@ -137,7 +176,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadWardrobeData() async {
-    if (isGuestUser) return;
+    if (!AuthSession.isAuthenticated) return;
     try {
       final items = await _wardrobeRepository.listItems(pageSize: 20);
       final insight = await _wardrobeRepository.getInsight();
@@ -151,7 +190,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _retrySummary() {
-    if (isGuestUser) return;
+    if (!AuthSession.isAuthenticated) return;
     setState(() {
       _summaryFuture = _summaryRepository.getSummary();
     });
@@ -163,6 +202,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (widget.isEstablishedUser != null) {
       return widget.isEstablishedUser!;
     }
+    // The established account UI requires a live session: stale
+    // returning-user flags and preserved local data describe the device,
+    // never the current account. `AuthSession` is the single authority —
+    // without it Profile renders the unauthenticated design, never the
+    // previous account.
+    if (!AuthSession.isAuthenticated) return false;
     // Authoritative check: Returning / established user who has logged in or is flagged established
     if (UserSession.isReturningUser || LocalStorage.isReturningUser) {
       return true;
@@ -224,6 +269,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // --- Dynamic state resolution ---
 
   String? get _resolvedDisplayName {
+    // Account identity is session-derived: never resolve a stored name
+    // while signed out (covers expiry/legacy leftovers, not just the
+    // explicit-logout clearing in `AuthClient.logout`).
+    if (!AuthSession.isAuthenticated) return null;
     if (widget.displayName != null && widget.displayName!.trim().isNotEmpty) {
       return widget.displayName!.trim();
     }
