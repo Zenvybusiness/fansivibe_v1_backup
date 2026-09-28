@@ -45,8 +45,8 @@ Future<void> handlePostAuthConversion(BuildContext context) async {
   if (!context.mounted) return;
 
   final localIds = _unmigratedLocalIds();
-  final prefCount = LearningService.instance.preferredOccasions.length;
-  if (localIds.isEmpty && prefCount == 0) {
+  final prefs = _unmigratedPrefs();
+  if (localIds.isEmpty && prefs.isEmpty) {
     _goWithGuidance(context, destination, intent);
     return;
   }
@@ -54,7 +54,7 @@ Future<void> handlePostAuthConversion(BuildContext context) async {
   final choice = await showGuestMergeDialog(
     context,
     itemCount: localIds.length,
-    prefCount: prefCount,
+    prefCount: prefs.length,
   );
   if (!context.mounted) return;
   switch (choice) {
@@ -64,12 +64,15 @@ Future<void> handlePostAuthConversion(BuildContext context) async {
       final confirmed = await showGuestDiscardConfirm(
         context,
         itemCount: localIds.length,
-        prefCount: prefCount,
+        prefCount: prefs.length,
       );
       if (!context.mounted) return;
       if (confirmed) {
         LearningService.instance.removeLocalItems(localIds.toSet());
         LearningService.instance.clearPreferredOccasions();
+        // Device prefs are gone, so their sync ledger is meaningless —
+        // without this a re-added code would be skipped as "migrated".
+        LocalStorage.migratedGuestPrefs = [];
         _snack(context, 'Device data removed. Your account is unchanged.');
       }
       _goWithGuidance(context, destination, intent);
@@ -90,6 +93,15 @@ List<String> _unmigratedLocalIds() {
       .toList();
 }
 
+/// Device-local preference codes still needing sync (already-synced
+/// ledger codes excluded so a completed merge never re-prompts).
+List<String> _unmigratedPrefs() {
+  final ledger = Set<String>.from(LocalStorage.migratedGuestPrefs);
+  return LearningService.instance.preferredOccasions
+      .where((code) => !ledger.contains(code))
+      .toList();
+}
+
 Future<void> _runMerge(
   BuildContext context,
   String destination,
@@ -107,8 +119,15 @@ Future<void> _runMerge(
     syncPreference: AssistantClient().syncPreferredOccasion,
     learning: LearningService.instance,
   );
-  final result = await migration.migrate();
-  if (result.migratedLocalIds.isNotEmpty) {
+  // Merge must never block login: an unexpected throw keeps everything
+  // local and still lands the user home.
+  GuestMigrationResult? result;
+  try {
+    result = await migration.migrate();
+  } catch (_) {
+    result = null;
+  }
+  if (result != null && result.migratedLocalIds.isNotEmpty) {
     // Uploaded rows now live server-side: drop the device copies so
     // they cannot ghost back after a later logout. Failed rows stay.
     LearningService.instance.removeLocalItems(
@@ -118,6 +137,14 @@ Future<void> _runMerge(
   if (!context.mounted) return;
   Navigator.of(context, rootNavigator: true).pop();
   if (!context.mounted) return;
+  if (result == null) {
+    _snack(
+      context,
+      'Signed in — your device data stays on this device for now.',
+    );
+    _goWithGuidance(context, destination, intent);
+    return;
+  }
   if (!result.hasFailures) {
     final moved = result.migratedItemNames.length + result.prefsSynced.length;
     _snack(

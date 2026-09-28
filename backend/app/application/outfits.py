@@ -50,6 +50,10 @@ from app.domain.ports.repositories import (
     WearEventRepository,
 )
 from app.domain.services.analysis_rules import (
+    _candidate_members,
+    _fit_points,
+    _occasion_points,
+    _palette_points,
     build_feedback_context,
     generate_outfit_candidates,
     rank_outfit_candidates,
@@ -202,6 +206,17 @@ def _candidate_member_ids(candidate) -> list[str]:
     return [str(item_id) for item_id in ids]
 
 
+# Phase 2 Step 2 — deterministic explanation reasons. Each string is
+# emitted ONLY when its score term actually contributed (> 0) to the
+# winning candidate; scoring itself is untouched (this function only
+# reads winner sub-scores and recomputes the same palette/fit/occasion
+# point helpers over the winner's own members).
+PALETTE_REASON = "Matches your preferred palette"
+FIT_REASON = "Matches your preferred fit"
+PREFERRED_ITEM_REASON = "Uses an item you selected"
+OCCASION_MATCH_REASON = "Matches the selected occasion"
+
+
 def _to_recommendation(
     *,
     occasion: str,
@@ -210,6 +225,7 @@ def _to_recommendation(
     color_palette: str,
     winner,
     by_record: dict,
+    occasions: object = None,
 ) -> OutfitRecommendation:
     label = occasion.title()
     components: list[OutfitComponent] = []
@@ -243,18 +259,66 @@ def _to_recommendation(
         if component.id in by_record and by_record[component.id].is_favorite
     ]
 
+    # Grounded evidence checks: palette/fit/occasion recompute the exact
+    # scoring helpers over the winner's members (same inputs the ranker
+    # used); preference/favorite read the winner's own sub-scores.
+    # Anything uncomputable degrades to "no reason" — never fabricated.
+    try:
+        _members = _candidate_members(winner, by_record)
+    except Exception:
+        _members = []
+    if isinstance(occasions, (list, tuple)):
+        _occasions = [o for o in occasions if isinstance(o, str) and o]
+    else:
+        _occasions = []
+    if not _occasions:
+        # ponytail: fallback [occasion] may under-report persisted-pref
+        # occasion hits; pass occasions (as _derive_outfit does) to upgrade.
+        _occasions = [occasion]
+    try:
+        _palette_hit = _palette_points(_members, color_palette) > 0
+    except Exception:
+        _palette_hit = False
+    try:
+        _fit_hit = _fit_points(_members, fit) > 0
+    except Exception:
+        _fit_hit = False
+    try:
+        _occasion_hit = _occasion_points(_members, _occasions) > 0
+    except Exception:
+        _occasion_hit = False
+    try:
+        _preferred_hit = float(getattr(winner, "preference", 0.0) or 0.0) > 0.0
+    except (TypeError, ValueError):
+        _preferred_hit = False
+    try:
+        _favorite_hit = float(getattr(winner, "favorite", 0.0) or 0.0) > 0.0
+    except (TypeError, ValueError):
+        _favorite_hit = False
+
     reasons = [
         f"Picked for a {label} occasion",
         f"Covers {count} categor{'y' if count == 1 else 'ies'}: "
         + ", ".join(covered),
     ]
-    reasons.extend(f"Includes your favorite {name}" for name in favorites)
+    if _palette_hit:
+        reasons.append(PALETTE_REASON)
+    if _fit_hit:
+        reasons.append(FIT_REASON)
+    if _preferred_hit:
+        reasons.append(PREFERRED_ITEM_REASON)
+    if _favorite_hit:
+        reasons.extend(f"Includes your favorite {name}" for name in favorites)
+    if _occasion_hit:
+        reasons.append(OCCASION_MATCH_REASON)
     if getattr(winner, "feedback", 0.0) > 0.0:
         reasons.append("Similar to outfits you've liked")
     elif getattr(winner, "feedback", 0.0) < 0.0:
         reasons.append("Reduced because of previous negative feedback")
     if getattr(winner, "wear", 0.0) > 0.0:
         reasons.append("Previously worn combination")
+    # Deterministic order is construction order; drop exact duplicates.
+    reasons = list(dict.fromkeys(reasons))
 
     # Metric prose states only request/composition/score facts — never
     # engine-signal claims, comfort, flattery, or invented score points
@@ -476,6 +540,7 @@ def _derive_outfit(
             color_palette=color_palette,
             winner=winner,
             by_record=by_record,
+            occasions=occasions,
         ),
         None,
     )

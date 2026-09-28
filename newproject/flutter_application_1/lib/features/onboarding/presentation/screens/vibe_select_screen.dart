@@ -107,11 +107,13 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
         extra: {'vibe': _selected?.name},
       );
     } else {
+      // Explore path: answer saved above, land directly on the
+      // Discover tab — never through Home first.
       LocalStorage.savedLocally = true;
       if (_selected != null) {
         LocalStorage.vibe = _selected!.name;
       }
-      context.goNamed(RouteNames.home, extra: {'vibe': _selected?.name});
+      context.goNamed(RouteNames.discover, extra: {'vibe': _selected?.name});
     }
   }
 
@@ -119,8 +121,10 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
     if (_photoPath) {
       context.pushNamed(RouteNames.cameraPermission, extra: {'vibe': null});
     } else {
+      // Explore path (skip): land directly on the Discover tab —
+      // never through Home first.
       LocalStorage.savedLocally = true;
-      context.goNamed(RouteNames.home, extra: {'vibe': null});
+      context.goNamed(RouteNames.discover, extra: {'vibe': null});
     }
   }
 

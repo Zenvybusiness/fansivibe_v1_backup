@@ -342,9 +342,22 @@ def test_outfit_reasons_are_grounded():
     body = _body(_generate())
     assert body["reasons"][0].startswith("Picked for a Office occasion")
     assert body["reasons"][1].startswith("Covers ")
+    # Phase 2 Step 2: deterministic evidence reasons may follow alongside
+    # per-favorite lines (palette/fit/preferred/occasion only when scored).
+    allowed = {
+        "Matches your preferred palette",
+        "Matches your preferred fit",
+        "Uses an item you selected",
+        "Matches the selected occasion",
+        "Similar to outfits you've liked",
+        "Reduced because of previous negative feedback",
+        "Previously worn combination",
+    }
     for extra in body["reasons"][2:]:
-        assert extra.startswith("Includes your favorite ")
-        assert extra[len("Includes your favorite "):] in owned_names
+        if extra.startswith("Includes your favorite "):
+            assert extra[len("Includes your favorite "):] in owned_names
+        else:
+            assert extra in allowed, f"ungrounded reason: {extra!r}"
 
 
 def test_metric_prose_states_facts_only():

@@ -322,6 +322,14 @@ class _OutfitRecommendationScreenState
           ),
         ),
         const SizedBox(height: 14),
+        if (rec.reasons.isEmpty)
+          Text(
+            'No grounded explanation available.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: FansivibeColors.textSecondary,
+              height: 1.5,
+            ),
+          ),
         ...rec.reasons.asMap().entries.map(
           (entry) => Padding(
             padding: const EdgeInsets.only(bottom: 10),

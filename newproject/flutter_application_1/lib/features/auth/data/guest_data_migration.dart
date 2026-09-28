@@ -160,12 +160,19 @@ class GuestDataMigration {
       }
     }
 
+    // Prefs ledger (mirrors migratedGuestIds): codes synced by an
+    // earlier merge are never re-synced, so a completed choice does not
+    // repeat. Failures stay unledgered and are retried next time.
+    final syncedLedger = Set<String>.from(LocalStorage.migratedGuestPrefs);
     for (final code in _learning.preferredOccasions) {
+      if (syncedLedger.contains(code)) continue;
       try {
         final result = await _syncPreference(code: code);
         if (result == PreferenceSyncResult.synced ||
             result == PreferenceSyncResult.alreadySynced) {
           prefsSynced.add(code);
+          syncedLedger.add(code);
+          LocalStorage.migratedGuestPrefs = syncedLedger.toList();
         } else {
           prefsFailed.add(code);
         }
