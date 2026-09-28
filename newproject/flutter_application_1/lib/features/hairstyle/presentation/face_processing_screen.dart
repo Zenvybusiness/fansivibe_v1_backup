@@ -84,11 +84,11 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
   }
 
   Future<void> _start() async {
-    // Phase 2 guests: hairstyle analysis (POST /v1/analysis/hairstyle)
-    // is account-only — never submit. The build below renders the
-    // sign-in prompt instead.
+    // Guests run the synchronous ephemeral analysis (D-01): the same
+    // result UI and result navigation as the authenticated path — the
+    // only difference is no run id is ever created or polled.
     if (isGuestUser) {
-      setState(() {});
+      await _startEphemeral();
       return;
     }
     // Guided multi-angle path: every captured view is analyzed through
@@ -165,39 +165,51 @@ class _FaceProcessingScreenState extends State<FaceProcessingScreen> {
     context.replaceNamed(RouteNames.hairstyleResult, extra: result);
   }
 
+  /// Guest ephemeral pass (D-01): one synchronous analysis over the front
+  /// capture (guided multi-angle voting needs run rows, which ephemeral
+  /// analysis never creates — the front photo stands in explicitly), then
+  /// the identical tail as the authenticated path (error state, mock
+  /// guard, device-local face memory, result navigation). The raw snapshot
+  /// is stashed for a later Save → sign-in replay.
+  Future<void> _startEphemeral() async {
+    final bytes = widget.angleFront ?? widget.imageBytes;
+    final result = await _service.runEphemeralAnalysis(
+      imageBytes: bytes,
+      imageFilename: widget.angleFrontName ?? widget.imageFilename,
+      imageContentType: widget.imageContentType,
+    );
+    if (!mounted) return;
+    if (_service.analysisError != null) {
+      setState(() {});
+      return;
+    }
+    if (_service.isMockResult) {
+      _navigateToResult(null);
+      return;
+    }
+    LearningService.instance.setFace(
+      FaceProfile(
+        faceShape: result.faceShape,
+        skinTone: result.skinTone,
+        bodyType: null,
+        styleType: result.styleDna.isNotEmpty
+            ? result.styleDna.split('•').first
+            : '',
+      ),
+    );
+    final snapshot = _service.lastEphemeralSnapshot;
+    if (snapshot != null) {
+      stashPendingEphemeralResult(
+        feature: EphemeralFeature.hairstyle,
+        snapshot: snapshot,
+      );
+    }
+    _navigateToResult(result);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Phase 2 guests: honest sign-in prompt — the analysis submit in
-    // _start never fired, so no 401 and no polling.
-    if (isGuestUser) {
-      return Scaffold(
-        backgroundColor: theme.scaffoldBackgroundColor,
-        appBar: AppBar(
-          title: const Text('Analyzing Face'),
-          leading: IconButton(
-            icon: const Icon(
-              Icons.arrow_back_rounded,
-              color: FansivibeColors.textPrimary,
-            ),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ),
-        body: const SafeArea(
-          child: SingleChildScrollView(
-            physics: BouncingScrollPhysics(),
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: GuestSignInCard(
-                title: 'Hairstyle Analysis',
-                message:
-                    'Hairstyle analysis lives in your account. Sign in to analyze your photo — browsing stays free.',
-              ),
-            ),
-          ),
-        ),
-      );
-    }
     final completedStages = _service.completedStageCount;
     final totalStages = HairstyleService.totalStages;
     final allComplete = completedStages >= totalStages;

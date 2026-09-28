@@ -12,6 +12,7 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/analytics/analytics_service.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// Guided capture angle. The arrows are positioning guidance only — the
 /// app does not measure head angles; the user confirms each view manually.
@@ -279,6 +280,49 @@ class _FaceScanScreenState extends State<FaceScanScreen>
     context.pushNamed(RouteNames.hairstyleProcessing);
   }
 
+  /// Resume banner for the stashed guest result (D-01): explicit View
+  /// restores the exact snapshot for replay, Dismiss clears the slot.
+  /// Renders only when this feature's snapshot is stashed.
+  Widget _buildPendingResultBanner(BuildContext context) {
+    final pending = peekPendingEphemeralResult();
+    if (pending == null || pending.feature != EphemeralFeature.hairstyle) {
+      return const SizedBox.shrink();
+    }
+    final snapshot = pending.snapshot;
+    return Column(
+      children: [
+        PendingEphemeralResultBanner(
+          title: 'Your hairstyle analysis is saved',
+          message:
+              'Your recent guest analysis is on this device. View it any time — sign in to save it to your profile.',
+          onView: () {
+            try {
+              final result = HairstyleAnalysisResult.fromRunResult(snapshot);
+              if (!context.mounted) return;
+              context.pushNamed(RouteNames.hairstyleResult, extra: result);
+            } catch (_) {
+              clearPendingEphemeralResult();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'The saved result was unreadable. Please run a new analysis.',
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+          },
+          onDismiss: () {
+            clearPendingEphemeralResult();
+            if (mounted) setState(() {});
+          },
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
   static final AnalyticsService _analytics = AnalyticsService.instance;
 
   @override
@@ -317,6 +361,8 @@ class _FaceScanScreenState extends State<FaceScanScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 8),
+
+                        _buildPendingResultBanner(context),
 
                         _buildStepHeader(),
                         const SizedBox(height: 16),

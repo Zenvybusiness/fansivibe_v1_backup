@@ -10,6 +10,7 @@ import 'package:fansivibe/shared/components/fansi_error_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/analytics/analytics_service.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class HairstyleResultScreen extends StatefulWidget {
   const HairstyleResultScreen({super.key, this.result, this.service});
@@ -415,6 +416,17 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
     BuildContext context,
     HairstyleRecommendation recommendation,
   ) async {
+    // Guests: the ephemeral result is already stashed device-locally at
+    // analysis time — record the save intent and route to the existing
+    // sign-in flow. After authentication the origin banner restores this
+    // exact result for an explicit replay (class-D: nothing auto-POSTs).
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to save your hairstyle. Browsing stays free.',
+      );
+      return;
+    }
     final owned = widget.service == null;
     final svc = widget.service ?? HairstyleService();
     if (owned) {
@@ -427,6 +439,7 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
         recommendation: recommendation,
         title: recommendation.name,
       );
+      if (ok) clearPendingEphemeralResult();
       if (!context.mounted) return;
       final snackbarShown = true;
       ScaffoldMessenger.of(context).showSnackBar(

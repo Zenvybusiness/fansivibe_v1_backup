@@ -16,9 +16,22 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class OutfitScanScreen extends StatefulWidget {
-  const OutfitScanScreen({super.key, this.client});
+  const OutfitScanScreen({super.key, this.client, this.pickImage});
 
   final OutfitScanClient? client;
+
+  /// Injectable gallery picker (defaults to [ImagePicker]); tests supply
+  /// a fake so no platform channel is needed. Mirrors the face-scan
+  /// screen's picker seam.
+  final Future<XFile?> Function(ImageSource source)? pickImage;
+
+  static Future<XFile?> _defaultPickImage(ImageSource source) {
+    return ImagePicker().pickImage(
+      source: source,
+      maxWidth: 1024,
+      maxHeight: 1024,
+    );
+  }
 
   @override
   State<OutfitScanScreen> createState() => _OutfitScanScreenState();
@@ -204,11 +217,8 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
 
   Future<void> _pickImage(ImageSource source) async {
     try {
-      final pickedFile = await ImagePicker().pickImage(
-        source: source,
-        maxWidth: 1024,
-        maxHeight: 1024,
-      );
+      final pickedFile = await (widget.pickImage ??
+          OutfitScanScreen._defaultPickImage)(source);
 
       if (pickedFile == null) return;
 
@@ -254,14 +264,11 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   Future<void> _submitSelected(BuildContext context) async {
     final imageFile = _selectedImage;
     if (imageFile == null || _isUploading) return;
-    // Phase 2 guests: outfit analysis (POST /v1/analysis/*) is
-    // account-only — prompt at the button instead of submitting into
-    // a 401 and polling a null run id.
+    // Guests run the synchronous ephemeral analysis (D-01): the same
+    // uploading UI and result navigation as the authenticated path — only
+    // the transport differs (no auth, no run id, no polling).
     if (isGuestUser) {
-      promptGuestSignIn(
-        context,
-        action: 'Sign in to analyze outfits. Browsing stays free.',
-      );
+      await _submitEphemeral(context, imageFile);
       return;
     }
     setState(() {
@@ -331,6 +338,113 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     }
   }
 
+  /// Guest ephemeral submit (D-01): one synchronous analysis over the
+  /// selected bytes, then the same result navigation as the polled path
+  /// (the snapshot map is exactly what the analysis screen renders). The
+  /// raw snapshot is stashed for a later Save → sign-in replay.
+  Future<void> _submitEphemeral(BuildContext context, XFile imageFile) async {
+    setState(() {
+      _isUploading = true;
+      _statusMessage = 'Analyzing photo…';
+    });
+    try {
+      final bytes = await imageFile.readAsBytes();
+      if (!context.mounted) return;
+      if (bytes.isEmpty) {
+        setState(() {
+          _isUploading = false;
+          _statusMessage = 'Photo selected';
+        });
+        return;
+      }
+      final filename = imageFile.name.isNotEmpty
+          ? imageFile.name
+          : 'outfit_scan.jpg';
+      final outcome = await _client.submitOutfitEphemeralBytes(
+        bytes,
+        filename: filename,
+      );
+      if (!context.mounted) return;
+      final snapshot = outcome.snapshot;
+      setState(() {
+        _isUploading = false;
+        _statusMessage = 'Photo selected';
+      });
+      if (snapshot != null) {
+        stashPendingEphemeralResult(
+          feature: EphemeralFeature.outfit,
+          snapshot: snapshot,
+        );
+        if (!context.mounted) return;
+        context.pushNamed(RouteNames.scanAnalysis, extra: snapshot);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_ephemeralFailureMessage(outcome.failureReason)),
+            backgroundColor: FansivibeColors.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: FansivibeRadius.smdBorder,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isUploading = false;
+        _statusMessage = 'Photo selected';
+      });
+    }
+  }
+
+  /// Maps an ephemeral failure reason to the same truthful copy the
+  /// polling path uses (rate-limit/timeout/connection guidance preserved).
+  String _ephemeralFailureMessage(String? reason) {
+    if (reason == 'rate_limited') {
+      return 'Too many requests — please wait a moment and try again.';
+    }
+    if (reason == 'service_unavailable' || reason == 'unreachable') {
+      return 'Analysis service unavailable. ${AppConfig.connectionHint}';
+    }
+    if (reason == 'empty_image') {
+      return 'Could not read the photo. Please try another.';
+    }
+    if (reason != null && reason.isNotEmpty && reason != 'request_failed') {
+      return 'Analysis failed ($reason). Please try again.';
+    }
+    return 'Analysis failed. ${AppConfig.connectionHint}';
+  }
+
+  /// Resume banner for the stashed guest result (D-01): explicit View
+  /// restores the exact snapshot for replay, Dismiss clears the slot.
+  /// Renders only when this feature's snapshot is stashed.
+  Widget _buildPendingResultBanner(BuildContext context) {
+    final pending = peekPendingEphemeralResult();
+    if (pending == null || pending.feature != EphemeralFeature.outfit) {
+      return const SizedBox.shrink();
+    }
+    final snapshot = pending.snapshot;
+    return Column(
+      children: [
+        PendingEphemeralResultBanner(
+          title: 'Your outfit analysis is saved',
+          message:
+              'Your recent guest analysis is on this device. View it any time — sign in to save it to your profile.',
+          onView: () {
+            if (!mounted) return;
+            context.pushNamed(RouteNames.scanAnalysis, extra: snapshot);
+          },
+          onDismiss: () {
+            clearPendingEphemeralResult();
+            if (mounted) setState(() {});
+          },
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
   Future<void> _handleCapture(BuildContext context) async {
     // In widget tests we can't access camera; keep navigation intact.
     if (_isTestMode) {
@@ -343,16 +457,6 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     if (_selectedImage != null) {
       // Gallery/camera image already selected: submit it explicitly.
       await _submitSelected(context);
-      return;
-    }
-
-    // Phase 2 guests: capturing without a selection falls through to a
-    // null-run processing screen below — prompt instead.
-    if (isGuestUser) {
-      promptGuestSignIn(
-        context,
-        action: 'Sign in to analyze outfits. Browsing stays free.',
-      );
       return;
     }
 
@@ -425,9 +529,10 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 8),
-                        _buildCameraPreview(context),
+                    children: [
+                      const SizedBox(height: 8),
+                      _buildPendingResultBanner(context),
+                      _buildCameraPreview(context),
                         const SizedBox(height: 12),
                         _buildStatusLine(context),
                         const SizedBox(height: 20),

@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     reasoning_rate_limit_per_minute: int = Field(
         default=30, alias="FANSIVIBE_RATE_LIMIT_REASONING_PER_MINUTE"
     )
+    # D-01 STEP 1: dedicated abuse budget for unauthenticated ephemeral
+    # guest analysis (sliding-window per IP, same local limiter). Separate
+    # from the auth/reasoning scopes so guest AI compute never borrows
+    # their budgets and vice versa.
+    ephemeral_rate_limit_per_minute: int = Field(
+        default=30, alias="FANSIVIBE_RATE_LIMIT_EPHEMERAL_PER_MINUTE"
+    )
     disable_reasoning: bool = Field(
         default=False, alias="FANSIVIBE_DISABLE_REASONING"
     )
@@ -248,6 +255,10 @@ class Settings(BaseSettings):
         if self.reasoning_rate_limit_per_minute < 1:
             raise ValueError(
                 "FANSIVIBE_RATE_LIMIT_REASONING_PER_MINUTE must be at least 1."
+            )
+        if self.ephemeral_rate_limit_per_minute < 1:
+            raise ValueError(
+                "FANSIVIBE_RATE_LIMIT_EPHEMERAL_PER_MINUTE must be at least 1."
             )
         if self.is_production or self.is_staging:
             # Staging and production both forbid wildcard origins with credentials

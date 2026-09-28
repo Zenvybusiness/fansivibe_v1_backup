@@ -5,6 +5,7 @@ import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class GroomingDetailsScreen extends StatelessWidget {
   const GroomingDetailsScreen(
@@ -424,10 +425,21 @@ Icon(
           label: 'Try This Look',
           icon: Icons.auto_awesome_rounded,
           onPressed: () async {
+            // Guests save through the existing sign-in flow (the ephemeral
+            // result is stashed at analysis time for replay after auth).
+            if (isGuestUser) {
+              promptGuestSignIn(
+                context,
+                action:
+                    'Sign in to save your grooming look. Browsing stays free.',
+              );
+              return;
+            }
             final ok = await service.saveGroomingLook(
               recommendation: recommendation,
               title: recommendation.name,
             );
+            if (ok) clearPendingEphemeralResult();
             if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(

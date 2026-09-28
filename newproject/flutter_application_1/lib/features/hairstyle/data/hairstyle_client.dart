@@ -125,6 +125,93 @@ class HairstyleClient {
     return 'image/jpeg';
   }
 
+  /// Submits a guest image for synchronous ephemeral analysis
+  /// (`POST /v1/analysis/hairstyle/ephemeral`, D-01).
+  ///
+  /// Guest-only transport: NO `Authorization` header (the endpoint is
+  /// unauthenticated), NO `Idempotency-Key` (no run row exists to
+  /// deduplicate), NO `user_id` field. Returns the engine snapshot
+  /// verbatim on 200 — never a run id, because no analysis run is
+  /// created. The snapshot's `sourceRunId` is a transient correlation id
+  /// (callers must strip it before any authenticated save).
+  Future<({Map<String, dynamic>? snapshot, String? failureReason})>
+  submitHairstyleEphemeral({
+    required Uint8List imageBytes,
+    String? imageFilename,
+    String? imageContentType,
+  }) async {
+    if (imageBytes.isEmpty) {
+      debugPrint('Hairstyle ephemeral refused empty image bytes.');
+      return (snapshot: null, failureReason: 'empty_image');
+    }
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/v1/analysis/hairstyle/ephemeral'),
+      );
+      final filename = imageFilename ?? 'face_scan.jpg';
+      final contentType =
+          imageContentType ?? _contentTypeForFilename(filename);
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'image',
+          imageBytes,
+          filename: filename,
+          contentType: MediaType.parse(contentType),
+        ),
+      );
+      final streamed = await _client.send(request).timeout(_timeout);
+      final response = await http.Response.fromStream(
+        streamed,
+      ).timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return (snapshot: decoded, failureReason: null);
+      }
+      debugPrint(
+        'Hairstyle ephemeral responded ${response.statusCode}: ${response.body}',
+      );
+      return (
+        snapshot: null,
+        failureReason: _ephemeralFailureReason(response),
+      );
+    } catch (error) {
+      debugPrint('Hairstyle ephemeral unreachable: $error');
+      return (snapshot: null, failureReason: 'unreachable');
+    }
+  }
+
+  /// Maps an ephemeral failure response to a stable reason string.
+  ///
+  /// 429/503 keep their transport meaning; a 422 surfaces the backend's
+  /// typed field reason (e.g. `no_face_detected`) verbatim. Unknown shapes
+  /// degrade to `request_failed` — never a crash, never a fake result.
+  static String _ephemeralFailureReason(http.Response response) {
+    if (response.statusCode == 429) return 'rate_limited';
+    if (response.statusCode == 503) return 'service_unavailable';
+    try {
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
+      final error = decoded?['error'];
+      if (error is Map<String, dynamic>) {
+        final details = error['details'];
+        if (details is Map<String, dynamic>) {
+          final fieldErrors = details['field_errors'];
+          if (fieldErrors is List && fieldErrors.isNotEmpty) {
+            final first = fieldErrors.first;
+            if (first is Map<String, dynamic>) {
+              final reason = first['error'];
+              if (reason is String && reason.isNotEmpty) return reason;
+            }
+          }
+        }
+        final message = error['message'];
+        if (message is String && message.isNotEmpty) return message;
+      }
+    } catch (_) {}
+    return 'request_failed';
+  }
+
   /// Fetches an analysis run and polls until it is completed, failed, or times out.
   ///
   /// A terminal `failed` run is returned promptly (never polled to exhaustion)

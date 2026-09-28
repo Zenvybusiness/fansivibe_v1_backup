@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
-import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
+import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart'
+    hide GroomingAnalysisResult;
+import 'package:fansivibe/features/grooming/data/grooming_models.dart'
+    show GroomingAnalysisResult;
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -26,16 +29,9 @@ class _GroomingInputScreenState extends State<GroomingInputScreen> {
   }
 
   void _analyze() {
-    // Guests: grooming analysis (POST /v1/analysis/grooming) is
-    // account-only — prompt at the button instead of pushing into the
-    // inert processing screen (same gate as outfit/hairstyle flows).
-    if (isGuestUser) {
-      promptGuestSignIn(
-        context,
-        action: 'Sign in for grooming suggestions. Browsing stays free.',
-      );
-      return;
-    }
+    // Guests run the synchronous ephemeral analysis (D-01) over the
+    // request profile collected below — the same processing navigation
+    // as the authenticated path. Account gating happens only at Save.
     // Every field is user-chosen: never invent defaults (no silent 'oval').
     if (_selectedFaceShape == null ||
         _selectedBeardStyle == null ||
@@ -64,6 +60,49 @@ class _GroomingInputScreenState extends State<GroomingInputScreen> {
         'beardDensity': density,
         'beardColor': color,
       },
+    );
+  }
+
+  /// Resume banner for the stashed guest result (D-01): explicit View
+  /// restores the exact snapshot for replay, Dismiss clears the slot.
+  /// Renders only when this feature's snapshot is stashed.
+  Widget _buildPendingResultBanner(BuildContext context) {
+    final pending = peekPendingEphemeralResult();
+    if (pending == null || pending.feature != EphemeralFeature.grooming) {
+      return const SizedBox.shrink();
+    }
+    final snapshot = pending.snapshot;
+    return Column(
+      children: [
+        PendingEphemeralResultBanner(
+          title: 'Your grooming analysis is saved',
+          message:
+              'Your recent guest analysis is on this device. View it any time — sign in to save it to your profile.',
+          onView: () {
+            try {
+              final result = GroomingAnalysisResult.fromSnapshot(snapshot);
+              if (!context.mounted) return;
+              context.pushNamed(RouteNames.groomingResult, extra: result);
+            } catch (_) {
+              clearPendingEphemeralResult();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'The saved result was unreadable. Please run a new analysis.',
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+          },
+          onDismiss: () {
+            clearPendingEphemeralResult();
+            if (mounted) setState(() {});
+          },
+        ),
+        const SizedBox(height: 12),
+      ],
     );
   }
 
@@ -103,6 +142,8 @@ class _GroomingInputScreenState extends State<GroomingInputScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 8),
+
+                        _buildPendingResultBanner(context),
 
                         Text(
                           'Grooming Profile',

@@ -16,11 +16,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id
 from app.api.errors import validation
+from app.api.rate_limit import ephemeral_rate_limit
 from app.api.schemas.analysis import (
     AnalysisRun,
     AnalysisRunList,
     AnalysisRunSummary,
     AsyncAccepted,
+    EphemeralGroomingProfile,
 )
 from app.application.analysis import (
     CreateGarmentRun,
@@ -28,6 +30,10 @@ from app.application.analysis import (
     CreateHairstyleImageRun,
     CreateHairstyleRun,
     CreateOutfitRun,
+    EphemeralGarmentAnalysis,
+    EphemeralGroomingAnalysis,
+    EphemeralHairstyleAnalysis,
+    EphemeralOutfitAnalysis,
     GetAnalysisRun,
     ListAnalysisRuns,
 )
@@ -272,4 +278,128 @@ def create_garment_run(
     )
     run_id = use_case(user_id=user_id, image=image, idempotency_key=idempotency_key)
     return AsyncAccepted(run_id=run_id)
+
+
+@router.post(
+    "/hairstyle/ephemeral",
+    response_model=dict,
+    status_code=200,
+    responses={422: {"model": dict}, 429: {"model": dict}, 503: {"model": dict}},
+)
+def create_hairstyle_ephemeral(
+    image: UploadFile = File(...),
+    _: None = Depends(ephemeral_rate_limit),
+) -> dict:
+    """Synchronous stateless guest hairstyle analysis (D-01 STEP 1, image pass).
+
+    Unauthenticated: no ``get_current_user_id``, no ``user_id`` accepted,
+    no tokens minted. Returns the engine snapshot verbatim (same shape as
+    the authenticated run ``result``) with a transient ``sourceRunId``
+    correlation id that is NOT an ``analysis_runs.id``. Writes zero
+    database rows (no runs, no ``user_state``, no signals). Image guards
+    match the async pass; analyzer failures stay honest (422 reason /
+    503). Rate-limited per IP (``ephemeral:`` scope).
+    """
+    if image.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise validation(
+            [{"field": "image", "error": "unsupported media type, must be JPEG, PNG or WebP"}]
+        )
+    if image.size is not None and image.size > 20 * 1024 * 1024:
+        raise validation(
+            [{"field": "image", "error": f"image too large ({image.size} bytes), max 20 MB"}]
+        )
+    use_case = EphemeralHairstyleAnalysis(
+        knowledge=CatalogKnowledgeSource(),
+        appearance_port=OllamaVisionAppearanceAdapter(),
+    )
+    return use_case(image=image)
+
+
+@router.post(
+    "/outfit/ephemeral",
+    response_model=dict,
+    status_code=200,
+    responses={422: {"model": dict}, 429: {"model": dict}, 503: {"model": dict}},
+)
+def create_outfit_ephemeral(
+    image: UploadFile = File(...),
+    _: None = Depends(ephemeral_rate_limit),
+) -> dict:
+    """Synchronous stateless guest outfit/appearance analysis (D-01 STEP 1).
+
+    Same contract as the hairstyle ephemeral endpoint: unauthenticated,
+    request-image only (no wardrobe is read — guests own none
+    server-side), engine snapshot returned verbatim, zero database rows.
+    """
+    if image.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise validation(
+            [{"field": "image", "error": "unsupported media type, must be JPEG, PNG or WebP"}]
+        )
+    if image.size is not None and image.size > 20 * 1024 * 1024:
+        raise validation(
+            [{"field": "image", "error": f"image too large ({image.size} bytes), max 20 MB"}]
+        )
+    use_case = EphemeralOutfitAnalysis(
+        knowledge=CatalogKnowledgeSource(),
+        appearance_port=OllamaVisionAppearanceAdapter(),
+    )
+    return use_case(image=image)
+
+
+@router.post(
+    "/grooming/ephemeral",
+    response_model=dict,
+    status_code=200,
+    responses={422: {"model": dict}, 429: {"model": dict}, 503: {"model": dict}},
+)
+def create_grooming_ephemeral(
+    profile: EphemeralGroomingProfile,
+    _: None = Depends(ephemeral_rate_limit),
+) -> dict:
+    """Synchronous stateless guest grooming analysis (D-01 STEP 1).
+
+    The grounding profile is request-supplied (guests own no stored
+    profile; the server never looks up a user). Returns the grooming
+    snapshot verbatim, zero database rows.
+    """
+    use_case = EphemeralGroomingAnalysis(
+        knowledge=CatalogKnowledgeSource(),
+    )
+    return use_case(
+        face_shape=profile.face_shape,
+        skin_tone=profile.skin_tone,
+        body_type=profile.body_type,
+        style_type=profile.style_type,
+    )
+
+
+@router.post(
+    "/garment/ephemeral",
+    response_model=dict,
+    status_code=200,
+    responses={422: {"model": dict}, 429: {"model": dict}, 503: {"model": dict}},
+)
+def create_garment_ephemeral(
+    image: UploadFile = File(...),
+    _: None = Depends(ephemeral_rate_limit),
+) -> dict:
+    """Synchronous stateless guest garment observation (D-01 STEP 1, M11 shape).
+
+    Observation snapshot returned verbatim (nullable attributes stay
+    null — the user confirms values before any wardrobe save), zero
+    database rows. The async pass already persists nothing but the run
+    row; this drops exactly that.
+    """
+    if image.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise validation(
+            [{"field": "image", "error": "unsupported media type, must be JPEG, PNG or WebP"}]
+        )
+    if image.size is not None and image.size > 20 * 1024 * 1024:
+        raise validation(
+            [{"field": "image", "error": f"image too large ({image.size} bytes), max 20 MB"}]
+        )
+    use_case = EphemeralGarmentAnalysis(
+        garment_port=OllamaVisionGarmentAdapter(),
+    )
+    return use_case(image=image)
 

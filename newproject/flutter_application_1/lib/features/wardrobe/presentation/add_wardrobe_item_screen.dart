@@ -314,15 +314,6 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
   }
 
   Future<void> _analyzePhoto() async {
-    // Phase 2 guests: garment analysis is account-only — prompt at the
-    // button instead of submitting into a 401.
-    if (isGuestUser) {
-      promptGuestSignIn(
-        context,
-        action: 'Sign in to analyze clothing. Browsing stays free.',
-      );
-      return;
-    }
     final bytes = _photoBytes;
     if (bytes == null || _photoStage == _PhotoStage.analyzing) return;
     if (bytes.length > GarmentClient.maxImageBytes) {
@@ -349,6 +340,16 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
         _stillAnalyzing = true;
       });
     });
+
+    // Guests run the synchronous ephemeral analysis (D-01): the same
+    // analyzing/result/prefill UI as the authenticated path — only the
+    // transport differs (no auth, no run id, no polling, no persisted
+    // input-media). The save below stays unchanged (device-local for
+    // guests, server for accounts).
+    if (isGuestUser) {
+      await _analyzeEphemeral(bytes);
+      return;
+    }
 
     final key = _garmentIdempotencyKey ??= newGarmentIdempotencyKey();
     final runId = await _garmentClient.submitGarmentAnalysisBytes(
@@ -414,6 +415,49 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       _garmentResult = result;
       _garmentInputMedia = run.inputMedia;
       _garmentRunId = runId;
+      _garmentIdempotencyKey = null;
+    });
+    _prefillFromGarment(result);
+  }
+
+  /// Guest ephemeral garment pass (D-01): one synchronous observation over
+  /// the photo bytes, then the identical result/prefill tail. No run id is
+  /// created and no input-media envelope exists, so both stay null and the
+  /// save remains imageless exactly like a manual save.
+  Future<void> _analyzeEphemeral(Uint8List bytes) async {
+    final outcome = await _garmentClient.submitGarmentEphemeralBytes(
+      bytes,
+      filename: _photoFilename ?? 'wardrobe_item.jpg',
+    );
+    if (!mounted || _photoStage != _PhotoStage.analyzing) return;
+    final snapshot = outcome.snapshot;
+    if (snapshot == null) {
+      setState(() {
+        _photoStage = _PhotoStage.selected;
+        _analysisStatus = null;
+        _errorMessage = _garmentFailureMessage(outcome.failureReason);
+      });
+      return;
+    }
+    late final GarmentAnalysisResult result;
+    try {
+      result = GarmentAnalysisResult.fromJson(snapshot);
+    } on FormatException {
+      if (!mounted) return;
+      setState(() {
+        _photoStage = _PhotoStage.selected;
+        _analysisStatus = null;
+        _errorMessage = 'The analysis result was unreadable. Please try again.';
+      });
+      return;
+    }
+    setState(() {
+      _photoStage = _PhotoStage.result;
+      _analysisStatus = null;
+      _stillAnalyzing = false;
+      _garmentResult = result;
+      _garmentInputMedia = null;
+      _garmentRunId = null;
       _garmentIdempotencyKey = null;
     });
     _prefillFromGarment(result);

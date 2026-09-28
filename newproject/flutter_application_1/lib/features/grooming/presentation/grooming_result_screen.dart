@@ -9,6 +9,7 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_error_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class GroomingResultScreen extends StatelessWidget {
   const GroomingResultScreen({
@@ -621,6 +622,18 @@ class GroomingResultScreen extends StatelessWidget {
             label: 'Save Look',
             icon: Icons.favorite_rounded,
             onPressed: () async {
+              // Guests: the ephemeral result is already stashed
+              // device-locally at analysis time — record the save intent
+              // and route to the existing sign-in flow (class-D replay
+              // after authentication via the origin banner).
+              if (isGuestUser) {
+                promptGuestSignIn(
+                  context,
+                  action:
+                      'Sign in to save your grooming look. Browsing stays free.',
+                );
+                return;
+              }
               // Reachable only when a real result exists (null returns the
               // error state above), so the bang never fires on missing data.
               final rec = result!.topRecommendation;
@@ -628,6 +641,7 @@ class GroomingResultScreen extends StatelessWidget {
                 recommendation: rec,
                 title: rec.name,
               );
+              if (ok) clearPendingEphemeralResult();
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(

@@ -144,6 +144,103 @@ class HairstyleService extends ChangeNotifier {
     return resolved;
   }
 
+  /// Raw engine snapshot of the last ephemeral analysis (D-01), held for
+  /// the guest save-replay stash. Null unless the last ephemeral call
+  /// returned a snapshot. Never a run id (no run exists).
+  Map<String, dynamic>? _lastEphemeralSnapshot;
+  Map<String, dynamic>? get lastEphemeralSnapshot => _lastEphemeralSnapshot;
+
+  /// Runs a synchronous ephemeral guest analysis (D-01, no polling).
+  ///
+  /// Guest-only path: submits the image to the unauthenticated ephemeral
+  /// endpoint and parses the returned engine snapshot with the existing
+  /// [HairstyleAnalysisResult.fromRunResult] parser — no run id is ever
+  /// invented (there is no analysis run). Stage/analytics/mock-fallback
+  /// semantics mirror [runAnalysis] so callers keep one contract:
+  /// a real snapshot resolves honestly, every failure sets
+  /// [analysisError] with user-facing copy and falls back to mock.
+  Future<HairstyleAnalysisResult> runEphemeralAnalysis({
+    Uint8List? imageBytes,
+    String? imageFilename,
+    String? imageContentType,
+  }) async {
+    _isProcessing = true;
+    _completedStageCount = 0;
+    _analysisError = null;
+    _result = null;
+    _runOutcome = 'offline';
+    _safeNotify();
+
+    HairstyleAnalysisResult resolved;
+    if (imageBytes == null || imageBytes.isEmpty) {
+      _usedMockResult = true;
+      _lastEphemeralSnapshot = null;
+      _analysisError = 'No photo to analyze. Please capture or pick one first.';
+      resolved = HairstyleAnalysisResult.mock;
+    } else {
+      final outcome = await _client.submitHairstyleEphemeral(
+        imageBytes: imageBytes,
+        imageFilename: imageFilename,
+        imageContentType: imageContentType,
+      );
+      final snapshot = outcome.snapshot;
+      if (snapshot == null) {
+        _runOutcome = 'failed';
+        _usedMockResult = true;
+        _lastEphemeralSnapshot = null;
+        _analysisError = _describeEphemeralReason(outcome.failureReason);
+        resolved = HairstyleAnalysisResult.mock;
+      } else {
+        try {
+          resolved = HairstyleAnalysisResult.fromRunResult(snapshot);
+          _runOutcome = 'completed';
+          _usedMockResult = false;
+          _lastEphemeralSnapshot = snapshot;
+        } catch (_) {
+          _runOutcome = 'failed';
+          _usedMockResult = true;
+          _lastEphemeralSnapshot = null;
+          _analysisError = 'Hairstyle analysis failed. Please try again.';
+          resolved = HairstyleAnalysisResult.mock;
+        }
+      }
+    }
+
+    _analytics.emitAppearanceScanCompleted(
+      runStatus: _getRunStatus(),
+      errorCode: _analysisError,
+      pollAttempts: 0,
+    );
+
+    if (_disposed) return resolved;
+
+    _result = resolved;
+    _completedStageCount = totalStages;
+    _isProcessing = false;
+    _safeNotify();
+    return resolved;
+  }
+
+  /// Maps an ephemeral failure reason to the same user-facing copy the
+  /// run-based path uses ([_describeError] parity for analyzer reasons).
+  String _describeEphemeralReason(String? reason) {
+    if (reason == 'no_face_detected' ||
+        reason == 'ambiguous_subject' ||
+        reason == 'low_confidence') {
+      return 'Please choose a photo with a person visible.';
+    }
+    if (reason == 'rate_limited') {
+      return 'Too many requests. Please wait a moment and try again.';
+    }
+    if (reason == 'service_unavailable' || reason == 'unreachable') {
+      return 'Analysis is temporarily unavailable. Please try again later.';
+    }
+    if (reason == 'empty_image') {
+      return 'No photo to analyze. Please capture or pick one first.';
+    }
+    return 'Hairstyle analysis failed. Please try again.';
+  }
+
   /// Runs guided multi-angle analysis (FRONT/LEFT/RIGHT).
   ///
   /// Each view is submitted through the existing single-image endpoint and

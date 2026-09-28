@@ -11,7 +11,12 @@ import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/auth/data/auth_client.dart';
 import 'package:fansivibe/features/auth/data/guest_data_migration.dart';
 import 'package:fansivibe/features/auth/presentation/post_auth_flow.dart';
+import 'package:fansivibe/features/grooming/data/grooming_client.dart';
+import 'package:fansivibe/features/grooming/data/grooming_models.dart';
+import 'package:fansivibe/features/grooming/data/grooming_service.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_input_screen.dart';
+import 'package:fansivibe/features/grooming/presentation/grooming_processing_screen.dart';
+import 'package:fansivibe/features/grooming/presentation/grooming_result_screen.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_repository.dart';
@@ -478,16 +483,86 @@ void main() {
   });
 
   group('grooming guest gate', () {
-    testWidgets('guest Analyze prompts sign-in instead of processing', (
+    // D-01: guests analyze first (ephemeral, no sign-in); authentication
+    // is required only at the account-owned Save point on the result.
+    testWidgets('guest Analyze reaches the result; Save prompts sign-in', (
       WidgetTester tester,
     ) async {
       LocalStorage.savedLocally = true;
+      final snapshot = {
+        'appearance': {
+          'faceShape': 'oval',
+          'skinTone': '',
+          'bodyType': '',
+          'styleType': '',
+          'sourceRunId': 'ephemeral-test-id',
+        },
+        'confidence': 0.88,
+        'needs_more_data': true,
+        'recommendations': {
+          'top': {
+            'id': 'structured_goatee',
+            'name': 'Structured Goatee',
+            'description': 'A test recommendation.',
+            'matchScore': 0.92,
+            'reasons': ['Grounded reason'],
+            'stylingTips': 'Tips',
+            'maintenance': 'Medium',
+            'bestFor': 'Oval',
+          },
+          'alternatives': [],
+        },
+      };
+      final service = GroomingService(
+        client: GroomingClient(
+          client: MockClient((request) async {
+            expect(request.url.path, '/v1/analysis/grooming/ephemeral');
+            expect(request.headers['Authorization'], isNull);
+            return http.Response(jsonEncode(snapshot), 200);
+          }),
+        ),
+      );
       final router = GoRouter(
         initialLocation: '/grooming',
         routes: [
           GoRoute(
             path: '/grooming',
             builder: (context, state) => const GroomingInputScreen(),
+            routes: [
+              GoRoute(
+                path: 'processing',
+                name: RouteNames.groomingProcessing,
+                builder: (context, state) {
+                  final data = state.extra as Map<String, String>;
+                  return GroomingProcessingScreen(
+                    service: service,
+                    faceShape: data['faceShape']!,
+                    beardStyle: data['beardStyle']!,
+                    beardDensity: data['beardDensity']!,
+                    beardColor: data['beardColor']!,
+                  );
+                },
+                routes: [
+                  GoRoute(
+                    path: 'result',
+                    name: RouteNames.groomingResult,
+                    builder: (context, state) {
+                      final extra = state.extra;
+                      final result = extra is GroomingAnalysisResult
+                          ? extra
+                          : null;
+                      return GroomingResultScreen(
+                        faceShape: result?.faceShape ?? '',
+                        beardStyle: result?.beardStyle ?? '',
+                        beardDensity: result?.beardDensity ?? '',
+                        beardColor: result?.beardColor ?? '',
+                        result: result,
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ],
           ),
           GoRoute(
             path: '/sign-in',
@@ -509,7 +584,16 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Analyze Style'));
       await tester.pumpAndSettle();
+      // 1+2. Guest reaches the analysis result without a sign-in gate.
+      expect(find.text('Structured Goatee'), findsOneWidget);
+      expect(find.text('sign-in-marker'), findsNothing);
+      // 3. The account-owned Save point still requires authentication.
+      await tester.scrollUntilVisible(find.text('Save Look'), 300);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save Look'));
+      await tester.pumpAndSettle();
       expect(find.text('sign-in-marker'), findsOneWidget);
+      expect(takePendingAuthIntent(), isNotNull);
     });
   });
 

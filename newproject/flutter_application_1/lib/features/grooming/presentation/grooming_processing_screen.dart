@@ -1,11 +1,14 @@
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
 import 'package:fansivibe/features/grooming/data/grooming_service.dart';
 import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widgets.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class GroomingProcessingScreen extends StatefulWidget {
   const GroomingProcessingScreen({
@@ -44,6 +47,46 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
     } else {
       _service = GroomingService()..attachLearning(LearningService.instance);
     }
+    // Guests run the synchronous ephemeral analysis (D-01) over the
+    // request profile from the input screen. The authenticated path is
+    // untouched.
+    if (isGuestUser) {
+      _runEphemeral();
+    }
+  }
+
+  /// Guest ephemeral pass (D-01): synchronous analysis, stash for later
+  /// Save replay, then result navigation. Failures surface honestly and
+  /// return to the input screen — never a fake result, never sign-in.
+  Future<void> _runEphemeral() async {
+    final result = await _service.runEphemeralAnalysis(
+      faceShape: widget.faceShape,
+      // The engine grounds only on the face profile; beard selections
+      // stay local display context (the authenticated contract likewise
+      // posts no body). Nothing is invented here.
+    );
+    if (!mounted) return;
+    if (_service.analysisError != null || _service.isMockResult) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _service.analysisError ??
+                'Grooming analysis failed. Please try again.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      Navigator.of(context).pop();
+      return;
+    }
+    final snapshot = _service.lastEphemeralSnapshot;
+    if (snapshot != null) {
+      stashPendingEphemeralResult(
+        feature: EphemeralFeature.grooming,
+        snapshot: snapshot,
+      );
+    }
+    context.replaceNamed(RouteNames.groomingResult, extra: result);
   }
 
   @override

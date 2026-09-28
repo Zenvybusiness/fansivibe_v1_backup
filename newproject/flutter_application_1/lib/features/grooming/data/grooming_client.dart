@@ -103,6 +103,85 @@ class GroomingClient {
     return null;
   }
 
+  /// Submits a guest grooming analysis with a request-supplied face profile
+  /// (`POST /v1/analysis/grooming/ephemeral`, D-01).
+  ///
+  /// Guests own no stored `style_profile`, so the grounding profile travels
+  /// in the request: [faceShape] is required (a user-chosen option id —
+  /// never invented here), the rest default to empty (sparse grounding the
+  /// engine reports honestly). Guest-only transport: NO `Authorization`
+  /// header (unauthenticated endpoint), NO `Idempotency-Key` (no run row),
+  /// NO `user_id` field. Returns the engine snapshot verbatim on 200 —
+  /// never a run id.
+  Future<({Map<String, dynamic>? snapshot, String? failureReason})>
+  submitGroomingEphemeral({
+    required String faceShape,
+    String skinTone = '',
+    String bodyType = '',
+    String styleType = '',
+  }) async {
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/analysis/grooming/ephemeral'),
+            headers: {'Content-Type': 'application/json; charset=UTF-8'},
+            body: jsonEncode({
+              'face_shape': faceShape,
+              'skin_tone': skinTone,
+              'body_type': bodyType,
+              'style_type': styleType,
+            }),
+          )
+          .timeout(_timeout);
+
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return (snapshot: decoded, failureReason: null);
+      }
+      debugPrint(
+        'Grooming ephemeral responded ${response.statusCode}: ${response.body}',
+      );
+      return (
+        snapshot: null,
+        failureReason: _ephemeralFailureReason(response),
+      );
+    } catch (error) {
+      debugPrint('Grooming ephemeral unreachable: $error');
+      return (snapshot: null, failureReason: 'unreachable');
+    }
+  }
+
+  /// Maps an ephemeral failure response to a stable reason string.
+  ///
+  /// 429/503 keep their transport meaning; a 422 surfaces the backend's
+  /// typed field reason verbatim. Unknown shapes degrade to
+  /// `request_failed` — never a crash, never a fake result.
+  static String _ephemeralFailureReason(http.Response response) {
+    if (response.statusCode == 429) return 'rate_limited';
+    if (response.statusCode == 503) return 'service_unavailable';
+    try {
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
+      final error = decoded?['error'];
+      if (error is Map<String, dynamic>) {
+        final details = error['details'];
+        if (details is Map<String, dynamic>) {
+          final fieldErrors = details['field_errors'];
+          if (fieldErrors is List && fieldErrors.isNotEmpty) {
+            final first = fieldErrors.first;
+            if (first is Map<String, dynamic>) {
+              final reason = first['error'];
+              if (reason is String && reason.isNotEmpty) return reason;
+            }
+          }
+        }
+        final message = error['message'];
+        if (message is String && message.isNotEmpty) return message;
+      }
+    } catch (_) {}
+    return 'request_failed';
+  }
+
   Future<GroomingRun?> getGroomingRun({required String runId}) async {
     try {
       final response = await _client

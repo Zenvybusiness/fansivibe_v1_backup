@@ -182,6 +182,92 @@ class OutfitScanClient {
     if (lower.endsWith('.webp')) return 'image/webp';
     return 'image/jpeg';
   }
+
+  /// Submits a guest image for synchronous ephemeral analysis
+  /// (`POST /v1/analysis/outfit/ephemeral`, D-01).
+  ///
+  /// Guest-only transport: NO `Authorization` header (the endpoint is
+  /// unauthenticated), NO `Idempotency-Key` (no run row exists to
+  /// deduplicate), NO `user_id` field. Returns the engine snapshot
+  /// verbatim on 200 — the same map shape the analysis screen already
+  /// renders — never a run id. The snapshot's `sourceRunId` is a
+  /// transient correlation id (callers must strip it before any
+  /// authenticated save).
+  Future<({Map<String, dynamic>? snapshot, String? failureReason})>
+  submitOutfitEphemeralBytes(
+    Uint8List bytes, {
+    String filename = 'outfit_scan.jpg',
+  }) async {
+    if (bytes.isEmpty) {
+      debugPrint('Outfit ephemeral refused empty image bytes.');
+      return (snapshot: null, failureReason: 'empty_image');
+    }
+    try {
+      final uri = Uri.parse('$baseUrl/v1/analysis/outfit/ephemeral');
+      final request = http.MultipartRequest('POST', uri);
+
+      final contentType = _contentTypeForFilename(filename);
+
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'image',
+          bytes,
+          filename: filename,
+          contentType: MediaType.parse(contentType),
+        ),
+      );
+
+      final streamed = await _client.send(request).timeout(_timeout);
+      final response =
+          await http.Response.fromStream(streamed).timeout(_timeout);
+
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return (snapshot: decoded, failureReason: null);
+      }
+      debugPrint(
+        'Outfit ephemeral responded ${response.statusCode}: ${response.body}',
+      );
+      return (
+        snapshot: null,
+        failureReason: _ephemeralFailureReason(response),
+      );
+    } catch (error) {
+      debugPrint('Outfit ephemeral unreachable: $error');
+      return (snapshot: null, failureReason: 'unreachable');
+    }
+  }
+
+  /// Maps an ephemeral failure response to a stable reason string.
+  ///
+  /// 429/503 keep their transport meaning; a 422 surfaces the backend's
+  /// typed field reason verbatim. Unknown shapes degrade to
+  /// `request_failed` — never a crash, never a fake result.
+  static String _ephemeralFailureReason(http.Response response) {
+    if (response.statusCode == 429) return 'rate_limited';
+    if (response.statusCode == 503) return 'service_unavailable';
+    try {
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
+      final error = decoded?['error'];
+      if (error is Map<String, dynamic>) {
+        final details = error['details'];
+        if (details is Map<String, dynamic>) {
+          final fieldErrors = details['field_errors'];
+          if (fieldErrors is List && fieldErrors.isNotEmpty) {
+            final first = fieldErrors.first;
+            if (first is Map<String, dynamic>) {
+              final reason = first['error'];
+              if (reason is String && reason.isNotEmpty) return reason;
+            }
+          }
+        }
+        final message = error['message'];
+        if (message is String && message.isNotEmpty) return message;
+      }
+    } catch (_) {}
+    return 'request_failed';
+  }
 }
 
 /// Generates a fresh v4-style client idempotency key for one outfit analysis attempt.

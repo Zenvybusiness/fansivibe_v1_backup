@@ -221,6 +221,34 @@ class GroomingAnalysisResult {
         alternatives: List.from(mock.alternatives),
       );
 
+  /// Parses a synchronous engine snapshot (D-01 ephemeral response shape).
+  ///
+  /// Same field reads as [fromRunResult]'s result parsing, without the run
+  /// envelope: the snapshot IS the `result` map. Throws on a malformed
+  /// shape so callers fail closed (mirroring the run path) instead of
+  /// rendering partial content as a result.
+  factory GroomingAnalysisResult.fromSnapshot(Map<String, dynamic> snapshot) {
+    final appearance =
+        snapshot['appearance'] as Map<String, dynamic>? ?? const {};
+    final recommendations =
+        snapshot['recommendations'] as Map<String, dynamic>? ?? const {};
+    final top = recommendations['top'] as Map<String, dynamic>? ?? const {};
+    final alternatives =
+        recommendations['alternatives'] as List<dynamic>? ?? const [];
+    return GroomingAnalysisResult(
+      faceShape: appearance['faceShape'] as String? ?? '',
+      beardStyle: _beardStyleFromRun(recommendations),
+      beardDensity: '',
+      beardColor: '',
+      topRecommendation: GroomingRecommendation.fromBackend(top),
+      alternatives: alternatives
+          .map(
+            (e) => GroomingRecommendation.fromBackend(e as Map<String, dynamic>),
+          )
+          .toList(),
+    );
+  }
+
   static const GroomingAnalysisResult mock = GroomingAnalysisResult(
     faceShape: 'Oval',
     beardStyle: 'Full Beard',

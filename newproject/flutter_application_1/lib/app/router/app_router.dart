@@ -27,6 +27,7 @@ import 'package:fansivibe/features/events/presentation/add_event_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_details_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_list_screen.dart';
 import 'package:fansivibe/features/grooming/data/grooming_models.dart';
+import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_details_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_input_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_processing_screen.dart';
@@ -379,7 +380,20 @@ GoRoute(
                         path: 'result',
                         name: RouteNames.groomingResult,
                         builder: (context, state) {
-                          final data = state.extra as Map<String, String>?;
+                          final extra = state.extra;
+                          // D-01: a typed ephemeral result travels directly.
+                          // Guards/redirects are untouched — this route was
+                          // previously unreachable with a result.
+                          if (extra is GroomingAnalysisResult) {
+                            return GroomingResultScreen(
+                              faceShape: extra.faceShape,
+                              beardStyle: extra.beardStyle,
+                              beardDensity: extra.beardDensity,
+                              beardColor: extra.beardColor,
+                              result: extra,
+                            );
+                          }
+                          final data = extra as Map<String, String>?;
                           if (data == null) {
                             return _missingDataScreenWithText(
                               'Missing grooming data.',
@@ -536,7 +550,9 @@ final GoRouter appRouter = GoRouter(
   // the shell land on entry; authenticated users are never forced away
   // (no loops, no network on navigation — see auth_guard.dart).
   // Explicit guests (Continue Without Account, no session token) may
-  // view the AI Stylist tab only; nested actions stay guarded.
+  // browse all five shell tabs + nested read screens; account-required
+  // writes stay gated at their buttons. /assistant + /reasoning stay
+  // blocked for guests (see auth_guard.dart).
   redirect: (context, state) => authRedirect(
     state.uri.path,
     isAuthenticated: AuthSession.isAuthenticated,

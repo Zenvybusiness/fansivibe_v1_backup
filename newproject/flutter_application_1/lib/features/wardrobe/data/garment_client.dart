@@ -181,6 +181,86 @@ class GarmentClient {
     return 'image/jpeg';
   }
 
+  /// Submits a guest garment photo for synchronous ephemeral observation
+  /// (`POST /v1/analysis/garment/ephemeral`, D-01).
+  ///
+  /// Guest-only transport: NO `Authorization` header (the endpoint is
+  /// unauthenticated), NO `Idempotency-Key` (no run row exists to
+  /// deduplicate), NO `user_id` field. Returns the observation snapshot
+  /// verbatim on 200 (nullable attributes stay null) — never a run id.
+  /// There is no `input_media` envelope on this path, so callers must not
+  /// expect persisted media metadata.
+  Future<({Map<String, dynamic>? snapshot, String? failureReason})>
+  submitGarmentEphemeralBytes(
+    Uint8List bytes, {
+    String filename = 'wardrobe_item.jpg',
+  }) async {
+    if (bytes.isEmpty || bytes.length > maxImageBytes) {
+      debugPrint('Garment ephemeral refused image (${bytes.length} bytes).');
+      return (snapshot: null, failureReason: 'empty_image');
+    }
+    try {
+      final uri = Uri.parse('$baseUrl/v1/analysis/garment/ephemeral');
+      final request = http.MultipartRequest('POST', uri);
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'image',
+          bytes,
+          filename: filename,
+          contentType: MediaType.parse(_contentTypeFor(filename)),
+        ),
+      );
+      final streamed = await _client.send(request).timeout(_timeout);
+      final response =
+          await http.Response.fromStream(streamed).timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return (snapshot: decoded, failureReason: null);
+      }
+      debugPrint(
+        'Garment ephemeral responded ${response.statusCode}: ${response.body}',
+      );
+      return (
+        snapshot: null,
+        failureReason: _ephemeralFailureReason(response),
+      );
+    } catch (error) {
+      debugPrint('Garment ephemeral unreachable: $error');
+      return (snapshot: null, failureReason: 'unreachable');
+    }
+  }
+
+  /// Maps an ephemeral failure response to a stable reason string.
+  ///
+  /// 429/503 keep their transport meaning; a 422 surfaces the backend's
+  /// typed field reason (e.g. `no_garment_detected`) verbatim. Unknown
+  /// shapes degrade to `request_failed` — never a crash, never a fake.
+  static String _ephemeralFailureReason(http.Response response) {
+    if (response.statusCode == 429) return 'rate_limited';
+    if (response.statusCode == 503) return 'service_unavailable';
+    try {
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
+      final error = decoded?['error'];
+      if (error is Map<String, dynamic>) {
+        final details = error['details'];
+        if (details is Map<String, dynamic>) {
+          final fieldErrors = details['field_errors'];
+          if (fieldErrors is List && fieldErrors.isNotEmpty) {
+            final first = fieldErrors.first;
+            if (first is Map<String, dynamic>) {
+              final reason = first['error'];
+              if (reason is String && reason.isNotEmpty) return reason;
+            }
+          }
+        }
+        final message = error['message'];
+        if (message is String && message.isNotEmpty) return message;
+      }
+    } catch (_) {}
+    return 'request_failed';
+  }
+
   void dispose() => _client.close();
 }
 

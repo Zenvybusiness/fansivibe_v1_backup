@@ -201,3 +201,32 @@ def reasoning_rate_limit(request: Request) -> None:
         return
     raise rate_limited(retry_after_s=retry_after)
 
+
+async def ephemeral_rate_limit(request: Request) -> None:
+    """FastAPI dependency: sliding-window rate limit for ephemeral guest
+    analysis (D-01 STEP 1).
+
+    Dedicated `ephemeral:` scope (per client IP) with its own budget
+    (`ephemeral_rate_limit_per_minute`, same window as auth) — guest AI
+    compute never borrows the auth/reasoning budgets. Disabled with the
+    suite-wide `FANSIVIBE_RATE_LIMIT_ENABLED=false` like the other scopes;
+    fails open on internal error, same contract as the auth limiter.
+    """
+    try:
+        settings = get_settings()
+        if not settings.rate_limit_enabled:
+            return
+        allowed, retry_after = check(
+            f"ephemeral:{_client_ip(request)}",
+            limit=settings.ephemeral_rate_limit_per_minute,
+            window_s=float(settings.rate_limit_window_s),
+        )
+        if allowed:
+            return
+    except ApiError:
+        raise
+    except Exception:
+        logger.warning("Rate limiter error; failing open for ephemeral endpoint.")
+        return
+    raise rate_limited(retry_after_s=retry_after)
+

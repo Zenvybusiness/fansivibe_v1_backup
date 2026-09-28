@@ -53,6 +53,12 @@ class GroomingService extends ChangeNotifier {
   String? get activeIdempotencyKey => _activeIdempotencyKey;
   void resetIdempotencyKey() => _activeIdempotencyKey = null;
 
+  /// Raw engine snapshot of the last ephemeral analysis (D-01), held for
+  /// the guest save-replay stash. Null unless the last ephemeral call
+  /// returned a snapshot. Never a run id (no run exists).
+  Map<String, dynamic>? _lastEphemeralSnapshot;
+  Map<String, dynamic>? get lastEphemeralSnapshot => _lastEphemeralSnapshot;
+
   /// Wire the learning repository so the analysis uses the user's stored face
   /// profile instead of falling back to the offline mock result.
   void attachLearning(LearningRepository learning) {
@@ -125,6 +131,80 @@ class GroomingService extends ChangeNotifier {
     _completedStageCount = totalStages;
     _safeNotify();
     return resolved;
+  }
+
+  /// Runs a synchronous ephemeral guest analysis (D-01, no polling).
+  ///
+  /// Guest-only path: the grounding face profile travels in the request
+  /// (guests own no stored profile — [faceShape] is a user-chosen option
+  /// id, never invented) and the returned engine snapshot is parsed with
+  /// the existing [GroomingAnalysisResult.fromSnapshot] parser. No run id
+  /// is ever invented. Stage/error/mock-fallback semantics mirror
+  /// [runAnalysis] so callers keep one contract.
+  Future<GroomingAnalysisResult> runEphemeralAnalysis({
+    required String faceShape,
+    String skinTone = '',
+    String bodyType = '',
+    String styleType = '',
+  }) async {
+    _isProcessing = true;
+    _completedStageCount = 0;
+    _analysisError = null;
+    _result = null;
+    _usedMockResult = false;
+    _isFailed = false;
+    _isCompleted = false;
+    _safeNotify();
+
+    GroomingAnalysisResult resolved = GroomingAnalysisResult.mock;
+    final outcome = await _client.submitGroomingEphemeral(
+      faceShape: faceShape,
+      skinTone: skinTone,
+      bodyType: bodyType,
+      styleType: styleType,
+    );
+    final snapshot = outcome.snapshot;
+    if (snapshot == null) {
+      _analysisError = _describeEphemeralReason(outcome.failureReason);
+      _isFailed = true;
+      _usedMockResult = true;
+      _lastEphemeralSnapshot = null;
+    } else {
+      try {
+        resolved = GroomingAnalysisResult.fromSnapshot(snapshot);
+        _usedMockResult = false;
+        _lastEphemeralSnapshot = snapshot;
+      } catch (_) {
+        _analysisError = 'Grooming analysis failed. Please try again.';
+        _isFailed = true;
+        _usedMockResult = true;
+        _lastEphemeralSnapshot = null;
+        resolved = GroomingAnalysisResult.mock;
+      }
+    }
+    _isCompleted = true;
+
+    if (_disposed) return resolved;
+
+    _result = resolved;
+    _isProcessing = false;
+    _completedStageCount = totalStages;
+    _safeNotify();
+    return resolved;
+  }
+
+  /// Maps an ephemeral failure reason to user-facing copy.
+  String _describeEphemeralReason(String? reason) {
+    if (reason == 'rate_limited') {
+      return 'Too many requests. Please wait a moment and try again.';
+    }
+    if (reason == 'service_unavailable' || reason == 'unreachable') {
+      return 'Grooming service unreachable. Please try again.';
+    }
+    if (reason != null && reason.isNotEmpty && reason != 'request_failed') {
+      return 'Grooming analysis failed ($reason). Please try again.';
+    }
+    return 'Grooming analysis failed. Please try again.';
   }
 
   /// Lists the user's analysis runs (summary rows).

@@ -10,9 +10,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import replace
 from typing import Callable, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from app.api.errors import ApiError, conflict, not_found, validation
+from app.api.errors import ApiError, ai_failure, conflict, not_found, validation
 from app.application.enrichment import enrich_hairstyle_result
 from app.application.learning import mark_styled_today
 from app.application.media import build_media_ref, read_image_bytes
@@ -21,7 +21,7 @@ from app.ai.vision_garment_adapter import GarmentAnalysisError
 from sqlalchemy.exc import IntegrityError
 from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.domain.ports.garment_analysis import GarmentAnalysisPort
-from app.domain.ports.external import KnowledgeSource
+from app.domain.ports.external import KnowledgeError, KnowledgeSource
 from app.domain.ports.repositories import (
     ActivityDayRepository,
     AnalysisRunRepository,
@@ -891,6 +891,263 @@ class CreateGarmentRun:
                 message="Something went wrong while saving your data. Please try again.",
             )
         return run_id
+
+
+_EPHEMERAL_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+_EPHEMERAL_MAX_IMAGE_BYTES = 20 * 1024 * 1024
+_EPHEMERAL_MAX_PROFILE_CHARS = 200
+
+
+def _ephemeral_correlation_id() -> str:
+    """Transient per-request correlation id for ephemeral snapshots.
+
+    A random v4 UUID string carried as ``sourceRunId`` so the snapshot
+    keeps its existing shape. It is NEVER a ``users.id`` (no users row is
+    created or read), NEVER an ``analysis_runs.id`` (no run row exists),
+    never persisted, and never enumerable. Clients must strip it before
+    any authenticated save (the save path validates ownership itself).
+    """
+    return str(uuid4())
+
+
+def _validate_ephemeral_image(image: any) -> None:
+    """Image guards for ephemeral passes — same rules as the async passes.
+
+    Runs before any AI work: unsupported media type or oversized payload
+    → 422; unreadable/empty bytes → 422 via ``read_image_bytes``. Bytes
+    are hashed and discarded by the caller, never stored or logged.
+    """
+    content_type = getattr(image, "content_type", None)
+    if content_type not in _EPHEMERAL_IMAGE_TYPES:
+        raise validation(
+            [{"field": "image", "error": "unsupported media type, must be JPEG, PNG or WebP"}]
+        )
+    size_bytes = getattr(image, "size", None)
+    if size_bytes is not None and size_bytes > _EPHEMERAL_MAX_IMAGE_BYTES:
+        raise validation(
+            [{"field": "image", "error": f"image too large ({size_bytes} bytes), max 20 MB"}]
+        )
+
+
+def _ephemeral_analyzer_failure(reason: object) -> ApiError:
+    """Honest typed analyzer failure for synchronous ephemeral passes.
+
+    The async passes record the analyzer ``reason`` on a terminal failed
+    run; with no run row the reason travels as a 422 field error instead
+    (INSUFFICIENT_USER_DATA precedent: semantic analysis failures stay
+    422, provider crashes stay 503 via ``ai_failure``). Never a fake
+    successful result.
+    """
+    return validation([{"field": "image", "error": str(reason or "analysis_failed")}])
+
+
+class EphemeralHairstyleAnalysis:
+    """D-01 STEP 1 — stateless guest hairstyle analysis (image pass only).
+
+    Reuses the production vision port + ``recommend_hairstyle`` + enrich
+    path of ``CreateHairstyleImageRun`` and returns the identical snapshot
+    shape synchronously. Writes ZERO database rows: no ``analysis_runs``,
+    no ``user_state`` (TRX-6 skipped), no learning signals, no activity
+    days. Preferences stay empty (guests own no ``saved_looks``) —
+    identical to the authenticated no-saves behavior.
+    """
+
+    def __init__(
+        self,
+        *,
+        knowledge: KnowledgeSource,
+        appearance_port: AppearanceAnalysisPort,
+        enrich: Optional[Callable[[HairstyleResult], HairstyleResult]] = None,
+    ) -> None:
+        self._knowledge = knowledge
+        self._appearance_port = appearance_port
+        self._enrich = enrich or enrich_hairstyle_result
+
+    def __call__(self, *, image: any) -> dict:
+        _validate_ephemeral_image(image)
+        content = read_image_bytes(image)
+        ephemeral_id = _ephemeral_correlation_id()
+        media_ref = build_media_ref(
+            user_id=UUID(ephemeral_id),
+            content_type=getattr(image, "content_type"),
+            content=content,
+            analyzer=getattr(self._appearance_port, "adapter_id", "unknown"),
+        )
+        try:
+            appearance_profile = self._appearance_port.analyze(
+                media_ref=media_ref,
+                user_id=UUID(ephemeral_id),
+                image_bytes=content,
+            )
+        except AppearanceAnalysisError as exc:
+            raise _ephemeral_analyzer_failure(exc.reason)
+        except Exception:
+            raise ai_failure()
+        # A measured faceShape is required — same honesty rule as the
+        # async pass (which fails the run with no_face_detected).
+        if not appearance_profile.faceShape:
+            raise _ephemeral_analyzer_failure("no_face_detected")
+        appearance_profile = replace(
+            appearance_profile, sourceRunId=ephemeral_id
+        )
+        try:
+            result = recommend_hairstyle(self._knowledge, appearance_profile)
+            result = self._enrich(result)
+        except Exception:
+            raise ai_failure()
+        return result.to_snapshot()
+
+
+class EphemeralOutfitAnalysis:
+    """D-01 STEP 1 — stateless guest outfit/appearance analysis (S-1).
+
+    Mirrors ``CreateOutfitRun`` steps 1–4 (validate → vision → engine →
+    snapshot) without steps 5–7: no run row, no TRX-6 profile update, no
+    signals, no activity day. Operates only on the request image — no
+    wardrobe is read (guests own none server-side). Same snapshot shape
+    as the authenticated outfit run (hairstyle-typed engine snapshot).
+    """
+
+    def __init__(
+        self,
+        *,
+        knowledge: KnowledgeSource,
+        appearance_port: AppearanceAnalysisPort,
+    ) -> None:
+        self._knowledge = knowledge
+        self._appearance_port = appearance_port
+
+    def __call__(self, *, image: any) -> dict:
+        _validate_ephemeral_image(image)
+        content = read_image_bytes(image)
+        ephemeral_id = _ephemeral_correlation_id()
+        media_ref = build_media_ref(
+            user_id=UUID(ephemeral_id),
+            content_type=getattr(image, "content_type"),
+            content=content,
+            analyzer=getattr(self._appearance_port, "adapter_id", "unknown"),
+        )
+        try:
+            appearance_profile = self._appearance_port.analyze(
+                media_ref=media_ref,
+                user_id=UUID(ephemeral_id),
+                image_bytes=content,
+            )
+        except AppearanceAnalysisError as exc:
+            raise _ephemeral_analyzer_failure(exc.reason)
+        except Exception:
+            raise ai_failure()
+        appearance_profile = replace(
+            appearance_profile, sourceRunId=ephemeral_id
+        )
+        try:
+            context = build_context(
+                appearance=appearance_profile,
+                knowledge_version=getattr(self._knowledge, "knowledge_version", ""),
+            )
+            hairstyle_result = recommend_hairstyle(
+                self._knowledge, appearance_profile
+            )
+        except Exception:
+            raise ai_failure()
+        return hairstyle_result.to_snapshot()
+
+
+class EphemeralGroomingAnalysis:
+    """D-01 STEP 1 — stateless guest grooming analysis (request profile).
+
+    Guests own no stored ``style_profile``, so the grounding profile is
+    request-supplied (validated below; ``face_shape`` required, nothing
+    defaulted or invented). Reuses ``recommend_grooming`` with empty
+    preferences (no saved looks — identical to the authenticated
+    no-saves behavior). The server never looks up a user. Zero rows.
+    """
+
+    def __init__(self, *, knowledge: KnowledgeSource) -> None:
+        self._knowledge = knowledge
+
+    def __call__(
+        self,
+        *,
+        face_shape: object,
+        skin_tone: object = "",
+        body_type: object = "",
+        style_type: object = "",
+    ) -> dict:
+        shape = face_shape.strip() if isinstance(face_shape, str) else ""
+        if not shape:
+            raise validation(
+                [{"field": "face_shape", "error": "face_shape is required"}]
+            )
+        fields = {"face_shape": shape}
+        for name, value in (
+            ("skin_tone", skin_tone),
+            ("body_type", body_type),
+            ("style_type", style_type),
+        ):
+            text = value.strip() if isinstance(value, str) else ""
+            if len(text) > _EPHEMERAL_MAX_PROFILE_CHARS:
+                raise validation(
+                    [{"field": name, "error": "must be at most 200 characters"}]
+                )
+            fields[name] = text
+        if len(shape) > _EPHEMERAL_MAX_PROFILE_CHARS:
+            raise validation(
+                [{"field": "face_shape", "error": "must be at most 200 characters"}]
+            )
+        appearance = AppearanceProfile(
+            faceShape=shape,
+            skinTone=fields["skin_tone"],
+            bodyType=fields["body_type"],
+            styleType=fields["style_type"],
+            sourceRunId=_ephemeral_correlation_id(),
+        )
+        try:
+            result = recommend_grooming(
+                self._knowledge, appearance, HairstylePreferences()
+            )
+        except KnowledgeError:
+            raise ai_failure()
+        except Exception:
+            raise ai_failure()
+        return result.to_snapshot()
+
+
+class EphemeralGarmentAnalysis:
+    """D-01 STEP 1 — stateless guest garment observation (M11 shape).
+
+    Reuses the ``CreateGarmentRun`` vision + verbatim-snapshot path. The
+    async pass already writes nothing but the run row, so the ephemeral
+    variant drops exactly that: observation snapshot returned directly,
+    zero rows (no ``user_state``, no wardrobe, no signals — unchanged).
+    """
+
+    def __init__(self, *, garment_port: GarmentAnalysisPort) -> None:
+        self._garment_port = garment_port
+
+    def __call__(self, *, image: any) -> dict:
+        _validate_ephemeral_image(image)
+        content = read_image_bytes(image)
+        ephemeral_id = _ephemeral_correlation_id()
+        media_ref = build_media_ref(
+            user_id=UUID(ephemeral_id),
+            content_type=getattr(image, "content_type"),
+            content=content,
+            analyzer=getattr(self._garment_port, "adapter_id", "unknown"),
+        )
+        try:
+            garment_profile = self._garment_port.analyze(
+                media_ref=media_ref,
+                user_id=UUID(ephemeral_id),
+                image_bytes=content,
+            )
+        except GarmentAnalysisError as exc:
+            raise _ephemeral_analyzer_failure(exc.reason)
+        except Exception:
+            raise ai_failure()
+        return replace(
+            garment_profile, sourceRunId=ephemeral_id
+        ).to_snapshot()
 
 
 class GetAnalysisRun:

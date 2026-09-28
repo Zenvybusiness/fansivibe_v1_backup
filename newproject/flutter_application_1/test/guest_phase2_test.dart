@@ -1,6 +1,19 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/hairstyle/data/hairstyle_client.dart';
+import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
+import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
+import 'package:fansivibe/features/hairstyle/presentation/hairstyle_result_screen.dart';
+import 'package:fansivibe/shared/utils/pending_auth_intent.dart';
+
+import 'support/controllable_hairstyle_service.dart';
 import 'package:fansivibe/features/discover/data/discover_models.dart';
 import 'package:fansivibe/features/discover/data/discover_repository.dart';
 import 'package:fansivibe/features/discover/presentation/discover_screen.dart';
@@ -400,16 +413,86 @@ void main() {
       expect(repository.genCalls, isZero);
     });
 
-    testWidgets('guest hairstyle processing renders sign-in, never submits', (
+    testWidgets('guest hairstyle reaches analysis; Save prompts sign-in', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: FaceProcessingScreen()),
+      // D-01: guests run the ephemeral analysis (no sign-in at processing);
+      // authentication is required only at the account-owned Save point.
+      final snapshot = {
+        'appearance': {
+          'faceShape': 'Oval',
+          'skinTone': 'Warm Medium',
+          'bodyType': '',
+          'styleType': 'Modern Classic',
+          'sourceRunId': 'ephemeral-test-id',
+        },
+        'confidence': 0.9,
+        'needs_more_data': false,
+        'recommendations': {
+          'top': {
+            'id': 'textured_quiff',
+            'name': 'Textured Quiff',
+            'description': 'A test recommendation.',
+            'matchScore': 0.94,
+            'reasons': ['Grounded reason'],
+            'stylingTips': 'Tips',
+            'maintenance': 'Low',
+            'bestFor': 'Oval',
+          },
+          'alternatives': [],
+        },
+      };
+      final service = HairstyleService(
+        client: HairstyleClient(
+          client: MockClient((request) async {
+            expect(request.url.path, '/v1/analysis/hairstyle/ephemeral');
+            expect(request.headers['Authorization'], isNull);
+            return http.Response(jsonEncode(snapshot), 200);
+          }),
+        ),
       );
+      final saveService = StubSaveHairstyleService();
+      final router = GoRouter(
+        initialLocation: '/processing',
+        routes: [
+          GoRoute(
+            path: '/processing',
+            builder: (_, __) => FaceProcessingScreen(
+              service: service,
+              imageBytes: base64Decode(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/result',
+            name: RouteNames.hairstyleResult,
+            builder: (_, state) => HairstyleResultScreen(
+              result: state.extra as HairstyleAnalysisResult?,
+              service: saveService,
+            ),
+          ),
+          GoRoute(
+            path: '/sign-in',
+            name: RouteNames.signIn,
+            builder: (_, __) => const Text('sign-in-marker'),
+          ),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
       await tester.pumpAndSettle();
 
-      expect(find.text('Hairstyle Analysis'), findsWidgets);
-      expect(find.text('Sign In'), findsOneWidget);
+      // 1+2. Guest reaches the analysis result without a sign-in gate.
+      expect(find.text('Textured Quiff'), findsOneWidget);
+      expect(find.text('sign-in-marker'), findsNothing);
+      // 3. The account-owned Save point still requires authentication.
+      await tester.ensureVisible(find.text('Save Style'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save Style'));
+      await tester.pumpAndSettle();
+      expect(find.text('sign-in-marker'), findsOneWidget);
+      expect(saveService.saveCalls, 0);
+      expect(takePendingAuthIntent(), isNotNull);
     });
   });
 

@@ -103,6 +103,25 @@ class LocalStorage {
     }
   }
 
+  /// ----- Pending Ephemeral Result (guest analysis → save) -----
+  ///
+  /// Single-slot JSON holding one guest analysis snapshot (feature +
+  /// snapshot + savedAt), mirroring the single-slot [pendingAuthIntent]
+  /// design (last analysis wins). Written at guest analysis time so a
+  /// later Save → sign-in → return can restore the exact result for an
+  /// explicit replay. Device-local only; never a server row. Null-safe
+  /// like the rest of this class.
+  static String? get pendingEphemeralResult =>
+      _prefs?.getString('pending_ephemeral_result');
+  static set pendingEphemeralResult(String? value) {
+    if (_prefs == null) return;
+    if (value != null) {
+      _prefs!.setString('pending_ephemeral_result', value);
+    } else {
+      _prefs!.remove('pending_ephemeral_result');
+    }
+  }
+
   /// Local wardrobe ids already uploaded by guest-data migration.
   ///
   /// Retry ledger: migration skips these so a retried/duplicate merge
@@ -111,6 +130,17 @@ class LocalStorage {
       _prefs?.getStringList('migrated_guest_ids') ?? [];
   static set migratedGuestIds(List<String> value) {
     _prefs?.setStringList('migrated_guest_ids', value);
+  }
+
+  /// Preference codes already synced by guest-data migration.
+  ///
+  /// Same ledger pattern as [migratedGuestIds]: a completed merge must
+  /// not re-sync (or re-prompt for) the same codes on the next login.
+  /// Device-local only; cleared with the prefs on explicit Discard.
+  static List<String> get migratedGuestPrefs =>
+      _prefs?.getStringList('migrated_guest_prefs') ?? [];
+  static set migratedGuestPrefs(List<String> value) {
+    _prefs?.setStringList('migrated_guest_prefs', value);
   }
 
   /// ----- Capability State -----

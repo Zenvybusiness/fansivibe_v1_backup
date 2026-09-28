@@ -539,7 +539,8 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
             icon: Icons.bookmark_border,
             onPressed: () {
               // Phase 2 guests: persisting the profile is account-only —
-              // prompt at the button instead of faking a save.
+              // prompt at the button instead of faking a save. The guest
+              // result is already stashed at analysis time for replay.
               if (isGuestUser) {
                 promptGuestSignIn(
                   context,
@@ -547,6 +548,9 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
                 );
                 return;
               }
+              // A replayed guest save lands here once authenticated — the
+              // stash has served its purpose (no-op when no slot exists).
+              clearPendingEphemeralResult();
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Appearance profile saved'),

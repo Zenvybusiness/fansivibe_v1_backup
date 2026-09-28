@@ -74,3 +74,18 @@ class CreateHairstyleScanRequest(BaseModel):
     """
 
     image: Optional[dict[str, Any]] = None
+
+
+class EphemeralGroomingProfile(BaseModel):
+    """Request-supplied appearance profile for ephemeral grooming (D-01).
+
+    Guests own no stored `style_profile`, so every attribute arrives in
+    the request. `face_shape` is required (no server-side default is ever
+    invented); the remaining attributes default to empty (sparse grounding
+    the engine reports honestly via `needs_more_data`).
+    """
+
+    face_shape: str
+    skin_tone: str = ""
+    body_type: str = ""
+    style_type: str = ""

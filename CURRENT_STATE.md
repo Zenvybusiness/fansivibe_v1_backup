@@ -2,6 +2,77 @@
 
 ---
 
+## D-01 STEP 2 FINAL VERIFICATION (executed 2026-09-28, verdict: READY TO COMMIT — verification only, zero code changed, no commit/push)
+
+- Relevant Flutter suite (40 files: auth/guest/conversion/migration/save, hairstyle, grooming, outfit scan, wardrobe/garment): 468 passed / 13 failed; all 13 are class C pre-existing baseline (auth_screens ×5 Row-overflow+stale-copy, guest_phase2 Discover ×2 stale copy, clothes ×6 tab-helper No-element — all in the Phase-0 stashed-HEAD failure file-set; zero D-01/obsolete/unrelated failures). Focused D-01 (ephemeral 25/25) + both updated gate tests PASS. Backend `test_ephemeral_analysis.py` 25/25 PASS.
+- Analyze: 0 errors, 5 warnings (1 pre-existing duplicate_import in `app_router.dart:30`; 2 pre-existing inference warnings in ephemeral test; 2 same-class inference warnings in the 2 updated test snapshots — all test-only/`[]`-literal, harmless, left untouched per instructions).
+
+---
+
+## D-01 STEP 2 OBSOLETE GATE TESTS UPDATED (executed 2026-09-28, verdict: PASS — test-only, zero production changes, no commit/push)
+
+- Updated exactly 2 obsolete tests to the D-01 contract (Guest → analysis → result → Save → authentication): `test/guest_auth_conversion_test.dart` grooming gate (`guest Analyze reaches the result; Save prompts sign-in` — Analyze reaches `Structured Goatee` with no `Authorization` header and no sign-in; `Save Look` routes to sign-in + records `PendingAuthIntent`) and `test/guest_phase2_test.dart` hairstyle gate (`guest hairstyle reaches analysis; Save prompts sign-in` — ephemeral processing lands on `Textured Quiff`, no sign-in; `Save Style` routes to sign-in, `saveCalls == 0`, intent recorded). Both mirror the `ephemeral_guest_analysis_test.dart` router/service pattern; no new navigation or auth behavior invented.
+- Verification: both updated tests pass; the only failures in those two files are the 2 pre-existing Discover copy failures (`Discover looks`, `Clothes` tab — part of the 7 documented pre-existing failures, untouched). `ephemeral_guest_analysis_test.dart` 25/25 PASS. Production files changed: none (this session touched only the 2 test files; the lib/backend diff in the tree is prior uncommitted D-01 Step 2 work).
+
+---
+
+## D-01 STEP 1 EPHEMERAL GUEST ANALYSIS BACKEND (executed 2026-09-28, verdict: PASS — backend only, zero Flutter changes, zero migrations, no commit/push)
+
+- New endpoints (all 200 + snapshot, no auth, no `user_id` accepted, IP rate-limited `ephemeral:` scope): `POST /v1/analysis/hairstyle/ephemeral` (image), `/outfit/ephemeral` (image), `/grooming/ephemeral` (request-supplied `EphemeralGroomingProfile`, face_shape required), `/garment/ephemeral` (image). Reuse: vision adapters, `recommend_hairstyle`/`recommend_grooming`, enrich, `build_media_ref`/`read_image_bytes` (bytes hashed+discarded), frozen catalog knowledge, existing snapshot shapes; persistence repos omitted (all Optional) so TRX-6/signals/activity-days cannot run; `sourceRunId` = transient per-request UUID (never a users/runs id; client must strip before save).
+- Errors: input problems → 422 (existing messages verbatim); typed analyzer reasons → 422 with reason (INSUFFICIENT_USER_DATA precedent); crashes/engine failures → 503 AI_FAILURE. No fake results. New setting `FANSIVIBE_RATE_LIMIT_EPHEMERAL_PER_MINUTE` (default 30) + validator.
+- Writes: none (proven by raising-`get_db` override across all 200s). Untouched: AuthSession/SecureTokenStorage/isGuestUser/authRedirect/prompt/intent/conversion/migration, all authenticated endpoints (still 401), all migrations (HEAD 0025), C-01…C-10, Flutter.
+- Tests: new `backend/tests/test_ephemeral_analysis.py` 25/25 (results, no-auth, user_id-ignored, zero-DB, validation, 429, honest failures, auth-intact, HEAD). Regressions: C-02/C-03/C-07/P2S1/P2S2/rules/analysis/auth/outfit/garment/rate-limit 296 pass/115 skip (PG-skips); full backend 1048 pass/541 skip with 3 frozen-hash failures proven pre-existing on stashed HEAD (CRLF-checkout artifact class, identical without changes).
+
+---
+
+## D-01 PREPARATION: ANONYMOUS/EPHEMERAL ANALYSIS DESIGN (executed 2026-09-28, verdict: INSPECTION ONLY — zero code changed, no migration, no commit/push)
+
+- Traced all 5 lifecycles (CreateHairstyleRun/ImageRun, CreateOutfitRun, CreateGroomingRun, CreateGarmentRun, GenerateOutfit/SaveOutfit): every route requires `get_current_user_id`; every user table carries `user_id NOT NULL + FK users.id CASCADE`; no ephemeral/anonymous concept exists anywhere in `backend/app`.
+- Persistence per pipeline: garment = run-row only (cleanest); hairstyle/grooming profile-only = run-row only (but need stored `style_profile` + saved_looks reads); hairstyle-image/outfit = run-row + TRX-6 `update_style_profile` + signals (`analysis_updated` [+ `outfit_selected`]) + styled-day; generate = TRX-2 read-only (needs owner wardrobe → 204 for guests).
+- Design verdict: stateless synchronous ephemeral POSTs (validate → vision/rules → 200 snapshot, zero rows) need NO migration. All persistence repos in image pipelines are already Optional constructor params; garment needs only the run-row skipped. Async claim-token run rows (Design B) would need a migration — NOT recommended.
+- Save-after-sign-in: snapshots are self-contained; hairstyle/grooming M7 passes snapshots through (only catalog `look_id` check) so deferred save works verbatim — except the snapshot's `sourceRunId` must be stripped client-side (else FK violation on `saved_looks.source_run_id`). Outfit-family saves additionally require owned wardrobe rows (DEC-010). Existing `PendingAuthIntent` (string-only params → local snapshot key) + `handlePostAuthConversion` reused; no second continuation.
+- Constraints recorded: random-UUID media-key seed (never a users row); IP rate-limit reuse; 20MB/type validation kept; C-01…C-10 untouched; auth/guest/router code untouched.
+- Full 15-section report delivered in chat; no files other than this entry touched.
+
+---
+
+## DEEP AUTH/GUEST FLOW INVESTIGATION (executed 2026-09-28, verdict: INSPECTION ONLY — zero code changed, no commit/push)
+
+- Scope: full read-only trace of auth session, guest state, router guards, Hairstyle/Outfit/Grooming/Glasses pipelines, save gates, post-auth continuation, guest migration.
+- Verdict: NO Flutter wiring mismatch. Single auth source (`AuthSession` → `SecureTokenStorage`, warmed in `main()`); single guest predicate (`isGuestUser`); single prompt helper (`promptGuestSignIn`); both auth doors converge on `handlePostAuthConversion`; migration connected with ledgers. Authenticated users are never re-prompted (every gate keys on `isGuestUser`, router never redirects authenticated, 401 ejects only genuinely-dead sessions).
+- Sole CURRENT-vs-INTENDED gap is a locked product-contract gap, not a wiring bug: guests are gated BEFORE analysis (Hairstyle processing, Outfit Scan submit/capture, Grooming analyze, Garment analyze, Outfit generate), while the task intends analyze-then-gate-on-save. Removing Flutter gates alone cannot fix it — every analysis/read endpoint 401s without Bearer (`get_current_user_id`) and anonymous runs are owner-rejected (C-01 LOCKED, anon-runs OUT; D-01 "keep gates vs anonymous server runs" PENDING owner call; DEC-GUEST-01 Accepted). Guest analyze-then-save needs genuinely-new backend (anonymous/ephemeral runs), then repositioning gates to the save boundary.
+- Stale-doc notes (no behavior impact): DEC-GUEST-01 still describes the old stylist-only exception vs whole-shell guest code; task's "3-question" wording exists nowhere in the repo (live Explore questionnaire is `VibeSelectScreen`).
+- Full 15-section report delivered in chat; no files other than this entry touched.
+
+---
+
+## EXPLORE ONBOARDING NAV FIX (executed 2026-09-28, verdict: PASS — smallest navigation fix, no new screens, no copy changes, no backend changes, no commit/push)
+
+- Root cause: `VibeSelectScreen` (the existing Explore questionnaire, `photoPath: false`) ended both `_onContinue` and `_onSkip` with `context.goNamed(RouteNames.home)` — the Explore path always landed on Home first instead of the Discover tab.
+- Fix (1 file, 2 lines of behavior): `vibe_select_screen.dart` non-photo branches now `goNamed(RouteNames.discover)` with the same extras. Answer persistence unchanged (`savedLocally = true` still set first so the guest guard admits `/discover`; `LocalStorage.vibe` saved as before). Photo path (`Analyze My Style` → `cameraPermission`) byte-identical. No question added/removed/rewritten; no new route; `goNamed` replaces the stack so back-nav cannot duplicate the questionnaire.
+- Note: the task's quoted 3-question wording ("What are you getting ready for?" / "What do you want help deciding?" / "What matters most to you?") exists nowhere in the repo (verified via repo-wide grep over lib/test/docs); the live Explore questionnaire is `VibeSelectScreen` ("Which style feels most like you?") and it was reused verbatim per the do-not-create-a-questionnaire constraint.
+- Tests: `entry_screen` (3/3) + `router_auth_guard` (9/9) + `first_time_light_path_home` + `discover_screens` (all pass) + `guest_step3` + `first_time_home_route_decision` (all pass); `flutter analyze` 0 issues.
+- Acceptance: A Analyze flow unchanged (still cameraPermission); B Explore → questionnaire immediately (Entry→VibeSelect push untouched); C Continue/Skip → Discover tab directly; D Discover content/nav untouched; E `goNamed` stack-replace, no duplicate questionnaire or Home step.
+
+---
+
+## PHASE 2 STEP 3 FULL GUEST EXPERIENCE (executed 2026-09-27, verdict: PASS — verified Flow 1B foundation, 3 genuine gaps closed, no backend changes, no migration, no commit/push)
+
+- Verified already-live (Flow 1B + guest Phase 2, untouched): five-tab guest routing with /assistant + /reasoning blocked (`auth_guard.dart` + 9 guard tests); guest-safe Home/Discover/Stylist/Wardrobe/Profile surfaces with button-level sign-in gates (`guest_phase2_test.dart`); additive-only local storage (`pending_auth_intent`, `migrated_guest_ids`, LearningService JSON via LocalStore; C-08 key untouched); wardrobe-via-createItem + prefs-via-syncPreferredOccasion migration with retry ledger, Merge/Keep/Discard + double-confirmed Discard + partial-failure dialog (`guest_data_migration.dart`, `post_auth_flow.dart`, 20 conversion tests).
+- New gaps closed: (1) `migratedGuestPrefs` ledger (`local_storage.dart`) — synced pref codes are skipped on later merges and excluded from the post-auth dialog trigger/counts, so a completed merge never re-prompts; failures stay unledgered and retry; Discard clears the ledger with the prefs. (2) `_runMerge` try/catch — an unexpected migration throw keeps everything local and still lands the user home (merge never blocks login). (3) stale router comment corrected to five-tab scope.
+- Tests: new `test/guest_step3_test.dart` (7/7: restart survival, all-throwing merge reports without throwing, prefs ledger skip + failure retry, sign-in prompt routing, Keep lands home with data intact, Discard confirms and clears only guest data). Regressions: backend C-02/C-03/C-07/P2S1/P2S2/analysis-rules 161 pass/2 skip; `flutter analyze lib test` 0 issues; router guard 9/9; conversion 20/20; wardrobe+add-item+outfit-api+reasons 81/81; learning+outfit-screens 60/60; auth_api/flow-regression/preferences_sync green.
+- Pre-existing failures (proven identical on stashed HEAD, files untouched, not rewritten per instructions): `guest_phase2_test.dart` Discover ×2 (stale `Discover looks`/`Clothes` copy) and `auth_screens_test.dart` ×5 (auth-screen Row overflow + stale copy).
+
+---
+
+## PHASE 2 STEP 2 EXPLAINABLE AI STYLIST RECOMMENDATIONS (executed 2026-09-27, verdict: PASS — deterministic evidence-grounded reasons, scoring untouched, no migration, no commit/push)
+
+- Explanation live: `_to_recommendation` in `backend/app/application/outfits.py` now emits a reason ONLY when its score term actually contributed to the winner — `"Matches your preferred palette"` (recomputed `_palette_points > 0`), `"Matches your preferred fit"` (recomputed `_fit_points > 0`), `"Uses an item you selected"` (`winner.preference > 0`), per-name `"Includes your favorite {name}"` (now gated on `winner.favorite > 0`), `"Matches the selected occasion"` (recomputed `_occasion_points > 0` over request + persisted occasions threaded from `_derive_outfit`), plus existing feedback/wear lines. Deterministic construction order, exact duplicates removed, uncomputable evidence degrades to no reason (never fabricated). Scoring, weights, 100-point clamp, and tie-break byte-identical.
+- API contract reused: `reasons: list[string]` verbatim through `_record_to_outfit_schema` — no schema change, backward compatible. Flutter: `OutfitRecommendation` model untouched; `OutfitRecommendationScreen` "Why This Look Works" renders reasons verbatim plus a truthful `No grounded explanation available.` fallback for empty lists (no redesign, no color/nav change).
+- Tests: new `backend/tests/test_p2s2_explainability.py` (13/13 pass: gating per signal, no-fabrication, dedupe, ordering, score-unchanged, API serialization, empty-serialize); new `test/outfit_recommendation_reasons_test.dart` (3/3 pass: verbatim render, empty fallback, order); regressions green — P2S1 (15/15), C-02 palette (9/9), C-02 fit (21/21), C-03 (23/23), analysis rules, outfit_builder_api + outfit_builder_screens (60/60); `flutter analyze` 0 issues; `test_m13_outfits_api` PG-skipped (30 skips, assertion extended for new grounded reasons).
+
+---
+
 ## PHASE 2 STEP 1 FEEDBACK-DRIVEN AI STYLIST PERSONALIZATION (executed 2026-09-27, verdict: PASS — bounded deterministic feedback and wear scoring, C-01…C-10 intact, no migration, no commit/push)
 
 - Feedback personalization live: Added deterministic, bounded feedback and wear scoring terms consuming existing `feedback_events` (migration 0019) and `wardrobe_wear_events` (migration 0013) without creating new database tables or event systems.
