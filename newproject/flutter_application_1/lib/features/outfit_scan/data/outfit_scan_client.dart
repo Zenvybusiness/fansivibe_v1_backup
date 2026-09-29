@@ -51,6 +51,13 @@ class OutfitScanClient {
   /// Canonical base URL — single source of truth is [AppConfig.apiBaseUrl].
   static const String baseUrl = AppConfig.apiBaseUrl;
 
+  /// Platform-resolved endpoint for [path] (Android emulator loopback
+  /// `localhost`/`127.0.0.1` → `10.0.2.2`; see
+  /// [AppConfig.resolveApiBaseUrl]). Desktop/web/LAN-IP builds resolve to
+  /// [baseUrl] unchanged, so the canonical configuration stays intact.
+  static Uri _endpoint(String path) =>
+      Uri.parse('${AppConfig.resolveApiBaseUrl(baseUrl: baseUrl)}$path');
+
   static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',
     defaultValue: 'dev',
@@ -113,7 +120,7 @@ class OutfitScanClient {
     final effectiveKey =
         idempotencyKey ?? (_activeIdempotencyKey ??= newOutfitScanIdempotencyKey());
     try {
-      final uri = Uri.parse('$baseUrl/v1/analysis/outfit');
+      final uri = _endpoint('/v1/analysis/outfit');
       final request = http.MultipartRequest('POST', uri)
         ..headers['Authorization'] = 'Bearer $devToken'
         ..headers['Idempotency-Key'] = effectiveKey;
@@ -153,7 +160,7 @@ class OutfitScanClient {
   /// Returns an [OutfitAnalysisRunResult] with the status code and decoded data.
   Future<OutfitAnalysisRunResult> getAnalysisRun(String runId) async {
     try {
-      final uri = Uri.parse('$baseUrl/v1/analysis/runs/$runId');
+      final uri = _endpoint('/v1/analysis/runs/$runId');
       final response = await _client
           .get(
             uri,
@@ -203,7 +210,7 @@ class OutfitScanClient {
       return (snapshot: null, failureReason: 'empty_image');
     }
     try {
-      final uri = Uri.parse('$baseUrl/v1/analysis/outfit/ephemeral');
+      final uri = _endpoint('/v1/analysis/outfit/ephemeral');
       final request = http.MultipartRequest('POST', uri);
 
       final contentType = _contentTypeForFilename(filename);

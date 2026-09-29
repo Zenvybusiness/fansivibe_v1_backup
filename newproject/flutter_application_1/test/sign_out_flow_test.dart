@@ -166,8 +166,11 @@ void main() {
       // Session-derived identity is invalidated with the session.
       expect(LocalStorage.displayName, isNull);
       expect(LocalStorage.isReturningUser, isFalse);
+      // The previous account's Home personalization is cleared with the
+      // session: the next account to sign in on this device must not
+      // inherit its vibe (curated look, journey state).
+      expect(LocalStorage.vibe, isNull);
       // User data and preferences survive sign-out.
-      expect(LocalStorage.vibe, 'Minimal');
       expect(LocalStorage.hasSavedWardrobeItem, isTrue);
       expect(LocalStorage.onboardingPhotoCaptured, isTrue);
       expect(LocalStorage.savedLookIds, ['look-1']);

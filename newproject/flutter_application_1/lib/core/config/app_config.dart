@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// Central application configuration for Fansivibe (P0-4).
 ///
 /// Single authoritative API base URL for all backend clients.
@@ -48,6 +50,43 @@ abstract final class AppConfig {
 
   /// Whether the configured base URL targets a loopback host.
   static bool get isLocalhost => isLocalhostUrl(apiBaseUrl);
+
+  /// Android emulator loopback alias for the dev-machine host.
+  ///
+  /// Inside an Android emulator, `localhost`/`127.0.0.1` points at the
+  /// emulated device itself — never the Windows/macOS host running the
+  /// backend. The emulator's virtual router exposes the host loopback as
+  /// `10.0.2.2`.
+  static const String androidEmulatorHost = '10.0.2.2';
+
+  /// Resolves the API base URL for the current runtime platform.
+  ///
+  /// - Android (non-web) + loopback `apiBaseUrl` → host rewritten to
+  ///   [androidEmulatorHost], preserving scheme/port/path. Any port works
+  ///   (`:8000`, `:18000`, ...), so no port is hardcoded here.
+  /// - Everywhere else (web, desktop, physical device with a LAN IP,
+  ///   production HTTPS) → [apiBaseUrl] unchanged.
+  ///
+  /// The optional parameters exist so tests can exercise the mapping
+  /// without running on a device.
+  static String resolveApiBaseUrl({
+    String? baseUrl,
+    TargetPlatform? platform,
+    bool? isWeb,
+  }) {
+    final String url = baseUrl ?? apiBaseUrl;
+    final bool web = isWeb ?? kIsWeb;
+    if (web) return url;
+    final TargetPlatform current = platform ?? defaultTargetPlatform;
+    if (current != TargetPlatform.android) return url;
+    if (!isLocalhostUrl(url)) return url;
+    final Uri? uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasAuthority) return url;
+    return uri.replace(host: androidEmulatorHost).toString();
+  }
+
+  /// Platform-resolved API base URL (see [resolveApiBaseUrl]).
+  static String get resolvedApiBaseUrl => resolveApiBaseUrl();
 
   /// Whether [url] uses HTTPS.
   static bool isHttpsUrl(String url) => url.startsWith('https://');
@@ -114,10 +153,14 @@ abstract final class AppConfig {
   /// `--dart-define=ASSISTANT_BASE_URL=http://<host>:8000`.
   static String get connectionHint {
     if (isLocalhost) {
+      final int? port = Uri.tryParse(apiBaseUrl)?.port;
+      final String emulatorUrl = (port != null && port > 0)
+          ? 'http://$androidEmulatorHost:$port'
+          : 'http://$androidEmulatorHost:8000';
       return 'Could not reach $apiBaseUrl. '
-          'On an Android emulator use http://10.0.2.2:8000, '
+          'On an Android emulator use $emulatorUrl, '
           'on a physical device use your computer\u2019s LAN IP '
-          '(--dart-define=ASSISTANT_BASE_URL=http://<host>:8000).';
+          '(--dart-define=ASSISTANT_BASE_URL=http://<host>:${(port != null && port > 0) ? port : 8000}).';
     }
     return 'Could not reach $apiBaseUrl. Check your connection and try again.';
   }

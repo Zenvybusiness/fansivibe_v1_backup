@@ -108,9 +108,12 @@ class AuthClient {
   /// written from a sign-in/register server response and
   /// `isReturningUser` only on sign-in, so both describe the previous
   /// account — keeping them would let Profile resolve the old account
-  /// after logout. Everything else is preserved (wardrobe, saved looks,
-  /// learning, prefs, vibe, migration ledgers, pending intents) —
-  /// sign-out ends the session, never deletes user data.
+  /// after logout. The selected `vibe` is the previous account's Home
+  /// personalization (curated look, journey state), so it is cleared for
+  /// the same reason: the next account must not inherit it. Everything
+  /// else is preserved (wardrobe, saved looks, learning, prefs, migration
+  /// ledgers, pending intents) — sign-out ends the session, never deletes
+  /// user data.
   Future<AuthStatus> logout() async {
     final token = AuthSession.token;
     if (token != null && token.isNotEmpty) {
@@ -130,6 +133,7 @@ class AuthClient {
     LocalStorage.onboardingComplete = false;
     LocalStorage.displayName = null;
     LocalStorage.isReturningUser = false;
+    LocalStorage.vibe = null;
     return AuthStatus.signedOut;
   }
 

@@ -18,8 +18,11 @@ void main() {
   ) async {
     await tester.pumpWidget(_freshApp());
 
-    // Verify the home screen is shown by default.
-    expect(find.text('Good morning'), findsOneWidget);
+    // Verify the home screen is shown by default. Signed out with no
+    // session, only the New User Home may render — never the old user's
+    // personalized greeting.
+    expect(find.text("TODAY'S LOOK"), findsOneWidget);
+    expect(find.text('Good morning'), findsNothing);
     expect(find.text('Good morning, Alex'), findsNothing);
 
     // Verify all 5 navigation destinations are present in the bottom nav bar.
@@ -98,8 +101,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Verify Home screen is shown again.
-    expect(find.text('Good morning'), findsOneWidget);
+    // Verify Home screen is shown again (still signed out: New User
+    // Home only).
+    expect(find.text("TODAY'S LOOK"), findsOneWidget);
+    expect(find.text('Good morning'), findsNothing);
     expect(find.text('Good morning, Alex'), findsNothing);
   });
 

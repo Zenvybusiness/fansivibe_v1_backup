@@ -130,20 +130,22 @@ class ScriptedTodayLookRepository implements TodayLookRepository {
   }
 }
 
-/// Zero summary source so M10 slots render success cards (never their own
-/// retry buttons) in today-look tests.
-class _NullSummaryRepository implements LearningSummaryRepository {
+/// Established-account summary source so these tests exercise the Old
+/// Home's Today's Look slot: account-scoped history resolves the Old Home
+/// and the M10 slots render success cards (never their own retry buttons).
+/// A zero summary would correctly resolve the New User Home instead.
+class _EstablishedSummaryRepository implements LearningSummaryRepository {
   @override
   Future<LearningSummary?> getSummary() async => const LearningSummary(
-    styleScore: 60,
+    styleScore: 73,
     breakdown: LearningSummaryBreakdown(
       base: 60,
-      wardrobePoints: 0,
-      savedPoints: 0,
-      total: 60,
+      wardrobePoints: 5,
+      savedPoints: 8,
+      total: 73,
     ),
-    streak: 0,
-    recentSignals: [],
+    streak: 5,
+    recentSignals: ['backend-signal-1', 'backend-signal-2'],
   );
 }
 
@@ -156,7 +158,7 @@ Widget _homeWith(ScriptedTodayLookRepository repo) {
     ),
     home: HomeScreen(
       todayLookRepository: repo,
-      summaryRepository: _NullSummaryRepository(),
+      summaryRepository: _EstablishedSummaryRepository(),
     ),
   );
 }

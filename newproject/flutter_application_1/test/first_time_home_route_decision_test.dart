@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
-import 'package:fansivibe/features/home/presentation/first_time_light_path_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
@@ -70,7 +69,7 @@ void main() {
     );
 
     testWidgets(
-      'REAL FIRST-TIME LIGHT-PATH ROUTE: Guest exploring with vibe renders FirstTimeLightPathHomeScreen',
+      'REAL NEW-USER ROUTE: Guest exploring with vibe renders the single New User Home (FirstTimeHomeScreen)',
       (WidgetTester tester) async {
         // Simulate explore path from VibeSelectScreen:
         LocalStorage.savedLocally = true;
@@ -89,8 +88,10 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Must render FirstTimeLightPathHomeScreen
-        expect(find.byType(FirstTimeLightPathHomeScreen), findsOneWidget);
+        // Only two Home experiences exist: guests see the New User Home.
+        // (HomeScreen stays in the tree as the /home route shell that
+        // selects the experience; FirstTimeHomeScreen is the experience.)
+        expect(find.byType(FirstTimeHomeScreen), findsOneWidget);
         expect(find.text("Let's build your style\nprofile."), findsOneWidget);
         expect(find.text("TODAY'S LOOK"), findsOneWidget);
         expect(find.text('CURATED RECOMMENDATION'), findsOneWidget);
@@ -122,10 +123,12 @@ void main() {
     );
 
     testWidgets(
-      'PRESERVE EXISTING USER: Established user with wardrobe items renders established HomeScreen',
+      'ISOLATION: Unreachable backend + device residue resolves neutral error, never Old from leftovers',
       (WidgetTester tester) async {
         await AuthSession.saveSession('test_jwt_token');
-        // User has added items to their wardrobe
+        // Device-local history of unknown ownership (may be Account A's).
+        // The backend is unreachable in widget tests, so no account-scoped
+        // proof exists: neither Home experience may be invented from it.
         UserSession.hasSavedWardrobeItem = true;
 
         final router = GoRouter(
@@ -136,20 +139,24 @@ void main() {
         await tester.pumpWidget(_buildAppWithRouter(router));
         await tester.pumpAndSettle();
 
-        // Must NOT render FirstTimeHomeScreen or FirstTimeLightPathHomeScreen
         expect(find.byType(FirstTimeHomeScreen), findsNothing);
-        expect(find.byType(FirstTimeLightPathHomeScreen), findsNothing);
-
-        // Must render established-user HomeScreen scaffold with Good morning and Quick Actions
-        expect(find.byType(HomeScreen), findsOneWidget);
-        expect(find.text('Quick Actions'), findsOneWidget);
+        expect(find.text('Quick Actions'), findsNothing);
+        expect(
+          find.text(
+            "Couldn't load your Home. Please check your connection.",
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Try Again'), findsOneWidget);
       },
     );
 
     testWidgets(
-      'PRESERVE RETURNING LOGIN: Returning user logging in renders established HomeScreen',
+      'RETURNING LOGIN with live history renders established HomeScreen',
       (WidgetTester tester) async {
         await AuthSession.saveSession('test_jwt_token');
+        // History built live in this onboarding flow belongs to this user.
+        UserSession.hasSavedWardrobeItem = true;
 
         final router = GoRouter(
           initialLocation: '/home',
@@ -167,8 +174,36 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(FirstTimeHomeScreen), findsNothing);
-        expect(find.byType(FirstTimeLightPathHomeScreen), findsNothing);
         expect(find.byType(HomeScreen), findsOneWidget);
+        expect(find.text('Quick Actions'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'is_login WITHOUT history resolves New User Home (data-empty login)',
+      (WidgetTester tester) async {
+        // is_login is not an established-account proof: nothing in
+        // production passes it, and a data-empty login must never be posed
+        // as established. Only account-scoped server history promotes (see
+        // learning_summary Q/R).
+        await AuthSession.saveSession('test_jwt_token');
+
+        final router = GoRouter(
+          initialLocation: '/home',
+          routes: appRoutes,
+        );
+
+        await tester.pumpWidget(_buildAppWithRouter(router));
+        router.goNamed(
+          RouteNames.home,
+          extra: {
+            'display_name': 'ReturningUser',
+            'is_login': true,
+          },
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(FirstTimeHomeScreen), findsOneWidget);
       },
     );
   });

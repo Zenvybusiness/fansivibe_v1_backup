@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/home/presentation/widgets/first_time_home_widgets.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
@@ -36,6 +37,9 @@ class _FirstTimeHomeScreenState extends State<FirstTimeHomeScreen>
   late Animation<double> _journeyAnim;
 
   String? get _resolvedDisplayName {
+    // Display names are account identity: never resolve one while signed
+    // out, no matter what local leftovers exist (mirrors HomeScreen).
+    if (!AuthSession.isAuthenticated) return null;
     if (widget.displayName != null && widget.displayName!.trim().isNotEmpty) {
       return widget.displayName!.trim();
     }

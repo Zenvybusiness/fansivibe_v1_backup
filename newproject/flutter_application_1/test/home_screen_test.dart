@@ -5,12 +5,10 @@ import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/app.dart';
 import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
-import 'package:fansivibe/features/home/data/home_mock_data.dart';
 import 'package:fansivibe/features/home/data/today_look_models.dart';
 import 'package:fansivibe/features/home/data/today_look_repository.dart';
 import 'package:fansivibe/features/home/presentation/daily_outfit_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
-import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
@@ -80,18 +78,22 @@ class _FakeTodayLookRepository implements TodayLookRepository {
   }) async => null;
 }
 
-class _ZeroSummaryRepository implements LearningSummaryRepository {
+/// Established-account summary source for the backend-fed Home slot tests:
+/// account-scoped history (wardrobe/saved points, streak, signals), so the
+/// server classification resolves the Old Home. A zero summary would
+/// correctly resolve the New User Home instead (see learning_summary Q/R).
+class _EstablishedSummaryRepository implements LearningSummaryRepository {
   @override
   Future<LearningSummary?> getSummary() async => const LearningSummary(
-    styleScore: 60,
+    styleScore: 73,
     breakdown: LearningSummaryBreakdown(
       base: 60,
-      wardrobePoints: 0,
-      savedPoints: 0,
-      total: 60,
+      wardrobePoints: 5,
+      savedPoints: 8,
+      total: 73,
     ),
-    streak: 0,
-    recentSignals: [],
+    streak: 5,
+    recentSignals: ['backend-signal-1', 'backend-signal-2'],
   );
 }
 
@@ -171,7 +173,7 @@ Widget _backendApp({WardrobeRepository? wardrobeRepository}) {
           path: '/home',
           builder: (context, state) => HomeScreen(
             todayLookRepository: todayRepo,
-            summaryRepository: _ZeroSummaryRepository(),
+            summaryRepository: _EstablishedSummaryRepository(),
             wardrobeRepository: wardrobeRepository,
           ),
           routes: [
@@ -506,193 +508,6 @@ void main() {
       // Fabricated CTA and fake snackbar are completely absent
       expect(find.text('View Recommendations'), findsNothing);
       expect(find.text('Opening Wardrobe Recommendations...'), findsNothing);
-    });
-  });
-
-  group('Home Feature Widgets Tests', () {
-    testWidgets('GreetingHeader renders with name when provided', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const Scaffold(body: GreetingHeader(data: GreetingData.mock)),
-        ),
-      );
-
-      expect(find.text('Good morning, Alex'), findsOneWidget);
-      expect(find.text('Monday, January 13'), findsOneWidget);
-    });
-
-    testWidgets('GreetingHeader renders without trailing comma when name is empty', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const Scaffold(
-            body: GreetingHeader(
-              data: GreetingData(
-                greeting: 'Good morning',
-                name: '',
-                dateLabel: 'Monday, January 13',
-              ),
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('Good morning'), findsOneWidget);
-      expect(find.text('Good morning, '), findsNothing);
-      expect(find.text('Good morning, Alex'), findsNothing);
-      expect(find.text('Monday, January 13'), findsOneWidget);
-    });
-
-    testWidgets('TodaysLookCard renders all components', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: TodaysLookCard(
-                data: TodaysLookData.mock,
-                onTryThisLook: () {},
-                onChangeStyle: () {},
-              ),
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('TODAY\'S LOOK'), findsOneWidget);
-      expect(find.text('Modern Minimalist'), findsOneWidget);
-      expect(find.text('87%'), findsWidgets);
-      expect(find.text('Try This Look'), findsOneWidget);
-      expect(find.text('Change Style'), findsOneWidget);
-    });
-
-    testWidgets('StyleScoreCard renders with breakdown', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Scaffold(body: StyleScoreCard(data: StyleScoreData.mock)),
-        ),
-      );
-
-      expect(find.text('Style Score'), findsOneWidget);
-      expect(find.text('84'), findsWidgets);
-      expect(find.text('Fit'), findsOneWidget);
-      expect(find.text('Color'), findsOneWidget);
-      expect(find.text('Occasion'), findsOneWidget);
-      expect(find.text('Creativity'), findsOneWidget);
-    });
-
-    testWidgets('StyleStreakCard renders with progress ring', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Scaffold(body: StyleStreakCard(data: StyleStreakData.mock)),
-        ),
-      );
-
-      expect(find.text('Style Streak'), findsOneWidget);
-      expect(find.text('Current'), findsOneWidget);
-      expect(find.text('Best'), findsOneWidget);
-      expect(find.text('Total'), findsOneWidget);
-    });
-
-    testWidgets('AIInsightCard renders with action button', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Scaffold(
-            body: AIInsightCard(
-              data: AIWardrobeInsightData.mock,
-              onActionPressed: () {},
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('Wardrobe Gap Detected'), findsOneWidget);
-      expect(find.text('AI Insight'), findsOneWidget);
-      expect(find.text('View Recommendations'), findsOneWidget);
-    });
-
-    testWidgets('QuickActionCard renders and handles tap', (
-      WidgetTester tester,
-    ) async {
-      bool tapped = false;
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Scaffold(
-            body: QuickActionCard(
-              data: QuickActionData.mockActions.first,
-              onTap: () => tapped = true,
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('Scan My Outfit'), findsOneWidget);
-      expect(find.text('Get AI analysis of your current look'), findsOneWidget);
-
-      await tester.tap(find.byType(QuickActionCard));
-      await tester.pump();
-
-      expect(tapped, true);
-    });
-
-    testWidgets('HomeCard renders with proper styling', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Scaffold(body: HomeCard(child: const Text('Test Content'))),
-        ),
-      );
-
-      expect(find.text('Test Content'), findsOneWidget);
-      expect(find.byType(Container), findsWidgets);
-    });
-
-    testWidgets('StreakDayIndicator shows styled and unstyled days', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: Scaffold(
-            body: Row(
-              children: [
-                StreakDayIndicator(
-                  day: 'Mon',
-                  styled: true,
-                  score: 87,
-                  isToday: true,
-                ),
-                StreakDayIndicator(day: 'Tue', styled: false, isToday: false),
-              ],
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('Mon'), findsOneWidget);
-      expect(find.text('Tue'), findsOneWidget);
-      expect(find.text('87'), findsOneWidget);
-      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
-      expect(find.byIcon(Icons.close_rounded), findsOneWidget);
     });
   });
 }

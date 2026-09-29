@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
@@ -5,10 +7,8 @@ import 'package:fansivibe/features/events/data/event_models.dart';
 import 'package:fansivibe/features/events/data/events_repository.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
 import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
-import 'package:fansivibe/features/home/presentation/first_time_light_path_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/backend_summary_cards.dart';
 import 'package:fansivibe/features/home/presentation/widgets/existing_user_home_widgets.dart';
-import 'package:fansivibe/features/home/presentation/widgets/home_widgets.dart';
 import 'package:fansivibe/features/home/today_look.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
@@ -65,11 +65,27 @@ class _HomeScreenState extends State<HomeScreen> {
   late final EventsRepository _eventsRepository;
   Future<EventListPage?>? _eventsFuture;
 
+  /// Account-scoped classification answer. Null until the learning-summary
+  /// future resolves. This is a cache of the async server answer for the
+  /// current session — not user state: it is cleared on every auth change
+  /// and re-proven after local history changes. Local device flags alone
+  /// can never prove established here because they may belong to a
+  /// previous account on this device.
+  ({bool established})? _serverClassification;
+
+  /// Request outcome for the classification fetch above (not user state).
+  /// True once the summary provably failed; reset on every new fetch and
+  /// every auth change. A failed fetch with device-local history present
+  /// renders the neutral error shell (that history may be another
+  /// account's); a failed fetch with no history keeps today's Old-shell
+  /// error shape (nothing untrusted is involved).
+  bool _summaryFailed = false;
+
   void _initEstablishedFuturesIfNeeded() {
     if (_summaryFuture != null) return;
     _summaryRepository =
         widget.summaryRepository ?? LearningSummaryRepositoryImpl();
-    _summaryFuture = _summaryRepository.getSummary();
+    _fetchSummary();
     _todayLookRepository =
         widget.todayLookRepository ?? TodayLookRepositoryImpl();
     _todayLookFuture = _todayLookRepository.getTodayLook();
@@ -83,29 +99,131 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Fetches the account-scoped learning summary and records what it
+  /// proves about THIS authenticated account: any server-side wardrobe
+  /// points, saved-look points, streak, or signals mean an established
+  /// account; a zero summary (or an unreachable backend, which keeps
+  /// today's offline shape) resolves through the device-local fallback.
+  /// Stale completions from a previous session are ignored via the
+  /// identical-future guard.
+  void _fetchSummary() {
+    _summaryFailed = false;
+    final pending = _summaryFuture = _summaryRepository.getSummary();
+    unawaited(
+      pending.then(
+        (summary) {
+          if (!mounted || !identical(_summaryFuture, pending)) return;
+          if (summary != null && _summaryShowsHistory(summary)) {
+            _serverClassification = (established: true);
+          } else if (summary != null) {
+            _serverClassification = (established: false);
+          } else {
+            // Unreachable backend: mark the failure so the branch below
+            // can fail safe (neutral error when untrusted history exists,
+            // today's Old-shell error shape when it does not).
+            _summaryFailed = true;
+          }
+          setState(() {});
+        },
+        onError: (_) {
+          if (!mounted || !identical(_summaryFuture, pending)) return;
+          _summaryFailed = true;
+          setState(() {});
+        },
+      ),
+    );
+  }
+
+  /// Whether the backend summary carries any account history (M10).
+  /// A fresh account answers the documented zero summary (base score 60,
+  /// zero points, zero streak, no signals).
+  static bool _summaryShowsHistory(LearningSummary summary) {
+    return summary.breakdown.wardrobePoints > 0 ||
+        summary.breakdown.savedPoints > 0 ||
+        summary.streak > 0 ||
+        summary.recentSignals.isNotEmpty;
+  }
+
   @override
   void initState() {
     super.initState();
     LearningService.instance.addListener(_onLocalChanged);
     UserSession.savedWardrobeItemNotifier.addListener(_onLocalChanged);
+    // React to sign-in/sign-out (and account switches) while Home is
+    // mounted: cached backend futures belong to the previous session and
+    // must be dropped so the newly resolved session re-derives its own.
+    AuthSession.authVersion.addListener(_onAuthChanged);
 
     if (isGuestUser) {
       LearningService.instance.load().then((_) {
         if (mounted) setState(() {});
       });
     }
-    if (!_isFirstVisit &&
-        !isGuestUser &&
-        AuthSession.isAuthenticated) {
+    if (_needsBackendFutures) {
       _initEstablishedFuturesIfNeeded();
     }
+  }
+
+  /// Drops every cached backend future, the server classification, and the
+  /// fetch outcome so the next resolution belongs to the current session.
+  void _resetBackendState() {
+    _summaryFuture = null;
+    _todayLookFuture = null;
+    _insightFuture = null;
+    _eventsFuture = null;
+    _serverClassification = null;
+    _summaryFailed = false;
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A new navigation extra is a new handoff (e.g. post-auth landing):
+    // drop the previous resolution so the sync fast path re-decides from
+    // the current extra instead of a stale server answer.
+    if (!identical(widget.onboardingData, oldWidget.onboardingData)) {
+      _resetBackendState();
+      if (_needsBackendFutures) {
+        _initEstablishedFuturesIfNeeded();
+      }
+      setState(() {});
+    }
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    // Drop every cached future and the server classification: a signed-out
+    // Home must not retain old account data, and a newly signed-in account
+    // must not inherit the previous account's look/score/insight/events or
+    // its new/old classification.
+    _resetBackendState();
+    if (isGuestUser) {
+      LearningService.instance.load().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
+    if (_needsBackendFutures) {
+      _initEstablishedFuturesIfNeeded();
+    }
+    setState(() {});
+  }
+
+  /// Manual retry for the neutral classification-error shell below:
+  /// re-resolves from the current session's account-scoped summary.
+  void _retryClassification() {
+    if (!mounted) return;
+    _resetBackendState();
+    if (_needsBackendFutures) {
+      _initEstablishedFuturesIfNeeded();
+    }
+    setState(() {});
   }
 
   void _retrySummary() {
     if (isGuestUser) return;
     _initEstablishedFuturesIfNeeded();
     setState(() {
-      _summaryFuture = _summaryRepository.getSummary();
+      _fetchSummary();
     });
   }
 
@@ -113,12 +231,22 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     LearningService.instance.removeListener(_onLocalChanged);
     UserSession.savedWardrobeItemNotifier.removeListener(_onLocalChanged);
+    AuthSession.authVersion.removeListener(_onAuthChanged);
     super.dispose();
   }
 
   void _onLocalChanged() {
     if (!mounted) return;
-    if (!_isFirstVisit && !isGuestUser && AuthSession.isAuthenticated) {
+    // A fresh-account proof is void the moment on-device history appears:
+    // re-ask the server so a genuinely established account promotes to the
+    // Old Home while a local-only addition keeps the New Home. Bounded to
+    // the proven-fresh case — established Homes never refetch here.
+    if (_serverClassification?.established == false &&
+        AuthSession.isAuthenticated) {
+      _serverClassification = null;
+      _fetchSummary();
+    }
+    if (_needsBackendFutures) {
       _initEstablishedFuturesIfNeeded();
     }
     setState(() {});
@@ -160,26 +288,39 @@ class _HomeScreenState extends State<HomeScreen> {
     return false;
   }
 
-  // First-time users see the Homes.pdf first-time Home experience (whether
-  // newly registered or exploring as guest) until they build wardrobe/scan history.
-  // Returning login users or users with established history enter the established Home.
-  bool get _isFirstVisit {
-    if (widget.onboardingData?['is_login'] == true) {
-      UserSession.isReturningUser = true;
-      return false;
-    }
-    if (UserSession.isReturningUser) return false;
-    if (_hasEstablishedHistory) return false;
-    final data = widget.onboardingData ?? _onboardingDataFromLocalStorage();
-    return data != null;
-  }
+  /// Backend futures are needed whenever the Old Home may render: the
+  /// sync-Old branch and the ambiguous branch (which the account-scoped
+  /// summary then confirms). Sync-New Homes (signed out, fresh onboarding
+  /// handoff) fetch nothing.
+  bool get _needsBackendFutures =>
+      AuthSession.isAuthenticated &&
+      !isGuestUser &&
+      _syncIsNew != true;
 
-  bool get _hasAnalysis {
-    final data = widget.onboardingData ?? _onboardingDataFromLocalStorage();
-    return data?['onboarding_complete'] == true ||
-        LocalStorage.onboardingPhotoCaptured ||
-        (data?['display_name'] != null &&
-            (data!['display_name'] as String).trim().isNotEmpty);
+  /// Synchronous fast path. Null means ambiguous: no explicit handoff, so
+  /// device-local history must NOT decide (it may belong to a previous
+  /// account on this device) — the account-scoped summary decides instead.
+  /// Deliberately ignores [UserSession.isReturningUser]: every sign-in sets
+  /// it, including a first-ever login of a genuinely new account, so it
+  /// cannot distinguish new from old (Discover/Profile keep consuming it).
+  /// There is deliberately no `is_login` shortcut: verified across
+  /// `lib/` — no production call site passes that extra (only tests), so
+  /// it cannot mean "existing returning account". A data-empty login
+  /// resolves New unless the server proves history.
+  bool? get _syncIsNew {
+    if (!AuthSession.isAuthenticated) return true;
+    final extra = widget.onboardingData;
+    if (extra != null) {
+      // Explicit onboarding/registration handoff on this flow: history
+      // built here is live and belongs to this user.
+      return !_hasEstablishedHistory;
+    }
+    // No handoff (cold start, post-login landing, tab revisit): stored
+    // onboarding markers with no history still mean New; anything else
+    // waits for the server below.
+    final stored = _onboardingDataFromLocalStorage();
+    if (stored != null && !_hasEstablishedHistory) return true;
+    return null;
   }
 
   String? get _displayName {
@@ -193,23 +334,84 @@ class _HomeScreenState extends State<HomeScreen> {
     return raw.trim();
   }
 
-  String? get _vibeName =>
-      widget.onboardingData?['vibe'] as String? ??
-      _onboardingDataFromLocalStorage()?['vibe'] as String?;
+  /// Single authoritative New-vs-Old decision for /home.
+  ///
+  /// Only two experiences exist: the New User Home ([FirstTimeHomeScreen])
+  /// and the established Old User Home (this screen's backend-fed body).
+  /// The sync fast path decides explicit handoffs; otherwise the
+  /// account-scoped learning summary decides (a zero summary proves a
+  /// fresh account even when another account's leftovers sit on this
+  /// device). Null means still resolving — the neutral loading shell
+  /// below renders, never Old content pre-proof. Display names, cached UI
+  /// state, and recommendation payloads never influence this.
+  bool? get _resolvedIsNew {
+    final sync = _syncIsNew;
+    if (sync != null) return sync;
+    final server = _serverClassification;
+    if (server != null) return !server.established;
+    // Unreachable backend with no device history at all: nothing untrusted
+    // is involved — keep today's Old-shell error shape for this bare case.
+    if (_summaryFailed && !_hasEstablishedHistory) return false;
+    return null;
+  }
+
+  /// True only when classification is blocked: the summary failed and
+  /// device-local history exists, which may belong to a previous account.
+  /// That history must not classify — the neutral error shell renders.
+  bool get _classificationBlocked =>
+      _syncIsNew == null &&
+      _serverClassification == null &&
+      _summaryFailed &&
+      _hasEstablishedHistory;
+
+  /// Neutral resolving state: plain surface + spinner. No Home content of
+  /// either experience renders before the account is classified.
+  Widget _buildResolving() {
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: const SafeArea(
+        child: Center(child: CircularProgressIndicator()),
+      ),
+    );
+  }
+
+  /// Neutral classification-error state: honest retry, no classification
+  /// from untrusted device history. Reuses the shared summary error card.
+  Widget _buildClassificationError() {
+    final theme = Theme.of(context);
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: SummaryErrorCard(
+              title: 'Home',
+              message:
+                  "Couldn't load your Home. Please check your connection.",
+              onRetry: _retryClassification,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final learningService = LearningService.instance;
 
-    if (!_isFirstVisit && !isGuestUser && AuthSession.isAuthenticated) {
+    if (_needsBackendFutures) {
       _initEstablishedFuturesIfNeeded();
     }
 
+    final resolved = _resolvedIsNew;
     final String chosenWidget;
-    if (_isFirstVisit && _hasAnalysis) {
+    if (resolved == null) {
+      chosenWidget =
+          _classificationBlocked ? 'HomeClassificationError' : 'HomeResolving';
+    } else if (resolved) {
       chosenWidget = 'FirstTimeHomeScreen';
-    } else if (_isFirstVisit) {
-      chosenWidget = 'FirstTimeLightPathHomeScreen';
     } else {
       chosenWidget = 'HomeScreen';
     }
@@ -219,18 +421,21 @@ class _HomeScreenState extends State<HomeScreen> {
       'route=/home\n'
       'widget=$chosenWidget\n'
       'auth=${AuthSession.isAuthenticated}\n'
-      'firstTime=$_isFirstVisit\n'
-      'hasAnalysis=$_hasAnalysis\n'
-      'preferences=${_vibeName != null || LocalStorage.vibe != null}\n'
+      'sync=${_syncIsNew}\n'
+      'server=${_serverClassification}\n'
+      'failed=$_summaryFailed\n'
+      'preferences=${LocalStorage.vibe != null}\n'
       'displayName=$_displayName\n'
       'onboardingData=${widget.onboardingData}',
     );
 
-    if (_isFirstVisit && _hasAnalysis) {
-      return FirstTimeHomeScreen(displayName: _displayName);
+    if (resolved == null) {
+      return _classificationBlocked
+          ? _buildClassificationError()
+          : _buildResolving();
     }
-    if (_isFirstVisit) {
-      return FirstTimeLightPathHomeScreen(vibeName: _vibeName);
+    if (resolved) {
+      return FirstTimeHomeScreen(displayName: _displayName);
     }
 
     final theme = Theme.of(context);
@@ -436,9 +641,10 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
         final look = result.look!;
-        return TodaysLookCard(
+        return ExistingUserHeroCard(
           data: _todayLookCardData(look),
-          onTryThisLook: () => context.pushNamed(RouteNames.dailyOutfit),
+          onWearThisLook: () => context.pushNamed(RouteNames.dailyOutfit),
+          onSwapItem: () => context.pushNamed(RouteNames.buildOutfit),
           onChangeStyle: () => context.pushNamed(RouteNames.buildOutfit),
         );
       },

@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/app/router/auth_guard.dart';
 import 'package:fansivibe/features/auth/auth.dart';
+import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
@@ -122,25 +123,27 @@ void main() {
   });
 
   group('HOME boundary (auth=false + stale local data)', () {
-    testWidgets('no personal score, no name, guest look slot', (
+    testWidgets('no personal score, no name, New User Home only', (
       WidgetTester tester,
     ) async {
       _seedStaleLocalState();
       await tester.pumpWidget(_harness(_guardedRouter('/home')));
       await _pump(tester);
 
-      expect(find.text('Shivu'), findsNothing);
+      // Only two Home experiences exist: signed out (even with stale
+      // previous-account leftovers) always renders the New User Home —
+      // never the old user's personalized Home, and never the stale name.
+      expect(find.byType(FirstTimeHomeScreen), findsOneWidget);
+      expect(find.textContaining('Shivu'), findsNothing);
       expect(find.text('Good morning, Shivu'), findsNothing);
       expect(find.text('DEVICE ONLY'), findsNothing);
       expect(find.text('Sign in to sync & back up'), findsNothing);
-      // The honest guest slot stays.
-      expect(find.text("Today's Look"), findsOneWidget);
-      expect(
-        find.text(
-          'Your daily look lives in your account. Sign in to get personalized recommendations — browsing stays free.',
-        ),
-        findsOneWidget,
-      );
+      expect(find.text('Style Score'), findsNothing);
+      expect(find.text('Style Streak'), findsNothing);
+      // The New User Home renders its uncalibrated baseline instead.
+      expect(find.text("TODAY'S LOOK"), findsOneWidget);
+      expect(find.text('STYLE SCORE'), findsOneWidget);
+      expect(find.text('Uncalibrated'), findsOneWidget);
     });
   });
 

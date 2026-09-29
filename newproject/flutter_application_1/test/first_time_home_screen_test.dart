@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/app/router/app_router.dart';
 import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
-import 'package:fansivibe/features/home/presentation/first_time_light_path_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/daily_outfit_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/vibe_select_screen.dart';
 import 'package:fansivibe/features/hairstyle/presentation/face_scan_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_screen.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/theme/fansivibe_theme.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 GoRouter _testRouter(Widget home) {
   return GoRouter(
@@ -27,13 +29,27 @@ Widget _wrap(Widget home) {
   );
 }
 
+/// Pumps the single canonical New User Home. The curated look follows the
+/// persisted vibe ([LocalStorage.vibe]); the greeting follows [displayName].
+Widget _wrapNewHome({String? vibe, String? displayName}) {
+  LocalStorage.vibe = vibe;
+  return _wrap(FirstTimeHomeScreen(displayName: displayName));
+}
+
 void main() {
-  group('FirstTimeLightPathHomeScreen (Homes.pdf architecture)', () {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    LocalStorage.init(prefs: await SharedPreferences.getInstance());
+  });
+
+  group('FirstTimeHomeScreen — New User Home (Homes.pdf architecture)', () {
     testWidgets('renders all core sections according to Homes.pdf', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _wrap(const FirstTimeLightPathHomeScreen(vibeName: 'minimalist')),
+        _wrapNewHome(vibe: 'minimalist'),
       );
       await tester.pumpAndSettle();
 
@@ -92,7 +108,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _wrap(const FirstTimeLightPathHomeScreen(vibeName: 'classic')),
+        _wrapNewHome(vibe: 'classic'),
       );
       await tester.pumpAndSettle();
 
@@ -100,24 +116,22 @@ void main() {
       expect(find.text('Navy Wool Overcoat'), findsOneWidget);
     });
 
-    testWidgets('shows open/default streetwear state and pending preference step when no vibe was chosen', (
+    testWidgets('shows default streetwear look when no vibe was chosen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const _WrapLightPath(vibeName: null));
+      await tester.pumpWidget(_wrapNewHome());
       await tester.pumpAndSettle();
 
       // Defaults to Relaxed Streetwear look from Homes.pdf
       expect(find.text('Relaxed Streetwear'), findsOneWidget);
       expect(find.text('Oversized Denim Jacket'), findsOneWidget);
-      // Preference step is not yet completed
-      expect(find.text('Select style preferences'), findsOneWidget);
     });
 
     testWidgets('Scan My Outfit navigates to scan outfit flow', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _wrap(const FirstTimeLightPathHomeScreen(vibeName: 'trendy')),
+        _wrapNewHome(vibe: 'trendy'),
       );
       await tester.pumpAndSettle();
 
@@ -141,7 +155,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _wrap(const FirstTimeLightPathHomeScreen(vibeName: 'minimalist')),
+        _wrapNewHome(vibe: 'minimalist'),
       );
       await tester.pumpAndSettle();
 
@@ -165,7 +179,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _wrap(const FirstTimeLightPathHomeScreen(vibeName: 'minimalist')),
+        _wrapNewHome(vibe: 'minimalist'),
       );
       await tester.pumpAndSettle();
 
@@ -189,7 +203,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _wrap(const FirstTimeLightPathHomeScreen(vibeName: 'minimalist')),
+        _wrapNewHome(vibe: 'minimalist'),
       );
       await tester.pumpAndSettle();
 
@@ -213,7 +227,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _wrap(const FirstTimeLightPathHomeScreen(vibeName: 'minimalist')),
+        _wrapNewHome(vibe: 'minimalist'),
       );
       await tester.pumpAndSettle();
 
@@ -242,7 +256,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
 
       await tester.pumpWidget(
-        _wrap(const FirstTimeLightPathHomeScreen(vibeName: 'bold')),
+        _wrapNewHome(vibe: 'bold'),
       );
       await tester.pumpAndSettle();
 
@@ -250,12 +264,23 @@ void main() {
     });
   });
 
-  group('FirstTimeHomeScreen (Homes.pdf architecture)', () {
+  group('FirstTimeHomeScreen greeting (Homes.pdf architecture)', () {
+    // Display names are account identity: the named greeting renders
+    // while signed in; signed-out Homes show the generic greeting.
+    setUp(() async {
+      AuthSession.resetForTest();
+      await AuthSession.saveSession('new-user-greeting-token');
+    });
+    tearDown(() async {
+      AuthSession.resetForTest();
+      await AuthSession.clearSession();
+    });
+
     testWidgets('renders user name in greeting and completed preference step', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _wrap(const FirstTimeHomeScreen(displayName: 'Alex')),
+        _wrapNewHome(displayName: 'Alex'),
       );
       await tester.pumpAndSettle();
 
@@ -282,22 +307,25 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
 
       await tester.pumpWidget(
-        _wrap(const FirstTimeHomeScreen(displayName: 'Alex')),
+        _wrapNewHome(displayName: 'Alex'),
       );
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('signed out with stale local name shows generic greeting', (
+      WidgetTester tester,
+    ) async {
+      await AuthSession.clearSession();
+      LocalStorage.displayName = 'StaleName';
+
+      await tester.pumpWidget(
+        _wrap(const FirstTimeHomeScreen(displayName: null)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('StaleName'), findsNothing);
+    });
   });
-}
-
-class _WrapLightPath extends StatelessWidget {
-  final String? vibeName;
-
-  const _WrapLightPath({this.vibeName});
-
-  @override
-  Widget build(BuildContext context) {
-    return _wrap(FirstTimeLightPathHomeScreen(vibeName: vibeName));
-  }
 }

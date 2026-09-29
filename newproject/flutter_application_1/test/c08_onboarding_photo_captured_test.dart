@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
-import 'package:fansivibe/features/home/presentation/first_time_light_path_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/profile/presentation/profile_screen.dart';
@@ -57,8 +56,8 @@ void main() {
   });
 
   group('C-08 UI behavior preservation', () {
-    testWidgets('D. HomeScreen first-time routing uses onboardingPhotoCaptured for _hasAnalysis', (tester) async {
-      // 1. With onboardingPhotoCaptured = false and vibe set -> FirstTimeLightPathHomeScreen
+    testWidgets('D. HomeScreen first-time routing renders the single New User Home regardless of onboardingPhotoCaptured', (tester) async {
+      // 1. With onboardingPhotoCaptured = false and vibe set -> FirstTimeHomeScreen
       LocalStorage.vibe = 'Minimalist';
       LocalStorage.onboardingPhotoCaptured = false;
       LocalStorage.onboardingComplete = false;
@@ -73,10 +72,10 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byType(FirstTimeLightPathHomeScreen), findsOneWidget);
-      expect(find.byType(FirstTimeHomeScreen), findsNothing);
+      expect(find.byType(FirstTimeHomeScreen), findsOneWidget);
 
-      // 2. With onboardingPhotoCaptured = true -> FirstTimeHomeScreen
+      // 2. With onboardingPhotoCaptured = true -> still FirstTimeHomeScreen
+      // (photo capture feeds the StyleJourney milestone, not Home selection)
       LocalStorage.onboardingPhotoCaptured = true;
 
       await tester.pumpWidget(
@@ -89,7 +88,6 @@ void main() {
       await tester.pump();
 
       expect(find.byType(FirstTimeHomeScreen), findsOneWidget);
-      expect(find.byType(FirstTimeLightPathHomeScreen), findsNothing);
     });
 
     testWidgets('E. StyleJourneyCard milestone reflects onboardingPhotoCaptured', (tester) async {

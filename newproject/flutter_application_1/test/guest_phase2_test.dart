@@ -34,6 +34,7 @@ import 'package:fansivibe/features/profile/presentation/saved_looks_screen.dart'
 import 'package:fansivibe/features/home/data/today_look_models.dart';
 import 'package:fansivibe/features/home/data/today_look_repository.dart';
 import 'package:fansivibe/features/home/presentation/daily_outfit_screen.dart';
+import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
@@ -254,7 +255,7 @@ void main() {
   group('Phase 2 guest Home', () {
     setUp(_initGuest);
 
-    testWidgets('guest Home shows no personal score, only guest slots', (
+    testWidgets('guest Home shows the New User Home, never personal data', (
       WidgetTester tester,
     ) async {
       final summary = _CountingSummaryRepository();
@@ -271,15 +272,20 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Auth boundary: local data is not a session, so no Style Score
-      // renders while signed out — neither backend nor device-labeled.
+      // Only two Home experiences exist: signed-out guests always see the
+      // New User Home — never the old user's personalized Home.
+      expect(find.byType(FirstTimeHomeScreen), findsOneWidget);
+      // Auth boundary: local data is not a session, so no personal Style
+      // Score renders while signed out — neither backend nor device-labeled.
+      // The New User Home shows only its uncalibrated baseline.
       expect(find.text('Style Score'), findsNothing);
       expect(find.text('DEVICE ONLY'), findsNothing);
       expect(find.textContaining('on this device'), findsNothing);
       expect(find.text('Style Streak'), findsNothing);
-      // Today's Look stays account-only: its wall keeps the Sign In CTA.
-      expect(find.text("Today's Look"), findsOneWidget);
-      expect(find.text('Sign In'), findsOneWidget);
+      expect(find.text('STYLE SCORE'), findsOneWidget);
+      expect(find.text('Uncalibrated'), findsOneWidget);
+      expect(find.text("TODAY'S LOOK"), findsOneWidget);
+      // No backend fetch happens for the New User Home.
       expect(summary.calls, isZero);
       expect(today.calls, isZero);
       expect(wardrobe.calls, isZero);

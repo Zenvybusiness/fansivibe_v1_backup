@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/backend_summary_cards.dart';
 import 'package:fansivibe/features/learning/data/learning_summary_client.dart';
@@ -15,6 +16,10 @@ import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart'
     as public_contract;
 import 'package:fansivibe/features/profile/presentation/profile_screen.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// M10-C tests (STEP 19.16, DEC-019/DEC-020/DEC-021).
 ///
@@ -34,6 +39,8 @@ import 'package:fansivibe/features/profile/presentation/profile_screen.dart';
 /// N. error state does not show fake score
 /// O. zero summary renders correctly
 /// P. no hardcoded/mock score is used by the new M10 surface
+/// Q. zero server summary resolves the New User Home (fresh account)
+/// R. zero server summary wins over another account's device leftovers
 
 const Map<String, dynamic> _backendJson = {
   'styleScore': 73,
@@ -103,8 +110,21 @@ Widget _wrapProfile(LearningSummaryRepository repo) {
 }
 
 void main() {
-  setUp(() => LearningService.instance.resetForTest());
-  tearDown(() => LearningService.instance.resetForTest());
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    LocalStorage.init(prefs: await SharedPreferences.getInstance());
+    LearningService.instance.resetForTest();
+    AuthSession.resetForTest();
+    // The M10 surfaces below assert on personalized backend slots, which
+    // the auth boundary hides while signed out. Sign in so the slots
+    // render (same pattern as home_screen_test.dart).
+    await AuthSession.saveSession('learning-summary-test-token');
+  });
+  tearDown(() async {
+    LearningService.instance.resetForTest();
+    AuthSession.resetForTest();
+    await AuthSession.clearSession();
+  });
 
   group('LearningSummary DTO', () {
     test('A. parses exact backend response and roundtrips', () {
@@ -163,6 +183,9 @@ void main() {
 
   group('LearningSummaryClient', () {
     test('C. requests exact path with auth; 200 parses; else null', () async {
+      // This client unit test asserts the signed-out dart-define fallback
+      // token; the widget tests below sign in via setUp.
+      await AuthSession.clearSession();
       final client = LearningSummaryClient(
         client: MockClient((request) async {
           expect(request.url.path, '/v1/learning/summary');
@@ -334,15 +357,18 @@ void main() {
       expect(find.text('5-day streak'), findsOneWidget);
     });
 
-    testWidgets('M. loading state shows progress, no score', (
+    testWidgets('M. resolving state shows neutral progress, no Home yet', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_wrapHome(FakeSummaryRepository.hanging()));
       await tester.pump();
-      // Slot titles stay visible; bodies spin without posing values.
-      expect(find.text('Style Score'), findsWidgets);
-      expect(find.text('Style Streak'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsWidgets);
+      // Classification unresolved: neither Home experience renders — no
+      // Old shell flash for a possibly-new account, no score posed.
+      expect(find.byType(BackendStyleScoreCard), findsNothing);
+      expect(find.byType(FirstTimeHomeScreen), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text('Style Score'), findsNothing);
+      expect(find.text('Style Streak'), findsNothing);
       expect(find.text('73'), findsNothing);
     });
 
@@ -390,5 +416,36 @@ void main() {
       expect(find.text('Occasion'), findsNothing);
       expect(find.text('Creativity'), findsNothing);
     });
+
+    testWidgets('Q. zero server summary resolves the New User Home', (
+      WidgetTester tester,
+    ) async {
+      // A signed-in account whose server summary is zero is a fresh
+      // account: the New User Home renders (the summary was consulted —
+      // no classification from device flags was needed).
+      final repo = FakeSummaryRepository(summary: _zeroSummary);
+      await tester.pumpWidget(_wrapHome(repo));
+      await tester.pumpAndSettle();
+      expect(find.byType(FirstTimeHomeScreen), findsOneWidget);
+      expect(find.text('Uncalibrated'), findsOneWidget);
+      expect(find.text('73'), findsNothing);
+      expect(repo.calls, 1);
+    });
+
+    testWidgets(
+      'R. zero server summary wins over another account’s device leftovers',
+      (WidgetTester tester) async {
+        // Account-isolation scenario 6: Account A’s on-device residue must
+        // not promote freshly signed-in Account B, whose own server
+        // summary is zero, to the Old Home.
+        UserSession.hasSavedWardrobeItem = true;
+        final repo = FakeSummaryRepository(summary: _zeroSummary);
+        await tester.pumpWidget(_wrapHome(repo));
+        await tester.pumpAndSettle();
+        expect(find.byType(FirstTimeHomeScreen), findsOneWidget);
+        expect(find.text('Style Score'), findsNothing);
+        expect(find.text('Uncalibrated'), findsOneWidget);
+      },
+    );
   });
 }
