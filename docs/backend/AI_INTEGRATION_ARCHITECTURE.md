@@ -20,9 +20,18 @@
 > typed capability interfaces (`domain/ports/external.py`); vendors are chosen
 > by config at the composition root.
 >
-> **Status: architecture design only. No AI providers are implemented.** No
-> code, files, or directories are created; the live assistant contract
-> (`POST /v1/assistant/chat`) is unchanged.
+> **Status (updated 2026-10-04 — implemented, banner below is stale):**
+> AI providers ARE implemented — self-hosted Ollama only (no third-party
+> SaaS): vision appearance/garment adapters, fashion reasoner with
+> fail-closed admission, lifecycle probe/warmup, LLM text enrichment,
+> per-capability timeouts, kill-switches. The NOW-vs-FUTURE table in §5.6
+> is outdated (most "FUTURE" rows are live); the boundary contract holds
+> (enrichment-only, validated structure, degrade-to-rules, AI outside DB
+> transactions). Still true: no `CapabilityResult` envelope as specified
+> (confidence is per-family), prompts and per-run model pins unversioned.
+>
+> Original STEP-5 banner (stale, kept for history): architecture design
+> only, no AI providers implemented, only text enrichment real.
 >
 > **Honesty rule (AI-0):** capabilities that do **not** exist yet are marked
 > **FUTURE** in this document — never presented as implemented. Today the only

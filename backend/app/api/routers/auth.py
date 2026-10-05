@@ -2,8 +2,8 @@
 
 `POST /v1/auth/register` (O-1/UC-1), `POST /v1/auth/login` (O-3/UC-3),
 `POST /v1/auth/logout` (O-4/UC-4), `POST /v1/auth/social` (O-2/UC-2)
-per `docs/api/AUTH_API.md` §5. Account deletion (O-6) is documented
-but NOT mounted until the erasure pipeline lands (API-12); no refresh
+per `docs/api/AUTH_API.md` §5. Account deletion (O-6) lives at
+`DELETE /v1/users/me` (`routers/users.py`, TRX-8 cascade); no refresh
 endpoint exists (§3.1 — explicitly excluded, never invented).
 
 - Register/login are public (credentials in, session out); logout is

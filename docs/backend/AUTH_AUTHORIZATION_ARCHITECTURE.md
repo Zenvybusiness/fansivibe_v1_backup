@@ -9,11 +9,18 @@
 > resource examples (Wardrobe, Scans, Photos, Recommendations, Saved Looks,
 > Feedback, Events, Assistant Conversations) are all mapped in §5.
 >
-> **Status: architecture design only. Authentication is NOT implemented.**
-> No code, tables, dependencies, or endpoints are created. The live assistant
-> contract (`POST /v1/assistant/chat`) is unchanged — it stays unauthenticated
-> until the auth decision lands (this is called out explicitly in §6 and
-> `BACKEND_ARCHITECTURE_RULES.md` §8).
+> **Status (updated 2026-10-04 — implemented, supersedes the STEP-5 banner
+> below): authentication IS implemented** — local provider with bcrypt
+> password hashes (`users.password_hash`), HS256 JWT (`sub`/`jti`/`iat`/`exp`,
+> 3600s, no `aud` claim, no refresh tokens), digest-only sessions
+> (`user_sessions.token_digest`, revoke-on-logout), `GET /v1/auth/*`
+> endpoints, optional-auth assistant/reasoning, zero-write ephemeral guest
+> routes. The boundary contract in this doc (OW-1, 404-not-403, 401/403
+> split, user_id-only domain) holds as implemented.
+>
+> Original STEP-5 banner (stale, kept for history): architecture design only,
+> authentication NOT implemented; assistant stays unauthenticated until the
+> auth decision lands.
 
 ---
 
@@ -61,11 +68,11 @@ seams and invariants — and marks the provider-specific parts as decisions.
 
 | Input | Role |
 | --- | --- |
-| `backend/app/main.py` | Confirms live assistant endpoint is currently unauthenticated. |
+| `backend/app/main.py` | Assistant chat is optional-auth; reasoning is optional-auth; ephemeral guest routes are public by design. |
 | `API_LAYER_ARCHITECTURE.md` | API-9/10 (Bearer, deps.py→user_id, 404-not-403), API-5/6 (error codes). |
 | `BACKEND_MODULE_MAP.md` | M1 auth module (P0), M2 users (P0); module boundaries. |
 | `ERROR_HANDLING.md` | AUTHENTICATION_ERROR/AUTHORIZATION_ERROR semantics. |
-| `APPLICATION_USE_CASES.md` | UC-1/2 (identity lifecycle) — P0, not implemented. |
+| `APPLICATION_USE_CASES.md` | UC-1/2 (identity lifecycle) — P0, implemented (`application/auth.py`, `api/routers/auth.py`). |
 | `SECURITY_PRIVACY_DESIGN.md` | MS10.3 (erasure, privacy), token handling rules. |
 | `DATABASE_DESIGN_RULES.md` | PR-4/5 (user_id FK, per-user indexes). |
 | `DECISIONS.md` / rules §8 | "User fields/auth" is an open decision — provider unspecified. |
@@ -86,19 +93,20 @@ seams and invariants — and marks the provider-specific parts as decisions.
 
 ## 4. Auth architecture
 
-### 4.1 Authentication provider
+### 4.1 Authentication provider (implemented — local provider)
 
-- Fansivibe **outsources identity** to an external provider (delegated
-  authentication — e.g. email/password or social OAuth) — **decision D-AUTH-1**
-  (provider identity is open; the seam is fixed here).
-- The backend **never stores passwords or refresh secrets**. It stores only:
-  `users.user_id`, provider subject (`provider_sub`), and a **user auth token**
-  (`user_auth_tokens`) row per device/session.
-- The **seam**: `infrastructure/auth/` provides
-  `verify_access_token(token) -> Principal`; the concrete provider is an
-  adapter behind it (composable, replaceable — no provider in domain).
-- **AI-0-style honesty:** this doc defines the contract; the concrete
-  provider adapter is **not implemented** until D-AUTH-1 lands.
+- Fansivibe implements a **local authentication provider**: email/password
+  (or dev) credentials verified against a **bcrypt password hash** stored on
+  the user row (`users.password_hash`); social login is an honest 502
+  (not connected). The earlier delegated-provider design (D-AUTH-1,
+  `user_auth_tokens`, `provider_sub`) is superseded and does not exist
+  in the schema — the tables are `users` + `user_sessions(token_digest)`.
+- The backend stores **no raw tokens and no refresh secrets**: only the
+  SHA-256 `token_digest` (UNIQUE) plus `expires_at`/`revoked_at` per
+  session row. Logout stamps `revoked_at`; expiry rejects thereafter.
+- The **seam**: `infrastructure/auth.py` mints/verifies HS256 JWTs
+  (`sub`=user id, `jti`=session id, `iat`/`exp`); `api/deps.py`
+  resolves the session. No provider exists in domain.
 
 ### 4.2 Access token validation
 
@@ -107,7 +115,8 @@ seams and invariants — and marks the provider-specific parts as decisions.
   1. **Signature/format** — reject malformed/expired tokens → 401
      `AUTHENTICATION_ERROR` + `WWW-Authenticate: Bearer`.
   2. **Revocation** — consult the session store (revoked tokens → 401).
-  3. **Expiry/audience** — token must be within its `exp`, correct `aud`.
+  3. **Expiry** — token must be within its `exp` (3600s default). No `aud`
+     claim is issued or checked (by design; single-audience backend).
 - Validation result is a **principal** (`user_id`), nothing more. No user
   profile data is loaded at this stage (that's the user module's job).
 - **No secrets are logged** (ERROR_HANDLING ER-2; token values never logged).
@@ -131,9 +140,11 @@ seams and invariants — and marks the provider-specific parts as decisions.
 - Every user-owned endpoint **declares this dependency**; the resolved
   `user_id` is threaded through application → domain (DR-1).
 - **Resolution is per-request; there is no global/singleton user.**
-- Where the endpoint may be called without a user (only the assistant until
-  D-AUTH-1, and health), `user_id` is `None` and the call path must not touch
-  user-owned resources.
+- Where the endpoint may be called without a user — assistant chat and
+  reasoning (optional-auth: identity resolved when a valid token is
+  present, `None` otherwise), the four zero-write ephemeral analysis
+  routes, the public knowledge catalog, and health — `user_id` is `None`
+  and the call path must not touch user-owned resources.
 
 ### 4.5 Authorization
 
@@ -166,12 +177,10 @@ guarded by `user_id`), and on cascade (children inherit the parent's owner).
 | --- | --- | --- |
 | Wardrobe (items) | `wardrobe_items.user_id` | owner filter on every item query |
 | Scans (analysis) | `analysis_runs.user_id` | run_id queries always include `user_id` |
-| Photos (media) | `media.user_id` (M16/MS10.3) | every media GET/update filtered |
-| Recommendations | `recommendations.user_id` (P3) | owner filter |
+| Sessions | `user_sessions.user_id` + `token_digest` | digest lookup; revoke/expiry reject |
 | Saved Looks | `saved_looks.user_id` | owner filter |
-| Feedback | `feedback.user_id` | owner filter; read-back only by owner (or admin anon) |
-| Events | `events.user_id` | owner filter |
-| Assistant Conversations | `conversations.user_id` (M4) | assistant DTOs carry no user data (A3.1) but conversation storage is per-user |
+| Feedback | `feedback_events.user_id` | owner filter; read-back only by owner |
+| Events | `user_events.user_id` | owner filter |
 
 **Child/parent chains** inherit ownership: analysis sections, media tasks,
 recommendation items are always read/written through the parent's owner

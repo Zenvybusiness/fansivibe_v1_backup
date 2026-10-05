@@ -306,6 +306,7 @@ def test_round_profile_ranks_pompadour(db):
     run_id = resp.json()["run_id"]
     body = client.get(f"/v1/analysis/runs/{run_id}", headers=HEADERS).json()
     assert body["result"]["recommendations"]["top"]["id"] == "classic_pompadour"
+    assert body["knowledge_version"] == "1.1+1.0"
 
 
 def test_recommendation_failure_marks_run_failed_with_processsing_failure(db, monkeypatch):
@@ -376,6 +377,7 @@ def test_list_runs_returns_summaries_without_result(db):
         assert "result" not in item
         assert "error" not in item
         assert item["status"] == "completed"
+        assert item["knowledge_version"] == "1.1+1.0"
 
 
 def test_create_outfit_run_success_db(db, monkeypatch):

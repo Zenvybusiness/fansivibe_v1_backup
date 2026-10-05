@@ -21,9 +21,20 @@
 >   (rules, vocab)    (looks, catalog)     (hot reads)
 > ```
 >
-> **Status: architecture design only. Nothing is implemented.** No code,
-> files, or directories are created; the live assistant contract
-> (`POST /v1/assistant/chat`) and the current `catalog.py` are unchanged.
+> **Status (updated 2026-10-04 — implemented, banner below is stale):**
+> knowledge IS implemented — in-code catalog (`KNOWLEDGE_VERSION 1.1`),
+> DB-backed vocab tables + `looks` (per-row `content_version`),
+> `CatalogKnowledgeSource` adapter, FFO corpus (1.0 + digest), KN-3
+> deprecate-filtering, per-run `knowledge_version` pins. NOT as designed:
+> no `occasions`/`items` tables (frozen in-code config, DEC-014), no
+> per-vocab repository ports (single `VocabularyRepository`), no hot-read
+> cache. Known dual-source reality (follow-up, not redesigned here):
+> saves validate against the live catalog while feedback checks the DB
+> `looks` table — a content bump can diverge them; outfit derive reads
+> the live catalog unpinned per request.
+>
+> Original STEP-5 banner (stale, kept for history): architecture design
+> only, nothing implemented, current `catalog.py` unchanged.
 >
 > **Source of truth:** the real Fansivibe repository. The separate reference
 > project's knowledge implementation is **not** used (BMM-0, no blind

@@ -23,13 +23,13 @@ from app.domain.services.analysis_rules import (
     rank_candidates,
     recommend_hairstyle,
     score_candidates,
-    recommend_grooming,
     build_grooming_context,
     generate_grooming_candidates,
     score_grooming_candidates,
     rank_grooming_candidates,
     build_grooming_explanations,
 )
+from app.domain.services.grooming_rules import recommend_grooming
 from app.domain.value_objects import (
     AppearanceProfile,
     HairstylePreferences,

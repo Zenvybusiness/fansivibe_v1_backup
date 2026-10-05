@@ -730,7 +730,7 @@ def test_hairstyle_full_profile_no_needs_more_data():
 def test_grooming_without_appearance_context_uses_defaults():
     """Grooming recommendation with minimal appearance profile uses neutral
     defaults and sets needs_more_data when sparse."""
-    from app.domain.services.analysis_rules import recommend_grooming
+    from app.domain.services.grooming_rules import recommend_grooming
     from app.domain.value_objects import AppearanceProfile
     from app.infrastructure.external.knowledge import CatalogKnowledgeSource
 
@@ -747,7 +747,7 @@ def test_grooming_without_appearance_context_uses_defaults():
 
 def test_grooming_full_profile_no_needs_more_data():
     """Grooming recommendation with full profile does not set needs_more_data."""
-    from app.domain.services.analysis_rules import recommend_grooming
+    from app.domain.services.grooming_rules import recommend_grooming
     from app.domain.value_objects import AppearanceProfile
     from app.infrastructure.external.knowledge import CatalogKnowledgeSource
 

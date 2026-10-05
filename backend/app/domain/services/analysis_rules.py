@@ -657,6 +657,10 @@ def recommend_grooming(
 ) -> "GroomingResult":
     """Run the full grooming recommendation pipeline (thin orchestrator).
 
+    # ponytail: shadow copy, zero production callers (live path is
+    # grooming_rules.recommend_grooming via application/analysis.py).
+    # Kept only to avoid churning stage-function unit tests; delete with
+    # them if the stage duplicates are ever consolidated.
     The orchestrator knows the stage order and implements no stage logic —
     each stage is a small pure function above. Rules-first: the top pick
     matches the grooming catalog's best-for face shapes.

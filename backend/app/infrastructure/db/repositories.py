@@ -370,7 +370,16 @@ class SavedLookRepositorySQL:
         ).scalars()
         return [self._to_record(r) for r in rows], total
 
+    def count_for_user(self, *, user_id: UUID) -> int:
+        row = self._session.execute(
+            select(func.count())
+            .select_from(SavedLooks)
+            .where(SavedLooks.user_id == user_id)
+        ).scalar_one()
+        return int(row) if row is not None else 0
+
     def get_outfit_coverage(self, *, user_id: UUID) -> SavedLookCoverage:
+
         """Deterministic saved-outfit coverage facts for one owner (W-7/UC-14).
 
         Read-only: selects only the `snapshot` column of the owner's
@@ -1381,6 +1390,22 @@ class AuthRepositorySQL:
             )
             .values(revoked_at=func.now())
         )
+
+    def delete_account(self, *, user_id: UUID) -> bool:
+        """Delete one account; DB CASCADE removes all user-owned rows (TRX-8).
+
+        Returns False when the account is already gone (caller maps to
+        404 — idempotent erasure). Knowledge/vocabulary rows survive:
+        they carry no user FK (RESTRICT/SET NULL guards hold).
+        """
+        row = self._session.execute(
+            select(Users).where(Users.id == user_id)
+        ).scalar_one_or_none()
+        if row is None:
+            return False
+        self._session.delete(row)
+        self._session.flush()
+        return True
 
     def commit(self) -> None:
         self._session.commit()

@@ -7,9 +7,18 @@
 > message queues, or other infrastructure unless the actual requirements
 > justify them.**
 >
-> **Status: architecture design only. Nothing is implemented.** No code,
-> files, directories, or dependencies are created; the live assistant
-> contract (`POST /v1/assistant/chat`) is unchanged.
+> **Status (updated 2026-10-04 — ratified reality differs from the design
+> below):** all analysis runs execute **inline and synchronous** in the
+> request thread. `POST /v1/analysis/*` returns HTTP `202` as a status code
+> only — vision + engine + run completion all finish before the response.
+> There is **no `infrastructure/jobs.py`, no queue, no worker, no
+> `BackgroundTask`, no resume/sweeper/cancel** (§5 lifecycle unimplemented;
+> a crash between create and complete leaves `pending` forever).
+> The ASYNC §4.1/§4.2 pattern and §5–§6 job lifecycle remain
+> **deferred design, not implementation** — see DEC-022.
+>
+> Original STEP-5 banner (stale, kept for history): architecture design
+> only, nothing implemented.
 >
 > **Grounding fact (BA-10 / no-premature-complexity):** today the backend is
 > a **single synchronous FastAPI process** (one engine, rules-only, optional
@@ -82,14 +91,21 @@ deferred tasks.
 
 ## 4. Operation classification
 
-### 4.1 `face analysis` — **ASYNC**
+### 4.1 `face analysis` — **SYNC as implemented (ASYNC deferred)**
+
+- **Design said ASYNC; implementation is inline SYNC** (see status note):
+  `POST /v1/analysis/hairstyle` → `202 + run_id`, vision + rules +
+  `complete`/`fail` all run in the request thread before return.
 
 - **Why:** vision capability, 30s timeout (AI doc §5.1), large image upload,
   produces a persisted `AnalysisRun` (TRX-5).
 - **Pattern:** `POST /analysis/face` → `202 + run_id` → poll
   `GET /analysis/runs/{run_id}`.
 
-### 4.2 `outfit image analysis` — **ASYNC**
+### 4.2 `outfit image analysis` — **SYNC as implemented (ASYNC deferred)**
+
+- **Design said ASYNC; implementation is inline SYNC** (see status note):
+  `POST /v1/analysis/outfit` → `202 + run_id`, same inline pattern.
 
 - **Why:** vision capability, 30s timeout (§5.3), image upload, persisted
   run + `result` (UC-24, TRX-5).

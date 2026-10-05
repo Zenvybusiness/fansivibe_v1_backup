@@ -31,9 +31,18 @@
 >       └────────────────┘  (feedback flows back into context)
 > ```
 >
-> **Status: architecture design only. The engine is NOT implemented.** No
-> code, files, or directories are created; the existing live assistant
-> contract (`POST /v1/assistant/chat`) is unchanged.
+> **Status (updated 2026-10-04 — implemented, banner below is stale):**
+> the pipeline stages exist as working code — deterministic scoring in
+> `domain/services/analysis_rules.py` + `grooming_rules.py`, candidate
+> generation + filtering + ranking + grounded explanations, knowledge via
+> `CatalogKnowledgeSource`, AI via adapters with text-only enrichment.
+> The `domain/services/engine|intent|tools|recommendations.py` file layout
+> in §7 was never created (equivalents live under `app/ai/`); there is no
+> `DecisionContext` value object or `business_rules.py` — weights are
+> code constants. This doc remains the stage-responsibility reference.
+>
+> Original STEP-5 banner (stale, kept for history): architecture design
+> only, engine NOT implemented, no code/files/directories created.
 >
 > **Source of truth:** the real Fansivibe repository — the working rules
 > engine today (`backend/app/ai/engine.py`, `intent.py`, `tools.py`,

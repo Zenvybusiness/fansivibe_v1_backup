@@ -63,6 +63,7 @@ def _run_record_to_schema(record: AnalysisRunRecord) -> AnalysisRun:
         created_at=record.created_at,
         completed_at=record.completed_at,
         engine_version=record.engine_version,
+        knowledge_version=record.knowledge_version,
         input_media=record.input_media,
         result=record.result,
         error=record.error,
@@ -77,6 +78,7 @@ def _run_summary_to_schema(record) -> AnalysisRunSummary:
         created_at=record.created_at,
         completed_at=record.completed_at,
         engine_version=record.engine_version,
+        knowledge_version=record.knowledge_version,
         input_media=record.input_media,
     )
 

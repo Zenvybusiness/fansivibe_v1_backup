@@ -1423,3 +1423,18 @@ Status: Accepted (owner-directed, 2026-09-23)
 
 Users who choose Continue Without Account reach the AI Stylist tab (/stylist exactly) as explicit guests without a session token. The guard exception is scoped to that one tab: all other shell branches and every nested /stylist/* action still redirect unauthenticated users to /entry. Guest capture stays on the public onboarding chain (iAnalysis ? YourAnalysisScreen); the real analysis pipeline (hairstyleProcessing ? backend) remains authenticated-only. No token is minted for guests and no backend auth is bypassed � API clients keep resolving tokens through AuthSession and 401 honestly.
 
+---
+
+## DEC-022 - Inline Analysis Execution (ratified implementation)
+
+Status: Accepted (audit-recorded, 2026-10-04)
+
+All analysis runs execute inline and synchronous in the request thread.
+`POST /v1/analysis/*` returns HTTP 202 as a status code only; vision,
+engine, and run completion finish before the response. There is no
+`infrastructure/jobs.py`, no queue, no worker, no resume/sweeper/cancel.
+The async 202+poll design in `BACKGROUND_JOB_ARCHITECTURE.md` sections
+4-6 is deferred, not implemented. A crash between run create and complete
+leaves `pending` forever (pre-production follow-up, not a redesign
+trigger).
+

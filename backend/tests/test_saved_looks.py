@@ -71,7 +71,7 @@ def _make_user():
                 user_id=user.id,
                 run_type="hairstyle",
                 status="completed",
-                engine_version="1.0",
+                engine_version="rules-v1",
             )
             session.add(run)
         session.commit()

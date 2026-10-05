@@ -8,11 +8,17 @@
 > authentication tokens, raw private images, unnecessary sensitive
 > appearance data).
 >
-> **Status: architecture design only. Nothing is implemented.** No code,
-> dependencies, or config are created. Verified: the current `backend/app`
-> has **no logging at all** (no `logging`, `logger`, or `print` in app code);
-> this doc defines the target. The live assistant contract
-> (`POST /v1/assistant/chat`) is unchanged.
+> **Status (updated 2026-10-04 — partially implemented, banner below is
+> stale):** operational logging and metrics EXIST — `X-Request-Id`
+> middleware (`main.py`), per-query reasoning telemetry (query_len only,
+> never content), Prometheus `/metrics` (`telemetry/metrics.py`),
+> scrubbed 5xx logs (`errors.py`), fail-open limiter warnings.
+> Actual format is **plaintext log lines, not the JSON envelope** specified
+> in §3; no Sentry/error-tracking; `/metrics` access control is
+> infrastructure-only (nginx private ranges).
+>
+> Original STEP-5 banner (stale, kept for history): architecture design
+> only, nothing implemented, no logging at all in app code.
 
 ---
 
@@ -66,7 +72,7 @@ logging attributes (model version, confidence, failure mode, duration).
 
 | Input | Role |
 | --- | --- |
-| `backend/app` | Verified: no logging exists today (target defined here). |
+| `backend/app` | Logging + metrics implemented (see status note above); JSON envelope in §3 remains a target, not reality. |
 | `ERROR_HANDLING.md` | ER-0…ER-3 logging policy, level table, never-log list. |
 | `AI_INTEGRATION_ARCHITECTURE.md` | Capability logging attributes (model version, confidence, duration, failure mode). |
 | `AUTH_AUTHORIZATION_ARCHITECTURE.md` | user_id logging; tokens never logged. |

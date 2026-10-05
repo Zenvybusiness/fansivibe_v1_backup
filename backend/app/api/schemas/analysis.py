@@ -33,6 +33,7 @@ class AnalysisRun(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
     engine_version: Optional[str] = None
+    knowledge_version: Optional[str] = None
     input_media: Optional[dict[str, Any]] = None
     result: Optional[dict[str, Any]] = None
     error: Optional[dict[str, Any]] = None
@@ -47,6 +48,7 @@ class AnalysisRunSummary(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
     engine_version: Optional[str] = None
+    knowledge_version: Optional[str] = None
     input_media: Optional[dict[str, Any]] = None
 
 

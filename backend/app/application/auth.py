@@ -32,8 +32,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID, uuid4
+import logging
 
-from app.api.errors import ApiError, authentication_error, conflict
+from app.api.errors import ApiError, authentication_error, conflict, not_found
 from app.domain.ports.repositories import AuthAccountRecord, AuthRepository
 from app.infrastructure.auth import (
     decode_access_token,
@@ -44,6 +45,8 @@ from app.infrastructure.auth import (
 )
 
 _EMAIL_PROVIDER = "email"
+
+logger = logging.getLogger("fansivibe.application.auth")
 
 
 def _field_error(field: str, error: str) -> ApiError:
@@ -220,6 +223,31 @@ class SignOut:
     def __call__(self, *, session_id: UUID) -> None:
         self._auth.revoke_session(session_id=session_id)
         self._auth.commit()
+
+
+class DeleteAccount:
+    """O-6 — `DELETE /v1/users/me` (AUTH_API §5.6, erasure TRX-8).
+
+    One `DELETE users` cascades across all user-owned children at the FK
+    (sessions, state, runs, saves, signals, feedback, wardrobe, wears,
+    events, activity). Knowledge/vocabulary rows survive (no user FK).
+    No blobs exist to clean (bytes never stored, pointers only) and no
+    subscription table exists (R51 cancel-first has no triggers), so
+    both contract branches are documented no-ops, not silent skips.
+    Retry-safe: a second call finds no account → 404, never another
+    user's data. Completion is access-logged (owner id only, ER-4).
+    """
+
+    def __init__(self, *, auth: AuthRepository) -> None:
+        self._auth = auth
+
+    def __call__(self, *, user_id: UUID) -> None:
+        deleted = self._auth.delete_account(user_id=user_id)
+        if not deleted:
+            self._auth.rollback()
+            raise not_found()
+        self._auth.commit()
+        logger.info("Account erased [user_id=%s]", user_id)
 
 
 def issue_session(

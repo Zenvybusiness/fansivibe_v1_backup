@@ -13,15 +13,16 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id
+from app.api.rate_limit import auth_rate_limit
 from app.api.schemas.users import ProfileView, StyleProfile, UpdatePreferencesRequest
+from app.application.auth import DeleteAccount
 from app.application.users import GetProfile, UpdatePreferences
 from app.domain.ports.repositories import UserProfileRecord
-from app.infrastructure.db.models import SavedLooks
-from app.infrastructure.db.repositories import UserStateRepositorySQL
+from app.infrastructure.db.repositories import AuthRepositorySQL, SavedLookRepositorySQL, UserStateRepositorySQL
 from app.infrastructure.db.session import get_db
 
 router = APIRouter(prefix="/v1/users", tags=["users"])
@@ -126,6 +127,30 @@ def update_me(
     return build_profile_view(db, record)
 
 
+@router.delete(
+    "/me",
+    status_code=204,
+    responses={
+        401: {"model": dict},
+        404: {"model": dict},
+        429: {"model": dict},
+    },
+)
+def delete_me(
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+    _: None = Depends(auth_rate_limit),
+) -> Response:
+    """Erase the caller's own account (O-6, TRX-8 cascade, 204).
+
+    Owner-only (OW-1): only the authenticated account is deleted, never
+    another's. Already-gone account → 404 (idempotent); a retried call
+    whose session died with the account answers 401 like any dead token.
+    """
+    DeleteAccount(auth=AuthRepositorySQL(db))(user_id=user_id)
+    return Response(status_code=204)
+
+
 def build_profile_view(db: Session, record: UserProfileRecord) -> ProfileView:
     """Render a `ProfileView` with the saved-look count and occasions summary.
 
@@ -137,10 +162,7 @@ def build_profile_view(db: Session, record: UserProfileRecord) -> ProfileView:
     # Compute saved looks count from the database
     saved_looks_count = 0
     try:
-        count = db.execute(
-            select(func.count()).select_from(SavedLooks).where(SavedLooks.user_id == user_id)
-        ).scalar_one()
-        saved_looks_count = int(count) if count is not None else 0
+        saved_looks_count = SavedLookRepositorySQL(db).count_for_user(user_id=user_id)
     except Exception:
         saved_looks_count = 0
 
