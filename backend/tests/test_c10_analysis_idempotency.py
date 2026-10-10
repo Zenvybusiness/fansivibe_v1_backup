@@ -292,12 +292,19 @@ def test_0025_revision_chain_and_static_contract():
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
 
-    assert tuple(script.get_heads()) == ("0025",)
+    # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
+    # D9B added 0028 (search-interest observations).
+    # Static inspection of 0025 file
+    assert tuple(script.get_heads()) == ("0028",)
+    rev27 = script.get_revision("0027")
+    assert rev27 is not None
+    assert rev27.down_revision == "0026"
+    rev26 = script.get_revision("0026")
+    assert rev26 is not None
+    assert rev26.down_revision == "0025"
     rev25 = script.get_revision("0025")
     assert rev25 is not None
     assert rev25.down_revision == "0024"
-
-    # Static inspection of 0025 file
     import importlib.util
     spec = importlib.util.spec_from_file_location("m0025", rev25.path)
     mod = importlib.util.module_from_spec(spec)

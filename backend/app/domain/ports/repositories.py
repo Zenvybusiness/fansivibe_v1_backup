@@ -7,8 +7,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from typing import Any, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Optional, Protocol
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from app.domain.services.normalization import NormalizedProduct
+    from app.domain.services.product_identity import IdentityDecision
+    from app.domain.services.search_interest import SearchInterestObservation
+    from app.domain.services.trends import ObservationEvidence
 
 
 @dataclass(frozen=True)
@@ -903,3 +909,158 @@ class AuthRepository(Protocol):
     def commit(self) -> None: ...
 
     def rollback(self) -> None: ...
+
+
+class DiscoveryRepository(Protocol):
+    """Persistence boundary for one Discovery collection run (D3).
+
+    Kept deliberately narrow: the collection service orchestrates the
+    workflow, this port only persists. The SQL adapter lives in
+    ``app.infrastructure.db.repositories``; tests substitute an in-memory
+    fake to exercise adapter/failure paths without a database.
+    """
+
+    def start_run(self, *, source: str) -> UUID: ...
+
+    def insert_raw_if_absent(
+        self,
+        *,
+        run_id: UUID,
+        source: str,
+        source_record_id: Optional[str],
+        payload: object,
+        payload_hash: str,
+        source_timestamp: Optional[datetime],
+    ) -> tuple[UUID, bool]:
+        """Insert one verbatim raw record; return ``(id, created)``.
+
+        ``created`` is ``False`` when an identical ``(source, payload_hash)``
+        already exists — the existing id is returned and no row is added.
+        """
+        ...
+
+    def mark_raw(self, *, raw_id: UUID, status: str, error: Optional[str]) -> None: ...
+
+    def upsert_product(
+        self,
+        *,
+        product: "NormalizedProduct",
+        run_id: UUID,
+        source: str,
+        source_product_id: str,
+        raw_id: UUID,
+        payload_hash: str,
+    ) -> "IdentityDecision":
+        """Persist a listing and return its resolved canonical identity.
+
+        Applies the conservative policy in
+        ``app.domain.services.product_identity``: exact source identity
+        updates the existing product; a verified GTIN match attaches the
+        listing to that product without overwriting its canonical fields; a
+        possible match creates a separate product and reports the candidates.
+
+        Also appends one ``product_observations`` row for the listing, in the
+        same transaction as the product/mapping write, so a failed write never
+        leaves a product without its observation (or vice versa). The source
+        timestamp is taken from ``product.observed_at``; the observation's own
+        ``observed_at`` is the collection time.
+        """
+        ...
+
+    def finish_run(
+        self,
+        *,
+        run_id: UUID,
+        status: str,
+        fetched: int,
+        inserted: int,
+        updated: int,
+        skipped: int,
+        failed: int,
+        error_summary: Optional[str],
+    ) -> None: ...
+
+    def rollback(self) -> None:
+        """Drop a failed unit of work so a poisoned session can finish the run."""
+        ...
+
+
+class TrendRepository(Protocol):
+    """Read boundary for the D6 trend engine.
+
+    Reads historical observations for a half-open window ``[start, end)`` and
+    shapes them for the pure engine in ``app.domain.services.trends``. Strictly
+    read-only: no writes, no migration, no clock. The SQL adapter lives in
+    ``app.infrastructure.db.repositories``.
+    """
+
+    def observations_in_window(
+        self, *, window_start: datetime, window_end: datetime
+    ) -> "tuple[ObservationEvidence, ...]":
+        """Observation evidence with ``observed_at`` in ``[start, end)``."""
+        ...
+
+
+@dataclass(frozen=True)
+class SearchInterestEvidence:
+    """One stored search-interest observation shaped for a read boundary (D9B).
+
+    A concept-level **relative** signal — no product, no price. ``value`` is
+    ``None`` whenever ``value_status`` is not ``present`` (never zero).
+    ``observed_at`` is collection time; ``source_timestamp`` is provider time.
+    ``synthetic`` marks fixture/test evidence.
+    """
+
+    source: str
+    metric: str
+    query_kind: str
+    query_key: str
+    query_display: str
+    geo_scope: str
+    geo_scope_type: str
+    aggregation_interval: str
+    period_start: datetime
+    period_end: datetime
+    value: Optional[float]
+    value_scale: str
+    value_status: str
+    is_relative: bool
+    source_timestamp: Optional[datetime]
+    observed_at: datetime
+    query_config_version: str
+    synthetic: bool
+
+
+class SearchInterestRepository(Protocol):
+    """Persistence boundary for search-interest observations (D9B).
+
+    Deliberately separate from ``DiscoveryRepository``: a search-interest
+    observation is a concept-level signal, not a product listing, and must not
+    reuse the product path. The collection workflow still uses the existing
+    ``DiscoveryRepository`` for its run + verbatim raw-record bookkeeping.
+    """
+
+    def insert_observation(
+        self,
+        *,
+        observation: "SearchInterestObservation",
+        run_id: UUID,
+        raw_id: UUID,
+        payload_hash: str,
+    ) -> tuple[UUID, bool]:
+        """Append one observation; return ``(id, created)``.
+
+        ``created`` is ``False`` when the observation already exists (same raw
+        record, or the same natural key from a differently-hashed payload), so
+        repeated collection never inflates a series.
+        """
+        ...
+
+    def observations_in_window(
+        self, *, window_start: datetime, window_end: datetime
+    ) -> "tuple[SearchInterestEvidence, ...]":
+        """Observations whose period is fully contained in ``[start, end)``.
+
+        Read-only; ordered by ``(query_key, geo_scope, period_start)``.
+        """
+        ...

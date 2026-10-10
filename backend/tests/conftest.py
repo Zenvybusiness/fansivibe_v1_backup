@@ -26,30 +26,34 @@ os.environ.setdefault("FANSIVIBE_AUTH_SECRET", "test-only-auth-secret")
 # enable it explicitly per-test.
 os.environ.setdefault("FANSIVIBE_RATE_LIMIT_ENABLED", "false")
 
+# Phase-13: DB-backed tests NEVER touch the authoritative database.
+# Set FANSIVIBE_TEST_DATABASE_URL to an isolated database (e.g. the
+# `fansivibe_test` database in the same container); without it the
+# DB-backed tests skip instead of destroying production QA data.
+# Applied to DATABASE_URL BEFORE any `app.*` import: the app session
+# factory and alembic's env.py both read the imported `DATABASE_URL`
+# constant, so the override must reach the environment first or tests
+# would run migrations/writes against the authoritative database.
+_TEST_DATABASE_URL = os.environ.get("FANSIVIBE_TEST_DATABASE_URL", "")
+if _TEST_DATABASE_URL:
+    os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
+TEST_DATABASE_URL = _TEST_DATABASE_URL
+
 import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.config.settings import _DEFAULT_DATABASE_URL
 from app.infrastructure.db.session import DATABASE_URL
 
-# Phase-13: DB-backed tests NEVER touch the authoritative database.
-# Set FANSIVIBE_TEST_DATABASE_URL to an isolated database (e.g. the
-# `fansivibe_test` database in the same container); without it the
-# DB-backed tests skip instead of destroying production QA data.
-# Applied to DATABASE_URL before any `app.*` import because settings
-# (and alembic's env.py, which re-reads the imported default) cache it
-# at first access.
-_TEST_DATABASE_URL = os.environ.get("FANSIVIBE_TEST_DATABASE_URL", "")
-if _TEST_DATABASE_URL:
-    os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
-TEST_DATABASE_URL = _TEST_DATABASE_URL
-
 _TRUNCATE = (
-    "TRUNCATE learning_signals, activity_days, saved_looks, analysis_runs, "
-    "feedback_events, user_events, wardrobe_wear_events, wardrobe_wear_groups, "
-    "user_sessions, user_state, users CASCADE"
+    "TRUNCATE search_interest_observations, product_observations, "
+    "product_source_map, raw_source_records, "
+    "products, collection_runs, learning_signals, activity_days, saved_looks, "
+    "analysis_runs, feedback_events, user_events, wardrobe_wear_events, "
+    "wardrobe_wear_groups, user_sessions, user_state, users CASCADE"
 )
 
 
@@ -69,7 +73,7 @@ def migrated_db() -> str:
             "the authoritative database. Create an isolated test database "
             "(e.g. `CREATE DATABASE fansivibe_test`) and set the variable."
         )
-    if TEST_DATABASE_URL == DATABASE_URL:
+    if TEST_DATABASE_URL == _DEFAULT_DATABASE_URL:
         pytest.fail(
             "FANSIVIBE_TEST_DATABASE_URL points at the authoritative "
             "database — refusing to TRUNCATE it.",

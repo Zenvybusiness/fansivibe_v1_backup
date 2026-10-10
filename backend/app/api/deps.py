@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.api.errors import ApiError, authentication_error
 from app.application.auth import resolve_session
 from app.config.settings import get_settings
+from app.domain.ports.repositories import TrendRepository
 from app.infrastructure.db.models import UserState, Users
 from app.infrastructure.db.repositories import AuthRepositorySQL
 from app.infrastructure.db.session import get_db
@@ -83,6 +84,17 @@ def get_current_user_id(
                 message="Something went wrong while saving your data. Please try again.",
             )
     raise authentication_error()
+
+
+def get_trend_repository(db: Session = Depends(get_db)) -> TrendRepository:
+    """Read-only D6 trend repository (D7 endpoint dependency seam).
+
+    A dependency provider (like the reasoner/lifecycle ones) so tests can
+    override it with a stub and exercise the API without a database.
+    """
+    from app.infrastructure.db.repositories import TrendRepositorySQL
+
+    return TrendRepositorySQL(db)
 
 
 def get_fashion_reasoner():

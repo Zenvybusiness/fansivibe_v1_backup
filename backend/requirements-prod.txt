@@ -16,3 +16,7 @@ python-multipart==0.0.32
 # HS256 JWT access tokens (both already verified in the service env).
 bcrypt==5.0.0
 PyJWT==2.14.0
+# D7 — authoritative FFO JSON-Schema validation of trend projections (the
+# deeper-checks consumer `app/data/ffo/corpus.py` anticipated). Runtime dep:
+# `GET /v1/trends/analysis` validates each published projection in-process.
+jsonschema==4.26.0

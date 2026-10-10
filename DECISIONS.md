@@ -1438,3 +1438,143 @@ The async 202+poll design in `BACKGROUND_JOB_ARCHITECTURE.md` sections
 leaves `pending` forever (pre-production follow-up, not a redesign
 trigger).
 
+
+---
+
+## DEC-023 - Discovery Canonical Product Identity (D4)
+
+Status: Accepted (D4 implementation, 2026-10-10)
+
+Canonical Discovery identity is conservative and deterministic; a wrong merge
+is treated as worse than a duplicate. Resolution order: (1)
+`exact_source_identity` - the unique `product_source_map (source,
+source_product_id)` map always wins; (2) `verified_cross_source` - a listing
+carrying a valid GTIN/EAN/UPC (check digit verified) that another source's
+product already carries is attached as an additional source mapping, without
+overwriting the owning listing's canonical fields; (3) `possible_match` - same
+normalized brand + category but no GTIN: records stay separate and the
+candidate is reported (not persisted); (4) `no_match` - new product. Products
+are never merged on similar titles or categories, and manufacturer ids are
+never used alone. No external entity-resolution service or LLM is involved.
+Valid stable identifiers live in `products.attributes.identifiers`; no schema
+change is made in D4. A persisted possible-match table and a uniqueness
+enforcement for the JSONB identifier are deferred until review tooling needs
+them.
+
+---
+
+## DEC-024 - Discovery Product Observation History (D5)
+
+Status: Accepted (D5 implementation, 2026-10-10)
+
+Discovery keeps an append-only `product_observations` history rather than only
+the latest product state. Each successfully normalized listing is recorded once
+in the same transaction as the product/source-mapping write, capturing only the
+metrics the pipeline actually has (price/currency/availability; NULL when
+unprovided, never zero). `observed_at` is collection time and `source_timestamp`
+is the source's own publication/update time — the two are distinct and neither
+is invented. Idempotency: `raw_source_record_id` is unique, and the raw layer
+already dedups `(source, payload_hash)`, so reprocessing or repeating an
+identical collection run never duplicates an observation; a changed payload
+records a new observation even when canonical identity is unchanged. Provenance
+(run + raw record) uses SET NULL so history outlives operational cleanup; no
+cleanup/deletion is implemented and raw records are preserved. GTIN-uniqueness
+enforcement and a persisted possible-match (candidate) table remain deferred:
+collection is single-writer/sequential and a unique JSONB-expression index
+without conflict handling would turn a benign duplicate into a hard failure.
+
+---
+
+## DEC-025 - Trend Intelligence Engine reads observation history (D6)
+
+Status: Accepted (D6 implementation, 2026-10-10)
+
+The D6 engine computes trend **candidates** on demand from the D5
+`product_observations` history via a pure, deterministic function; it persists
+nothing. No `trend_candidates` table or migration is added: there is no
+scheduler/recompute owner and M14 is stateless, so a persisted candidate set
+would be stale by construction. Candidates are typed and carry a full signal
+audit trail. Signals are labelled `direct_demand`, `supporting` or
+`catalog_operational`; catalog/operational facts are never presented as
+consumer demand. Because no authorized source provides a direct demand signal,
+the engine returns a typed `insufficient_evidence` demand outcome instead of
+fabricating a rising trend. Confidence (data quality) and strength (catalog
+growth) are separate; the confidence weights are documented heuristics, not
+empirically validated. Growth compares **distinct products** across two
+equal-length window halves (never raw row counts, so repeated identical
+observations cannot inflate growth), and zero baselines/divide-by-zero are
+guarded. Fixture-origin evidence is identified and blocks publication, and the
+FFO-shaped projection is emitted only for publishable candidates with
+`source_type=INFERRED`. No API endpoint, no provider, no Qwen/MediaPipe/LLM, no
+Flutter change.
+
+---
+
+## DEC-026 - Read-only trend analysis API + FFO schema validation (D7)
+
+Status: Accepted (D7 implementation, 2026-10-10)
+
+D7 exposes the D6 engine through a read-only, authenticated
+`GET /v1/trends/analysis` on a new `/v1/trends` prefix (distinct from M14's
+`/v1/trending`, whose `/{trend_id}` catch-all would shadow a nested path). It
+adds no migration and no `trend_candidates` table: the response is computed on
+demand from `product_observations` through the existing `AnalyzeTrends` service
+and `TrendRepositorySQL`. The window is caller-supplied or a documented default
+of the last 30 days, capped at 90 days; reversed, partial, non-timezone-aware
+or oversized windows return truthful `422`s. The response keeps catalog
+activity and consumer demand explicitly separate (`evidenceType`,
+`catalogActivityStatus`, `directDemandAvailable`, `demandTrendStatus`), returns
+an empty `publishedCandidates` collection with a typed `insufficient_evidence`
+status, never publishes fixture-derived candidates, keeps missing metrics null,
+and excludes internal ids/raw payloads.
+
+The D6 `to_ffo_trend()` projection is now validated against the authoritative
+`trend.schema.json`/`trend_signal.schema.json` with `jsonschema` (Draft
+2020-12) — the deeper-checks consumer `app/data/ffo/corpus.py` anticipated. The
+endpoint is fail-closed: a projection that fails schema validation is withheld
+from `publishedCandidates` with an explicit reason. `jsonschema==4.26.0` is added
+to `requirements-prod.txt` (a real runtime dependency, not a local-only
+install). The only D6 change is additive coverage counters (`observation_count`,
+`source_coverage`) on `TrendAnalysis`; formulas and thresholds are unchanged, and
+publication thresholds are not lowered to manufacture results. No provider is
+configured or called in D7.
+
+---
+
+## DEC-027 - Search-interest observations get their own table and foundation (D9B)
+
+Status: Accepted (D9B implementation, 2026-10-10)
+
+A search-interest observation is a concept-level **relative** signal (a query or
+topic over a geography and an aggregation period), not a product listing.
+Migration `0028_search_interest_observations.py` (head `0028`, down `0027`)
+therefore adds a **separate** `search_interest_observations` table rather than
+forcing search interest into `products`, `product_source_map` or
+`product_observations` (`product_observations.product_id` is NOT NULL and carries
+price/currency/availability — semantically wrong for a concept signal).
+
+The table is append-only and stores, per observation: `source`, `metric`
+(fixed `search_interest`), `query_kind`/`query_key`/`query_display`,
+`geo_scope`/`geo_scope_type`, `aggregation_interval`, `period_start`/`period_end`,
+`value` (NULL unless `value_status='present'`), `value_scale`, `is_relative`
+(always true), `value_status` (present/missing/suppressed/invalid),
+`source_timestamp` (provider time) distinct from `observed_at` (collection
+time), `query_config_version`, `synthetic`, `payload_hash`, plus
+`collection_run_id`/`raw_source_record_id` provenance (SET NULL). A unique
+raw-record index and a unique natural key make repeated collection idempotent;
+CHECK constraints enforce the metric/enums, value↔status consistency,
+`period_end > period_start`, and `is_relative`.
+
+The contract-independent foundation is implemented offline and provider-neutral:
+a pure `normalize_search_interest()` boundary (mirrors `normalize_product`), a
+typed `SearchInterestObservation`, a dedicated `SearchInterestRepository` port +
+SQL adapter, and a `CollectSearchInterest` workflow that reuses the existing
+run + verbatim `raw_source_records` bookkeeping and sanitized error handling (no
+duplicate collection/error framework). A strictly synthetic adapter
+(`synthetic_search_interest`; every record `synthetic: true`) exercises it, and
+missing/suppressed values never become zero. D6/D7 are unchanged:
+`DEMAND_SIGNAL_AVAILABLE` stays `False`, catalog activity and search interest
+remain distinct, and `publishedCandidates` stays empty without qualifying real
+demand evidence. The Google Trends adapter, authentication, and any live call
+remain gated (D9C) on alpha access, the verified API contract, and confirmed
+storage/display terms; `google_trends` stays out of the source registry.

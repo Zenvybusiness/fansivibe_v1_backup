@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import and_, cast, func, select, update
+from sqlalchemy import Boolean, and_, cast, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -24,6 +24,7 @@ from app.domain.ports.repositories import (
     FeedbackEventRecord,
     SavedLookCoverage,
     SavedLookRecord,
+    SearchInterestEvidence,
     UserEventRecord,
     UserProfileRecord,
     VocabularyRecord,
@@ -33,14 +34,30 @@ from app.domain.ports.repositories import (
     WearGroupRecord,
     WearSummary,
 )
+from app.domain.services.normalization import NormalizedProduct
+from app.domain.services.product_identity import (
+    MATCH_EXACT,
+    MATCH_VERIFIED,
+    IdentityCandidates,
+    IdentityDecision,
+    resolve_identity,
+)
+from app.domain.services.search_interest import SearchInterestObservation
+from app.domain.services.trends import ObservationEvidence
 from app.infrastructure.db.models import (
     ActivityDays,
     AnalysisRuns,
+    CollectionRun,
     EventType,
     FeedbackEvents,
     LearningSignals,
     Looks,
+    Product,
+    ProductObservation,
+    ProductSourceMap,
+    RawSourceRecord,
     SavedLooks,
+    SearchInterestObservation as SearchInterestObservationModel,
     UserEvent,
     UserSession,
     UserState,
@@ -54,6 +71,11 @@ from app.infrastructure.db.models import (
 )
 
 _ENGINE_VERSION = "rules-v1"
+
+# Reserved `products.attributes` key holding validated stable identifiers
+# (e.g. ``{"gtin": "0004006381333931"}``). Fashion attributes live at the top
+# level; this key is what the identity lookup queries.
+_IDENTIFIERS_KEY = "identifiers"
 
 
 def _canonical_uuid_string(value: object) -> Optional[str]:
@@ -1432,4 +1454,489 @@ class AuthRepositorySQL:
             token_digest=row.token_digest,
             expires_at=row.expires_at,
             revoked_at=row.revoked_at,
+        )
+
+
+class DiscoveryRepositorySQL:
+    """Discovery collection persistence (D3).
+
+    Each method is one committed unit of work, so a partially completed run
+    keeps the records it already persisted and its counters stay truthful.
+    ``upsert_product`` keys a canonical product by the unique
+    ``product_source_map(source, source_product_id)`` identity — no
+    name-based cross-source merging.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def start_run(self, *, source: str) -> UUID:
+        run = CollectionRun(source=source)
+        self._session.add(run)
+        self._session.commit()
+        return run.id
+
+    def insert_raw_if_absent(
+        self,
+        *,
+        run_id: UUID,
+        source: str,
+        source_record_id: Optional[str],
+        payload: object,
+        payload_hash: str,
+        source_timestamp: Optional[datetime],
+    ) -> tuple[UUID, bool]:
+        row = RawSourceRecord(
+            collection_run_id=run_id,
+            source=source,
+            source_record_id=source_record_id,
+            payload=payload,
+            payload_hash=payload_hash,
+            source_timestamp=source_timestamp,
+        )
+        self._session.add(row)
+        try:
+            self._session.commit()
+            return row.id, True
+        except IntegrityError:
+            # uq_raw_source_records_source_payload_hash — identical payload
+            # already stored; return the existing row instead of duplicating.
+            self._session.rollback()
+            existing_id = self._session.execute(
+                select(RawSourceRecord.id).where(
+                    RawSourceRecord.source == source,
+                    RawSourceRecord.payload_hash == payload_hash,
+                )
+            ).scalar_one()
+            return existing_id, False
+
+    def mark_raw(self, *, raw_id: UUID, status: str, error: Optional[str]) -> None:
+        self._session.execute(
+            update(RawSourceRecord)
+            .where(RawSourceRecord.id == raw_id)
+            .values(
+                processing_status=status,
+                processing_error=error,
+                updated_at=func.now(),
+            )
+        )
+        self._session.commit()
+
+    @staticmethod
+    def _db_attributes(product: NormalizedProduct) -> dict:
+        """Fashion attributes plus the reserved validated-identifier sub-key."""
+        identifiers: dict = {}
+        if product.gtin:
+            identifiers["gtin"] = product.gtin
+        if product.manufacturer_id:
+            identifiers["manufacturer_id"] = product.manufacturer_id
+        if not identifiers:
+            return dict(product.attributes)
+        return {**product.attributes, _IDENTIFIERS_KEY: identifiers}
+
+    def _update_product_fields(self, product_id: UUID, product: NormalizedProduct) -> None:
+        """Refresh canonical fields from a newer observation of the same identity.
+
+        Required fields (title) are always refreshed; optional fields are only
+        overwritten when the new observation actually provides them, so a
+        sparse payload never erases valid data. Attributes are merged key-wise.
+        """
+        row = self._session.get(Product, product_id)
+        row.title = product.title
+        for attr in ("brand", "category", "subcategory", "currency", "product_url"):
+            value = getattr(product, attr)
+            if value is not None:
+                setattr(row, attr, value)
+        if product.price is not None:
+            row.price = product.price
+        if product.availability is not None:
+            row.availability = product.availability
+        if product.image_urls:
+            row.image_urls = list(product.image_urls)
+        new_attributes = self._db_attributes(product)
+        merged = dict(row.attributes or {})
+        for key, value in new_attributes.items():
+            if key == _IDENTIFIERS_KEY and isinstance(merged.get(key), dict):
+                merged[key] = {**merged[key], **value}
+            else:
+                merged[key] = value
+        if merged:
+            row.attributes = merged
+        row.last_verified_at = func.now()
+
+    def _product_id_by_gtin(self, gtin: Optional[str]) -> Optional[UUID]:
+        if not gtin:
+            return None
+        return self._session.execute(
+            select(Product.id)
+            .where(Product.attributes[_IDENTIFIERS_KEY]["gtin"].astext == gtin)
+            .limit(1)
+        ).scalar_one_or_none()
+
+    def _possible_match_product_ids(self, product: NormalizedProduct) -> tuple[UUID, ...]:
+        if not product.brand or not product.category:
+            return ()
+        rows = (
+            self._session.execute(
+                select(Product.id)
+                .where(
+                    func.lower(Product.brand) == product.brand.lower(),
+                    func.lower(Product.category) == product.category.lower(),
+                )
+                .limit(5)
+            )
+            .scalars()
+            .all()
+        )
+        return tuple(rows)
+
+    def _record_observation(
+        self,
+        *,
+        product_id: UUID,
+        product: NormalizedProduct,
+        run_id: UUID,
+        source: str,
+        source_product_id: str,
+        raw_id: UUID,
+        payload_hash: str,
+    ) -> None:
+        """Append one observation row in the current (uncommitted) transaction.
+
+        ``observed_at`` is left to the database's ``now()`` (collection time);
+        ``source_timestamp`` records the source's own publication/update time
+        only when it actually supplied one. Optional metrics stay NULL when
+        absent (never zero).
+        """
+        self._session.add(
+            ProductObservation(
+                product_id=product_id,
+                source=source,
+                source_product_id=source_product_id,
+                collection_run_id=run_id,
+                raw_source_record_id=raw_id,
+                payload_hash=payload_hash,
+                source_timestamp=product.observed_at,
+                price=product.price,
+                currency=product.currency,
+                availability=product.availability,
+            )
+        )
+
+    def upsert_product(
+        self,
+        *,
+        product: NormalizedProduct,
+        run_id: UUID,
+        source: str,
+        source_product_id: str,
+        raw_id: UUID,
+        payload_hash: str,
+    ) -> IdentityDecision:
+        mapping = self._session.execute(
+            select(ProductSourceMap).where(
+                ProductSourceMap.source == source,
+                ProductSourceMap.source_product_id == source_product_id,
+            )
+        ).scalar_one_or_none()
+
+        if mapping is not None:
+            # Exact source identity re-observed: refresh canonical values but
+            # keep first_seen_at (discovery time) intact. The new observation
+            # records the change history.
+            self._update_product_fields(mapping.product_id, product)
+            mapping.raw_source_record_id = raw_id
+            mapping.observed_at = product.observed_at
+            self._record_observation(
+                product_id=mapping.product_id,
+                product=product,
+                run_id=run_id,
+                source=source,
+                source_product_id=source_product_id,
+                raw_id=raw_id,
+                payload_hash=payload_hash,
+            )
+            self._session.commit()
+            return IdentityDecision(MATCH_EXACT, mapping.product_id)
+
+        decision = resolve_identity(
+            product,
+            IdentityCandidates(
+                stable_id_product_id=self._product_id_by_gtin(product.gtin),
+                possible_match_product_ids=self._possible_match_product_ids(product),
+            ),
+        )
+
+        if decision.match_status == MATCH_VERIFIED:
+            # Verified cross-source listing: attach another mapping to the
+            # existing product. Its canonical fields belong to the first
+            # listing and are NOT overwritten by a different source.
+            self._session.add(
+                ProductSourceMap(
+                    product_id=decision.product_id,
+                    source=source,
+                    source_product_id=source_product_id,
+                    raw_source_record_id=raw_id,
+                    observed_at=product.observed_at,
+                )
+            )
+            self._record_observation(
+                product_id=decision.product_id,
+                product=product,
+                run_id=run_id,
+                source=source,
+                source_product_id=source_product_id,
+                raw_id=raw_id,
+                payload_hash=payload_hash,
+            )
+            self._session.commit()
+            return decision
+
+        row = Product(
+            title=product.title,
+            brand=product.brand,
+            category=product.category,
+            subcategory=product.subcategory,
+            attributes=self._db_attributes(product),
+            price=product.price,
+            currency=product.currency,
+            availability=product.availability,
+            product_url=product.product_url,
+            image_urls=list(product.image_urls),
+        )
+        self._session.add(row)
+        self._session.flush()
+        self._session.add(
+            ProductSourceMap(
+                product_id=row.id,
+                source=source,
+                source_product_id=source_product_id,
+                raw_source_record_id=raw_id,
+                observed_at=product.observed_at,
+            )
+        )
+        self._record_observation(
+            product_id=row.id,
+            product=product,
+            run_id=run_id,
+            source=source,
+            source_product_id=source_product_id,
+            raw_id=raw_id,
+            payload_hash=payload_hash,
+        )
+        self._session.commit()
+        return decision
+
+    def finish_run(
+        self,
+        *,
+        run_id: UUID,
+        status: str,
+        fetched: int,
+        inserted: int,
+        updated: int,
+        skipped: int,
+        failed: int,
+        error_summary: Optional[str],
+    ) -> None:
+        if error_summary is not None:
+            error_summary = error_summary[:2000]
+        self._session.execute(
+            update(CollectionRun)
+            .where(CollectionRun.id == run_id)
+            .values(
+                status=status,
+                finished_at=func.now(),
+                fetched_count=fetched,
+                inserted_count=inserted,
+                updated_count=updated,
+                skipped_count=skipped,
+                failed_count=failed,
+                error_summary=error_summary,
+                updated_at=func.now(),
+            )
+        )
+        self._session.commit()
+
+    def rollback(self) -> None:
+        self._session.rollback()
+
+
+class TrendRepositorySQL:
+    """Read-only SQL adapter for the D6 trend engine over ``product_observations``.
+
+    Shapes each observation into :class:`ObservationEvidence`, joining the
+    canonical product for its ``category`` concept key and its fixture marker
+    (``products.attributes.fixture``). No writes; the window is half-open
+    ``[window_start, window_end)`` so adjacent windows never double-count.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def observations_in_window(
+        self, *, window_start: datetime, window_end: datetime
+    ) -> tuple[ObservationEvidence, ...]:
+        is_fixture = func.coalesce(
+            cast(Product.attributes["fixture"].astext, Boolean), False
+        )
+        rows = self._session.execute(
+            select(
+                ProductObservation.product_id,
+                Product.category,
+                ProductObservation.source,
+                ProductObservation.observed_at,
+                ProductObservation.price,
+                ProductObservation.availability,
+                is_fixture.label("is_fixture"),
+            )
+            .join(Product, Product.id == ProductObservation.product_id)
+            .where(
+                ProductObservation.observed_at >= window_start,
+                ProductObservation.observed_at < window_end,
+            )
+            .order_by(ProductObservation.observed_at)
+        ).all()
+        return tuple(
+            ObservationEvidence(
+                product_id=row.product_id,
+                category=row.category,
+                source=row.source,
+                observed_at=row.observed_at,
+                price=float(row.price) if row.price is not None else None,
+                availability=row.availability,
+                is_fixture=bool(row.is_fixture),
+            )
+            for row in rows
+        )
+
+
+class SearchInterestRepositorySQL:
+    """SQL adapter for concept-level search-interest observations (D9B).
+
+    Deliberately separate from the product path: no canonical product, no
+    price/availability. ``insert_observation`` is one committed unit of work;
+    dedup is enforced by the unique raw-record index and the unique natural key,
+    so repeated collection never duplicates or inflates a series. Reads are
+    half-open on the observation period ``[start, end)`` (fully contained).
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def insert_observation(
+        self,
+        *,
+        observation: SearchInterestObservation,
+        run_id: UUID,
+        raw_id: UUID,
+        payload_hash: str,
+    ) -> tuple[UUID, bool]:
+        row = SearchInterestObservationModel(
+            collection_run_id=run_id,
+            raw_source_record_id=raw_id,
+            source=observation.source,
+            metric=observation.metric,
+            query_kind=observation.query_kind,
+            query_key=observation.query_key,
+            query_display=observation.query_display,
+            geo_scope=observation.geo_scope,
+            geo_scope_type=observation.geo_scope_type,
+            aggregation_interval=observation.aggregation_interval,
+            period_start=observation.period_start,
+            period_end=observation.period_end,
+            value=observation.value,
+            value_scale=observation.value_scale,
+            value_status=observation.value_status,
+            is_relative=observation.is_relative,
+            source_timestamp=observation.source_timestamp,
+            query_config_version=observation.query_config_version,
+            synthetic=observation.synthetic,
+            payload_hash=payload_hash,
+        )
+        self._session.add(row)
+        try:
+            self._session.commit()
+            return row.id, True
+        except IntegrityError:
+            # Duplicate raw record, or the same natural key reached from a
+            # differently-hashed payload — keep the first observation.
+            self._session.rollback()
+            existing_id = self._session.execute(
+                select(SearchInterestObservationModel.id).where(
+                    SearchInterestObservationModel.source == observation.source,
+                    SearchInterestObservationModel.metric == observation.metric,
+                    SearchInterestObservationModel.query_kind == observation.query_kind,
+                    SearchInterestObservationModel.query_key == observation.query_key,
+                    SearchInterestObservationModel.geo_scope == observation.geo_scope,
+                    SearchInterestObservationModel.aggregation_interval
+                    == observation.aggregation_interval,
+                    SearchInterestObservationModel.period_start == observation.period_start,
+                    SearchInterestObservationModel.period_end == observation.period_end,
+                )
+            ).scalar_one_or_none()
+            if existing_id is None:
+                existing_id = self._session.execute(
+                    select(SearchInterestObservationModel.id).where(
+                        SearchInterestObservationModel.raw_source_record_id == raw_id
+                    )
+                ).scalar_one()
+            return existing_id, False
+
+    def observations_in_window(
+        self, *, window_start: datetime, window_end: datetime
+    ) -> tuple[SearchInterestEvidence, ...]:
+        rows = self._session.execute(
+            select(
+                SearchInterestObservationModel.source,
+                SearchInterestObservationModel.metric,
+                SearchInterestObservationModel.query_kind,
+                SearchInterestObservationModel.query_key,
+                SearchInterestObservationModel.query_display,
+                SearchInterestObservationModel.geo_scope,
+                SearchInterestObservationModel.geo_scope_type,
+                SearchInterestObservationModel.aggregation_interval,
+                SearchInterestObservationModel.period_start,
+                SearchInterestObservationModel.period_end,
+                SearchInterestObservationModel.value,
+                SearchInterestObservationModel.value_scale,
+                SearchInterestObservationModel.value_status,
+                SearchInterestObservationModel.is_relative,
+                SearchInterestObservationModel.source_timestamp,
+                SearchInterestObservationModel.observed_at,
+                SearchInterestObservationModel.query_config_version,
+                SearchInterestObservationModel.synthetic,
+            )
+            .where(
+                SearchInterestObservationModel.period_start >= window_start,
+                SearchInterestObservationModel.period_end <= window_end,
+            )
+            .order_by(
+                SearchInterestObservationModel.query_key,
+                SearchInterestObservationModel.geo_scope,
+                SearchInterestObservationModel.period_start,
+            )
+        )
+        return tuple(
+            SearchInterestEvidence(
+                source=row.source,
+                metric=row.metric,
+                query_kind=row.query_kind,
+                query_key=row.query_key,
+                query_display=row.query_display,
+                geo_scope=row.geo_scope,
+                geo_scope_type=row.geo_scope_type,
+                aggregation_interval=row.aggregation_interval,
+                period_start=row.period_start,
+                period_end=row.period_end,
+                value=float(row.value) if row.value is not None else None,
+                value_scale=row.value_scale,
+                value_status=row.value_status,
+                is_relative=bool(row.is_relative),
+                source_timestamp=row.source_timestamp,
+                observed_at=row.observed_at,
+                query_config_version=row.query_config_version,
+                synthetic=bool(row.synthetic),
+            )
+            for row in rows
         )

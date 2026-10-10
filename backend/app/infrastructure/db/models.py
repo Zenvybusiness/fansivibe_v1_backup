@@ -15,6 +15,11 @@ Tables (from `docs/database/TABLE_DEFINITIONS.md`):
 - ``materials``                    (P0 vocabulary reference, K9.1)
 - ``event_types``                  (M8 vocabulary reference, K9.1)
 - ``user_events``                  (event calendar current state, P1, M8-A)
+- ``collection_runs``              (discovery ingestion audit, D2)
+- ``raw_source_records``          (verbatim source payload history, D2)
+- ``products``                     (canonical normalized products, D2)
+- ``product_source_map``           (product <-> source identity, D2)
+- ``product_observations``         (append-only observation history, D5)
 
 History tables are append-only at the role-grant level (PR-5); the only
 permitted mutation of ``analysis_runs`` is the guarded completion write
@@ -36,6 +41,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     Text,
     Time,
     UniqueConstraint,
@@ -606,5 +612,476 @@ class UserEvent(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CollectionRun(Base):
+    """One ingestion attempt against one authorized source (D2).
+
+    Operational audit row: the counters record what the adapter batch did
+    (fetched/inserted/updated/skipped/failed) and `error_summary` carries a
+    sanitized failure note only — never credentials or raw payloads.
+    `status` is running -> completed|failed; `finished_at` is stamped on
+    completion. INSERT / update-on-finish only.
+    """
+
+    __tablename__ = "collection_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running', 'completed', 'failed')",
+            name="ck_collection_runs_status",
+        ),
+        CheckConstraint(
+            "fetched_count >= 0 AND inserted_count >= 0 AND updated_count >= 0 "
+            "AND skipped_count >= 0 AND failed_count >= 0",
+            name="ck_collection_runs_counts_nonnegative",
+        ),
+        CheckConstraint(
+            "finished_at IS NULL OR finished_at >= started_at",
+            name="ck_collection_runs_finished_after_start",
+        ),
+        CheckConstraint(
+            "error_summary IS NULL OR char_length(error_summary) <= 2000",
+            name="ck_collection_runs_error_summary_len",
+        ),
+        Index("ix_collection_runs_source_started_at", "source", "started_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'running'")
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    fetched_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    inserted_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    updated_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    skipped_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    failed_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    error_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class RawSourceRecord(Base):
+    """The verbatim provider payload for one source record (D2).
+
+    Provenance is immutable: `payload` is the original structured provider
+    payload and `payload_hash` is its deterministic digest. Normalized
+    values are written to ``products`` — they never overwrite this row.
+    ``(source, payload_hash)`` is unique so re-fetching an identical
+    payload never duplicates storage. ``collection_run_id`` is CASCADE:
+    a raw record has no meaning without its run. `error` text is sanitized
+    and bounded. No image binaries are ever stored.
+    """
+
+    __tablename__ = "raw_source_records"
+    __table_args__ = (
+        CheckConstraint(
+            "processing_status IN ('pending', 'processed', 'failed', 'skipped')",
+            name="ck_raw_source_records_status",
+        ),
+        CheckConstraint(
+            "char_length(payload_hash) BETWEEN 1 AND 128",
+            name="ck_raw_source_records_payload_hash_len",
+        ),
+        CheckConstraint(
+            "processing_error IS NULL OR char_length(processing_error) <= 2000",
+            name="ck_raw_source_records_processing_error_len",
+        ),
+        UniqueConstraint(
+            "source",
+            "payload_hash",
+            name="uq_raw_source_records_source_payload_hash",
+        ),
+        Index(
+            "ix_raw_source_records_source_record_id",
+            "source",
+            "source_record_id",
+        ),
+        Index("ix_raw_source_records_processing_status", "processing_status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    collection_run_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("collection_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    source_record_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    source_timestamp: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    processing_status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'pending'")
+    )
+    processing_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Product(Base):
+    """One canonical, normalized product (D2).
+
+    Normalized values only; the source payload and historical raw rows stay
+    in ``raw_source_records``. ``image_urls`` holds provider CDN URLs (never
+    binaries). Price is exact ``NUMERIC(12,2)`` (None = unprovided, never
+    fabricated). ``first_seen_at``/``last_verified_at`` split discovery from
+    verification time.
+    """
+
+    __tablename__ = "products"
+    __table_args__ = (
+        CheckConstraint("char_length(title) BETWEEN 1 AND 300", name="ck_products_title_len"),
+        CheckConstraint(
+            "brand IS NULL OR char_length(brand) BETWEEN 1 AND 150",
+            name="ck_products_brand_len",
+        ),
+        CheckConstraint(
+            "category IS NULL OR char_length(category) BETWEEN 1 AND 100",
+            name="ck_products_category_len",
+        ),
+        CheckConstraint(
+            "subcategory IS NULL OR char_length(subcategory) BETWEEN 1 AND 100",
+            name="ck_products_subcategory_len",
+        ),
+        CheckConstraint("price IS NULL OR price >= 0", name="ck_products_price_nonnegative"),
+        CheckConstraint(
+            "currency IS NULL OR char_length(currency) BETWEEN 1 AND 10",
+            name="ck_products_currency_len",
+        ),
+        Index("ix_products_category", "category"),
+        Index("ix_products_brand", "brand"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    brand: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    subcategory: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attributes: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    price: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
+    currency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    availability: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    product_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    image_urls: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_verified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ProductSourceMap(Base):
+    """One source identity mapped to one canonical product (D2).
+
+    ``(source, source_product_id)`` is unique, so a given source product
+    always resolves to exactly one canonical product while many source rows
+    may point at the same product. ``raw_source_record_id`` preserves the
+    lineage back to the verbatim payload (SET NULL keeps the mapping if a
+    historical raw record is removed).
+    """
+
+    __tablename__ = "product_source_map"
+    __table_args__ = (
+        CheckConstraint(
+            "char_length(source_product_id) BETWEEN 1 AND 200",
+            name="ck_product_source_map_source_product_id_len",
+        ),
+        UniqueConstraint(
+            "source",
+            "source_product_id",
+            name="uq_product_source_map_source_product",
+        ),
+        Index("ix_product_source_map_product_id", "product_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="CASCADE"), nullable=False
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    source_product_id: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_source_record_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("raw_source_records.id", ondelete="SET NULL"), nullable=True
+    )
+    observed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ProductObservation(Base):
+    """One append-only observation of a source listing (D5).
+
+    Every successfully normalized listing is recorded once, capturing the
+    metrics the pipeline actually has (price/currency/availability — NULL when
+    unprovided, never zero). ``observed_at`` is collection time;
+    ``source_timestamp`` is the source's own publication/update time (NULL if
+    not supplied). ``raw_source_record_id`` is unique so re-processing a raw
+    record cannot duplicate its observation; repeated identical collection
+    runs are already deduped at the raw layer and therefore add no false
+    trend evidence. Provenance (``collection_run_id`` +
+    ``raw_source_record_id``) uses SET NULL so history outlives operational
+    cleanup. No cleanup/deletion is implemented here.
+    """
+
+    __tablename__ = "product_observations"
+    __table_args__ = (
+        CheckConstraint(
+            "char_length(source_product_id) BETWEEN 1 AND 200",
+            name="ck_product_observations_source_product_id_len",
+        ),
+        CheckConstraint(
+            "char_length(payload_hash) BETWEEN 1 AND 128",
+            name="ck_product_observations_payload_hash_len",
+        ),
+        CheckConstraint(
+            "price IS NULL OR price >= 0",
+            name="ck_product_observations_price_nonnegative",
+        ),
+        CheckConstraint(
+            "currency IS NULL OR char_length(currency) BETWEEN 1 AND 10",
+            name="ck_product_observations_currency_len",
+        ),
+        Index(
+            "uq_product_observations_raw_source_record",
+            "raw_source_record_id",
+            unique=True,
+        ),
+        Index(
+            "ix_product_observations_product_observed_at",
+            "product_id",
+            "observed_at",
+        ),
+        Index(
+            "ix_product_observations_source_observed_at",
+            "source",
+            "observed_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="CASCADE"), nullable=False
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    source_product_id: Mapped[str] = mapped_column(Text, nullable=False)
+    collection_run_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("collection_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    raw_source_record_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("raw_source_records.id", ondelete="SET NULL"), nullable=True
+    )
+    payload_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    source_timestamp: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    price: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
+    currency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    availability: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class SearchInterestObservation(Base):
+    """One append-only concept-level search-interest observation (D9B).
+
+    A **relative** search-interest signal for a query/topic in a geography and
+    an aggregation period — not a product listing. Kept in its own table so it
+    can never be confused with ``products``/``product_observations``: there is
+    no product id and no price/availability here.
+
+    Semantics:
+    - ``value`` is present only when ``value_status='present'``; missing /
+      suppressed / invalid stay NULL (never 0).
+    - ``period_start``/``period_end`` bound the observation period (aware UTC);
+      ``source_timestamp`` is provider time and ``observed_at`` is collection
+      time — distinct, and NULL when the provider supplies none.
+    - ``raw_source_record_id`` is unique, and ``(source, metric, query_kind,
+      query_key, geo_scope, aggregation_interval, period_start, period_end)`` is
+      unique, so repeated collection never duplicates or inflates a series.
+    - ``synthetic`` marks fixture/test evidence — never real provider data.
+    """
+
+    __tablename__ = "search_interest_observations"
+    __table_args__ = (
+        CheckConstraint(
+            "metric = 'search_interest'",
+            name="ck_search_interest_observations_metric",
+        ),
+        CheckConstraint(
+            "query_kind IN ('search_term', 'topic')",
+            name="ck_search_interest_observations_query_kind",
+        ),
+        CheckConstraint(
+            "geo_scope_type IN ('country', 'region', 'worldwide')",
+            name="ck_search_interest_observations_geo_type",
+        ),
+        CheckConstraint(
+            "aggregation_interval IN ('daily', 'weekly', 'monthly', 'yearly')",
+            name="ck_search_interest_observations_interval",
+        ),
+        CheckConstraint(
+            "value_status IN ('present', 'missing', 'suppressed', 'invalid')",
+            name="ck_search_interest_observations_value_status",
+        ),
+        CheckConstraint(
+            "(value_status = 'present' AND value IS NOT NULL) "
+            "OR (value_status <> 'present' AND value IS NULL)",
+            name="ck_search_interest_observations_value_consistency",
+        ),
+        CheckConstraint(
+            "period_end > period_start",
+            name="ck_search_interest_observations_period_order",
+        ),
+        CheckConstraint(
+            "is_relative",
+            name="ck_search_interest_observations_is_relative",
+        ),
+        CheckConstraint(
+            "char_length(query_key) BETWEEN 1 AND 200",
+            name="ck_search_interest_observations_query_key_len",
+        ),
+        CheckConstraint(
+            "char_length(query_display) BETWEEN 1 AND 300",
+            name="ck_search_interest_observations_query_display_len",
+        ),
+        CheckConstraint(
+            "char_length(value_scale) BETWEEN 1 AND 120",
+            name="ck_search_interest_observations_value_scale_len",
+        ),
+        CheckConstraint(
+            "char_length(payload_hash) BETWEEN 1 AND 128",
+            name="ck_search_interest_observations_payload_hash_len",
+        ),
+        UniqueConstraint(
+            "source",
+            "metric",
+            "query_kind",
+            "query_key",
+            "geo_scope",
+            "aggregation_interval",
+            "period_start",
+            "period_end",
+            name="uq_search_interest_observations_natural_key",
+        ),
+        Index(
+            "uq_search_interest_observations_raw_source_record",
+            "raw_source_record_id",
+            unique=True,
+        ),
+        Index(
+            "ix_search_interest_observations_query_geo_period",
+            "query_key",
+            "geo_scope",
+            "period_start",
+        ),
+        Index(
+            "ix_search_interest_observations_source_observed_at",
+            "source",
+            "observed_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    collection_run_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("collection_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    raw_source_record_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("raw_source_records.id", ondelete="SET NULL"), nullable=True
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    metric: Mapped[str] = mapped_column(Text, nullable=False)
+    query_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    query_key: Mapped[str] = mapped_column(Text, nullable=False)
+    query_display: Mapped[str] = mapped_column(Text, nullable=False)
+    geo_scope: Mapped[str] = mapped_column(Text, nullable=False)
+    geo_scope_type: Mapped[str] = mapped_column(Text, nullable=False)
+    aggregation_interval: Mapped[str] = mapped_column(Text, nullable=False)
+    period_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    period_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    value: Mapped[Optional[float]] = mapped_column(Numeric(18, 6), nullable=True)
+    value_scale: Mapped[str] = mapped_column(Text, nullable=False)
+    value_status: Mapped[str] = mapped_column(Text, nullable=False)
+    is_relative: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    source_timestamp: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    query_config_version: Mapped[str] = mapped_column(Text, nullable=False)
+    synthetic: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    payload_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

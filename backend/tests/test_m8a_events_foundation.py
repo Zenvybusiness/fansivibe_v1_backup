@@ -134,7 +134,9 @@ def test_chain_linear_single_head_0016_to_0017():
     STEP 2.9 — the locked contract requires this link).
     """
     script = ScriptDirectory.from_config(_alembic_config())
-    assert tuple(script.get_heads()) == ("0023",)
+    # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
+    # D9B added 0028 (search-interest observations).
+    assert tuple(script.get_heads()) == ("0028",)
     revision = script.get_revision("0017")
     assert revision is not None
     assert revision.down_revision == "0016"
@@ -156,6 +158,19 @@ def test_chain_linear_single_head_0016_to_0017():
     head = script.get_revision("0023")
     assert head is not None
     assert head.down_revision == "0022"
+    rev24 = script.get_revision("0024")
+    assert rev24 is not None
+    assert rev24.down_revision == "0023"
+    rev25 = script.get_revision("0025")
+    assert rev25 is not None
+    assert rev25.down_revision == "0024"
+    # D2 added 0026 (discovery foundation); D5 added 0027 (observations).
+    rev27 = script.get_revision("0027")
+    assert rev27 is not None
+    assert rev27.down_revision == "0026"
+    rev26 = script.get_revision("0026")
+    assert rev26 is not None
+    assert rev26.down_revision == "0025"
 
 
 # ---------------------------------------------------------------------------
