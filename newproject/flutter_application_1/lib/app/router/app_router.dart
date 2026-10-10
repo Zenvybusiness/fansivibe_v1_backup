@@ -108,12 +108,26 @@ final List<RouteBase> appRoutes = [
   GoRoute(
     path: '/onboarding/analysis',
     name: RouteNames.aiAnalysis,
-    builder: (context, state) => const AiAnalysisScreen(),
+    builder: (context, state) {
+      final extra = state.extra as Map<String, dynamic>?;
+      return AiAnalysisScreen(
+        imageBytes: extra?['imageBytes'] as Uint8List?,
+      );
+    },
   ),
   GoRoute(
     path: '/onboarding/result',
     name: RouteNames.yourAnalysis,
-    builder: (context, state) => const YourAnalysisScreen(),
+    builder: (context, state) {
+      final extra = state.extra as Map<String, dynamic>?;
+      return YourAnalysisScreen(
+        imageBytes: extra?['imageBytes'] as Uint8List?,
+        outfitSnapshot: extra?['outfitSnapshot'] as Map<String, dynamic>?,
+        garmentSnapshot: extra?['garmentSnapshot'] as Map<String, dynamic>?,
+        outfitFailure: extra?['outfitFailure'] as String?,
+        garmentFailure: extra?['garmentFailure'] as String?,
+      );
+    },
   ),
   GoRoute(
     path: '/onboarding/account',

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
@@ -6,20 +8,43 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/utils/pending_auth_intent.dart';
 
 /// Guest handoff after the Analyze My Style photo step (unauthenticated).
 ///
-/// No backend analysis runs here: real appearance analysis is account-only
-/// (`POST /v1/analysis/hairstyle` behind `get_current_user_id`). This
-/// screen therefore shows NO style score, palette, or insights — a
-/// fabricated result would pose mock data as analysis. It confirms the
-/// photo step is done and routes to account creation (real analysis runs
-/// after sign-in) or to guest browsing. Camera flow and buttons below
-/// are otherwise untouched.
+/// Shows the limited guest preview when the ephemeral pass returned real
+/// observations ([outfitSnapshot] and/or [garmentSnapshot] verbatim from
+/// `POST /v1/analysis/{outfit,garment}/ephemeral`), or an honest failure
+/// state when it did not. Attributes the backends did not return are
+/// omitted — never defaulted or sampled. Full personalized analysis
+/// (saved style profile, history, learning recommendations) stays
+/// account-only and runs after sign-in. Buttons below preserve their
+/// established semantics; camera flow is otherwise untouched.
 class YourAnalysisScreen extends StatefulWidget {
-  const YourAnalysisScreen({super.key});
+  const YourAnalysisScreen({
+    super.key,
+    this.imageBytes,
+    this.outfitSnapshot,
+    this.garmentSnapshot,
+    this.outfitFailure,
+    this.garmentFailure,
+  });
+
+  /// In-memory photo bytes for the thumbnail + Try Again replay.
+  final Uint8List? imageBytes;
+
+  /// Verbatim `outfit/ephemeral` engine snapshot (face observation), if any.
+  final Map<String, dynamic>? outfitSnapshot;
+
+  /// Verbatim `garment/ephemeral` observation snapshot, if any.
+  final Map<String, dynamic>? garmentSnapshot;
+
+  /// Typed failure reasons (e.g. `no_face_detected`, `rate_limited`),
+  /// surfaced only when the matching snapshot is absent.
+  final String? outfitFailure;
+  final String? garmentFailure;
 
   @override
   State<YourAnalysisScreen> createState() => _YourAnalysisScreenState();
@@ -92,11 +117,47 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   void _onRetake() {
     // Fresh capture: a new PhotoCaptureScreen instance holds no image
     // bytes, so the previous photo can never be reused or resubmitted
-    // and no stale result survives. goNamed (not pop) is required:
-    // popping would land on the AiAnalysis timer, which auto-forwards
-    // back here and looks like "Retake opens processing".
+    // and no stale result survives. The stashed preview is discarded with
+    // the photo (a retake supersedes it). goNamed (not pop) is required:
+    // popping would land on the AiAnalysis pass, which would re-forward
+    // the discarded photo's result back here.
+    clearPendingEphemeralResult();
     context.goNamed(RouteNames.photoCapture);
   }
+
+  void _onCreateAccount() {
+    // Preview conversion: same resume path as Save My Progress (default
+    // /home with local progress kept via the post-auth merge dialog).
+    // The stashed outfit snapshot (if any) travels device-locally for a
+    // later Save → sign-in replay; nothing auto-POSTs after login.
+    recordPendingAuthIntent(
+      PendingAuthIntent(
+        action: 'save_progress',
+        route: '/home',
+        params: const {'source': 'guest_preview'},
+        createdAt: DateTime.now(),
+      ),
+    );
+    context.pushNamed(RouteNames.createAccount);
+  }
+
+  void _onTryAgain() {
+    // Retry re-runs the live ephemeral pass with the same bytes (a fresh
+    // analysis, never a cached result). Without bytes, fall back to a
+    // fresh capture.
+    final bytes = widget.imageBytes;
+    if (bytes == null || bytes.isEmpty) {
+      _onRetake();
+      return;
+    }
+    context.pushNamed(
+      RouteNames.aiAnalysis,
+      extra: <String, dynamic>{'imageBytes': bytes},
+    );
+  }
+
+  bool get _hasPreview =>
+      widget.outfitSnapshot != null || widget.garmentSnapshot != null;
 
   @override
   Widget build(BuildContext context) {
@@ -122,10 +183,10 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         SizedBox(height: FansivibeSpacing.lg),
-                        // Honest state: nothing has been analyzed yet. Real
-                        // appearance analysis runs post-auth in Scan flows
-                        // via Ollama vision (see analysis endpoints) and
-                        // never fabricates scores.
+                        // Honest state: with a preview this ran on the guest
+                        // photo via the ephemeral endpoints; without one,
+                        // nothing has been analyzed yet. Full personalized
+                        // analysis runs post-auth and never fabricates.
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(FansivibeSpacing.md),
@@ -148,7 +209,9 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                               SizedBox(width: FansivibeSpacing.sm),
                               Expanded(
                                 child: Text(
-                                  'Photo step complete — your personal analysis runs after you create an account. Nothing has been analyzed yet.',
+                                  _hasPreview
+                                      ? 'Guest preview ready — this first look ran on your photo. Create an account for the full personalized analysis.'
+                                      : 'Photo step complete — your personal analysis runs after you create an account. Nothing has been analyzed yet.',
                                   style: FansivibeTypography.bodyMediumWithFamily
                                       .copyWith(
                                         color: FansivibeColors.secondary,
@@ -159,6 +222,20 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                           ),
                         ),
                         SizedBox(height: FansivibeSpacing.lg),
+                        if (_hasPreview) ...[
+                          _buildAnimatedSection(
+                            _statusAnim,
+                            _buildPreviewCard(),
+                          ),
+                          SizedBox(height: FansivibeSpacing.lg),
+                        ] else if (widget.outfitFailure != null ||
+                            widget.garmentFailure != null) ...[
+                          _buildAnimatedSection(
+                            _statusAnim,
+                            _buildFailureCard(),
+                          ),
+                          SizedBox(height: FansivibeSpacing.lg),
+                        ],
                         _buildAnimatedSection(
                           _statusAnim,
                           _buildStatusCard(),
@@ -169,6 +246,12 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                           Column(
                             children: [
                               FansiButton.primary(
+                                label: 'Create Account',
+                                icon: Icons.person_add_rounded,
+                                onPressed: _onCreateAccount,
+                              ),
+                              SizedBox(height: FansivibeSpacing.sm + 4),
+                              FansiButton.secondary(
                                 label: 'Continue Without Account',
                                 icon: Icons.save_rounded,
                                 onPressed: _onContinueWithoutAccount,
@@ -212,6 +295,274 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
           ),
         );
       },
+    );
+  }
+
+  /// Limited guest preview: the uploaded photo plus only the observations
+  /// the ephemeral pass actually returned. Null or empty attributes are
+  /// omitted (never defaulted), with a plain note where a section found
+  /// nothing measurable.
+  Widget _buildPreviewCard() {
+    final garment =
+        widget.garmentSnapshot?.cast<String, dynamic>();
+    final outfit = widget.outfitSnapshot?.cast<String, dynamic>();
+    final appearance =
+        outfit?['appearance'] as Map<String, dynamic>?;
+    final faceShape = appearance?['faceShape'] as String?;
+    final recommendations =
+        outfit?['recommendations'] as Map<String, dynamic>?;
+    final top = recommendations?['top'] as Map<String, dynamic>?;
+    final confidence = (outfit?['confidence'] as num?)?.toDouble();
+    final needsMoreData = outfit?['needs_more_data'] as bool? ?? false;
+
+    final facts = <MapEntry<String, IconData>>[];
+    void addFact(String? value, String label, IconData icon) {
+      if (value != null && value.trim().isNotEmpty) {
+        facts.add(MapEntry('$label: ${_pretty(value)}', icon));
+      }
+    }
+
+    addFact(
+      garment?['category'] as String?,
+      'Garment',
+      Icons.checkroom_outlined,
+    );
+    addFact(garment?['color'] as String?, 'Color', Icons.palette_outlined);
+    addFact(
+      garment?['pattern'] as String?,
+      'Pattern',
+      Icons.layers_outlined,
+    );
+    addFact(
+      garment?['material'] as String?,
+      'Material',
+      Icons.texture_outlined,
+    );
+    addFact(garment?['style'] as String?, 'Style', Icons.style_outlined);
+    addFact(garment?['fit'] as String?, 'Fit', Icons.straighten_outlined);
+    final hasGarmentFacts = facts.isNotEmpty;
+    addFact(faceShape, 'Face shape', Icons.face_outlined);
+
+    final topName = top?['name'] as String?;
+    final topReasons = top?['reasons'] as List?;
+    final topReason =
+        topReasons != null && topReasons.isNotEmpty
+            ? topReasons.first.toString()
+            : null;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(FansivibeSpacing.md),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.mdBorder,
+        border: Border.all(
+          color: FansivibeColors.primary.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Your Style Preview',
+            style: FansivibeTypography.titleLargeWithFamily.copyWith(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          SizedBox(height: FansivibeSpacing.sm),
+          Text(
+            'A first look from this photo only — not the full analysis.',
+            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+              color: FansivibeColors.secondary,
+              fontSize: 13,
+            ),
+          ),
+          if (widget.imageBytes != null && widget.imageBytes!.isNotEmpty) ...[
+            SizedBox(height: FansivibeSpacing.md),
+            ClipRRect(
+              borderRadius: FansivibeRadius.baseBorder,
+              child: Image.memory(
+                widget.imageBytes!,
+                height: 180,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              ),
+            ),
+          ],
+          SizedBox(height: FansivibeSpacing.md),
+          for (final fact in facts) _buildFactRow(fact.key, fact.value),
+          if (garment == null || !hasGarmentFacts)
+            _buildFactRow(
+              'No clear outfit details in this photo.',
+              Icons.info_outline_rounded,
+              muted: true,
+            ),
+          if (faceShape == null || faceShape.trim().isEmpty)
+            _buildFactRow(
+              "Face shape wasn't measurable in this photo.",
+              Icons.info_outline_rounded,
+              muted: true,
+            ),
+          if (topName != null && topName.trim().isNotEmpty) ...[
+            SizedBox(height: FansivibeSpacing.sm),
+            _buildFactRow(
+              'Styling direction: ${_pretty(topName)}',
+              Icons.auto_awesome_outlined,
+            ),
+            if (topReason != null && topReason.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(left: 26, top: 2),
+                child: Text(
+                  topReason,
+                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                    color: FansivibeColors.secondary,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+          ],
+          if (confidence != null) ...[
+            SizedBox(height: FansivibeSpacing.sm),
+            _buildFactRow(
+              'Analysis confidence: ${(confidence * 100).round()}%'
+              '${needsMoreData ? ' — early preview, more photos sharpen this after you join' : ''}',
+              Icons.trending_up_rounded,
+              muted: true,
+            ),
+          ],
+          SizedBox(height: FansivibeSpacing.sm),
+          Text(
+            'Create an account to unlock the full personalized analysis: a saved style profile, analysis history, and recommendations that learn from your saves.',
+            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+              color: FansivibeColors.secondary,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Honest failure: names the typed reason, offers retry with the same
+  /// bytes (a fresh analysis) or a retake. Never a success state.
+  Widget _buildFailureCard() {
+    final reason = widget.outfitFailure ?? widget.garmentFailure;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(FansivibeSpacing.md),
+      decoration: BoxDecoration(
+        color: FansivibeColors.error.withValues(alpha: 0.08),
+        borderRadius: FansivibeRadius.mdBorder,
+        border: Border.all(
+          color: FansivibeColors.error.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                size: 18,
+                color: FansivibeColors.error,
+              ),
+              SizedBox(width: FansivibeSpacing.sm),
+              Flexible(
+                child: Text(
+                  'Preview unavailable',
+                  style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: FansivibeSpacing.sm),
+          Text(
+            _previewFailureMessage(reason),
+            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+              color: FansivibeColors.secondary,
+            ),
+          ),
+          SizedBox(height: FansivibeSpacing.md),
+          FansiButton.secondary(
+            label: 'Try Again',
+            icon: Icons.refresh_rounded,
+            onPressed: _onTryAgain,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Maps a typed ephemeral failure reason to user-facing copy (mirrors the
+  /// Scan flow's mapping; unknown shapes degrade to a generic retry).
+  String _previewFailureMessage(String? reason) {
+    switch (reason) {
+      case 'no_face_detected':
+        return 'No face was clearly visible in that photo. Retake with your face in frame, or try another photo.';
+      case 'no_garment_detected':
+        return 'No clear outfit was visible in that photo. Retake showing what you are wearing.';
+      case 'ambiguous_subject':
+        return 'That photo was hard to read. Retake with one clear subject.';
+      case 'low_confidence':
+        return "The analysis wasn't confident enough in that photo. Retake in better light.";
+      case 'rate_limited':
+        return 'Too many requests — please wait a moment and try again.';
+      case 'service_unavailable':
+      case 'unreachable':
+        return 'The analysis service is unavailable. Check your connection and try again.';
+      case 'empty_image':
+        return "That photo couldn't be read. Please try another.";
+      default:
+        if (reason != null &&
+            reason.isNotEmpty &&
+            reason != 'request_failed') {
+          return 'Analysis failed ($reason). Please try again.';
+        }
+        return 'Analysis failed. Please try again.';
+    }
+  }
+
+  /// Display-case for a raw model value (codes like `tops` read naturally).
+  String _pretty(String raw) {
+    final words = raw.replaceAll('_', ' ').trim();
+    if (words.isEmpty) return words;
+    return words[0].toUpperCase() + words.substring(1);
+  }
+
+  Widget _buildFactRow(String text, IconData icon, {bool muted = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            icon,
+            size: 16,
+            color: muted
+                ? FansivibeColors.secondary
+                : FansivibeColors.primary,
+          ),
+          SizedBox(width: FansivibeSpacing.sm),
+          Expanded(
+            child: Text(
+              text,
+              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                color: muted
+                    ? FansivibeColors.secondary
+                    : FansivibeColors.textPrimary,
+                fontWeight: muted ? FontWeight.w400 : FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

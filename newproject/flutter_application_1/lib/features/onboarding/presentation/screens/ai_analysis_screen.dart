@@ -1,13 +1,41 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/outfit_scan/data/outfit_scan_client.dart';
+import 'package:fansivibe/features/wardrobe/data/garment_client.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
+/// Onboarding analysis step: runs the real guest preview when photo bytes
+/// are supplied, otherwise keeps the legacy timed handoff.
+///
+/// With [imageBytes] (guest path from [PhotoCaptureScreen]), this screen is
+/// the "analysis in progress" state for one synchronous preview pass over
+/// the existing unauthenticated endpoints (`POST
+/// /v1/analysis/outfit/ephemeral` for the face observation + `POST
+/// /v1/analysis/garment/ephemeral` for the outfit observation, in parallel).
+/// No run row is created, nothing is persisted server-side, and no result is
+/// fabricated: whatever the backends return verbatim travels to
+/// [RouteNames.yourAnalysis] (snapshots and/or typed failure reasons).
 class AiAnalysisScreen extends StatefulWidget {
-  const AiAnalysisScreen({super.key});
+  const AiAnalysisScreen({
+    super.key,
+    this.imageBytes,
+    this.outfitClient,
+    this.garmentClient,
+  });
+
+  /// Captured photo bytes (in-memory route extra, never persisted).
+  final Uint8List? imageBytes;
+
+  /// Injectable transports (tests supply fakes via `http/testing`
+  /// MockClient-backed instances; production uses the defaults).
+  final OutfitScanClient? outfitClient;
+  final GarmentClient? garmentClient;
 
   @override
   State<AiAnalysisScreen> createState() => _AiAnalysisScreenState();
@@ -40,17 +68,75 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen>
       ),
     );
 
-    _arcController.forward();
-    _arcController.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        Timer(const Duration(milliseconds: 500), _onComplete);
-      }
-    });
+    final bytes = widget.imageBytes;
+    if (bytes == null || bytes.isEmpty) {
+      // Legacy timed handoff (deep link / no photo): no analysis exists to
+      // wait for, so keep the timed forward with no preview extras.
+      _arcController.forward();
+      _arcController.addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          Timer(const Duration(milliseconds: 500), _onComplete);
+        }
+      });
+    } else {
+      // Real preview pass: indeterminate animation while the synchronous
+      // ephemeral calls run; navigation happens exactly once below.
+      _arcController.repeat();
+      unawaited(_runPreview(bytes));
+    }
   }
 
   void _onComplete() {
-    if (!mounted) return;
+    if (!mounted || _navigated) return;
+    _navigated = true;
     context.pushNamed(RouteNames.yourAnalysis);
+  }
+
+  bool _navigated = false;
+
+  /// One guest preview pass over the existing ephemeral endpoints.
+  ///
+  /// Both calls run in parallel and never throw (the clients degrade to
+  /// typed failure reasons). The outfit snapshot is stashed in the existing
+  /// device-local slot for a later Save → sign-in replay; the garment
+  /// observation travels with the route extra only (garment saves persist
+  /// device-local via `LocalWardrobeRepository`, so like the Scan flow it
+  /// stashes nothing). A popped screen navigates nowhere (`mounted`).
+  Future<void> _runPreview(Uint8List bytes) async {
+    final outfit = widget.outfitClient ?? OutfitScanClient();
+    final garment = widget.garmentClient ?? GarmentClient();
+    final results = await Future.wait([
+      outfit.submitOutfitEphemeralBytes(bytes, filename: 'style_capture.jpg'),
+      garment.submitGarmentEphemeralBytes(
+        bytes,
+        filename: 'style_capture.jpg',
+      ),
+    ]);
+    if (!mounted || _navigated) return;
+    _navigated = true;
+    // Freeze the indeterminate animation before navigating: the pushed
+    // result keeps this screen alive underneath, and a repeating
+    // controller would schedule frames forever.
+    _arcController.stop();
+    _particleController.stop();
+    final outfitSnapshot = results[0].snapshot;
+    final garmentSnapshot = results[1].snapshot;
+    if (outfitSnapshot != null) {
+      stashPendingEphemeralResult(
+        feature: EphemeralFeature.outfit,
+        snapshot: outfitSnapshot,
+      );
+    }
+    context.pushNamed(
+      RouteNames.yourAnalysis,
+      extra: <String, dynamic>{
+        'imageBytes': bytes,
+        'outfitSnapshot': outfitSnapshot,
+        'garmentSnapshot': garmentSnapshot,
+        'outfitFailure': results[0].failureReason,
+        'garmentFailure': results[1].failureReason,
+      },
+    );
   }
 
   @override

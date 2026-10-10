@@ -304,7 +304,14 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
       );
       return;
     }
-    context.pushNamed(RouteNames.aiAnalysis);
+    // Guest preview: forward the captured bytes so the analysis screen can
+    // run the real unauthenticated ephemeral preview (outfit + garment).
+    // Bytes stay in-memory via route extra (never persisted), matching the
+    // authenticated branch above.
+    context.pushNamed(
+      RouteNames.aiAnalysis,
+      extra: <String, dynamic>{'imageBytes': bytes},
+    );
   }
 
   void _onSkip() {
