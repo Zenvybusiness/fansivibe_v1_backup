@@ -89,9 +89,11 @@ class _EntryScreenState extends State<EntryScreen>
   }
 
   void _onAnalyze() {
+    // Analyze My Style requires a deliberate style selection before the
+    // photo journey; Explore stays optional (vibeRequired false).
     context.pushNamed(
       RouteNames.vibeSelect,
-      extra: {'photoPath': true, 'vibeRequired': false},
+      extra: {'photoPath': true, 'vibeRequired': true},
     );
   }
 

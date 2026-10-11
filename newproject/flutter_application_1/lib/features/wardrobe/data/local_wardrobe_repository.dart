@@ -1,6 +1,7 @@
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_item_photo.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 
@@ -11,6 +12,7 @@ WardrobeItemData _toData(WardrobeEntry entry) => WardrobeItemData(
   color: entry.color,
   material: entry.material,
   isFavorite: entry.isFavorite,
+  imageBytes: decodeWardrobePhoto(entry.imageBase64),
 );
 
 /// On-device wardrobe for guests (Phase 2.1, no account, no backend).
@@ -24,9 +26,9 @@ WardrobeItemData _toData(WardrobeEntry entry) => WardrobeItemData(
 /// action) without any extra check. Server intelligence has no
 /// on-device equivalent: [getInsight] and [getWearSummary] return null
 /// (callers already hide those slots) and [logWear] returns null
-/// (unreachable behind the UUID gate). Photo `imageRef`s are dropped:
-/// guest garment analysis is server-side, so local items are
-/// imageless — the add-item form says so at the photo step.
+/// (unreachable behind the UUID gate). Photos persist as bounded bytes
+/// on the entry itself (see the wardrobe photo helper); manual entries
+/// stay imageless.
 class LocalWardrobeRepository implements WardrobeRepository {
   LocalWardrobeRepository({LearningService? service})
     : _service = service ?? LearningService.instance;
@@ -112,6 +114,9 @@ class LocalWardrobeRepository implements WardrobeRepository {
       color: color ?? current.color,
       material: material ?? current.material,
       isFavorite: isFavorite ?? current.isFavorite,
+      // Edits never touch the photo: carry it over so a rename/favorite
+      // toggle cannot wipe the saved image.
+      imageBase64: current.imageBase64,
     );
     _service.updateItem(itemId, updated);
     return _toData(updated);

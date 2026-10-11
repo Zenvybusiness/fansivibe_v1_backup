@@ -113,6 +113,46 @@
 
 ---
 
+## ANALYZE MY STYLE NEW-USER JOURNEY CORRECTION (executed 2026-10-11, STATUS: DONE — Flutter-only, 3 files edited [all onboarding] + 1 existing test updated + 1 new test suite; NO backend/API/DB/schema change, NO Discovery change, NO new dependency, wardrobe photo fix preserved intact, no commit/push)
+
+- **Journey before**: entry `Analyze My Style` → vibe-select with `vibeRequired: false` (Continue enabled with nothing selected, `Skip` offered) → camera → photo → ephemeral analysis → `YourAnalysisScreen` → `Continue Without Account` landed on the Stylist tab with `'vibe': null`; the saved vibe lived only in `LocalStorage.vibe` when the user happened to pick one.
+- **Journey after**: Analyze → vibe-select **requires** one deliberate tap (no Skip, no default; Continue shows `Select a style to continue` and stays put until a valid option is chosen) → camera → photo → same analysis/loading/retry/retake/conversion behavior → `Continue Without Account` lands on `/home`, where the existing decision shows the new-user Home with Today's Look from the persisted vibe. Explore/Change-Style paths stay optional and still land on Discover.
+- **Root cause**: the Analyze entry point passed `vibeRequired: false`, which both enabled selection-less Continue and (via the shared screen) rendered the Skip escape hatch; the result handoff then routed around Home to the Stylist tab with a nulled vibe.
+- **Changes**:
+  1. `entry_screen.dart`: `_onAnalyze` now passes `vibeRequired: true` (Explore unchanged).
+  2. `vibe_select_screen.dart`: Skip button + `_onSkip` removed (both paths); Continue always tappable — required+unselected shows the concise validation snackbar instead of navigating (dimmed opacity retained as the disabled cue); stale `…or skip for "Open to Everything"` copy replaced; `LocalStorage.vibe` write kept, deliberately NOT mirrored to `LearningService.setStyleType` (that records a learning signal which would flip the new-vs-old Home decision to established for a brand-new user).
+  3. `your_analysis_screen.dart`: `_onContinueWithoutAccount` navigates to `RouteNames.home` (was `stylist`) with the real persisted vibe extra; flags and both account-conversion buttons unchanged.
+- **Validation**: `flutter analyze` on all 5 touched files → No issues. New `test/vibe_select_required_test.dart` → 11/11 (no Skip, validation+stay, valid selection saves+carries vibe, deselect→unselected, optional Explore paths intact, entry→vibe unselected, vibe→look mapping, null-vibe default, Home landing with vibe, conversion intact). Updated `your_analysis_screen_test.dart` → 4/4. Focused journey batch (entry, first-time-home, photo-capture, guest-preview, ephemeral, step3, c08, cold-start, wardrobe-photo) → 112/112. The only failures in adjacent files (`first_time_home_route_decision` shell GlobalKey ×2) verified IDENTICAL on clean HEAD via `git stash` (pre-existing).
+- **Discovery/backend untouched**: diff contains only onboarding/wardrobe/learning/test files; zero `discover/**`, zero `backend/**`, no contract changes.
+- **Remaining**: camera/photo-step Skips intentionally kept (out of scope); authenticated photo branch still runs the established hairstyle-processing flow; no live-device verification.
+- **Next**: review. No commit/push per repo rule.
+
+---
+
+## WARDROBE ITEM IMAGES NOT DISPLAYING — FIX (executed 2026-10-11, STATUS: DONE — Flutter-only, 8 files edited + 2 new [1 lib helper, 1 test suite]; NO backend/API/DB/schema change, NO Discovery change, NO new dependency, no commit/push)
+
+- **Problem**: photo-added wardrobe items never showed the taken/selected photo on their card; only the tonal placeholder rendered.
+- **Root causes (pipeline trace, all verified in code)**:
+  1. `mapItemDtoToUi` (`wardrobe/data/wardrobe_repository.dart:10-17`) dropped the backend `imageRef` — analyzed photo references never reached the UI model.
+  2. `AddWardrobeItemScreen._buildImageRef()` returned null unless garment analysis completed with `input_media` — a photo taken but not analyzed (or any guest photo: the ephemeral path has no `input_media` by design) was discarded at save; `_photoBytes` never traveled with the item.
+  3. `WardrobeItemData`/`WardrobeEntry` had no image field at all — nothing could carry bytes through save/load.
+  4. `ClothingItemCard` and the details view had no image branch — always `FansiImageWell`.
+  5. `LocalWardrobeRepository.createItem` ignored images; guest photos were never persisted.
+  6. Backend stores `imageRef` metadata verbatim but serves no image bytes (no download endpoint — verified: no media/download route in `backend/app/api/routers/`), so Flutter must persist renderable bytes locally; no such persistence existed.
+- **Fix (all additive/nullable, existing storage + backend architecture reused)**:
+  1. `learning/data/models.dart`: `WardrobeEntry.imageBase64` (optional; old rows without the key still parse; imageless entries serialize exactly as before) + `copyWith` support.
+  2. `wardrobe/data/wardrobe_mock_data.dart`: `WardrobeItemData.imageBytes` (exact user photo, null = imageless) + `imageRef` (backend value verbatim) + `copyWith`. All existing const constructions compile untouched.
+  3. NEW `wardrobe/data/wardrobe_item_photo.dart` (stdlib `dart:convert`/`dart:ui` only, web-safe, no `dart:io`/no paths): base64 encode/decode (corrupt → null), `prepareWardrobePhoto` (≤512 KB passthrough; larger downscaled to 1024 longest edge per the existing gallery cap, failure → original bytes, never lost), `attachLocalPhoto` (rehydrates account rows from the on-device mirror by id), `wardrobeEntryFromItem` (edit-syncs preserve stored bytes).
+  4. `mapItemDtoToUi` preserves backend `imageRef`; local repo round-trips bytes and preserves them across `updateItem`; no temp/cache file paths are ever stored (bytes only).
+  5. `add_wardrobe_item_screen.dart` `_saveItem`: the prepared photo (analyzed or not) binds to the saved id — guest entries update in place (restart-safe via `LocalStore` JSON), account items ride the existing mirror-add in `wardrobe_screen.dart`. Save payload (`imageRef`/fit) unchanged.
+  6. `wardrobe_widgets.dart`: shared `WardrobeItemImage` (real photo via `Image.memory` + `errorBuilder` → well; null → existing well) used by `ClothingItemCard` (proportions/chrome untouched); details screen shows a bounded 220px hero ONLY when a photo exists (imageless layout pixel-identical); both screens overlay mirror bytes on load.
+- **Validation**: `flutter analyze` on all 10 touched files → No issues. New `test/wardrobe_item_photo_test.dart` → 22/22 (exact-image card/hero, save/load + JSON-restart survival, unanalyzed-photo binding, guest on-device persistence, imageless layout intact, corrupt-base64/bytes fallback without crash, imageRef preserved, edit-preserves/delete-removes). Focused wardrobe batch → 234 passed; the 17 failures in `wardrobe_insight`/`wear_summary`/`wear_capture`/`assistant_outfit_wardrobe_wiring` plus 6 in `clothes_test` verified IDENTICAL on clean HEAD via `git stash` (pre-existing, out of scope); `guest_phase2`/`auth_flow`/`guest_save_continuation` show only the 4 documented pre-existing failures (Discover copy drift ×2, duplicate-Save counts ×2). All wardrobe guest tests (list/details/add/edit) pass.
+- **Discovery/backend untouched**: `git diff --name-only` + untracked list contain only wardrobe/learning/test files; zero `discover/**`, zero `backend/**`.
+- **Remaining**: oversized photos persist as ~1024px PNGs (prefs-blob growth noted in code); account-item bytes are same-device only (backend serves metadata, no byte endpoint — a server thumbnail/download URL would be the backend-side upgrade, not implemented); widget-test env never delivers image frames (photo presence asserted via `MemoryImage` bytes, not pixels); no live-device camera verification.
+- **Next**: review. No commit/push per repo rule.
+
+---
+
 ## APPLICATION-WIDE MOCK DATA AUDIT AND FIX (executed 2026-10-11, STATUS: DONE — Flutter-only, 20 files modified [14 lib, 6 test]; NO backend/API/DB/AI/schema changes, NO Discovery changes, no commit/push)
 
 - **Scope**: every application tab/journey except Discovery (strictly untouched: no Discovery UI/logic/API/repo/model/routing/config/test file modified — verified via `git diff --name-only`). Read-only audit first (5 parallel trace agents, all tabs mapped screen→widget→repository→client→backend endpoint, endpoints verified present in `backend/`), then fixes, then tests.

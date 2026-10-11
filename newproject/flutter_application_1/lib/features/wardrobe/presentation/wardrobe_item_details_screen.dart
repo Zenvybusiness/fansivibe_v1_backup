@@ -3,22 +3,18 @@ import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_item_photo.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
-/// Converts a [WardrobeItemData] to a [WardrobeEntry] for LearningService sync.
-WardrobeEntry _toEntry(WardrobeItemData item) => WardrobeEntry(
-  id: item.id,
-  name: item.name,
-  category: item.category,
-  color: item.color,
-  material: item.material,
-  isFavorite: item.isFavorite,
-);
+/// Converts a [WardrobeItemData] to a [WardrobeEntry] for LearningService sync,
+/// preserving the stored photo when the item carries no new bytes.
+WardrobeEntry _toEntry(WardrobeItemData item) => wardrobeEntryFromItem(item);
 
 /// Strict backend-UUID gate for wear capture (DEC-012, §10.2).
 ///
@@ -111,7 +107,9 @@ class _WardrobeItemDetailsScreenState
   Future<void> _loadItem() async {
     final item = await _repository.getItem(itemId: widget.itemId);
     setState(() {
-      _item = item;
+      // Backend rows carry metadata only: rehydrate the photo from the
+      // on-device mirror by id (imageless rows pass through).
+      _item = item == null ? null : attachLocalPhoto(item);
       _isLoading = false;
       _isLoggingWear = false;
       _wearIdempotencyKey = null;
@@ -558,6 +556,20 @@ ScaffoldMessenger.of(context).showSnackBar(
               color: FansivibeColors.textPrimary,
             ),
           ),
+          // Item photo (bounded hero, same slot as the wardrobe card) —
+          // only when the item has a photo, so manual entries keep their
+          // exact existing layout. Undecodable bytes fall back safely.
+          if (item.imageBytes != null && item.imageBytes!.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                height: 220,
+                width: double.infinity,
+                child: WardrobeItemImage(item: item, iconSize: 48),
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
 
           // Name

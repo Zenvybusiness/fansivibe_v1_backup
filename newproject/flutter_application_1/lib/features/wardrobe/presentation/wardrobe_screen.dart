@@ -4,6 +4,7 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_item_photo.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
@@ -18,14 +19,10 @@ import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
-WardrobeEntry _toEntry(WardrobeItemData item) => WardrobeEntry(
-  id: item.id,
-  name: item.name,
-  category: item.category,
-  color: item.color,
-  material: item.material,
-  isFavorite: item.isFavorite,
-);
+/// Converts UI data to the on-device mirror entry, preserving the stored
+/// photo when the item carries no new bytes (see the wardrobe photo
+/// helper — edits must not wipe the image).
+WardrobeEntry _toEntry(WardrobeItemData item) => wardrobeEntryFromItem(item);
 
 class WardrobeScreen extends StatefulWidget {
   /// Creates the wardrobe screen.
@@ -135,7 +132,9 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       final items = await _repository.listItems(pageSize: 100);
       if (!mounted) return;
       setState(() {
-        _items = items;
+        // Backend rows carry metadata only: rehydrate each item's photo
+        // from the on-device mirror by id (imageless rows pass through).
+        _items = items.map(attachLocalPhoto).toList();
         _isLoading = false;
       });
     } catch (e) {

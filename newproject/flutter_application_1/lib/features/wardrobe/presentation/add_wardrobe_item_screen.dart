@@ -8,7 +8,9 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/wardrobe/data/garment_client.dart';
 import 'package:fansivibe/features/wardrobe/data/garment_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_item_photo.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_photo_screen.dart';
@@ -109,11 +111,15 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       material: _selectedTextureName,
     );
 
+    // Bound the selected/taken photo once: the exact photo (analyzed or
+    // not — analysis only preselects chips) travels with the saved item
+    // below. Null for manual entries, which stay imageless as before.
+    final photoBytes = await prepareWardrobePhoto(_photoBytes);
+    if (!mounted) return;
+
     try {
-      // Phase 2.1 guests persist on-device through the local repository
-      // (photo imageRefs are always null here: garment analysis is
-      // server-side, so local items are imageless — the photo step says
-      // so when analysis prompts for sign-in). No prompt, no backend.
+      // Phase 2.1 guests persist on-device through the local repository.
+      // No prompt, no backend.
       final repository =
           isGuestUser ? LocalWardrobeRepository() : _repository;
       final createdItem = await repository.createItem(
@@ -133,9 +139,20 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       if (createdItem != null) {
         // Success: keep the created item as source of truth and show the
         // post-save actions (C-04). The caller still receives it on Done.
+        // The photo binds to the saved id: guest entries were just created
+        // on-device (the update sticks and survives restart); account ids
+        // are absent from the mirror (no-op — the caller's existing
+        // mirror add persists the bytes below).
+        final savedItem = createdItem.copyWith(imageBytes: photoBytes);
+        if (photoBytes != null) {
+          LearningService.instance.updateItem(
+            savedItem.id,
+            wardrobeEntryFromItem(savedItem),
+          );
+        }
         setState(() {
           _isSubmitting = false;
-          _savedItem = createdItem;
+          _savedItem = savedItem;
         });
       } else {
         // API failure

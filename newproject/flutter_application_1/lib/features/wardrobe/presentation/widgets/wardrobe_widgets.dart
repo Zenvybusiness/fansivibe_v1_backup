@@ -294,19 +294,12 @@ class ClothingItemCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final swatch = _colorFromName(item.color);
-
     return FansiMiniCard(
       onTap: onTap,
       image: Stack(
         fit: StackFit.expand,
         children: [
-          FansiImageWell(
-            icon: _categoryIcon(item.category),
-            color: swatch,
-            iconSize: 36,
-            showLabel: false,
-          ),
+          WardrobeItemImage(item: item, iconSize: 36),
           if (item.material != null)
             Positioned(
               bottom: FansivibeSpacing.sm,
@@ -340,62 +333,102 @@ class ClothingItemCard extends StatelessWidget {
       meta: item.color,
     );
   }
+}
 
-  IconData _categoryIcon(String category) {
-    switch (category) {
-      case 'outerwear':
-        return Icons.checkroom_rounded;
-      case 'tops':
-        return Icons.person_rounded;
-      case 'bottoms':
-        return Icons.accessibility_rounded;
-      case 'footwear':
-        return Icons.directions_walk_rounded;
-      case 'accessories':
-        return Icons.diamond_rounded;
-      default:
-        return Icons.category_rounded;
+/// Image slot for wardrobe cards and detail views.
+///
+/// Renders the exact photo the user took/selected ([WardrobeItemData.imageBytes])
+/// with `BoxFit.cover`. States: missing/empty bytes → the existing tonal
+/// [FansiImageWell] (manual entries unchanged); undecodable bytes → the well
+/// via [errorBuilder] (never a crash, never a placeholder photo). No loading
+/// spinner: bytes are local, so decode is immediate.
+class WardrobeItemImage extends StatelessWidget {
+  const WardrobeItemImage({required this.item, this.iconSize = 36, super.key});
+
+  final WardrobeItemData item;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = item.imageBytes;
+    if (bytes == null || bytes.isEmpty) {
+      return FansiImageWell(
+        icon: wardrobeIconFor(item.category),
+        color: wardrobeSwatchFor(item.color),
+        iconSize: iconSize,
+        showLabel: false,
+      );
     }
+    return Image.memory(
+      bytes,
+      fit: BoxFit.cover,
+      gaplessPlayback: true,
+      errorBuilder: (context, _, __) => FansiImageWell(
+        icon: wardrobeIconFor(item.category),
+        color: wardrobeSwatchFor(item.color),
+        iconSize: iconSize,
+        showLabel: false,
+      ),
+    );
   }
+}
 
-  Color _colorFromName(String colorName) {
-    switch (colorName.toLowerCase()) {
-      case 'charcoal':
-        return const Color(0xFF444444);
-      case 'black':
-        return Colors.black;
-      case 'white':
-      case 'off-white':
-        return const Color(0xFFE5E5E5);
-      case 'cream':
-        return const Color(0xFFFDF5E6);
-      case 'navy':
-        return const Color(0xFF1A237E);
-      case 'indigo':
-        return const Color(0xFF3F51B5);
-      case 'blush':
-        return const Color(0xFFDEBCCD);
-      case 'beige':
-        return const Color(0xFFE8D5B7);
-      case 'khaki':
-        return const Color(0xFFC3B091);
-      case 'stone':
-        return const Color(0xFFA0A0A0);
-      case 'tan':
-        return const Color(0xFFD2B48C);
-      case 'light wash':
-        return const Color(0xFFB5D2E0);
-      case 'light blue':
-        return const Color(0xFF81D4FA);
-      case 'burgundy':
-        return const Color(0xFF880E4F);
-      case 'brown':
-        return const Color(0xFF795548);
-      case 'silver':
-        return const Color(0xFFBDBDBD);
-      default:
-        return FansivibeColors.textSecondary;
-    }
+/// Category icon for wardrobe image wells (shared by card and detail).
+IconData wardrobeIconFor(String category) {
+  switch (category) {
+    case 'outerwear':
+      return Icons.checkroom_rounded;
+    case 'tops':
+      return Icons.person_rounded;
+    case 'bottoms':
+      return Icons.accessibility_rounded;
+    case 'footwear':
+      return Icons.directions_walk_rounded;
+    case 'accessories':
+      return Icons.diamond_rounded;
+    default:
+      return Icons.category_rounded;
+  }
+}
+
+/// Tint for wardrobe image wells (shared by card and detail).
+Color wardrobeSwatchFor(String colorName) {
+  switch (colorName.toLowerCase()) {
+    case 'charcoal':
+      return const Color(0xFF444444);
+    case 'black':
+      return Colors.black;
+    case 'white':
+    case 'off-white':
+      return const Color(0xFFE5E5E5);
+    case 'cream':
+      return const Color(0xFFFDF5E6);
+    case 'navy':
+      return const Color(0xFF1A237E);
+    case 'indigo':
+      return const Color(0xFF3F51B5);
+    case 'blush':
+      return const Color(0xFFDEBCCD);
+    case 'beige':
+      return const Color(0xFFE8D5B7);
+    case 'khaki':
+      return const Color(0xFFC3B091);
+    case 'stone':
+      return const Color(0xFFA0A0A0);
+    case 'tan':
+      return const Color(0xFFD2B48C);
+    case 'light wash':
+      return const Color(0xFFB5D2E0);
+    case 'light blue':
+      return const Color(0xFF81D4FA);
+    case 'burgundy':
+      return const Color(0xFF880E4F);
+    case 'brown':
+      return const Color(0xFF795548);
+    case 'silver':
+      return const Color(0xFFBDBDBD);
+    default:
+      return FansivibeColors.textSecondary;
   }
 }
 

@@ -1,6 +1,12 @@
 import 'dart:convert';
 
 /// A wardrobe item in the user's evolving model.
+///
+/// [imageBase64] carries the exact photo the user took/selected for the
+/// item (base64 of the bounded photo bytes, see the wardrobe photo
+/// helper), or null for manual entries without a photo. Additive and
+/// optional: older persisted rows without the key still parse (null),
+/// and imageless entries keep the existing empty-image UI.
 class WardrobeEntry {
   const WardrobeEntry({
     required this.id,
@@ -9,6 +15,7 @@ class WardrobeEntry {
     required this.color,
     this.material,
     this.isFavorite = false,
+    this.imageBase64,
   });
 
   final String id;
@@ -18,13 +25,17 @@ class WardrobeEntry {
   final String? material;
   final bool isFavorite;
 
-  WardrobeEntry copyWith({bool? isFavorite}) => WardrobeEntry(
+  /// Base64 photo bytes for the item, or null when it has no photo.
+  final String? imageBase64;
+
+  WardrobeEntry copyWith({bool? isFavorite, String? imageBase64}) => WardrobeEntry(
     id: id,
     name: name,
     category: category,
     color: color,
     material: material,
     isFavorite: isFavorite ?? this.isFavorite,
+    imageBase64: imageBase64 ?? this.imageBase64,
   );
 
   Map<String, dynamic> toJson() => {
@@ -34,6 +45,7 @@ class WardrobeEntry {
     'color': color,
     'material': material,
     'isFavorite': isFavorite,
+    if (imageBase64 != null) 'imageBase64': imageBase64,
   };
 
   factory WardrobeEntry.fromJson(Map<String, dynamic> json) => WardrobeEntry(
@@ -43,6 +55,7 @@ class WardrobeEntry {
     color: json['color'] as String,
     material: json['material'] as String?,
     isFavorite: json['isFavorite'] as bool? ?? false,
+    imageBase64: json['imageBase64'] as String?,
   );
 }
 

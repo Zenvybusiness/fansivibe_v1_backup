@@ -1,3 +1,7 @@
+import 'dart:typed_data';
+
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
+
 /// Category data for wardrobe filtering.
 class WardrobeCategory {
   const WardrobeCategory({
@@ -14,6 +18,12 @@ class WardrobeCategory {
 }
 
 /// Data for a single wardrobe clothing item.
+///
+/// [imageBytes] are the exact photo bytes the user took/selected for the
+/// item (bounded by the wardrobe photo helper), or null for manual
+/// entries without a photo — null keeps the existing empty-image well.
+/// [imageRef] is the backend's own photo reference verbatim (null unless
+/// the backend returned one); it is preserved end to end, never invented.
 class WardrobeItemData {
   const WardrobeItemData({
     required this.id,
@@ -22,6 +32,8 @@ class WardrobeItemData {
     required this.color,
     this.material,
     this.isFavorite = false,
+    this.imageBytes,
+    this.imageRef,
   });
 
   final String id;
@@ -30,6 +42,32 @@ class WardrobeItemData {
   final String color;
   final String? material;
   final bool isFavorite;
+
+  /// Exact user photo bytes, or null when the item has no photo.
+  final Uint8List? imageBytes;
+
+  /// Backend photo reference verbatim, or null when absent.
+  final MediaRef? imageRef;
+
+  WardrobeItemData copyWith({
+    String? id,
+    String? name,
+    String? category,
+    String? color,
+    String? material,
+    bool? isFavorite,
+    Uint8List? imageBytes,
+    MediaRef? imageRef,
+  }) => WardrobeItemData(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    category: category ?? this.category,
+    color: color ?? this.color,
+    material: material ?? this.material,
+    isFavorite: isFavorite ?? this.isFavorite,
+    imageBytes: imageBytes ?? this.imageBytes,
+    imageRef: imageRef ?? this.imageRef,
+  );
 }
 
 /// AI wardrobe insight data.

@@ -7,6 +7,10 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
 
 /// Maps an API [WardrobeItem] DTO to the UI-facing [WardrobeItemData] model.
 /// This is the single controlled location for API ↔ domain model mapping.
+///
+/// The backend `imageRef` passes through verbatim (null unless the backend
+/// returned one) — dropping it is what lost analyzed photos before. The
+/// renderable bytes are overlaid separately from the on-device mirror.
 WardrobeItemData mapItemDtoToUi(WardrobeItem item) => WardrobeItemData(
   id: item.id,
   name: item.name,
@@ -14,6 +18,7 @@ WardrobeItemData mapItemDtoToUi(WardrobeItem item) => WardrobeItemData(
   color: item.color,
   material: item.material,
   isFavorite: item.isFavorite,
+  imageRef: item.imageRef,
 );
 
 /// Maps a backend [WardrobeInsight] DTO to the UI-facing [WardrobeInsightData].

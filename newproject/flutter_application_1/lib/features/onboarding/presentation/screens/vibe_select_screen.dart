@@ -85,10 +85,12 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
   void _onContinue() {
     if (_photoPath) {
       if (_vibeRequired && _selected == null) {
-        // Vibe is required but none selected - show a brief feedback and don't proceed
+        // Required but unselected: concise validation, no navigation.
+        // (Continue stays tappable so the attempt can surface this
+        // message; the dimmed opacity below is the disabled cue.)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Select a style vibe or skip for "Open to Everything"'),
+            content: Text('Select a style to continue'),
             backgroundColor: FansivibeColors.surfaceContainerHigh,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -100,6 +102,10 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
         return;
       }
       if (_selected != null) {
+        // The persisted preference (read by Home/FirstTimeHome/Profile).
+        // Deliberately NOT mirrored to LearningService.setStyleType: that
+        // records a learning signal, which would flip the new-vs-old Home
+        // decision to established for a brand-new user.
         LocalStorage.vibe = _selected!.name;
       }
       context.pushNamed(
@@ -114,17 +120,6 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
         LocalStorage.vibe = _selected!.name;
       }
       context.goNamed(RouteNames.discover, extra: {'vibe': _selected?.name});
-    }
-  }
-
-  void _onSkip() {
-    if (_photoPath) {
-      context.pushNamed(RouteNames.cameraPermission, extra: {'vibe': null});
-    } else {
-      // Explore path (skip): land directly on the Discover tab —
-      // never through Home first.
-      LocalStorage.savedLocally = true;
-      context.goNamed(RouteNames.discover, extra: {'vibe': null});
     }
   }
 
@@ -222,15 +217,13 @@ class _VibeSelectScreenState extends State<VibeSelectScreen>
                           duration: const Duration(milliseconds: 200),
                           child: FansiButton.primary(
                             label: 'Continue',
-                            onPressed: _vibeRequired
-                                ? (_selected != null ? _onContinue : null)
-                                : _onContinue,
+                            // Always tappable: with no selection on the
+                            // required path _onContinue shows the
+                            // validation message instead of navigating.
+                            // No Skip action exists — selection is
+                            // deliberate before continuing.
+                            onPressed: _onContinue,
                           ),
-                        ),
-                        SizedBox(height: FansivibeSpacing.sm + 4),
-                        FansiButton.tertiary(
-                          label: "I'm not sure — skip for now",
-                          onPressed: _onSkip,
                         ),
                         SizedBox(height: FansivibeSpacing.xl),
                       ],

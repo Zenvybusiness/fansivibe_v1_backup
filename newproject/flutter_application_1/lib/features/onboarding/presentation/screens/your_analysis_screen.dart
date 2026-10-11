@@ -101,14 +101,17 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
 
   void _onContinueWithoutAccount() {
     // Guest path: persist locally so a relaunch resumes, then land on
-    // the AI Stylist tab. Camera flow and UI above are untouched.
+    // the Home experience — the existing /home decision shows the new-user
+    // Home with Today's Look from the persisted vibe (or its honest states
+    // when recommendation data is unavailable). Camera flow and UI above
+    // are untouched; account conversion buttons below are unchanged.
     LocalStorage.onboardingComplete = true;
     LocalStorage.savedLocally = true;
     LocalStorage.onboardingPhotoCaptured = true;
-    context.goNamed(RouteNames.stylist, extra: {
+    context.goNamed(RouteNames.home, extra: {
       'onboarding_complete': true,
       'display_name': null,
-      'vibe': null,
+      'vibe': LocalStorage.vibe,
       'saved_locally': true,
       'analysis_cached': true,
     });

@@ -14,7 +14,11 @@ import 'package:fansivibe/shared/utils/local_storage.dart';
 ///    score, palette, or insights posing as a real result).
 /// 2. "Retake Photo" must open a fresh capture screen — never the
 ///    AiAnalysis processing timer (the old pop() loop).
-/// 3. "Save My Progress" and "Continue Without Account" keep working.
+/// 3. "Save My Progress" and "Continue Without Account" keep working:
+///    conversion still routes to account creation, while continuing lands
+///    on the Home experience (Today's Look via the persisted vibe).
+Object? _seenExtra;
+
 GoRouter _router() {
   return GoRouter(
     initialLocation: '/your-analysis',
@@ -41,10 +45,12 @@ GoRouter _router() {
             const Scaffold(body: Text('create-account-marker')),
       ),
       GoRoute(
-        path: '/stylist',
-        name: RouteNames.stylist,
-        builder: (context, state) =>
-            const Scaffold(body: Text('stylist-marker')),
+        path: '/home',
+        name: RouteNames.home,
+        builder: (context, state) {
+          _seenExtra = state.extra;
+          return const Scaffold(body: Text('home-marker'));
+        },
       ),
     ],
   );
@@ -125,9 +131,11 @@ void main() {
       expect(find.text('create-account-marker'), findsOneWidget);
     });
 
-    testWidgets('Continue Without Account still reaches the Stylist tab', (
+    testWidgets('Continue Without Account reaches Home with the vibe', (
       WidgetTester tester,
     ) async {
+      _seenExtra = null;
+      LocalStorage.vibe = 'minimalist';
       await tester.pumpWidget(
         MaterialApp.router(routerConfig: _router()),
       );
@@ -136,9 +144,13 @@ void main() {
       await _tapVisible(tester, 'Continue Without Account');
 
       expect(tester.takeException(), isNull);
-      expect(find.text('stylist-marker'), findsOneWidget);
+      expect(find.text('home-marker'), findsOneWidget);
       expect(LocalStorage.savedLocally, isTrue);
       expect(LocalStorage.onboardingComplete, isTrue);
+      expect(
+        (_seenExtra as Map<String, dynamic>?)?['vibe'],
+        'minimalist',
+      );
     });
   });
 }
