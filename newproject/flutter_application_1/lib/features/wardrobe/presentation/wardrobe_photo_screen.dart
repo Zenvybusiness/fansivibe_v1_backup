@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:fansivibe/shared/camera/camera_lifecycle_coordinator.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -25,10 +26,17 @@ class WardrobePhoto {
 /// injectable [pickImage] — Take Photo never falls back to gallery.
 /// Capture → preview → [Retake] / [Use Photo] (pops a [WardrobePhoto]).
 class WardrobePhotoScreen extends StatefulWidget {
-  const WardrobePhotoScreen({super.key, this.pickImage});
+  const WardrobePhotoScreen({
+    super.key,
+    this.pickImage,
+    this.takePhoto,
+  });
 
   /// Gallery picker override (tests only). Production uses ImagePicker.
   final Future<XFile?> Function(ImageSource source)? pickImage;
+
+  /// Custom capture override (tests only).
+  final Future<XFile?> Function()? takePhoto;
 
   @override
   State<WardrobePhotoScreen> createState() => _WardrobePhotoScreenState();
@@ -46,6 +54,10 @@ enum _WardrobeCameraUiState {
 class _WardrobePhotoScreenState extends State<WardrobePhotoScreen>
     with WidgetsBindingObserver {
   CameraController? _controller;
+  CameraLifecycleState _sessionState = CameraLifecycleState.off;
+
+  /// Visible for testing to verify controller lifecycle release.
+  CameraController? get cameraController => _controller;
 
   _WardrobeCameraUiState _uiState = _WardrobeCameraUiState.initial;
   String? _errorMessage;
@@ -62,45 +74,94 @@ class _WardrobePhotoScreenState extends State<WardrobePhotoScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    CameraLifecycleCoordinator.register(_disposeCamera);
     if (!_isTestMode) {
       SchedulerBinding.instance.addPostFrameCallback((_) async {
         await _initCamera();
+      });
+    } else if (widget.takePhoto != null) {
+      _uiState = _WardrobeCameraUiState.ready;
+    }
+  }
+
+  bool _isDisposed = false;
+
+  /// Stops any active image stream and safely disposes the camera controller.
+  Future<void> _disposeCamera() async {
+    if (_sessionState == CameraLifecycleState.off && _controller == null) {
+      return;
+    }
+    _sessionState = CameraLifecycleState.stopping;
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      if (controller.value.isStreamingImages) {
+        try {
+          await controller.stopImageStream();
+        } catch (_) {}
+      }
+      try {
+        await controller.dispose();
+      } catch (_) {}
+    }
+    _sessionState = CameraLifecycleState.off;
+    if (mounted && !_isDisposed) {
+      setState(() {
+        if (_previewBytes == null) {
+          _uiState = _WardrobeCameraUiState.initial;
+        }
       });
     }
   }
 
   @override
   void dispose() {
+    _isDisposed = true;
+    CameraLifecycleCoordinator.unregister(_disposeCamera);
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
+    _disposeCamera();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_controller == null) return;
     if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
-      _controller?.dispose();
-      _controller = null;
-      _uiState = _WardrobeCameraUiState.initial;
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _disposeCamera();
       return;
     }
-    if (state == AppLifecycleState.resumed) {
-      SchedulerBinding.instance.addPostFrameCallback((_) async {
-        await _initCamera();
-      });
-    }
+    // Rule 7: On app resume, keep camera OFF. Do not automatically restart.
   }
 
   Future<void> _initCamera() async {
+    if (!mounted) return;
+    if (_isTestMode) {
+      if (widget.takePhoto != null) {
+        setState(() => _uiState = _WardrobeCameraUiState.ready);
+      } else {
+        setState(() => _uiState = _WardrobeCameraUiState.unavailable);
+      }
+      return;
+    }
+    if (_sessionState == CameraLifecycleState.opening ||
+        _sessionState == CameraLifecycleState.active) {
+      return;
+    }
+    _sessionState = CameraLifecycleState.opening;
     setState(() {
       _uiState = _WardrobeCameraUiState.loading;
       _errorMessage = null;
     });
     try {
       final cameras = await availableCameras();
+      if (!mounted || _sessionState != CameraLifecycleState.opening) {
+        _sessionState = CameraLifecycleState.off;
+        return;
+      }
       if (cameras.isEmpty) {
+        _sessionState = CameraLifecycleState.off;
         setState(() => _uiState = _WardrobeCameraUiState.unavailable);
         return;
       }
@@ -113,11 +174,19 @@ class _WardrobePhotoScreenState extends State<WardrobePhotoScreen>
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
-      _controller = controller;
       await controller.initialize();
-      if (!mounted) return;
+      if (!mounted || _sessionState != CameraLifecycleState.opening) {
+        try {
+          await controller.dispose();
+        } catch (_) {}
+        _sessionState = CameraLifecycleState.off;
+        return;
+      }
+      _controller = controller;
+      _sessionState = CameraLifecycleState.active;
       setState(() => _uiState = _WardrobeCameraUiState.ready);
     } on CameraException catch (e) {
+      _sessionState = CameraLifecycleState.off;
       if (!mounted) return;
       final code = e.code.toLowerCase();
       if (code.contains('denied') ||
@@ -131,6 +200,7 @@ class _WardrobePhotoScreenState extends State<WardrobePhotoScreen>
         });
       }
     } catch (e) {
+      _sessionState = CameraLifecycleState.off;
       if (!mounted) return;
       setState(() {
         _uiState = _WardrobeCameraUiState.error;
@@ -140,11 +210,22 @@ class _WardrobePhotoScreenState extends State<WardrobePhotoScreen>
   }
 
   Future<void> _takePhoto() async {
+    final isCustomTestTaker = widget.takePhoto != null;
+    if (_isTestMode && !isCustomTestTaker) return;
+
     final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) return;
+    if (!isCustomTestTaker) {
+      if (controller == null || !controller.value.isInitialized) return;
+      if (controller.value.isTakingPicture) return;
+    }
     try {
-      final shot = await controller.takePicture();
+      final XFile? shot = isCustomTestTaker
+          ? await widget.takePhoto!()
+          : await controller!.takePicture();
+      if (shot == null || !mounted) return;
       final bytes = await shot.readAsBytes();
+      // Camera capture operation finished: release camera resources immediately!
+      await _disposeCamera();
       if (!mounted) return;
       setState(() {
         _previewBytes = bytes;
@@ -154,9 +235,11 @@ class _WardrobePhotoScreenState extends State<WardrobePhotoScreen>
         _errorMessage = null;
       });
     } on CameraException catch (e) {
+      await _disposeCamera();
       if (!mounted) return;
       setState(() => _errorMessage = e.description ?? e.code);
     } catch (e) {
+      await _disposeCamera();
       if (!mounted) return;
       setState(() => _errorMessage = 'Could not capture the photo.');
     }
@@ -174,6 +257,7 @@ class _WardrobePhotoScreenState extends State<WardrobePhotoScreen>
       if (file == null || !mounted) return;
       final bytes = await file.readAsBytes();
       if (!mounted) return;
+      await _disposeCamera();
       setState(() {
         _previewBytes = bytes;
         _previewFilename =
@@ -191,12 +275,20 @@ class _WardrobePhotoScreenState extends State<WardrobePhotoScreen>
       _previewBytes = null;
       _previewFilename = null;
       _errorMessage = null;
+      if (_isTestMode && widget.takePhoto != null) {
+        _uiState = _WardrobeCameraUiState.ready;
+      }
     });
+    if (!_isTestMode) {
+      _initCamera();
+    }
   }
 
-  void _usePhoto() {
+  void _usePhoto() async {
     final bytes = _previewBytes;
     if (bytes == null) return;
+    await _disposeCamera();
+    if (!mounted) return;
     Navigator.of(context).pop(
       WardrobePhoto(bytes: bytes, filename: _previewFilename ?? 'wardrobe_item.jpg'),
     );
@@ -214,7 +306,12 @@ class _WardrobePhotoScreenState extends State<WardrobePhotoScreen>
             Icons.arrow_back_rounded,
             color: FansivibeColors.textPrimary,
           ),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () async {
+            await _disposeCamera();
+            if (context.mounted) {
+              Navigator.of(context).pop();
+            }
+          },
         ),
       ),
       body: SafeArea(
@@ -272,6 +369,14 @@ class _WardrobePhotoScreenState extends State<WardrobePhotoScreen>
               size: 64,
               color: FansivibeColors.textSecondary,
             ),
+          );
+        }
+        if (_sessionState == CameraLifecycleState.off) {
+          return _buildStatusCard(
+            context,
+            icon: Icons.videocam_off_rounded,
+            title: 'Camera Paused',
+            body: 'The camera is currently off. Tap below to start.',
           );
         }
         return const Center(child: CircularProgressIndicator());

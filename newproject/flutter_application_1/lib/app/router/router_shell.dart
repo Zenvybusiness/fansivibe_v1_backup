@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:fansivibe/shared/camera/camera_lifecycle_coordinator.dart';
 import 'package:fansivibe/shared/components/floating_assistant_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 
@@ -19,6 +20,9 @@ class RouterShell extends StatelessWidget {
       bottomNavigationBar: NavigationBar(
         selectedIndex: navigationShell.currentIndex,
         onDestinationSelected: (index) {
+          if (index != navigationShell.currentIndex) {
+            CameraLifecycleCoordinator.stopAll();
+          }
           navigationShell.goBranch(
             index,
             initialLocation: index == navigationShell.currentIndex,

@@ -11,12 +11,18 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/outfit_scan/data/outfit_scan_client.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/widgets/outfit_scan_widgets.dart';
+import 'package:fansivibe/shared/camera/camera_lifecycle_coordinator.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class OutfitScanScreen extends StatefulWidget {
-  const OutfitScanScreen({super.key, this.client, this.pickImage});
+  const OutfitScanScreen({
+    super.key,
+    this.client,
+    this.pickImage,
+    this.takePhoto,
+  });
 
   final OutfitScanClient? client;
 
@@ -24,6 +30,9 @@ class OutfitScanScreen extends StatefulWidget {
   /// a fake so no platform channel is needed. Mirrors the face-scan
   /// screen's picker seam.
   final Future<XFile?> Function(ImageSource source)? pickImage;
+
+  /// Injectable camera capture override for testing.
+  final Future<XFile?> Function()? takePhoto;
 
   static Future<XFile?> _defaultPickImage(ImageSource source) {
     return ImagePicker().pickImage(
@@ -51,6 +60,10 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   CameraController? _controller;
   List<CameraDescription> _availableCameras = const [];
   int _selectedCameraIndex = 0;
+  CameraLifecycleState _sessionState = CameraLifecycleState.off;
+
+  /// Visible for testing to verify controller lifecycle release.
+  CameraController? get cameraController => _controller;
 
   _CameraUiState _uiState = _CameraUiState.initial;
   String? _errorMessage;
@@ -80,8 +93,9 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     super.initState();
     _client = widget.client ?? OutfitScanClient();
     WidgetsBinding.instance.addObserver(this);
+    CameraLifecycleCoordinator.register(_disposeCamera);
 
-    // Defer init so context is ready and to avoid exceptions during tests.
+    // Explicit user entry: open camera only when entering and needed.
     if (!_isTestMode) {
       SchedulerBinding.instance.addPostFrameCallback((_) async {
         await _initializeCamerasAndController();
@@ -89,34 +103,66 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     }
   }
 
+  bool _isDisposed = false;
+
+  /// Stops any active image stream and safely disposes the camera controller.
+  Future<void> _disposeCamera() async {
+    if (_sessionState == CameraLifecycleState.off && _controller == null) {
+      return;
+    }
+    _sessionState = CameraLifecycleState.stopping;
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      if (controller.value.isStreamingImages) {
+        try {
+          await controller.stopImageStream();
+        } catch (_) {}
+      }
+      try {
+        await controller.dispose();
+      } catch (_) {}
+    }
+    _sessionState = CameraLifecycleState.off;
+    if (mounted && !_isDisposed) {
+      setState(() {
+        if (_selectedImage == null) {
+          _uiState = _CameraUiState.initial;
+        }
+      });
+    }
+  }
+
   @override
   void dispose() {
+    _isDisposed = true;
+    CameraLifecycleCoordinator.unregister(_disposeCamera);
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
+    _disposeCamera();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_controller == null) return;
-
-    // Follow camera package lifecycle guidance.
     if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
-      _controller?.dispose();
-      _controller = null;
-      _uiState = _CameraUiState.initial;
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _disposeCamera();
       return;
     }
 
-    if (state == AppLifecycleState.resumed) {
-      SchedulerBinding.instance.addPostFrameCallback((_) async {
-        await _initializeCamerasAndController();
-      });
-    }
+    // Rule 7: On app resume, keep camera OFF. Do not automatically restart.
   }
 
   Future<void> _initializeCamerasAndController() async {
+    if (!mounted || _isTestMode) return;
+    if (_sessionState == CameraLifecycleState.opening ||
+        _sessionState == CameraLifecycleState.active) {
+      return;
+    }
+    _sessionState = CameraLifecycleState.opening;
+
     setState(() {
       _uiState = _CameraUiState.loading;
       _errorMessage = null;
@@ -124,7 +170,12 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
 
     try {
       final cameras = await availableCameras();
+      if (!mounted || _sessionState != CameraLifecycleState.opening) {
+        _sessionState = CameraLifecycleState.off;
+        return;
+      }
       if (cameras.isEmpty) {
+        _sessionState = CameraLifecycleState.off;
         setState(() => _uiState = _CameraUiState.unavailable);
         return;
       }
@@ -132,10 +183,13 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       _availableCameras = cameras;
 
       // Prefer rear camera by default if present.
-      final rearIndex = cameras.indexWhere(
-        (c) => c.lensDirection == CameraLensDirection.back,
-      );
-      _selectedCameraIndex = rearIndex >= 0 ? rearIndex : 0;
+      if (_selectedCameraIndex < 0 ||
+          _selectedCameraIndex >= cameras.length) {
+        final rearIndex = cameras.indexWhere(
+          (c) => c.lensDirection == CameraLensDirection.back,
+        );
+        _selectedCameraIndex = rearIndex >= 0 ? rearIndex : 0;
+      }
 
       final controller = CameraController(
         cameras[_selectedCameraIndex],
@@ -144,14 +198,22 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
 
-      _controller = controller;
-
       await controller.initialize();
 
-      if (!mounted) return;
+      // Guard against race condition: if cancelled/disposed while initializing
+      if (!mounted || _sessionState != CameraLifecycleState.opening) {
+        try {
+          await controller.dispose();
+        } catch (_) {}
+        _sessionState = CameraLifecycleState.off;
+        return;
+      }
 
+      _controller = controller;
+      _sessionState = CameraLifecycleState.active;
       setState(() => _uiState = _CameraUiState.ready);
     } on CameraException catch (e) {
+      _sessionState = CameraLifecycleState.off;
       if (!mounted) return;
 
       final code = e.code.toLowerCase();
@@ -166,6 +228,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
         });
       }
     } catch (e) {
+      _sessionState = CameraLifecycleState.off;
       if (!mounted) return;
       setState(() {
         _uiState = _CameraUiState.error;
@@ -178,40 +241,20 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     if (_availableCameras.isEmpty) return;
 
     final nextIndex = (_selectedCameraIndex + 1) % _availableCameras.length;
+    _selectedCameraIndex = nextIndex;
+    await _disposeCamera();
+    await _initializeCamerasAndController();
+  }
+
+  void _retake() {
     setState(() {
-      _uiState = _CameraUiState.loading;
-      _errorMessage = null;
-      _selectedCameraIndex = nextIndex;
+      _selectedImage = null;
+      _selectedImageBytes = null;
+      _statusMessage = null;
+      _outfitScanIdempotencyKey = null;
     });
-
-    await _controller?.dispose();
-
-    final controller = CameraController(
-      _availableCameras[_selectedCameraIndex],
-      ResolutionPreset.medium,
-      enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.jpeg,
-    );
-
-    _controller = controller;
-
-    try {
-      await controller.initialize();
-      if (!mounted) return;
-      setState(() => _uiState = _CameraUiState.ready);
-    } on CameraException catch (e) {
-      if (!mounted) return;
-      final code = e.code.toLowerCase();
-      if (code.contains('denied') ||
-          code.contains('accessdenied') ||
-          code.contains('permission')) {
-        setState(() => _uiState = _CameraUiState.permissionDenied);
-      } else {
-        setState(() {
-          _uiState = _CameraUiState.error;
-          _errorMessage = e.description ?? e.code;
-        });
-      }
+    if (!_isTestMode) {
+      _initializeCamerasAndController();
     }
   }
 
@@ -227,6 +270,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       // Browser permission/cancel is handled: null means user cancelled.
       final bytes = await pickedFile.readAsBytes();
       if (!mounted || bytes.isEmpty) return;
+      clearPendingEphemeralResult();
       setState(() {
         _selectedImage = XFile.fromData(
           bytes,
@@ -292,6 +336,8 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
           'bytes=${_selectedImageBytes?.length ?? -1}, '
           'run_id=$runId, elapsed_ms=${stopwatch.elapsedMilliseconds}',
         );
+        await _disposeCamera();
+        if (!context.mounted) return;
         context.pushNamed(RouteNames.scanProcessing, extra: runId);
       } else {
         if (!mounted) return;
@@ -375,6 +421,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
           feature: EphemeralFeature.outfit,
           snapshot: snapshot,
         );
+        await _disposeCamera();
         if (!context.mounted) return;
         context.pushNamed(RouteNames.scanAnalysis, extra: snapshot);
       } else {
@@ -446,12 +493,6 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   }
 
   Future<void> _handleCapture(BuildContext context) async {
-    // In widget tests we can't access camera; keep navigation intact.
-    if (_isTestMode) {
-      context.pushNamed(RouteNames.scanProcessing);
-      return;
-    }
-
     if (_isUploading) return;
 
     if (_selectedImage != null) {
@@ -460,28 +501,44 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       return;
     }
 
-    final controller = _controller;
-    if (controller == null || !_controller!.value.isInitialized) {
-      // Attempt re-init; but still keep flow if we fail to capture.
-      await _initializeCamerasAndController();
+    final isCustomTestTaker = widget.takePhoto != null;
+    // In widget tests without custom taker, keep navigation intact.
+    if (_isTestMode && !isCustomTestTaker) {
+      await _disposeCamera();
       if (!context.mounted) return;
       context.pushNamed(RouteNames.scanProcessing);
       return;
     }
 
+    final controller = _controller;
+    if (!isCustomTestTaker) {
+      if (controller == null || !controller.value.isInitialized) {
+        await _initializeCamerasAndController();
+        return;
+      }
+      if (controller.value.isTakingPicture) return;
+    }
+
     try {
-      final xFile = await controller.takePicture();
+      final XFile? xFile = isCustomTestTaker
+          ? await widget.takePhoto!()
+          : await controller!.takePicture();
+
+      if (xFile == null || !mounted) return;
 
       // Web-safe: camera_web returns an object URL / bytes-backed XFile.
       // Read bytes for preview (Image.memory) and upload via bytes.
       // Handles permission denied / unavailable via the outer CameraException
       // mapping; empty bytes are treated as a capture failure.
       final bytes = await xFile.readAsBytes();
+      // Camera capture is finished: release camera resources immediately!
+      await _disposeCamera();
       if (!context.mounted) return;
       if (bytes.isEmpty) {
         context.pushNamed(RouteNames.scanProcessing);
         return;
       }
+      clearPendingEphemeralResult();
       setState(() {
         _selectedImage = xFile;
         _selectedImageBytes = bytes;
@@ -489,7 +546,8 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
         _statusMessage = 'Photo selected';
       });
     } catch (e) {
-      // If capture fails, still continue to existing processing flow.
+      // If capture fails, clean up camera and continue to processing flow.
+      await _disposeCamera();
       if (!context.mounted) return;
       context.pushNamed(RouteNames.scanProcessing);
     }
@@ -508,7 +566,12 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
             Icons.arrow_back_rounded,
             color: FansivibeColors.textPrimary,
           ),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () async {
+            await _disposeCamera();
+            if (context.mounted) {
+              Navigator.of(context).pop();
+            }
+          },
         ),
       ),
       body: SafeArea(
@@ -570,12 +633,26 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
       return const CameraPreviewPlaceholder();
     }
 
-    if (_uiState == _CameraUiState.loading ||
-        _uiState == _CameraUiState.initial) {
+    if (_uiState == _CameraUiState.initial) {
       return SizedBox(
         height: 280,
         width: double.infinity,
-        child: const CameraPreviewPlaceholder(),
+        child: _sessionState == CameraLifecycleState.off
+            ? _buildCameraErrorCard(
+                title: 'Camera Paused',
+                description: 'Camera is currently off. Tap below to start.',
+                actionLabel: 'Start Camera',
+                onAction: _initializeCamerasAndController,
+              )
+            : const CameraPreviewPlaceholder(),
+      );
+    }
+
+    if (_uiState == _CameraUiState.loading) {
+      return const SizedBox(
+        height: 280,
+        width: double.infinity,
+        child: CameraPreviewPlaceholder(),
       );
     }
 
@@ -920,6 +997,27 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   }
 
   Widget _buildSecondaryActions(BuildContext context) {
+    if (_selectedImage != null) {
+      return Row(
+        children: [
+          Expanded(
+            child: FansiButton.secondary(
+              label: 'Retake Photo',
+              icon: Icons.refresh_rounded,
+              onPressed: _isUploading ? null : _retake,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: FansiButton.secondary(
+              label: 'Choose from Gallery',
+              icon: Icons.photo_library_rounded,
+              onPressed: _isUploading ? null : () => _pickImage(ImageSource.gallery),
+            ),
+          ),
+        ],
+      );
+    }
     return Row(
       children: [
         Expanded(

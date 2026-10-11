@@ -43,7 +43,7 @@ void main() {
       expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
     });
 
-    testWidgets('renders appearance profile fields', (
+    testWidgets('renders appearance profile fields when all genuine values present', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -70,7 +70,9 @@ void main() {
       expect(find.text('Style Vibe: casual'), findsOneWidget);
     });
 
-    testWidgets('renders confidence indicator', (WidgetTester tester) async {
+    testWidgets('renders confidence indicator when genuine confidence provided', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           home: OutfitAnalysisScreen(
@@ -107,7 +109,9 @@ void main() {
       expect(find.text('Needs more data'), findsOneWidget);
     });
 
-    testWidgets('renders recommendation card', (WidgetTester tester) async {
+    testWidgets('renders recommendation card without fabricated match percentage', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           home: OutfitAnalysisScreen(
@@ -132,18 +136,6 @@ void main() {
                   'maintenance': 'Wipe clean regularly',
                   'bestFor': 'Daily wear',
                 },
-                'alternatives': [
-                  {
-                    'id': 'cotton-blazer-business',
-                    'name': 'Cotton Blazer Business',
-                    'description': 'A crisp cotton blazer',
-                    'matchScore': 0.78,
-                    'reasons': ['Good color harmony'],
-                    'stylingTips': 'Pair with a white shirt',
-                    'maintenance': 'Dry clean only',
-                    'bestFor': 'Work environment',
-                  },
-                ],
               },
             },
           ),
@@ -152,22 +144,264 @@ void main() {
 
       expect(find.text('Recommended for you'), findsOneWidget);
       expect(find.text('Leather Jacket Formal'), findsOneWidget);
-      expect(find.text('92% match'), findsOneWidget); // 0.92 * 100 rounded
-      expect(find.text('Why this works for you:'), findsOneWidget);
+      // Fabricated match score badge is removed per Phase 3 & 4 policy
+      expect(find.textContaining('% match'), findsNothing);
+      expect(find.text('Why it may suit you'), findsOneWidget);
       expect(find.text('Strong face shape match'), findsOneWidget);
+      expect(find.text('Considerations'), findsOneWidget);
+      expect(find.text('Maintenance: Wipe clean regularly'), findsOneWidget);
+      expect(find.text('Styling tip: Keep accessories minimal'), findsOneWidget);
+      expect(find.text('Best for: Daily wear'), findsOneWidget);
     });
 
-    testWidgets('renders save profile button', (WidgetTester tester) async {
+    testWidgets('missing face shape never defaults to round or oval', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           home: OutfitAnalysisScreen(
             analysisResult: {
               'appearance': {
-                'faceShape': 'oval',
-                'skinTone': 'W30',
-                'bodyType': 'average',
-                'styleType': 'casual',
+                'faceShape': '',
+                'skinTone': '',
+                'bodyType': '',
               },
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('Face Shape: Unable to determine from this photo'), findsOneWidget);
+      expect(find.textContaining('round'), findsNothing);
+      expect(find.textContaining('oval'), findsNothing);
+    });
+
+    testWidgets('missing confidence never becomes a fabricated percentage', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: {
+              'appearance': {'faceShape': 'oval'},
+              // Missing confidence: must not fabricate 0% or any percentage
+              'needs_more_data': false,
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('Confidence unavailable'), findsOneWidget);
+      expect(find.textContaining('Confidence: 0%'), findsNothing);
+      expect(find.textContaining('%'), findsNothing);
+    });
+
+    testWidgets('missing recommendation score never becomes 99% or fabricated badge', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: {
+              'appearance': {'faceShape': 'round'},
+              'confidence': 0.38,
+              'needs_more_data': true,
+              'recommendations': {
+                'top': {
+                  'name': 'Classic Pompadour',
+                  'description': 'A polished look',
+                  'matchScore': 0.99,
+                  'reasons': ['Vertical emphasis suits a round face'],
+                },
+              },
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('Classic Pompadour'), findsOneWidget);
+      expect(find.textContaining('99% match'), findsNothing);
+      expect(find.textContaining('% match'), findsNothing);
+      expect(find.textContaining('Reasons may include face shape match'), findsNothing);
+    });
+
+    testWidgets('empty or malformed analysis results never produce personalized mock recommendations', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: OutfitAnalysisScreen()),
+      );
+
+      expect(find.text('Face Shape: Unable to determine from this photo'), findsOneWidget);
+      expect(find.text('Skin Tone: Not detected'), findsOneWidget);
+      expect(find.text('Body Type: Not enough visual information'), findsOneWidget);
+      expect(find.text('Confidence unavailable'), findsOneWidget);
+      expect(find.text('Recommended for you'), findsNothing);
+      expect(find.textContaining('classic_pompadour'), findsNothing);
+      expect(find.textContaining('Classic Pompadour'), findsNothing);
+      expect(find.textContaining('% match'), findsNothing);
+    });
+
+    testWidgets('partial results display only supported attributes and honest placeholders', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: {
+              'appearance': {
+                'faceShape': 'square',
+                'skinTone': '',
+                'bodyType': '',
+                'styleType': '',
+              },
+              'confidence': 0.35,
+              'needs_more_data': true,
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('Face Shape: square'), findsOneWidget);
+      expect(find.text('Skin Tone: Not detected'), findsOneWidget);
+      expect(find.text('Body Type: Not enough visual information'), findsOneWidget);
+      expect(find.textContaining('Style Vibe'), findsNothing);
+      expect(find.text('Confidence: 35%'), findsOneWidget);
+      expect(find.text('Recommended for you'), findsNothing);
+      expect(find.textContaining('No clothing items detected in this photo'), findsOneWidget);
+    });
+
+    testWidgets('backend errors show an error state and allow retry', (
+      WidgetTester tester,
+    ) async {
+      bool retryTapped = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: const {
+              'error': {
+                'message': 'We couldn\'t finish this request. Please try again.',
+                'details': {'reason': 'analyzer_timeout'},
+              },
+            },
+            onRetry: () => retryTapped = true,
+          ),
+        ),
+      );
+
+      expect(find.text('Analysis Failed'), findsOneWidget);
+      expect(find.text('analyzer_timeout'), findsOneWidget);
+      expect(find.text('Try Again'), findsOneWidget);
+
+      await tester.tap(find.text('Try Again'));
+      expect(retryTapped, isTrue);
+    });
+
+    testWidgets('renders the live appearance snapshot with genuine attributes and no fabricated score', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: {
+              'appearance': {
+                'faceShape': 'round',
+                'skinTone': '',
+                'bodyType': '',
+                'styleType': '',
+                'sourceRunId': 'transient-id',
+              },
+              'confidence': 0.38,
+              'needs_more_data': true,
+              'recommendations': {
+                'top': {
+                  'id': 'classic_pompadour',
+                  'name': 'Classic Pompadour',
+                  'description': 'A polished, formal alternative.',
+                  'matchScore': 0.99,
+                  'reasons': ['Vertical emphasis suits a round face'],
+                  'stylingTips': 'Strong-hold pomade',
+                  'maintenance': 'High',
+                  'bestFor': 'Oval, Round, and Square face shapes',
+                },
+                'alternatives': <dynamic>[],
+              },
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('Face Shape: round'), findsOneWidget);
+      expect(find.text('Skin Tone: Not detected'), findsOneWidget);
+      expect(find.text('Body Type: Not enough visual information'), findsOneWidget);
+      expect(find.text('Confidence: 38%'), findsOneWidget);
+      expect(find.text('Classic Pompadour'), findsOneWidget);
+      expect(find.text('Why it may suit you'), findsOneWidget);
+      expect(find.text('Vertical emphasis suits a round face'), findsOneWidget);
+      expect(find.text('Considerations'), findsOneWidget);
+      expect(find.text('Maintenance: High'), findsOneWidget);
+      expect(find.text('Styling tip: Strong-hold pomade'), findsOneWidget);
+      expect(find.text('Best for: Oval, Round, and Square face shapes'), findsOneWidget);
+      expect(find.text('Needs more data'), findsOneWidget);
+      expect(find.textContaining('General Styling Advice'), findsOneWidget);
+      // Verified: fabricated 99% match badge removed
+      expect(find.textContaining('99% match'), findsNothing);
+      expect(find.textContaining('% match'), findsNothing);
+    });
+
+    testWidgets('long text and attribute chips do not overflow on narrow screens', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      FlutterErrorDetails? errorDetails;
+      final originalOnError = FlutterError.onError;
+      FlutterError.onError = (FlutterErrorDetails details) {
+        errorDetails = details;
+      };
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: {
+              'appearance': {
+                'faceShape': '',
+                'skinTone': '',
+                'bodyType': '',
+              },
+              'confidence': 0.38,
+              'needs_more_data': true,
+              'recommendations': {
+                'top': {
+                  'name': 'Extremely Long Recommendation Look Name For Testing Overflow Resilience',
+                  'description': 'A detailed explanation that spans multiple lines to verify text wrap layout integrity.',
+                  'reasons': [
+                    'Very long detailed reason outlining why vertical volume balances width for specific facial geometry without overflowing',
+                  ],
+                },
+              },
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      FlutterError.onError = originalOnError;
+
+      expect(errorDetails, isNull);
+      expect(find.text('Face Shape: Unable to determine from this photo'), findsOneWidget);
+      expect(find.text('Body Type: Not enough visual information'), findsOneWidget);
+    });
+
+    testWidgets('renders save profile and see recommendations buttons', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: {
+              'appearance': {'faceShape': 'oval'},
               'confidence': 0.78,
               'needs_more_data': false,
             },
@@ -176,28 +410,6 @@ void main() {
       );
 
       expect(find.text('Save Profile'), findsOneWidget);
-    });
-
-    testWidgets('renders see recommendations button', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: OutfitAnalysisScreen(
-            analysisResult: {
-              'appearance': {
-                'faceShape': 'oval',
-                'skinTone': 'W30',
-                'bodyType': 'average',
-                'styleType': 'casual',
-              },
-              'confidence': 0.78,
-              'needs_more_data': false,
-            },
-          ),
-        ),
-      );
-
       expect(find.text('See Recommendations'), findsOneWidget);
     });
 
@@ -219,11 +431,10 @@ void main() {
       await tester.tap(find.byIcon(Icons.share_outlined));
       await tester.pump();
 
-      // No share payload exists: the button must not claim a share occurred.
       expect(find.text('Share feature coming soon'), findsOneWidget);
     });
 
-    testWidgets('renders integer confidence and matchScore without crashing', (
+    testWidgets('renders integer confidence without crashing', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -231,7 +442,6 @@ void main() {
           home: OutfitAnalysisScreen(
             analysisResult: {
               'appearance': {'faceShape': 'oval'},
-              // Backend JSON numbers may decode as int: must not throw.
               'confidence': 1,
               'needs_more_data': false,
               'recommendations': {
@@ -246,72 +456,127 @@ void main() {
         ),
       );
 
-      expect(find.text('Recommended for you'), findsOneWidget);
+      expect(find.text('Confidence: 100%'), findsOneWidget);
+      expect(find.text('Test Look'), findsOneWidget);
       expect(find.text('Fits well'), findsOneWidget);
       expect(find.text('42'), findsOneWidget);
+      expect(find.textContaining('% match'), findsNothing);
     });
 
-    testWidgets(
-      'renders the live appearance snapshot verbatim '
-      '(round face, empty skin/body, Classic Pompadour 99%)',
-      (WidgetTester tester) async {
-        // This is the exact production shape produced by
-        // `recommend_hairstyle`: seed 0.87 + round boost 0.12 = 0.99,
-        // confidence 0.5*0.25 (one measured signal) + 0.5*0.5 = 0.38.
-        // The screen must display those values, not a fixture.
-        await tester.pumpWidget(
-          MaterialApp(
-            home: OutfitAnalysisScreen(
-              analysisResult: {
-                'appearance': {
-                  'faceShape': 'round',
-                  'skinTone': '',
-                  'bodyType': '',
-                  'styleType': '',
-                  'sourceRunId': 'transient-id',
-                },
-                'confidence': 0.38,
-                'needs_more_data': true,
-                'recommendations': {
-                  'top': {
-                    'id': 'classic_pompadour',
-                    'name': 'Classic Pompadour',
-                    'description': 'A polished, formal alternative.',
-                    'matchScore': 0.99,
-                    'reasons': ['Vertical emphasis suits a round face'],
-                    'stylingTips': 'Strong-hold pomade',
-                    'maintenance': 'High',
-                    'bestFor': 'Oval, Round, and Square face shapes',
-                  },
-                  'alternatives': <dynamic>[],
-                },
-              },
-            ),
-          ),
-        );
-
-        expect(find.text('Face Shape: round'), findsOneWidget);
-        expect(find.text('Skin Tone: Not detected'), findsOneWidget);
-        expect(find.text('Body Type: Not detected'), findsOneWidget);
-        expect(find.text('Confidence: 38%'), findsOneWidget);
-        expect(find.text('Classic Pompadour'), findsOneWidget);
-        expect(find.text('99% match'), findsOneWidget);
-        expect(find.text('Needs more data'), findsOneWidget);
-      },
-    );
-
-    testWidgets('shows an honest no-data state with no fabricated values', (
+    testWidgets('missing recommendations produce the honest unavailable state with retry action', (
       WidgetTester tester,
     ) async {
-      // A missing/failed analysis must never be backfilled by a mock
-      // result: no recommendation card, attributes honestly "Not detected".
+      bool retried = false;
       await tester.pumpWidget(
-        const MaterialApp(home: OutfitAnalysisScreen()),
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: {
+              'appearance': {'faceShape': 'oval'},
+              'confidence': 0.75,
+              'needs_more_data': false,
+            },
+            onRetry: () => retried = true,
+          ),
+        ),
       );
 
-      expect(find.textContaining('Not detected'), findsNWidgets(3));
+      expect(
+        find.text('Personalized recommendation unavailable for this photo.'),
+        findsOneWidget,
+      );
+      expect(find.text('Retry Analysis'), findsOneWidget);
       expect(find.text('Recommended for you'), findsNothing);
-      expect(find.textContaining('classic_pompadour'), findsNothing);
+      expect(find.textContaining('Classic Pompadour'), findsNothing);
+
+      await tester.tap(find.text('Retry Analysis'));
+      expect(retried, isTrue);
+    });
+
+    testWidgets('an uncertain face shape never produces a round-face-specific claim', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: {
+              'appearance': {
+                'faceShape': '', // Empty / inconclusive
+              },
+              'confidence': 0.38,
+              'needs_more_data': true,
+              'recommendations': {
+                'top': {
+                  'name': 'Classic Pompadour',
+                  'description': 'A timeless pompadour with swept-back volume.',
+                  'reasons': [
+                    'Strongest match for your round face shape (+0.12 face-shape fit).',
+                    'Vertical emphasis suits a round face',
+                    'Pairs naturally with structured tailored pieces',
+                  ],
+                },
+              },
+            },
+          ),
+        ),
+      );
+
+      // Face shape fallback
+      expect(find.text('Face Shape: Unable to determine from this photo'), findsOneWidget);
+      // Face-shape-specific claims must be completely filtered out
+      expect(find.textContaining('round face'), findsNothing);
+      expect(find.textContaining('face shape'), findsNothing);
+      // General non-face reason must be preserved
+      expect(find.text('Pairs naturally with structured tailored pieces'), findsOneWidget);
+    });
+
+    testWidgets('loading state renders loading spinner and honest status', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: OutfitAnalysisScreen(
+            isLoading: true,
+          ),
+        ),
+      );
+
+      expect(find.text('Analyzing Photo…'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text('Your Appearance Profile'), findsNothing);
+    });
+
+    testWidgets('general catalog recommendations are labeled as general advice when data is incomplete', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: {
+              'appearance': {'faceShape': 'oval'},
+              'confidence': 0.38,
+              'needs_more_data': true,
+              'recommendations': {
+                'top': {
+                  'name': 'Classic Pompadour',
+                  'description': 'A timeless pompadour.',
+                  'maintenance': 'High • Trim every 3-4 weeks',
+                  'stylingTips': 'Strong-hold pomade',
+                  'bestFor': 'Oval, Round, and Square face shapes',
+                },
+              },
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('General Styling Advice'), findsOneWidget);
+      expect(
+        find.text('General styling suggestion based on aesthetic principles because photo provided partial appearance data.'),
+        findsOneWidget,
+      );
+      expect(find.text('Maintenance: High • Trim every 3-4 weeks'), findsOneWidget);
+      expect(find.text('Styling tip: Strong-hold pomade'), findsOneWidget);
+      expect(find.text('Best for: Oval, Round, and Square face shapes'), findsOneWidget);
     });
   });
 }

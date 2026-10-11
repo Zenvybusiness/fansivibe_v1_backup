@@ -223,5 +223,31 @@ void main() {
         expect(find.text('Switch Camera'), findsOneWidget);
       },
     );
+
+    testWidgets(
+      'selecting a new image clears any pending ephemeral result so previous results cannot leak',
+      (WidgetTester tester) async {
+        stashPendingEphemeralResult(
+          feature: EphemeralFeature.outfit,
+          snapshot: const {'appearance': {'faceShape': 'oval'}},
+        );
+        expect(peekPendingEphemeralResult(), isNotNull);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OutfitScanScreen(
+              pickImage: _fakePick,
+            ),
+          ),
+        );
+
+        await tester.ensureVisible(find.text('Choose from Gallery'));
+        await tester.tap(find.text('Choose from Gallery'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(peekPendingEphemeralResult(), isNull);
+      },
+    );
   });
 }

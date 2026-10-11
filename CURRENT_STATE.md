@@ -1,5 +1,116 @@
 # Fansivibe Current State
 
+## CRITICAL CAMERA LIFECYCLE FIX: PREVENT CAMERA STAYING ACTIVE IN BACKGROUND & AUTOMATIC RESUME (executed 2026-10-11, STATUS: DONE — Flutter-only, 6 files modified [5 lib, 1 test], 2 new files; NO backend/API/DB/AI/schema changes, NO Discovery changes, no commit/push)
+
+- **Problem & Root Cause**:
+  1. **Automatic Resume on App Resumed**: `didChangeAppLifecycleState` on `AppLifecycleState.resumed` in camera screens contained auto-reopen callbacks (`_initCamera()`). Because Flutter broadcasts lifecycle events to all mounted widget trees in memory, backgrounded screens or screens mounted in tab stacks automatically reactivated hardware cameras upon app resume even when the user was on Home or another screen!
+  2. **Multi-Tab Retention (`StatefulShellRoute.indexedStack`)**: In `RouterShell`, tabs share an IndexedStack. Switching between Home, Discover, Stylist, Wardrobe, and Profile keeps hidden branches mounted in memory without triggering widget disposal. The active camera on the hidden tab remained running in the background.
+  3. **Disposal Assertion Error (`_ElementLifecycle.defunct`)**: `_disposeCamera()` was synchronously invoking `setState()` during widget unmounting/disposal, triggering framework assertion errors.
+- **Architectural Fixes**:
+  1. **Camera Lifecycle State Machine**:
+     - Enforced strict state transitions: `OFF → OPENING → ACTIVE → STOPPING → OFF` across all 4 camera screens (`OutfitScanScreen`, `FaceScanScreen`, `WardrobePhotoScreen`, `PhotoCaptureScreen`).
+     - Camera is strictly **OFF by default**.
+     - Only explicit user entry requiring live preview can initiate `OPENING`.
+     - Prevented in-flight race conditions: if unmounted or transition cancelled during async `initialize()`, the newly initialized controller is immediately disposed and hardware released.
+  2. **Eliminated ALL Automatic Reopen on App Resume**:
+     - Completely removed auto-reopen logic on `AppLifecycleState.resumed` in all 4 camera screens. On app resume, camera stays strictly `OFF`.
+     - Explicit user action (e.g. tapping "Start Camera" or "Retake") is strictly required to reopen the camera.
+  3. **App Backgrounding Shutdown**:
+     - On `inactive`, `paused`, `hidden`, or `detached`, all active streams (`stopImageStream()`) are immediately stopped and controllers disposed (`controller.dispose()`).
+  4. **Camera Lifecycle Coordinator & Route Observer**:
+     - Created `lib/shared/camera/camera_lifecycle_coordinator.dart` (`CameraLifecycleCoordinator` and `CameraRouteObserver`).
+     - Active screens register their stop callbacks.
+     - `RouterShell`: Tab navigation explicitly triggers `CameraLifecycleCoordinator.stopAll()`, instantly stopping any camera when switching tabs.
+     - `GoRouter`: Configured with `CameraRouteObserver` to stop active camera sessions whenever non-camera routes are pushed or replaced.
+  5. **Disposal Safety (`_isDisposed`)**:
+     - Added `_isDisposed` flag across all 4 screens to prevent calling `setState()` during or after widget unmount/disposal.
+- **Validation**:
+  - `test/camera_lifecycle_test.dart`: 20/20 tests passing (including coordinator, tab switches, route observer, backgrounding, cancellation, retake, and single-controller guarantees).
+  - `test/photo_capture_screen_test.dart`: 8/8 tests passing.
+  - `test/outfit_scan_screen_test.dart`: 13/13 tests passing.
+  - `test/outfit_analysis_screen_test.dart`: 20/20 tests passing.
+  - `test/hairstyle_scan_screen_test.dart`: 12/12 tests passing.
+  - `test/add_wardrobe_item_screen_test.dart`: 13/13 tests passing.
+  - Total automated suite: **86/86 passing tests** with 0 failures!
+  - `flutter analyze` on all modified/new library files returned **0 issues**!
+- **Strict Boundaries Maintained**:
+  - Discovery unchanged. Camera UI design preserved. Backend/DB untouched. No git commit or push.
+
+---
+
+- **Objective**: Ensure the camera stops, frees hardware resources, and releases the controller immediately whenever camera work finishes (photo captured, analysis started, screen left, back pressed, retake/cancelled, gallery chosen, covered by another route, error occurred, app backgrounded, or widget disposed) across every camera-enabled screen in Fansivibe.
+- **Audit Findings**:
+  - Found 4 screens managing live `CameraController`s:
+    1. `OutfitScanScreen` (`lib/features/outfit_scan/presentation/outfit_scan_screen.dart`)
+    2. `FaceScanScreen` (`lib/features/hairstyle/presentation/face_scan_screen.dart`)
+    3. `WardrobePhotoScreen` (`lib/features/wardrobe/presentation/wardrobe_photo_screen.dart`)
+    4. `PhotoCaptureScreen` (`lib/features/onboarding/presentation/screens/photo_capture_screen.dart`)
+  - Identified root causes of leaks:
+    - Controllers retained in memory during and after photo capture while navigating to processing/analysis.
+    - Missing active image stream termination before disposing controller.
+    - Missing `WidgetsBindingObserver` in `PhotoCaptureScreen` to release camera when app is paused/backgrounded.
+    - Lack of explicit disposal on back button and gallery selection prior to popping or switching modes.
+- **Fixes Applied**:
+  1. Safe Camera Release (`_disposeCamera()`):
+     - Implemented across all 4 screens: stops active image streams (`controller.value.isStreamingImages`), safely awaits `controller.dispose()`, nulls out the field, and catches any transient `CameraException`s.
+  2. Immediate Release on Capture:
+     - All 4 screens immediately stop and dispose the camera upon reading the captured image bytes, before navigating to processing or analysis screens.
+  3. App Lifecycle (`didChangeAppLifecycleState`):
+     - All 4 screens release the camera on `inactive`, `paused`, and `hidden` states. Resumes only if an image is not already captured and the screen is still active.
+  4. Navigation & Back:
+     - All 4 screens explicitly release camera resources on Back button press and prior to popping/navigating.
+  5. Gallery Selection:
+     - Selecting an image from the gallery immediately releases any active camera resources.
+- **Validation**:
+  - Created comprehensive suite `test/camera_lifecycle_test.dart` (17 tests covering capture release, retake cleanup, back navigation, gallery release, app backgrounding/resumption, and multi-angle scan flow) — all 17 tests passed!
+  - Full camera & regression suites (83 tests total) passed with 0 failures:
+    - `test/camera_lifecycle_test.dart` (17/17)
+    - `test/outfit_scan_screen_test.dart` (13/13)
+    - `test/outfit_analysis_screen_test.dart` (20/20)
+    - `test/hairstyle_scan_screen_test.dart` (12/12)
+    - `test/photo_capture_screen_test.dart` (11/11)
+    - `test/add_wardrobe_item_screen_test.dart` (10/10)
+  - `flutter analyze` on all modified files returned 0 issues!
+- **Strict Boundaries Maintained**:
+  - Discovery unchanged. Camera UI design preserved. Backend/DB untouched. No git commit or push.
+
+---
+
+## OUTFIT ANALYSIS RESULT SCREEN: REMOVE MOCK DATA AND RENDER GENUINE AI RESULTS (executed 2026-10-11, STATUS: DONE — Flutter-only, 4 files modified [2 lib, 2 test]; NO backend/API/DB/AI/schema changes, NO Discovery changes, no commit/push)
+
+- **Problem & Objective**: Fix the Outfit Analysis result screen (`OutfitAnalysisScreen`). Trace full data provenance from user photo submission through vision adapter, decision engine, catalog, polling, and Flutter UI. Address root causes of fixed recommendations (`Classic Pompadour`, swept-back volume descriptions, fixed reasons, fixed maintenance, `38%` confidence semantics, `General Styling Advice` tag) and ensure genuine photo-grounded analysis with evidence-based reasoning, leak prevention, and honest unavailable fallbacks.
+- **Data Provenance & Findings**:
+  1. `Classic Pompadour`, `Provides elegant volume...`, `Trim every 3-4 weeks`, and `Best for: Oval, Round, and Square face shapes`:
+     - Provenance: `backend/app/data/catalog.py:143-163` (catalog entry `classic_pompadour`).
+     - Mechanism: The backend endpoint `POST /v1/analysis/outfit` invokes `CreateOutfitRun` (`backend/app/application/analysis.py:193`). It passes the actual image bytes to `OllamaVisionAppearanceAdapter`, which prompts the vision model (`qwen3-vl:4b-instruct`) for face shape only. The adapter returns `AppearanceProfile(faceShape="round")`.
+     - The use case then feeds this into `recommend_hairstyle(knowledge, appearance)` (`analysis_rules.py:419`). Because `faceShape == "round"`, the rule engine applies a `+0.12` boost to `Classic Pompadour` (seed 0.87 → 0.99).
+     - Classification: It is a **catalog recommendation selected by a heuristic rule**, NOT an AI-generated look dynamically created by a neural model.
+  2. `Confidence: 38%`:
+     - Provenance: `derive_confidence(context, ranked)` in `backend/app/domain/services/analysis_rules.py:378`.
+     - Formula: `round(0.5 * completeness + 0.5 * decisiveness, 2)`. Completeness is `0.25` (only 1 of 4 profile fields is populated). Decisiveness is `(0.99 - 0.94) / 0.1 = 0.5`. Result: `0.5 * 0.25 + 0.5 * 0.5 = 0.375 → 0.38` (38%).
+     - Classification: This is **Decision Engine Recommendation Confidence** (reflecting partial grounding profile data and ranking margin between candidates). It is **NOT** image-detection confidence.
+  3. `General Styling Advice`:
+     - Provenance: `needs_more_data: true` is emitted by the backend whenever `context.completeness < 1.0` (because skin tone, body type, and style type are not populated by the face prompt). The UI correctly recognizes that the recommendation is general catalog advice rather than fully personalized AI styling.
+- **Fixes**:
+  1. `lib/features/outfit_scan/presentation/outfit_analysis_screen.dart`:
+     - Added `_buildUnavailableRecommendationCard`: when `topRecommendation` is null or empty, renders honest state: `"Personalized recommendation unavailable for this photo."` with explanation and "Retry Analysis" button. Never silently substitutes `Classic Pompadour` or mock looks.
+     - Evidence-based reasoning: `filteredReasons` filters out face-shape-specific claims (e.g. references to "round face", "face shape") whenever `faceShape` is missing, uncertain, or mismatched. An uncertain face shape never produces a round-face-specific claim.
+     - Omitted unsupported reasons: only renders "Why it may suit you" when genuine filtered reasons exist (no generic filler fallback).
+     - General catalog advice labeling: catalog recommendations with partial data (`needs_more_data: true`) are prominently badged as `"General Styling Advice"` and explain styling considerations under "Considerations".
+     - Honest fallback phrasings: Face shape → "Unable to determine from this photo" (never defaults to round or oval); Skin tone → "Not detected"; Body type → "Not enough visual information"; Missing confidence → "Confidence unavailable" (never fabricated 0%).
+     - Responsive layout: cards use responsive padding (`12.0 : 20.0`), text chips wrap in `maxWidth`, recommendation title Row wrapped in `Flexible` preventing RenderFlex overflow on narrow devices.
+  2. `lib/features/outfit_scan/presentation/outfit_scan_screen.dart`:
+     - Prevented previous result leakage: calls `clearPendingEphemeralResult()` when selecting a new photo from the gallery or capturing a new photo from the camera, ensuring stale stashed guest results cannot leak into the new analysis session.
+  3. `test/outfit_analysis_screen_test.dart` & `test/outfit_scan_screen_test.dart`:
+     - Added focused regression tests for: honest unavailable recommendation card, uncertain face shape claim suppression, loading state rendering, general catalog advice labeling, and leak prevention when picking a new image.
+- **Validation**:
+  - `flutter analyze` across modified files → 0 issues found!
+  - `test/outfit_analysis_screen_test.dart`: 20/20 passed.
+  - `test/outfit_scan_screen_test.dart`: 13/13 passed.
+  - Full outfit scan test suite (client, scan, processing, analysis): 57/57 passed.
+  - `test/auth_flow_regression_test.dart`: 11/11 passed.
+  - Discovery tab, Trending tab, unrelated tabs, backend code, and database schemas preserved untouched. No commit/push per repo rules.
+
 ---
 
 ## APPLICATION-WIDE MOCK DATA AUDIT AND FIX (executed 2026-10-11, STATUS: DONE — Flutter-only, 20 files modified [14 lib, 6 test]; NO backend/API/DB/AI/schema changes, NO Discovery changes, no commit/push)

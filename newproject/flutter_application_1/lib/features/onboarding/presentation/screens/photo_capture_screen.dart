@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/camera/camera_lifecycle_coordinator.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -35,13 +36,22 @@ class PhotoCaptureScreen extends StatefulWidget {
   /// Injectable picker for tests (defaults to [ImagePicker]).
   final Future<XFile?> Function(ImageSource source)? pickImage;
 
-  const PhotoCaptureScreen({this.source, this.pickImage, super.key});
+  /// Custom capture override for tests.
+  final Future<XFile?> Function()? takePhoto;
+
+  const PhotoCaptureScreen({
+    this.source,
+    this.pickImage,
+    this.takePhoto,
+    super.key,
+  });
 
   @override
   State<PhotoCaptureScreen> createState() => _PhotoCaptureScreenState();
 }
 
-class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
+class _PhotoCaptureScreenState extends State<PhotoCaptureScreen>
+    with WidgetsBindingObserver {
   static const int _maxBytes = 20 * 1024 * 1024;
 
   Uint8List? _imageBytes;
@@ -52,6 +62,11 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
   /// Live-camera state (camera path only; the gallery path never touches
   /// the controller). Mirrors the FaceScan/OutfitScan camera pattern.
   CameraController? _cameraController;
+  CameraLifecycleState _sessionState = CameraLifecycleState.off;
+
+  /// Visible for testing to verify controller lifecycle release.
+  CameraController? get cameraController => _cameraController;
+
   _CameraUiState _cameraState = _CameraUiState.initial;
   String? _cameraError;
   bool _cameraRequested = false;
@@ -62,7 +77,8 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
   }
 
   bool get _cameraActive =>
-      _cameraRequested && _cameraState == _CameraUiState.ready;
+      widget.takePhoto != null ||
+      (_cameraRequested && _cameraState == _CameraUiState.ready);
 
   Future<XFile?> _defaultPick(ImageSource source) {
     return ImagePicker().pickImage(
@@ -72,9 +88,13 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
     );
   }
 
+  bool _isDisposed = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    CameraLifecycleCoordinator.register(_disposeCamera);
     // Honor the incoming source once (camera-permission screen passes
     // 'camera' or 'gallery'). Camera opens the real live preview;
     // gallery opens the OS picker. Neither path fakes a capture.
@@ -90,10 +110,53 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
     });
   }
 
+  /// Stops any active image stream and safely disposes the camera controller.
+  Future<void> _disposeCamera() async {
+    if (_sessionState == CameraLifecycleState.off && _cameraController == null) {
+      return;
+    }
+    _sessionState = CameraLifecycleState.stopping;
+    final controller = _cameraController;
+    _cameraController = null;
+    if (controller != null) {
+      if (controller.value.isStreamingImages) {
+        try {
+          await controller.stopImageStream();
+        } catch (_) {}
+      }
+      try {
+        await controller.dispose();
+      } catch (_) {}
+    }
+    _sessionState = CameraLifecycleState.off;
+    if (mounted && !_isDisposed) {
+      setState(() {
+        if (_imageBytes == null) {
+          _cameraState = _CameraUiState.initial;
+        }
+      });
+    }
+  }
+
   @override
   void dispose() {
-    _cameraController?.dispose();
+    _isDisposed = true;
+    CameraLifecycleCoordinator.unregister(_disposeCamera);
+    WidgetsBinding.instance.removeObserver(this);
+    _disposeCamera();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _disposeCamera();
+      return;
+    }
+    // Rule 7: On app resume, keep camera OFF. Do not automatically restart.
   }
 
   /// Opens the real camera: requests permission through the `camera`
@@ -101,6 +164,11 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
   /// matching the face-scan flow.
   Future<void> _startCamera() async {
     if (!mounted) return;
+    if (_sessionState == CameraLifecycleState.opening ||
+        _sessionState == CameraLifecycleState.active) {
+      return;
+    }
+    _sessionState = CameraLifecycleState.opening;
     setState(() {
       _cameraRequested = true;
       _cameraState = _CameraUiState.loading;
@@ -108,15 +176,25 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
       _errorMessage = null;
     });
     if (_isTestMode) {
-      // No platform camera under widget tests — honest unavailable state.
       if (!mounted) return;
-      setState(() => _cameraState = _CameraUiState.unavailable);
+      if (widget.takePhoto != null) {
+        _sessionState = CameraLifecycleState.active;
+        setState(() => _cameraState = _CameraUiState.ready);
+      } else {
+        // No platform camera under widget tests — honest unavailable state.
+        _sessionState = CameraLifecycleState.off;
+        setState(() => _cameraState = _CameraUiState.unavailable);
+      }
       return;
     }
     try {
       final cameras = await availableCameras();
+      if (!mounted || _sessionState != CameraLifecycleState.opening) {
+        _sessionState = CameraLifecycleState.off;
+        return;
+      }
       if (cameras.isEmpty) {
-        if (!mounted) return;
+        _sessionState = CameraLifecycleState.off;
         setState(() => _cameraState = _CameraUiState.unavailable);
         return;
       }
@@ -129,14 +207,22 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
-      _cameraController = controller;
       await controller.initialize();
-      if (!mounted) return;
+      if (!mounted || _sessionState != CameraLifecycleState.opening) {
+        try {
+          await controller.dispose();
+        } catch (_) {}
+        _sessionState = CameraLifecycleState.off;
+        return;
+      }
+      _cameraController = controller;
+      _sessionState = CameraLifecycleState.active;
       SchedulerBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         setState(() => _cameraState = _CameraUiState.ready);
       });
     } on CameraException catch (e) {
+      _sessionState = CameraLifecycleState.off;
       if (!mounted) return;
       final code = e.code.toLowerCase();
       if (code.contains('denied') ||
@@ -150,6 +236,7 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
         });
       }
     } catch (e) {
+      _sessionState = CameraLifecycleState.off;
       if (!mounted) return;
       setState(() {
         _cameraState = _CameraUiState.error;
@@ -160,18 +247,30 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
 
   /// Captures a real photo from the live preview into memory.
   Future<void> _capturePhoto() async {
+    final isCustomTestTaker = widget.takePhoto != null;
     final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) {
-      await _startCamera();
-      return;
+    if (!isCustomTestTaker) {
+      if (controller == null || !controller.value.isInitialized) {
+        await _startCamera();
+        return;
+      }
+      if (controller.value.isTakingPicture) return;
     }
     setState(() {
       _isPicking = true;
       _errorMessage = null;
     });
     try {
-      final xFile = await controller.takePicture();
+      final XFile? xFile = isCustomTestTaker
+          ? await widget.takePhoto!()
+          : await controller!.takePicture();
+      if (xFile == null || !mounted) {
+        setState(() => _isPicking = false);
+        return;
+      }
       final bytes = await xFile.readAsBytes();
+      // Camera capture operation finished: stop and release camera immediately!
+      await _disposeCamera();
       if (!mounted) return;
       if (bytes.isEmpty || bytes.lengthInBytes > _maxBytes) {
         setState(() {
@@ -188,12 +287,14 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
         _errorMessage = null;
       });
     } on CameraException catch (e) {
+      await _disposeCamera();
       if (!mounted) return;
       setState(() {
         _isPicking = false;
         _errorMessage = 'Could not take a photo (${e.code}). Try again.';
       });
     } catch (e) {
+      await _disposeCamera();
       if (!mounted) return;
       setState(() {
         _isPicking = false;
@@ -208,6 +309,7 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
       _isPicking = true;
       _errorMessage = null;
     });
+    await _disposeCamera();
     try {
       final picker = widget.pickImage ?? _defaultPick;
       final picked = await picker(source);
@@ -272,6 +374,9 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
       _imageBytes = null;
       _errorMessage = null;
     });
+    if (_cameraRequested && !_isTestMode) {
+      _startCamera();
+    }
   }
 
   /// Extension-only format hint for gallery files (see [_pick]).
@@ -284,9 +389,11 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
         lower.endsWith('.webp');
   }
 
-  void _onContinue() {
+  void _onContinue() async {
     final bytes = _imageBytes;
     if (bytes == null || bytes.isEmpty) return;
+    await _disposeCamera();
+    if (!mounted) return;
     // Authenticated: the captured bytes travel to the existing scan
     // processing flow (POST /v1/analysis/hairstyle + poll + real result
     // screen). Guest (no session): stay on the public onboarding chain
@@ -314,8 +421,10 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
     );
   }
 
-  void _onSkip() {
+  void _onSkip() async {
+    await _disposeCamera();
     LocalStorage.savedLocally = true;
+    if (!mounted) return;
     context.goNamed(RouteNames.home, extra: {'vibe': null});
   }
 
@@ -329,7 +438,12 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
         title: const Text('Add Your Photo'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () async {
+            await _disposeCamera();
+            if (context.mounted) {
+              Navigator.of(context).pop();
+            }
+          },
         ),
         actions: [
           TextButton(
@@ -541,8 +655,14 @@ class _PhotoCaptureScreenState extends State<PhotoCaptureScreen> {
           body: 'Please wait a moment.',
           actionLabel: null,
         );
-      case _CameraUiState.loading:
       case _CameraUiState.initial:
+        return _cameraMessageCard(
+          icon: Icons.videocam_off_outlined,
+          title: 'Camera Paused',
+          body: 'The camera is currently off. Tap below to start.',
+          actionLabel: 'Start Camera',
+        );
+      case _CameraUiState.loading:
         return _cameraMessageCard(
           icon: Icons.camera_alt_outlined,
           title: 'Starting camera…',

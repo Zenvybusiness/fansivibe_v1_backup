@@ -27,7 +27,7 @@ import 'package:fansivibe/features/events/presentation/add_event_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_details_screen.dart';
 import 'package:fansivibe/features/events/presentation/event_list_screen.dart';
 import 'package:fansivibe/features/grooming/data/grooming_models.dart';
-import 'package:fansivibe/features/grooming/data/grooming_models.dart';
+import 'package:fansivibe/shared/camera/camera_lifecycle_coordinator.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_details_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_input_screen.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_processing_screen.dart';
@@ -560,6 +560,7 @@ GoRoute(
 final GoRouter appRouter = GoRouter(
   initialLocation: '/entry',
   routes: appRoutes,
+  observers: [cameraRouteObserver],
   // Re-evaluates the guard the moment the session flips (sign-in
   // persists, logout/expiry clears) instead of stranding the UI on a
   // stale guest/sign-in snapshot. Navigation stays explicit elsewhere.

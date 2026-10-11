@@ -12,6 +12,7 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/analytics/analytics_service.dart';
+import 'package:fansivibe/shared/camera/camera_lifecycle_coordinator.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// Guided capture angle. The arrows are positioning guidance only — the
@@ -77,10 +78,13 @@ class _FaceScanScreenState extends State<FaceScanScreen>
   CameraController? _controller;
   List<CameraDescription> _availableCameras = const [];
   int _selectedCameraIndex = -1;
+  CameraLifecycleState _sessionState = CameraLifecycleState.off;
   _CameraUiState _cameraState = _CameraUiState.initial;
   String? _cameraError;
-  bool _isInitializingCamera = false;
   bool _isCapturing = false;
+
+  /// Visible for testing to verify controller lifecycle release.
+  CameraController? get cameraController => _controller;
 
   bool get _isRearCamera {
     if (_availableCameras.isNotEmpty &&
@@ -112,6 +116,7 @@ class _FaceScanScreenState extends State<FaceScanScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    CameraLifecycleCoordinator.register(_disposeCamera);
     if (!_isTestMode) {
       SchedulerBinding.instance.addPostFrameCallback((_) async {
         await _initCamera();
@@ -119,56 +124,76 @@ class _FaceScanScreenState extends State<FaceScanScreen>
     }
   }
 
+  bool _isDisposed = false;
+
+  /// Stops any active image stream and safely disposes the camera controller.
+  Future<void> _disposeCamera() async {
+    if (_sessionState == CameraLifecycleState.off && _controller == null) {
+      return;
+    }
+    _sessionState = CameraLifecycleState.stopping;
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      if (controller.value.isStreamingImages) {
+        try {
+          await controller.stopImageStream();
+        } catch (_) {}
+      }
+      try {
+        await controller.dispose();
+      } catch (_) {}
+    }
+    _sessionState = CameraLifecycleState.off;
+    if (mounted && !_isDisposed) {
+      setState(() {
+        if (!_allCaptured) {
+          _cameraState = _CameraUiState.initial;
+        }
+      });
+    }
+  }
+
   @override
   void dispose() {
+    _isDisposed = true;
+    CameraLifecycleCoordinator.unregister(_disposeCamera);
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
+    _disposeCamera();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
-      // Release the webcam while backgrounded — and rebuild the camera card
-      // so a dead/stale preview is never left visible.
-      final oldController = _controller;
-      _controller = null;
-      oldController?.dispose();
-      if (mounted) {
-        setState(() => _cameraState = _CameraUiState.initial);
-      }
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _disposeCamera();
       return;
     }
-    if (state == AppLifecycleState.resumed) {
-      // Re-initialize the camera on return. This must run even when the
-      // controller was still mid-initialization at pause time: the previous
-      // `_controller == null` early-return skipped it, leaving the current
-      // stage stuck on a blank/missing capture after any backgrounding.
-      SchedulerBinding.instance.addPostFrameCallback((_) async {
-        await _initCamera();
-      });
-    }
+    // Rule 7: On app resume, keep camera OFF. Do not automatically restart.
   }
 
   Future<void> _initCamera() async {
     if (!mounted || _isTestMode) return;
-    if (_isInitializingCamera) return;
-    _isInitializingCamera = true;
+    if (_sessionState == CameraLifecycleState.opening ||
+        _sessionState == CameraLifecycleState.active) {
+      return;
+    }
+    _sessionState = CameraLifecycleState.opening;
     setState(() {
       _cameraState = _CameraUiState.loading;
       _cameraError = null;
     });
     try {
-      final oldController = _controller;
-      _controller = null;
-      if (oldController != null) {
-        await oldController.dispose();
-      }
-
       final cameras = await availableCameras();
+      if (!mounted || _sessionState != CameraLifecycleState.opening) {
+        _sessionState = CameraLifecycleState.off;
+        return;
+      }
       if (cameras.isEmpty) {
-        if (!mounted) return;
+        _sessionState = CameraLifecycleState.off;
         setState(() => _cameraState = _CameraUiState.unavailable);
         return;
       }
@@ -188,13 +213,18 @@ class _FaceScanScreenState extends State<FaceScanScreen>
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
-      if (!mounted) {
-        await controller.dispose();
+      if (!mounted || _sessionState != CameraLifecycleState.opening) {
+        try {
+          await controller.dispose();
+        } catch (_) {}
+        _sessionState = CameraLifecycleState.off;
         return;
       }
       _controller = controller;
+      _sessionState = CameraLifecycleState.active;
       setState(() => _cameraState = _CameraUiState.ready);
     } on CameraException catch (e) {
+      _sessionState = CameraLifecycleState.off;
       if (!mounted) return;
       final code = e.code.toLowerCase();
       if (code.contains('denied') ||
@@ -208,19 +238,18 @@ class _FaceScanScreenState extends State<FaceScanScreen>
         });
       }
     } catch (e) {
+      _sessionState = CameraLifecycleState.off;
       if (!mounted) return;
       setState(() {
         _cameraState = _CameraUiState.error;
         _cameraError = e.toString();
       });
-    } finally {
-      _isInitializingCamera = false;
     }
   }
 
   /// Switches between available cameras (front / back) with serialized lifecycle.
   Future<void> _switchCamera() async {
-    if (_isCapturing || _isInitializingCamera) return;
+    if (_isCapturing || _sessionState == CameraLifecycleState.opening) return;
     if (_isTestMode) {
       setState(() {
         _selectedCameraIndex = _selectedCameraIndex == 1 ? 0 : 1;
@@ -246,7 +275,7 @@ class _FaceScanScreenState extends State<FaceScanScreen>
   /// Camera-first capture for the current angle: live preview →
   /// takePicture → in-memory preview (never gallery, never silent).
   Future<void> _takePhoto() async {
-    if (_isCapturing || _isInitializingCamera) return;
+    if (_isCapturing || _sessionState == CameraLifecycleState.opening) return;
     final isCustomTestTaker = widget.takePhoto != null;
     if (_isTestMode && !isCustomTestTaker) return;
 
@@ -302,6 +331,8 @@ class _FaceScanScreenState extends State<FaceScanScreen>
         setState(() {
           _captures[capturedAngle] = capture;
         });
+        // All angles have been captured! Stop the camera and release resources.
+        await _disposeCamera();
       }
     } on CameraException catch (e) {
       if (!mounted) return;
@@ -351,6 +382,9 @@ class _FaceScanScreenState extends State<FaceScanScreen>
               : 'face_${_currentAngle.name}.jpg',
         );
       });
+      if (_allCaptured) {
+        await _disposeCamera();
+      }
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -383,12 +417,14 @@ class _FaceScanScreenState extends State<FaceScanScreen>
     }
   }
 
-  void _analyze() {
+  void _analyze() async {
     if (!_canAnalyze) return;
+    await _disposeCamera();
     (widget.analytics ?? _analytics).emitAppearanceScanStarted(
       cameraSource: 'multi-angle',
       imageQuality: null,
     );
+    if (!mounted) return;
     context.pushNamed(
       RouteNames.hairstyleProcessing,
       extra: <String, dynamic>{
@@ -402,8 +438,9 @@ class _FaceScanScreenState extends State<FaceScanScreen>
     );
   }
 
-  void _skip() {
-    // First-class skip: no backend call, no FaceProfile, no default shape.
+  void _skip() async {
+    await _disposeCamera();
+    if (!mounted) return;
     context.pushNamed(RouteNames.hairstyleProcessing);
   }
 
@@ -465,7 +502,12 @@ class _FaceScanScreenState extends State<FaceScanScreen>
             Icons.arrow_back_rounded,
             color: FansivibeColors.textPrimary,
           ),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () async {
+            await _disposeCamera();
+            if (context.mounted) {
+              Navigator.of(context).pop();
+            }
+          },
         ),
       ),
       body: SafeArea(
@@ -718,6 +760,12 @@ class _FaceScanScreenState extends State<FaceScanScreen>
         title: 'Camera error',
         description: _cameraError ?? 'Please try again.',
         actionLabel: 'Retry',
+        onAction: _initCamera,
+      ),
+      _CameraUiState.initial => _cameraCard(
+        title: 'Camera Paused',
+        description: 'Camera is currently off. Tap below to start.',
+        actionLabel: 'Start Camera',
         onAction: _initCamera,
       ),
       _ => const SizedBox(
