@@ -260,6 +260,14 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _retryInsight() {
+    if (isGuestUser) return;
+    _initEstablishedFuturesIfNeeded();
+    setState(() {
+      _insightFuture = _wardrobeRepository.getInsight();
+    });
+  }
+
   Map<String, dynamic>? _onboardingDataFromLocalStorage() {
     if (widget.onboardingData != null) return null;
     final hasCompleted = LocalStorage.onboardingComplete;
@@ -654,9 +662,11 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Maps the backend [TodayLook] onto the existing card data without
   /// inventing content: title/description/scores verbatim, component UUIDs
   /// and names verbatim (never resolved against local mock IDs, never
-  /// fetched again here). `occasion` shows only when the backend derived
-  /// one — the static 'Everyday' fallback is presentation copy, never an
-  /// event recalculation (no event fetch happens in this layer).
+  /// fetched again here). The card's match badge shows the derivation's
+  /// own `matchScore` (never the style score, never a local default).
+  /// `occasion` shows only when the backend derived one — the static
+  /// 'Everyday' fallback is presentation copy, never an event
+  /// recalculation (no event fetch happens in this layer).
   TodaysLookData _todayLookCardData(TodayLook look) {
     return TodaysLookData(
       title: look.title,
@@ -673,7 +683,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           )
           .toList(),
-      styleScore: look.styleScore,
+      styleScore: look.matchScore,
     );
   }
 
@@ -690,13 +700,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildAIInsight() {
-    // Backend-first wardrobe insight (P2-8): live backend insight renders
-    // verbatim via [ExistingUserAiInsightCard]. When unavailable (204 empty
-    // wardrobe, loading, or network error), renders the editorial guidance
-    // card matching the visual reference.
+    // Backend-first wardrobe insight (P2-8): the live backend insight
+    // renders verbatim via [ExistingUserAiInsightCard]. The repository
+    // returns null for empty (204), unreachable, and error states alike,
+    // so a null slot hides instead of inventing advice — the same contract
+    // the Wardrobe screen honors. No editorial fallback is posed as AI
+    // output.
     return FutureBuilder<WardrobeInsightData?>(
       future: _insightFuture,
       builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SummaryLoadingCard(title: 'AI Insight');
+        }
         final insight = snapshot.data;
         if (insight != null) {
           return ExistingUserAiInsightCard(
@@ -705,13 +720,15 @@ class _HomeScreenState extends State<HomeScreen> {
             onExploreTap: () => context.pushNamed(RouteNames.discover),
           );
         }
-        return ExistingUserAiInsightCard(
-          quote:
-              '“Your recent looks are leaning toward structured silhouettes and neutral palettes.”',
-          supportingText:
-              'Try introducing one warmer accent this week to create dynamic visual depth.',
-          onExploreTap: () => context.pushNamed(RouteNames.discover),
-        );
+        if (snapshot.hasError) {
+          return SummaryErrorCard(
+            title: 'AI Insight',
+            message:
+                'Couldn\'t load wardrobe insight. Please check your connection.',
+            onRetry: _retryInsight,
+          );
+        }
+        return const SizedBox.shrink();
       },
     );
   }
@@ -757,19 +774,30 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildStyleJourney() {
     // 30-day overview is server-tracked across weeks — guests have no
     // account history so the slot hides rather than posing historical data.
-    // Same for any signed-out state.
+    // Same for any signed-out state. Authenticated users render the live
+    // backend score only: loading and error states keep the slot title
+    // with no value — there is deliberately no score fallback here.
     if (!AuthSession.isAuthenticated) return const SizedBox.shrink();
     return FutureBuilder<LearningSummary?>(
       future: _summaryFuture,
       builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SummaryLoadingCard(title: 'Style Journey');
+        }
         final summary = snapshot.data;
-        final score = summary?.styleScore ?? 86;
-        final streak = summary?.streak ?? 0;
+        if (snapshot.hasError || summary == null) {
+          return SummaryErrorCard(
+            title: 'Style Journey',
+            message:
+                'Couldn\'t load style summary. Please check your connection.',
+            onRetry: _retrySummary,
+          );
+        }
         return Column(
           children: [
             ExistingUserStyleJourney(
-              currentScore: score,
-              streakDays: streak,
+              currentScore: summary.styleScore,
+              streakDays: summary.streak,
             ),
             const SizedBox(height: 16),
             _buildStreakSlot(),

@@ -57,4 +57,36 @@ void main() {
       expect(reply.cards, isEmpty);
     });
   });
+
+  group('OfflineAssistant honesty (no fabricated personalization)', () {
+    test('outfit cards carry no measured match score', () {
+      for (final occasion in ['office', 'date', 'party', 'travel', 'casual']) {
+        final reply = assistant.replyFor(occasion, context);
+        final card = reply.cards.single;
+        expect(card.score, isNull);
+        expect(reply.text, contains('offline suggestion'));
+        expect(reply.text.contains('% match'), isFalse);
+      }
+    });
+
+    test('hairstyle reply is a reference suggestion, not a top pick', () {
+      final reply = assistant.replyFor('best hairstyle for me?', context);
+      expect(reply.intent, 'hairstyle');
+      expect(reply.text, contains('While offline'));
+      expect(reply.text.contains('top pick'), isFalse);
+      expect(reply.text.contains('% match'), isFalse);
+      expect(reply.cards.single.score, isNull);
+      expect(reply.cards.single.title, isNotEmpty);
+    });
+
+    test('grooming reply is a reference suggestion, not a verdict', () {
+      final reply = assistant.replyFor('which beard suits me?', context);
+      expect(reply.intent, 'grooming');
+      expect(reply.text, contains('While offline'));
+      expect(reply.text.contains('suits you best'), isFalse);
+      expect(reply.text.contains('% match'), isFalse);
+      expect(reply.cards.single.score, isNull);
+      expect(reply.cards.single.title, isNotEmpty);
+    });
+  });
 }

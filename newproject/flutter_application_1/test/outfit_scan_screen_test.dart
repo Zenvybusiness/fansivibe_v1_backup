@@ -72,29 +72,25 @@ void main() {
       expect(find.text('Camera Preview'), findsOneWidget);
     });
 
-    testWidgets('renders AI Analysis Active indicator', (
+    testWidgets('renders camera starting indicator', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
 
-      expect(find.text('AI Analysis Active'), findsOneWidget);
+      expect(find.text('Starting Camera'), findsOneWidget);
+      expect(find.text('AI Analysis Active'), findsNothing);
+      expect(find.text('Camera Ready'), findsNothing);
     });
 
-    testWidgets('renders check indicators', (WidgetTester tester) async {
-      await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
-
-      expect(find.byType(CheckIndicator), findsNWidgets(3));
-      expect(find.text('Lighting'), findsOneWidget);
-      expect(find.text('Framing'), findsOneWidget);
-      expect(find.text('Posture'), findsOneWidget);
-    });
-
-    testWidgets('renders posture improvement message', (
+    testWidgets('renders photo tips instead of fake detection states', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(MaterialApp(home: const OutfitScanScreen()));
 
-      expect(find.text('Adjust posture for better analysis'), findsOneWidget);
+      expect(find.text('PHOTO TIPS'), findsOneWidget);
+      expect(find.textContaining('Lighting:'), findsOneWidget);
+      expect(find.textContaining('Framing:'), findsOneWidget);
+      expect(find.textContaining('Posture:'), findsOneWidget);
     });
 
     testWidgets('renders Capture Photo button', (WidgetTester tester) async {

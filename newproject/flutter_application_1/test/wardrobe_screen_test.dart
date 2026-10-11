@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/app/app.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_screen.dart';
@@ -143,7 +144,31 @@ void main() {
 
       expect(find.text('My Wardrobe'), findsOneWidget);
       expect(find.text('24 items'), findsWidgets);
-      expect(find.text('Modern Minimalist'), findsOneWidget);
+      // No recorded style identity in this fresh binding: the header says
+      // so instead of posing a house style as the user's own.
+      expect(find.text('Style not set'), findsOneWidget);
+      expect(find.text('Modern Minimalist'), findsNothing);
+    });
+
+    testWidgets('renders recorded style identity instead of a fixed style', (
+      WidgetTester tester,
+    ) async {
+      LearningService.instance.setStyleType('Test Style');
+      addTearDown(() => LearningService.instance.resetForTest());
+
+      await tester.pumpWidget(_freshApp());
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Wardrobe'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('My Wardrobe'), findsOneWidget);
+      expect(find.text('Test Style'), findsOneWidget);
+      expect(find.text('Style not set'), findsNothing);
     });
 
     testWidgets('hides insight card when backend is unreachable', (

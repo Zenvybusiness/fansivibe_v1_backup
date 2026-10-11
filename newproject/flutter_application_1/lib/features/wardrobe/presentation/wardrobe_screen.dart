@@ -243,7 +243,12 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                           const SizedBox(height: FansivibeSpacing.xs),
                           WardrobeDashboardHeader(
                             totalItems: totalItems,
-                            styleType: WardrobeMockData.styleType,
+                            // Real on-device style identity. A fixed house
+                            // style here would pose as the user's own, so an
+                            // unknown identity says so instead of inventing one.
+                            styleType:
+                                LearningService.instance.styleType ??
+                                'Style not set',
                             favoritesCount: _favoritesCount,
                             categoryCount: WardrobeMockData.categories.length - 1,
                           ),

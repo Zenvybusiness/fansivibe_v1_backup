@@ -8,6 +8,7 @@ import 'package:fansivibe/features/grooming/presentation/widgets/grooming_widget
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class GroomingProcessingScreen extends StatefulWidget {
@@ -48,11 +49,62 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
       _service = GroomingService()..attachLearning(LearningService.instance);
     }
     // Guests run the synchronous ephemeral analysis (D-01) over the
-    // request profile from the input screen. The authenticated path is
-    // untouched.
+    // request profile from the input screen. Signed-in users run the
+    // account analysis against their stored face profile and the live
+    // backend run — never a dead end, never a mock result. Without a
+    // session there is no account analysis to run, so the screen reports
+    // that honestly instead of firing an unauthenticated request.
     if (isGuestUser) {
       _runEphemeral();
+    } else if (AuthSession.isAuthenticated) {
+      _runAuthenticated();
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sign in to run grooming analysis.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        _leaveProcessing(context);
+      });
     }
+  }
+
+  /// Authenticated pass: live backend analysis over the stored face
+  /// profile, then result navigation. Failures surface honestly and
+  /// return to the input screen — never a fake result.
+  Future<void> _runAuthenticated() async {
+    final result = await _service.runAnalysis();
+    if (!mounted) return;
+    if (_service.analysisError != null || _service.isMockResult) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _service.analysisError ??
+                'Grooming analysis failed. Please try again.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _leaveProcessing(context);
+      return;
+    }
+    context.replaceNamed(RouteNames.groomingResult, extra: result);
+  }
+
+  /// Leaves the processing screen for the grooming input. Pops when this
+  /// screen was pushed; a deep link with nothing below goes to the input
+  /// instead of popping the last page off the stack. Router-free contexts
+  /// (e.g. bare widget tests) simply stay put.
+  void _leaveProcessing(BuildContext context) {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    GoRouter.maybeOf(context)?.goNamed(RouteNames.grooming);
   }
 
   /// Guest ephemeral pass (D-01): synchronous analysis, stash for later
@@ -170,6 +222,9 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
 
                         const SizedBox(height: 40),
 
+                        // Static stage list: no per-stage progress source
+                        // exists, so stages render as pending with the first
+                        // active — never pre-marked complete.
                         ...GroomingProcessingStage.mockStages
                             .asMap()
                             .entries
@@ -179,7 +234,7 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
                               return GroomingStageIndicator(
                                 stage: stage,
                                 isActive: index == 0,
-                                isComplete: true,
+                                isComplete: false,
                               );
                         }),
 

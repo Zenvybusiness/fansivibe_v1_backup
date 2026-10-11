@@ -100,9 +100,9 @@ class SummaryErrorCard extends StatelessWidget {
 /// Backend-fed style score card (M10-C, STEP 19.16).
 ///
 /// Renders the server-authoritative [LearningSummary.styleScore] in the
-/// existing Home slot visual language. No weekly trend chip and no
-/// category grid: the backend summary carries neither, and inventing
-/// them would fabricate data.
+/// existing Home slot visual language. No weekly trend chip and no rank
+/// chip: the backend summary carries neither, and inventing them would
+/// fabricate data.
 class BackendStyleScoreCard extends StatelessWidget {
   const BackendStyleScoreCard({required this.summary, super.key});
 
@@ -111,12 +111,9 @@ class BackendStyleScoreCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final score = summary.styleScore;
-    final topPercent = (100 - score).clamp(1, 99);
 
     return ExistingUserStyleScoreCard(
       score: score,
-      scoreChange: '+4 THIS MONTH',
-      rankingLabel: 'TOP $topPercent%',
       supportingText: 'From your wardrobe and saved looks',
     );
   }

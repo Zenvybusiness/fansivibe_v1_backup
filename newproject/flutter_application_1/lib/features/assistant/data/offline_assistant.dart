@@ -3,16 +3,14 @@ import 'package:fansivibe/features/grooming/data/grooming_mock_data.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
 
 /// A single outfit suggestion mirroring `backend/app/data/catalog.py`.
+///
+/// Scores are deliberately absent: static offline suggestions carry no
+/// measured match percentage, and rendering one would fabricate precision.
 class _LookCard {
-  const _LookCard({
-    required this.title,
-    required this.items,
-    required this.score,
-  });
+  const _LookCard({required this.title, required this.items});
 
   final String title;
   final List<String> items;
-  final int score;
 }
 
 /// Deterministic offline assistant (our own rules engine, mirrored on-device).
@@ -153,7 +151,6 @@ class OfflineAssistant {
           'Brown Leather Derbies - Footwear',
           'Gold Minimalist Watch - Accessories',
         ],
-        score: 91,
       ),
       'date' => _LookCard(
         title: 'Date Night Refined',
@@ -162,7 +159,6 @@ class OfflineAssistant {
           'Burgundy Polo - Tops',
           'Dark Denim Jeans - Bottoms',
         ],
-        score: 89,
       ),
       'party' => _LookCard(
         title: 'Party Statement',
@@ -171,7 +167,6 @@ class OfflineAssistant {
           'Black Graphic Tee - Tops',
           'Black Pleated Trousers - Bottoms',
         ],
-        score: 86,
       ),
       'travel' => _LookCard(
         title: 'Travel Comfort',
@@ -180,7 +175,6 @@ class OfflineAssistant {
           'Slim Chinos - Bottoms',
           'Loafers - Footwear',
         ],
-        score: 87,
       ),
       _ => _LookCard(
         title: 'Effortless Casual',
@@ -190,20 +184,18 @@ class OfflineAssistant {
           'Dark Denim Jeans - Bottoms',
           'White Sneakers - Footwear',
         ],
-        score: 88,
       ),
     };
     return AssistantReply(
       intent: 'outfit',
       text:
-          "For $occasion, I'd go with the ${look.title}. "
+          "For $occasion, here's an offline suggestion: the ${look.title}. "
           'Tap the card to build it.',
       cards: [
         SuggestionCard(
           kind: 'outfit',
           title: look.title,
           subtitle: look.items.join(', '),
-          score: look.score,
           items: look.items,
           action: 'open_outfit',
         ),
@@ -216,14 +208,13 @@ class OfflineAssistant {
     return AssistantReply(
       intent: 'hairstyle',
       text:
-          'Your top pick is the ${top.name} (${(top.matchScore * 100).round()}% match). '
-          '${top.stylingTips}',
+          'While offline I can\u2019t analyze your photo, but here is a '
+          'reference style to explore: the ${top.name}. ${top.stylingTips}',
       cards: [
         SuggestionCard(
           kind: 'hairstyle',
           title: top.name,
           subtitle: top.description,
-          score: (top.matchScore * 100).round(),
           items: [top.stylingTips, top.maintenance, top.bestFor],
           action: 'open_hairstyle',
         ),
@@ -236,14 +227,13 @@ class OfflineAssistant {
     return AssistantReply(
       intent: 'grooming',
       text:
-          'The ${top.name} suits you best (${(top.matchScore * 100).round()}% match). '
-          '${top.stylingTips}',
+          'While offline I can\u2019t analyze your photo, but here is a '
+          'reference style to explore: the ${top.name}. ${top.stylingTips}',
       cards: [
         SuggestionCard(
           kind: 'grooming',
           title: top.name,
           subtitle: top.description,
-          score: (top.matchScore * 100).round(),
           items: [
             for (final s in [top.beardLength, top.eyewearRecommendation, top.maintenance])
               if (s != null && s.isNotEmpty) s

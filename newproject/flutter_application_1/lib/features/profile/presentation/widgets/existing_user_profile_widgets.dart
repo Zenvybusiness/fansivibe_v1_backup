@@ -143,7 +143,7 @@ class EstablishedBrandBar extends StatelessWidget {
                   ),
                   child: Center(
                     child: Text(
-                      avatarInitials ?? 'AR',
+                      avatarInitials ?? 'M',
                       style: const TextStyle(
                         fontFamily: FansivibeTypography.textFamily,
                         fontSize: 11,
@@ -171,7 +171,9 @@ class EstablishedProfileHero extends StatelessWidget {
   final String username;
   final String? initials;
   final String styleLevel;
-  final String globalRankPercentile;
+
+  /// Global rank suffix on the level pill. Null hides it: no rank source.
+  final String? globalRankPercentile;
   final List<String> styleIdentityChips;
   final VoidCallback onEditProfile;
   final VoidCallback onShare;
@@ -182,7 +184,7 @@ class EstablishedProfileHero extends StatelessWidget {
     required this.username,
     this.initials,
     this.styleLevel = 'ADVANCED',
-    this.globalRankPercentile = 'TOP 8% GLOBAL',
+    this.globalRankPercentile,
     required this.styleIdentityChips,
     required this.onEditProfile,
     required this.onShare,
@@ -226,7 +228,7 @@ class EstablishedProfileHero extends StatelessWidget {
                     errorBuilder: (context, error, stackTrace) {
                       return Center(
                         child: Text(
-                          initials ?? 'AR',
+                          initials ?? 'M',
                           style: const TextStyle(
                             fontFamily: FansivibeTypography.displayFamily,
                             fontSize: 34,
@@ -321,7 +323,10 @@ class EstablishedProfileHero extends StatelessWidget {
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
-                  'STYLE LEVEL: $styleLevel  •  $globalRankPercentile',
+                  globalRankPercentile != null &&
+                          globalRankPercentile!.isNotEmpty
+                      ? 'STYLE LEVEL: $styleLevel  •  $globalRankPercentile'
+                      : 'STYLE LEVEL: $styleLevel',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -574,7 +579,11 @@ class EstablishedPrimaryArchetypeCard extends StatelessWidget {
 
 class EstablishedStyleIntelligence extends StatelessWidget {
   final int styleScore;
-  final String deltaText;
+
+  /// Score-delta chip. Null hides the chip: no month-delta source exists.
+  final String? deltaText;
+
+  /// Global rank card. Null/empty hides the card: no rank source exists.
   final String? globalRank;
   final String? rankPercentile;
   final String rankSubtitle;
@@ -582,10 +591,10 @@ class EstablishedStyleIntelligence extends StatelessWidget {
   const EstablishedStyleIntelligence({
     super.key,
     required this.styleScore,
-    this.deltaText = '+4.0',
-    this.globalRank = '#2,481',
-    this.rankPercentile = 'TOP 8% GLOBAL',
-    this.rankSubtitle = 'Calculated across 31k active members',
+    this.deltaText,
+    this.globalRank,
+    this.rankPercentile,
+    this.rankSubtitle = '',
   });
 
   @override
@@ -661,22 +670,23 @@ class EstablishedStyleIntelligence extends StatelessWidget {
                             color: _AtelierColors.textSecondary,
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: _AtelierColors.surfaceHigh,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            deltaText,
-                            style: const TextStyle(
-                              fontFamily: FansivibeTypography.textFamily,
-                              fontSize: 9.5,
-                              fontWeight: FontWeight.w700,
-                              color: _AtelierColors.goldPrimary,
+                        if (deltaText != null && deltaText!.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: _AtelierColors.surfaceHigh,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              deltaText!,
+                              style: const TextStyle(
+                                fontFamily: FansivibeTypography.textFamily,
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w700,
+                                color: _AtelierColors.goldPrimary,
+                              ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
@@ -830,20 +840,21 @@ class EstablishedStyleIntelligence extends StatelessWidget {
 
 class EstablishedTrajectoryCard extends StatelessWidget {
   final int currentScore;
-  final int consistencyPercentage;
+
+  /// Consistency chip. Null hides the chip: no consistency source exists.
+  final int? consistencyPercentage;
 
   const EstablishedTrajectoryCard({
     super.key,
     required this.currentScore,
-    this.consistencyPercentage = 94,
+    this.consistencyPercentage,
   });
 
   @override
   Widget build(BuildContext context) {
-    // 4 progression data points (scaled gracefully based on currentScore)
-    final w1 = (currentScore - 12).clamp(60, 100);
-    final w2 = (currentScore - 8).clamp(60, 100);
-    final w3 = (currentScore - 4).clamp(60, 100);
+    // Current score only. There is no score-history endpoint, so no
+    // historical bars are rendered — deriving them from the current score
+    // would fabricate user history.
     final now = currentScore;
 
     return Container(
@@ -879,7 +890,7 @@ class EstablishedTrajectoryCard extends StatelessWidget {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      '30-Day Evolution',
+                      'Current Score',
                       style: TextStyle(
                         fontFamily: FansivibeTypography.displayFamily,
                         fontSize: 16,
@@ -891,34 +902,32 @@ class EstablishedTrajectoryCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _AtelierColors.surfaceHigh,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  'Consistency: $consistencyPercentage%',
-                  style: const TextStyle(
-                    fontFamily: FansivibeTypography.textFamily,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: _AtelierColors.goldPrimary,
+              if (consistencyPercentage != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _AtelierColors.surfaceHigh,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Consistency: $consistencyPercentage%',
+                    style: const TextStyle(
+                      fontFamily: FansivibeTypography.textFamily,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: _AtelierColors.goldPrimary,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 18),
 
-          // 4-Column Bar Chart
+          // Current-score column (no fabricated history)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              _buildProgressColumn(score: w1, label: 'W1', isCurrent: false),
-              _buildProgressColumn(score: w2, label: 'W2', isCurrent: false),
-              _buildProgressColumn(score: w3, label: 'W3', isCurrent: false),
               _buildProgressColumn(score: now, label: 'Now', isCurrent: true),
             ],
           ),
@@ -1123,15 +1132,15 @@ class EstablishedCuratedWardrobe extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _buildCategoryStat('TOPS', categoryCounts['tops'] ?? 64),
+                _buildCategoryStat('TOPS', categoryCounts['tops'] ?? 0),
                 _buildDotSeparator(),
-                _buildCategoryStat('BOTTOMS', categoryCounts['bottoms'] ?? 42),
+                _buildCategoryStat('BOTTOMS', categoryCounts['bottoms'] ?? 0),
                 _buildDotSeparator(),
-                _buildCategoryStat('OUTERWEAR', categoryCounts['outerwear'] ?? 28),
+                _buildCategoryStat('OUTERWEAR', categoryCounts['outerwear'] ?? 0),
                 _buildDotSeparator(),
-                _buildCategoryStat('SHOES', categoryCounts['footwear'] ?? 31),
+                _buildCategoryStat('SHOES', categoryCounts['footwear'] ?? 0),
                 _buildDotSeparator(),
-                _buildCategoryStat('ACCESSORIES', categoryCounts['accessories'] ?? 83),
+                _buildCategoryStat('ACCESSORIES', categoryCounts['accessories'] ?? 0),
               ],
             ),
           ),
@@ -1775,10 +1784,10 @@ class EstablishedStyleDnaProfile extends StatelessWidget {
 
   const EstablishedStyleDnaProfile({
     super.key,
-    this.colorPalette = 'Neutral & Earth',
-    this.silhouette = 'Relaxed Tailoring',
-    this.occasions = 'Smart Casual',
-    this.anchor = 'Modern Minimal',
+    this.colorPalette = 'Not set',
+    this.silhouette = 'Not set',
+    this.occasions = 'Not set',
+    this.anchor = 'Not set',
     required this.onDimensionsTap,
   });
 
@@ -1822,15 +1831,13 @@ class EstablishedStyleDnaProfile extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        // 2x2 Grid
+        // 2x2 Grid (recorded values only — no inferred subtitles)
         Row(
           children: [
             Expanded(
               child: _buildDnaCard(
                 label: 'COLOR PALETTE',
                 value: colorPalette,
-                subtitle: 'Warm Undertones & Ivory',
-                showColorDots: true,
               ),
             ),
             const SizedBox(width: 12),
@@ -1838,7 +1845,6 @@ class EstablishedStyleDnaProfile extends StatelessWidget {
               child: _buildDnaCard(
                 label: 'SILHOUETTE',
                 value: silhouette,
-                subtitle: 'Fluid lines with structure',
               ),
             ),
           ],
@@ -1850,7 +1856,6 @@ class EstablishedStyleDnaProfile extends StatelessWidget {
               child: _buildDnaCard(
                 label: 'KEY OCCASIONS',
                 value: occasions,
-                subtitle: 'Gallery • Evening Dining',
               ),
             ),
             const SizedBox(width: 12),
@@ -1858,7 +1863,6 @@ class EstablishedStyleDnaProfile extends StatelessWidget {
               child: _buildDnaCard(
                 label: 'AESTHETIC ANCHOR',
                 value: anchor,
-                subtitle: 'High tonal discipline',
               ),
             ),
           ],
@@ -1870,7 +1874,6 @@ class EstablishedStyleDnaProfile extends StatelessWidget {
   Widget _buildDnaCard({
     required String label,
     required String value,
-    required String subtitle,
     bool showColorDots = false,
   }) {
     return Container(
@@ -1904,15 +1907,6 @@ class EstablishedStyleDnaProfile extends StatelessWidget {
               fontSize: 15,
               fontWeight: FontWeight.w400,
               color: _AtelierColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: const TextStyle(
-              fontFamily: FansivibeTypography.textFamily,
-              fontSize: 10.5,
-              color: _AtelierColors.textSecondary,
             ),
           ),
           if (showColorDots) ...[
@@ -2038,15 +2032,28 @@ class EstablishedCuratorialMilestones extends StatelessWidget {
   final int totalCount;
   final int streakDays;
 
+  /// Per-tile unlock states in tile order (explorer, builder, spotter,
+  /// curator), each driven by real engagement state. Null locks all tiles
+  /// instead of posing every milestone as earned.
+  final List<bool>? unlockedTiles;
+
   const EstablishedCuratorialMilestones({
     super.key,
-    this.unlockedCount = 6,
-    this.totalCount = 12,
-    this.streakDays = 12,
+    this.unlockedCount = 0,
+    this.totalCount = 4,
+    this.streakDays = 0,
+    this.unlockedTiles,
   });
+
+  bool _tileUnlocked(int index) {
+    final tiles = unlockedTiles;
+    if (tiles == null || index >= tiles.length) return false;
+    return tiles[index];
+  }
 
   @override
   Widget build(BuildContext context) {
+    final activeDots = streakDays.clamp(0, 7);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2085,7 +2092,7 @@ class EstablishedCuratorialMilestones extends StatelessWidget {
               child: _buildMilestoneTile(
                 icon: Icons.explore_outlined,
                 title: 'STYLE\nEXPLORER',
-                unlocked: true,
+                unlocked: _tileUnlocked(0),
               ),
             ),
             const SizedBox(width: 8),
@@ -2093,7 +2100,7 @@ class EstablishedCuratorialMilestones extends StatelessWidget {
               child: _buildMilestoneTile(
                 icon: Icons.checkroom_outlined,
                 title: 'WARDROBE\nBUILDER',
-                unlocked: true,
+                unlocked: _tileUnlocked(1),
               ),
             ),
             const SizedBox(width: 8),
@@ -2101,7 +2108,7 @@ class EstablishedCuratorialMilestones extends StatelessWidget {
               child: _buildMilestoneTile(
                 icon: Icons.radar_outlined,
                 title: 'TREND\nSPOTTER',
-                unlocked: true,
+                unlocked: _tileUnlocked(2),
               ),
             ),
             const SizedBox(width: 8),
@@ -2109,7 +2116,7 @@ class EstablishedCuratorialMilestones extends StatelessWidget {
               child: _buildMilestoneTile(
                 icon: Icons.bookmark_border_rounded,
                 title: 'LOOK\nCURATOR',
-                unlocked: true,
+                unlocked: _tileUnlocked(3),
               ),
             ),
           ],
@@ -2168,10 +2175,10 @@ class EstablishedCuratorialMilestones extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              // 7-day capsule row
+              // 7-day capsule row (lit dots = real streak days, max 7)
               Row(
                 children: List.generate(7, (index) {
-                  final active = index < 5;
+                  final active = index < activeDots;
                   return Container(
                     margin: const EdgeInsets.only(left: 4),
                     width: 12,
@@ -2363,7 +2370,7 @@ class EstablishedAtelierGovernance extends StatelessWidget {
   const EstablishedAtelierGovernance({
     super.key,
     required this.syncedWardrobeCount,
-    this.membershipTier = 'Fansivibe Atelier • Pro Tier',
+    this.membershipTier = 'Fansivibe Atelier',
     required this.onPreferences,
     required this.onStyleProfile,
     required this.onWardrobeSync,

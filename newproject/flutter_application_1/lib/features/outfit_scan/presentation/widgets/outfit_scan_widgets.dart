@@ -73,7 +73,7 @@ class CameraPreviewPlaceholder extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    'AI Analysis Active',
+                    'Starting Camera',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: FansivibeColors.accentGold,
                       fontWeight: FontWeight.w600,

@@ -233,13 +233,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Map<String, int> get _wardrobeCategoryCounts {
     final items = _resolvedWardrobeItems;
+    // An empty wardrobe reports honest zeros — never sample counts posed
+    // as the user's own inventory.
     if (items.isEmpty) {
       return {
-        'tops': 64,
-        'bottoms': 42,
-        'outerwear': 28,
-        'footwear': 31,
-        'accessories': 83,
+        'tops': 0,
+        'bottoms': 0,
+        'outerwear': 0,
+        'footwear': 0,
+        'accessories': 0,
       };
     }
     final counts = <String, int>{
@@ -289,7 +291,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String get _displayInitials {
     final name = _resolvedDisplayName;
-    if (name == null || name.isEmpty) return 'AR';
+    if (name == null || name.isEmpty) return 'M';
     final parts = name.trim().split(RegExp(r'\s+'));
     if (parts.length >= 2 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
@@ -299,13 +301,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String get _resolvedUsername {
     final name = _resolvedDisplayName;
-    if (name == null || name.isEmpty) return 'ALEXRIVERA';
+    if (name == null || name.isEmpty) return 'MEMBER';
     return name.toUpperCase().replaceAll(' ', '');
   }
 
   String get _resolvedHandleLower {
     final name = _resolvedDisplayName;
-    if (name == null || name.isEmpty) return 'alex_rivera';
+    if (name == null || name.isEmpty) return 'member';
     return name.toLowerCase().replaceAll(' ', '_');
   }
 
@@ -407,7 +409,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         final isEstablishedWithSummary =
                             summary != null && summary.styleScore > 0;
 
-                        if (_isEstablishedUser) {
+                        if (_isEstablishedUser &&
+                            (summary != null || isGuestUser)) {
                           return _buildEstablishedProfile(context, summary);
                         }
 
@@ -506,19 +509,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // --- ESTABLISHED USER DIGITAL ATELIER REDESIGN ---
 
   Widget _buildEstablishedProfile(BuildContext context, LearningSummary? summary) {
-    final resolvedName = _resolvedDisplayName ?? 'Alex Rivera';
-    final resolvedHandle = _resolvedUsername.isNotEmpty ? _resolvedUsername.toLowerCase() : 'alexrivera';
+    // Authenticated established accounts always arrive here with a live
+    // summary (the builder above falls back to the honest new-user design
+    // when the fetch fails, so no score is ever invented). Guests have no
+    // backend summary and use the real on-device computation instead of a
+    // fabricated constant; zero marks the unknown, never a plausible
+    // stand-in.
+    final resolvedName = _resolvedDisplayName ?? 'Member';
+    final resolvedHandle = _resolvedUsername.isNotEmpty
+        ? _resolvedUsername.toLowerCase()
+        : 'member';
     final score =
         summary?.styleScore ??
-        // Guests have no backend summary: use the real on-device
-        // computation (60 + wardrobe + saved looks, same as Home) instead
-        // of a fabricated constant. Authenticated users without a summary
-        // keep the previous fallback untouched.
-        (isGuestUser ? LearningService.instance.styleScore : 86);
+        (isGuestUser ? LearningService.instance.styleScore : 0);
     final level = score >= 80 ? 'ADVANCED' : (score >= 65 ? 'INTERMEDIATE' : 'DEVELOPING');
-    const rankText = 'TOP 8% GLOBAL';
     final wardrobeList = _resolvedWardrobeItems;
-    final totalPieces = wardrobeList.isNotEmpty ? wardrobeList.length : 248;
+    final totalPieces = wardrobeList.length;
+    // Style chips come from recorded preferences only — never house copy.
+    final styleChips = <String>[
+      if (_styleType != null && _styleType!.isNotEmpty)
+        _styleType!.toUpperCase(),
+      ...LearningService.instance.preferredOccasions
+          .take(2)
+          .map((o) => o.toUpperCase()),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -536,40 +550,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
           username: resolvedHandle,
           initials: _displayInitials,
           styleLevel: level,
-          globalRankPercentile: rankText,
-          styleIdentityChips: const ['MODERN MINIMAL', 'SMART CASUAL', 'QUIET LUXURY'],
+          styleIdentityChips: styleChips,
           onEditProfile: () => context.pushNamed(RouteNames.profileSettings),
           onShare: () => _handleShare(context),
         ),
 
         const SizedBox(height: 28),
 
-        // Primary Archetype Card
+        // Primary Archetype Card (recorded style only — never house copy)
         EstablishedPrimaryArchetypeCard(
-          title: _styleType ?? 'Modern Minimal',
-          subtitle: 'Structured Tailoring • Neutral Palette',
-          description: 'Defined by deliberate proportions, architectural shapes, and muted tonal discipline.',
-          tags: const ['MODERN MINIMAL', 'SMART CASUAL', 'TAILORED', 'NEUTRAL', 'QUIET LUXURY'],
+          title: _styleType ?? 'Style Archetype',
+          subtitle: _preferencesSummary ?? 'Complete your style profile',
+          description:
+              'Your archetype refines as you save looks and build your wardrobe.',
+          tags: styleChips,
           onShare: () => _handleShare(context),
         ),
 
         const SizedBox(height: 28),
 
-        // Style Intelligence (Style Score + Global Rank)
+        // Style Intelligence (live score; rank hidden — no rank source)
         EstablishedStyleIntelligence(
           styleScore: score,
-          deltaText: '+4.0',
-          globalRank: '#2,481',
-          rankPercentile: 'TOP 8% GLOBAL',
-          rankSubtitle: 'Calculated across 31k active members',
         ),
 
         const SizedBox(height: 28),
 
-        // Style Progress (Trajectory 30-Day Evolution)
+        // Style Progress (current score only — no history source)
         EstablishedTrajectoryCard(
           currentScore: score,
-          consistencyPercentage: 94,
         ),
 
         const SizedBox(height: 32),
@@ -584,14 +593,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
         const SizedBox(height: 28),
 
-        // Wardrobe Intelligence (Atelier Synthesis)
-        EstablishedWardrobeSynthesis(
-          synthesisQuote: _wardrobeInsight?.insight ??
-              'Your wardrobe is strongest in neutral tailoring, with opportunities to expand texture and accent color.',
-          onDiscoverComplementary: () => context.goNamed(RouteNames.discover),
-        ),
+        // Wardrobe Intelligence (live backend insight only — hidden when
+        // none, never an invented synthesis)
+        if (_wardrobeInsight != null) ...[
+          EstablishedWardrobeSynthesis(
+            synthesisQuote: _wardrobeInsight!.insight,
+            onDiscoverComplementary: () => context.goNamed(RouteNames.discover),
+          ),
 
-        const SizedBox(height: 32),
+          const SizedBox(height: 32),
+        ],
 
         // Saved Looks (2-Column Editorial Grid)
         EstablishedSavedLooks(
@@ -601,46 +612,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
         const SizedBox(height: 32),
 
-        // Curated Wishlist (Commerce & Affiliate Shop Actions)
-        EstablishedCuratedWishlist(
-          onEntireAcquisition: () => context.goNamed(RouteNames.discover),
-          onShopProduct: (title) => _handleShopProduct(context, title),
-        ),
-
-        const SizedBox(height: 32),
-
-        // Style DNA Profile (4-Part Dimension Grid)
+        // Style DNA Profile (recorded attributes only — 'Not set' when
+        // the analysis has not determined them)
         EstablishedStyleDnaProfile(
-          colorPalette: 'Neutral & Earth',
-          silhouette: 'Relaxed Tailoring',
-          occasions: _preferencesSummary ?? 'Smart Casual',
-          anchor: _styleType ?? 'Modern Minimal',
+          colorPalette: _skinTone ?? 'Not set',
+          silhouette: _bodyType ?? 'Not set',
+          occasions: _preferencesSummary ?? 'Not set',
+          anchor: _styleType ?? 'Not set',
           onDimensionsTap: () => context.pushNamed(RouteNames.hairstyle),
         ),
 
         const SizedBox(height: 28),
 
-        // AI Style Observation
-        EstablishedAiObservation(
-          observationText:
-              'Your recent selections show a strong preference towards structured silhouettes and warm neutral tones. Recommend exploring heavier textures for autumn.',
-          onExploreEditions: () => context.goNamed(RouteNames.discover),
-        ),
-
-        const SizedBox(height: 32),
-
-        // Curatorial Milestones & Style Streak
+        // Curatorial Milestones & Style Streak (real engagement state)
         EstablishedCuratorialMilestones(
-          unlockedCount: 6,
-          totalCount: 12,
-          streakDays: summary?.streak ?? 12,
-        ),
-
-        const SizedBox(height: 32),
-
-        // Personalized Recommendations (Shop Your Style Signature)
-        EstablishedPersonalizedRecommendations(
-          onDiscoverForYou: () => context.goNamed(RouteNames.discover),
+          unlockedCount: _unlockedAchievementsCount,
+          totalCount: 4,
+          streakDays: summary?.streak ?? 0,
+          unlockedTiles: [
+            _occasionAchievementUnlocked,
+            _fitAchievementUnlocked,
+            _colorAchievementUnlocked,
+            _trendAchievementUnlocked,
+          ],
         ),
 
         const SizedBox(height: 32),
@@ -648,7 +642,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // Atelier Governance (Settings, Membership, Sync)
         EstablishedAtelierGovernance(
           syncedWardrobeCount: totalPieces,
-          membershipTier: 'Fansivibe Atelier • Pro Tier',
           onPreferences: () => context.pushNamed(RouteNames.profilePreferences),
           onStyleProfile: () => context.pushNamed(RouteNames.hairstyle),
           onWardrobeSync: () => context.goNamed(RouteNames.wardrobe),
@@ -676,19 +669,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Profile link copied to clipboard'),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: const Color(0xFF222222),
-        shape: RoundedRectangleBorder(
-          borderRadius: FansivibeRadius.smdBorder,
-        ),
-      ),
-    );
-  }
-
-  void _handleShopProduct(BuildContext context, String productTitle) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Opening retailer for $productTitle...'),
         behavior: SnackBarBehavior.floating,
         backgroundColor: const Color(0xFF222222),
         shape: RoundedRectangleBorder(
@@ -875,7 +855,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: Text('@$_resolvedHandleLower'),
               ),
             Text(
-              '@$_resolvedUsername • NEW STYLE JOURNEY',
+              _resolvedDisplayName == null
+                  ? 'NEW STYLE JOURNEY'
+                  : '@$_resolvedUsername • NEW STYLE JOURNEY',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 11,

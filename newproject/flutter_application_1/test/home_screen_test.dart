@@ -161,8 +161,33 @@ class _FakeInsightRepository implements WardrobeRepository {
   Future<WearSummary?> getWearSummary() => throw UnimplementedError();
 }
 
-/// App with the backend-fed Home slot (M9, STEP 19.25): the same fake feeds
-/// both Home and the Daily Outfit detail surface.
+/// App with an unreachable learning summary: the summary future resolves
+/// to null with no device history, so Home renders with honest error
+/// slots instead of fallback values.
+Widget _nullSummaryApp() {
+  return FansivibeApp(
+    router: GoRouter(
+      initialLocation: '/home',
+      routes: [
+        GoRoute(
+          path: '/home',
+          builder: (context, state) => HomeScreen(
+            todayLookRepository: _FakeTodayLookRepository(
+              const TodayLookResult.failure(TodayLookFailure.networkError),
+            ),
+            summaryRepository: _NullSummaryRepository(),
+            wardrobeRepository: _FakeInsightRepository(null),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _NullSummaryRepository implements LearningSummaryRepository {
+  @override
+  Future<LearningSummary?> getSummary() async => null;
+}
 Widget _backendApp({WardrobeRepository? wardrobeRepository}) {
   final todayRepo = _FakeTodayLookRepository(_backendLookResult());
   return FansivibeApp(
@@ -508,6 +533,66 @@ void main() {
       // Fabricated CTA and fake snackbar are completely absent
       expect(find.text('View Recommendations'), findsNothing);
       expect(find.text('Opening Wardrobe Recommendations...'), findsNothing);
+    });
+
+    testWidgets('Style Journey shows live score without fabricated history', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_backendApp());
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(find.text('STYLE JOURNEY'), 500.0);
+      await tester.pumpAndSettle();
+
+      // Live backend score renders; invented weekly history does not.
+      expect(find.text('73'), findsWidgets);
+      expect(find.text('CURRENT SCORE'), findsOneWidget);
+      expect(find.text('30-DAY OVERVIEW'), findsNothing);
+      expect(find.text('W1'), findsNothing);
+      expect(find.text('W2'), findsNothing);
+      expect(find.text('W3'), findsNothing);
+      // No invented delta or rank chips on the score card either.
+      expect(find.text('+4 THIS MONTH'), findsNothing);
+      expect(find.textContaining('TOP '), findsNothing);
+    });
+
+    testWidgets('missing summary shows journey error instead of fallback', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_nullSummaryApp());
+      await tester.pumpAndSettle();
+
+      // Both the score and journey slots fail honestly with retry.
+      expect(
+        find.text(
+          'Couldn\'t load style summary. Please check your connection.',
+        ),
+        findsWidgets,
+      );
+      // No fallback score or journey header is posed as the user's own.
+      expect(find.text('STYLE JOURNEY'), findsNothing);
+      expect(find.text('86'), findsNothing);
+    });
+
+    testWidgets('curated sections are editorial, not personalized', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_backendApp());
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.text('EDITORIAL SELECTION'),
+        500.0,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Curated Looks'), findsOneWidget);
+      expect(find.text('BASED ON YOUR STYLE'), findsNothing);
+      expect(find.text('Curated For You'), findsNothing);
+
+      await tester.scrollUntilVisible(find.text('TRENDING NOW'), 500.0);
+      await tester.pumpAndSettle();
+      expect(find.text('TRENDING FOR YOU'), findsNothing);
+      expect(find.textContaining('Affinity'), findsNothing);
     });
   });
 }

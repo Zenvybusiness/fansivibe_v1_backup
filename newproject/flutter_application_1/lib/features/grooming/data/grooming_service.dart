@@ -112,9 +112,20 @@ class GroomingService extends ChangeNotifier {
           _analysisError = 'Grooming service unreachable. Please try again.';
           _usedMockResult = true;
           resolved = GroomingAnalysisResult.mock;
+        } else if (run.result == null) {
+          _analysisError =
+              'Grooming analysis returned no result. Please try again.';
+          _usedMockResult = true;
+          resolved = GroomingAnalysisResult.mock;
         } else {
-          _usedMockResult = false;
-          resolved = GroomingAnalysisResult.fromRunResult(run);
+          try {
+            _usedMockResult = false;
+            resolved = GroomingAnalysisResult.fromRunResult(run);
+          } catch (_) {
+            _analysisError = 'Grooming analysis failed. Please try again.';
+            _usedMockResult = true;
+            resolved = GroomingAnalysisResult.mock;
+          }
         }
         _isCompleted = true;
       }

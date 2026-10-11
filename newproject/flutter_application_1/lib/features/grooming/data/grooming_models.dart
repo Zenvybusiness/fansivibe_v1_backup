@@ -181,15 +181,18 @@ class GroomingAnalysisResult {
           topRecommendation: GroomingRecommendation.fromBackend(
             run.result?['recommendations']?['top'] as Map<String, dynamic>,
           ),
+          // The engine returns `recommendations` as a map
+          // `{top, alternatives}` — never a bare list.
           alternatives:
-              (run.result?['recommendations'] as List<dynamic>?)
-                      ?.map(
-                        (e) => GroomingRecommendation.fromBackend(
-                          e as Map<String, dynamic>,
-                        ),
-                      )
-                      .toList()
-                  as List<GroomingRecommendation>,
+              (run.result?['recommendations']?['alternatives']
+                          as List<dynamic>? ??
+                      const [])
+                  .map(
+                    (e) => GroomingRecommendation.fromBackend(
+                      e as Map<String, dynamic>,
+                    ),
+                  )
+                  .toList(),
         );
 
   factory GroomingAnalysisResult.fromBackend(Map<String, dynamic> json) =>

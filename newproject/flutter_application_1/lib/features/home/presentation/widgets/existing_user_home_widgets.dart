@@ -299,7 +299,9 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
 
   @override
   Widget build(BuildContext context) {
-    final matchScore = widget.data.styleScore > 0 ? widget.data.styleScore : 94;
+    // The badge shows the backend derivation's own match score. A zero
+    // score hides the badge instead of inventing one — never a default.
+    final matchScore = widget.data.styleScore;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -408,45 +410,48 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Match badge
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: FansivibeColors.outlineVariant.withValues(
-                              alpha: 0.4,
-                            ),
-                            width: 1,
+                      // Match badge (backend score only; hidden when zero)
+                      if (matchScore > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
                           ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '$matchScore% STYLE MATCH',
-                              style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                color: FansivibeColors.primary,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 1.0,
-                                fontSize: 10,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: FansivibeColors.outlineVariant.withValues(
+                                alpha: 0.4,
                               ),
+                              width: 1,
                             ),
-                            SizedBox(
-                              width: 0,
-                              height: 0,
-                              child: Opacity(
-                                opacity: 0.0,
-                                child: Text('$matchScore%'),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '$matchScore% STYLE MATCH',
+                                style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                                  color: FansivibeColors.primary,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1.0,
+                                  fontSize: 10,
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
+                              SizedBox(
+                                width: 0,
+                                height: 0,
+                                child: Opacity(
+                                  opacity: 0.0,
+                                  child: Text('$matchScore%'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        const Spacer(),
                       // Favorite & Save action pills
                       Row(
                         mainAxisSize: MainAxisSize.min,
@@ -735,15 +740,20 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
 class ExistingUserStyleScoreCard extends StatelessWidget {
   const ExistingUserStyleScoreCard({
     required this.score,
-    this.scoreChange = '+4 THIS MONTH',
-    this.rankingLabel = 'TOP 4%',
+    this.scoreChange,
+    this.rankingLabel,
     this.supportingText = 'Your style consistency is improving across tailoring & tone.',
     super.key,
   });
 
   final int score;
-  final String scoreChange;
-  final String rankingLabel;
+
+  /// Month-over-month delta chip. Null/empty hides the chip: the backend
+  /// summary carries no month delta and inventing one would fabricate data.
+  final String? scoreChange;
+
+  /// Global rank chip. Null/empty hides the chip: no rank source exists.
+  final String? rankingLabel;
   final String supportingText;
 
   @override
@@ -794,25 +804,27 @@ class ExistingUserStyleScoreCard extends StatelessWidget {
                             height: 1.0,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: FansivibeColors.primary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            scoreChange,
-                            style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                              color: FansivibeColors.primary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 9,
+                        if (scoreChange != null && scoreChange!.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: FansivibeColors.primary.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              scoreChange!,
+                              style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                                color: FansivibeColors.primary,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 9,
+                              ),
                             ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 6),
@@ -863,15 +875,18 @@ class ExistingUserStyleScoreCard extends StatelessWidget {
                             size: 13,
                             color: FansivibeColors.primary,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            rankingLabel,
-                            style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                              color: FansivibeColors.primary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 9,
+                          if (rankingLabel != null &&
+                              rankingLabel!.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              rankingLabel!,
+                              style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                                color: FansivibeColors.primary,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 9,
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
@@ -1397,9 +1412,11 @@ class ExistingUserAiStylistGrid extends StatelessWidget {
   }
 }
 
-/// Asymmetric Pinterest-inspired Curated For You layout.
+/// Asymmetric Pinterest-inspired editorial selection.
 ///
-/// 4 fashion editorial cards arranged with varying heights.
+/// 4 fashion editorial cards arranged with varying heights. The picks are
+/// static editorial content — not personalized recommendations — so the
+/// header says so instead of claiming a style match.
 class ExistingUserCuratedForYou extends StatelessWidget {
   const ExistingUserCuratedForYou({
     this.onLookTap,
@@ -1415,7 +1432,7 @@ class ExistingUserCuratedForYou extends StatelessWidget {
       children: [
         // Label
         Text(
-          'BASED ON YOUR STYLE',
+          'EDITORIAL SELECTION',
           style: FansivibeTypography.labelSmallWithFamily.copyWith(
             color: FansivibeColors.primary,
             letterSpacing: 2.0,
@@ -1426,7 +1443,7 @@ class ExistingUserCuratedForYou extends StatelessWidget {
         const SizedBox(height: 4),
         // Heading
         Text(
-          'Curated For You',
+          'Curated Looks',
           style: TextStyle(
             fontFamily: FansivibeTypography.displayFamily,
             fontSize: 22,
@@ -1614,7 +1631,10 @@ class _CuratedCardState extends State<_CuratedCard> {
   }
 }
 
-/// Compact Trending For You section matching reference image.
+/// Compact editorial trending section matching reference image.
+///
+/// Static editorial picks — not personalized affinity predictions — so no
+/// per-user affinity percentages are shown.
 class ExistingUserTrending extends StatelessWidget {
   const ExistingUserTrending({
     this.onTrendingTap,
@@ -1642,7 +1662,7 @@ class ExistingUserTrending extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  'TRENDING FOR YOU',
+                  'TRENDING NOW',
                   style: FansivibeTypography.labelSmallWithFamily.copyWith(
                     color: FansivibeColors.secondary,
                     letterSpacing: 1.5,
@@ -1671,7 +1691,7 @@ class ExistingUserTrending extends StatelessWidget {
               child: _buildTrendingCard(
                 imageAsset: 'assets/images/discover_cat_accessories.jpg',
                 title: 'Signet Rings',
-                affinity: '+18% Affinity',
+                affinity: 'Popular now',
                 onTap: onTrendingTap,
               ),
             ),
@@ -1680,7 +1700,7 @@ class ExistingUserTrending extends StatelessWidget {
               child: _buildTrendingCard(
                 imageAsset: 'assets/images/discover_item_wool_coat.jpg',
                 title: 'Fluid Wool',
-                affinity: '+24% Affinity',
+                affinity: 'Popular now',
                 onTap: onTrendingTap,
               ),
             ),
@@ -1762,8 +1782,10 @@ class ExistingUserTrending extends StatelessWidget {
 /// Style Journey Progress Section matching reference image.
 ///
 /// Features:
-/// - Label: `STYLE JOURNEY` and `30-DAY OVERVIEW`
-/// - 4-column chart: W1 (74), W2 (78), W3 (82), NOW (score in glowing gold)
+/// - Label: `STYLE JOURNEY` and `CURRENT SCORE`
+/// - Current-score bar: NOW (live backend score in glowing gold). There is
+///   no weekly-history endpoint, so no historical bars are rendered —
+///   inventing them would fabricate user history.
 /// - Supporting message: `Your style is becoming more defined.`
 /// - Guidance: `Keep exploring, saving, and creating looks to refine your personal style profile.`
 class ExistingUserStyleJourney extends StatelessWidget {
@@ -1790,7 +1812,7 @@ class ExistingUserStyleJourney extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row: STYLE JOURNEY and 30-DAY OVERVIEW
+          // Header row: STYLE JOURNEY and CURRENT SCORE
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1804,7 +1826,7 @@ class ExistingUserStyleJourney extends StatelessWidget {
                 ),
               ),
               Text(
-                '30-DAY OVERVIEW',
+                'CURRENT SCORE',
                 style: FansivibeTypography.labelSmallWithFamily.copyWith(
                   color: FansivibeColors.secondary,
                   letterSpacing: 1.2,
@@ -1821,9 +1843,6 @@ class ExistingUserStyleJourney extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _buildBar(label: 'W1', value: 74, height: 42, isNow: false),
-                _buildBar(label: 'W2', value: 78, height: 52, isNow: false),
-                _buildBar(label: 'W3', value: 82, height: 62, isNow: false),
                 _buildBar(
                   label: 'NOW',
                   value: currentScore,

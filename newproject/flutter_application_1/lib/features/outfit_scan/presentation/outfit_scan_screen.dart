@@ -662,7 +662,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'AI Analysis Active',
+                      'Camera Ready',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: FansivibeColors.accentGold,
                         fontWeight: FontWeight.w600,
@@ -732,7 +732,7 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'AI Analysis Active',
+                      'Photo Ready',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: FansivibeColors.accentGold,
                         fontWeight: FontWeight.w600,
@@ -807,6 +807,14 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   }
 
   Widget _buildCheckRow() {
+    // Static capture guidance. No on-device garment measurement runs
+    // before analysis, so this renders photo tips — never pass/fail
+    // detection states that would pose as live measurement.
+    const tips = [
+      ('Lighting', 'Use bright, even light'),
+      ('Framing', 'Fit the full outfit in frame'),
+      ('Posture', 'Stand straight facing the camera'),
+    ];
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -817,42 +825,42 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
         ),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: const [
-              Expanded(
-                child: CheckIndicator(label: 'Lighting', isPassing: true),
-              ),
-              Expanded(
-                child: CheckIndicator(label: 'Framing', isPassing: true),
-              ),
-              Expanded(
-                child: CheckIndicator(label: 'Posture', isPassing: false),
-              ),
-            ],
+          Text(
+            'PHOTO TIPS',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: FansivibeColors.textSecondary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+              fontSize: 10,
+            ),
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Icon(
-                Icons.info_outline_rounded,
-                size: 14,
-                color: FansivibeColors.accentGold.withValues(alpha: 0.7),
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  'Adjust posture for better analysis',
-                  style: TextStyle(
-                    color: FansivibeColors.accentGold.withValues(alpha: 0.7),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+          for (final tip in tips) ...[
+            Row(
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 14,
+                  color: FansivibeColors.accentGold.withValues(alpha: 0.7),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    '${tip.$1}: ${tip.$2}',
+                    style: const TextStyle(
+                      color: FansivibeColors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
         ],
       ),
     );

@@ -869,11 +869,14 @@ class _FaceScanScreenState extends State<FaceScanScreen>
   }
 
   Widget _buildCheckRow() {
-    final checks = FaceScanCheck.mockChecks;
-    final failingMessage = checks
-        .where((c) => !c.isPassing)
-        .firstOrNull
-        ?.message;
+    // Static positioning guidance. No on-device face measurement runs
+    // before analysis, so this renders capture tips — never pass/fail
+    // detection states that would pose as live measurement.
+    const tips = [
+      ('Lighting', 'Face a window or bright light'),
+      ('Distance', 'Hold the phone at arm\u2019s length'),
+      ('Alignment', 'Center your face in the frame'),
+    ];
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -882,21 +885,19 @@ class _FaceScanScreenState extends State<FaceScanScreen>
         borderRadius: FansivibeRadius.baseBorder,
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: checks
-                .map(
-                  (check) => Expanded(
-                    child: HairstyleCheckIndicator(
-                      label: check.label,
-                      isPassing: check.isPassing,
-                    ),
-                  ),
-                )
-                .toList(),
+          Text(
+            'PHOTO TIPS',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: FansivibeColors.textSecondary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+              fontSize: 10,
+            ),
           ),
-          if (failingMessage != null) ...[
-            const SizedBox(height: 12),
+          const SizedBox(height: 12),
+          for (final tip in tips) ...[
             Row(
               children: [
                 Icon(
@@ -907,9 +908,9 @@ class _FaceScanScreenState extends State<FaceScanScreen>
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
-                    failingMessage,
-                    style: TextStyle(
-                      color: FansivibeColors.accentGold.withValues(alpha: 0.7),
+                    '${tip.$1}: ${tip.$2}',
+                    style: const TextStyle(
+                      color: FansivibeColors.textPrimary,
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -918,6 +919,7 @@ class _FaceScanScreenState extends State<FaceScanScreen>
                 ),
               ],
             ),
+            const SizedBox(height: 8),
           ],
         ],
       ),

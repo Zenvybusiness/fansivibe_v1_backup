@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fansivibe/features/auth/data/auth_models.dart';
 import 'package:fansivibe/features/auth/data/auth_repository.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_repository.dart';
@@ -120,6 +121,29 @@ class _FakeAuthRepo implements AuthRepository {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _EmptyWardrobeRepo implements WardrobeRepository {
+  @override
+  Future<List<WardrobeItemData>> listItems({
+    String? category,
+    String? color,
+    String? sortBy,
+    String? order,
+    int page = 1,
+    int pageSize = 20,
+  }) async => const [];
+
+  @override
+  Future<WardrobeInsightData?> getInsight() async => null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _NullSummaryRepo implements LearningSummaryRepository {
+  @override
+  Future<LearningSummary?> getSummary() async => null;
+}
+
 Widget _establishedApp({
   LearningSummaryRepository? summaryRepo,
   SavedLooksRepository? savedLooksRepo,
@@ -143,7 +167,9 @@ void main() {
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
       LocalStorage.init(prefs: await SharedPreferences.getInstance());
+      LearningService.instance.resetForTest();
       UserSession.displayName = 'Alex Rivera';
+      UserSession.hasSavedWardrobeItem = false;
       UserSession.isReturningUser = true;
       AuthSession.resetForTest();
       // Auth boundary: the established account UI requires a session.
@@ -155,7 +181,7 @@ void main() {
       await AuthSession.clearSession();
     });
 
-    testWidgets('1. Renders all 15 visual reference sections for established user', (
+    testWidgets('1. Renders established user sections with honest backend data', (
       WidgetTester tester,
     ) async {
       tester.view.physicalSize = const Size(1080, 2400);
@@ -168,34 +194,39 @@ void main() {
       // Top brand bar
       expect(find.text('FANSIVIBE'), findsOneWidget);
 
-      // Profile hero
+      // Profile hero: real session name, no fabricated rank or style copy
       expect(find.text('Alex Rivera'), findsOneWidget);
       expect(find.text('@alexrivera'), findsOneWidget);
       expect(find.textContaining('STYLE LEVEL: ADVANCED'), findsOneWidget);
-      expect(find.textContaining('TOP 8% GLOBAL'), findsWidgets);
-      expect(find.text('MODERN MINIMAL'), findsWidgets);
-      expect(find.text('SMART CASUAL'), findsWidgets);
-      expect(find.text('QUIET LUXURY'), findsWidgets);
+      expect(find.textContaining('TOP 8% GLOBAL'), findsNothing);
+      expect(find.text('MODERN MINIMAL'), findsNothing);
+      expect(find.text('SMART CASUAL'), findsNothing);
+      expect(find.text('QUIET LUXURY'), findsNothing);
       expect(find.text('Edit Profile'), findsOneWidget);
       expect(find.text('Share'), findsOneWidget);
 
-      // Primary archetype
+      // Primary archetype: neutral copy without a recorded style
       expect(find.text('PRIMARY ARCHETYPE'), findsOneWidget);
-      expect(find.text('Modern Minimal'), findsWidgets);
-      expect(find.textContaining('Structured Tailoring'), findsOneWidget);
+      expect(find.text('Style Archetype'), findsOneWidget);
+      expect(find.textContaining('Structured Tailoring'), findsNothing);
+      expect(
+        find.textContaining('Complete your style profile'),
+        findsOneWidget,
+      );
 
-      // Style intelligence
+      // Style intelligence: live score only, rank card hidden (no source)
       expect(find.text('STYLE INTELLIGENCE'), findsOneWidget);
       expect(find.text('STYLE SCORE'), findsOneWidget);
       expect(find.text('86'), findsWidgets);
       expect(find.text('/ 100'), findsOneWidget);
-      expect(find.text('GLOBAL RANK'), findsOneWidget);
-      expect(find.text('#2,481'), findsOneWidget);
+      expect(find.text('GLOBAL RANK'), findsNothing);
+      expect(find.text('#2,481'), findsNothing);
 
-      // Trajectory
+      // Trajectory: current score only, no fabricated history
       expect(find.text('TRAJECTORY'), findsOneWidget);
-      expect(find.text('30-Day Evolution'), findsOneWidget);
-      expect(find.text('Consistency: 94%'), findsOneWidget);
+      expect(find.text('30-Day Evolution'), findsNothing);
+      expect(find.text('Current Score'), findsOneWidget);
+      expect(find.text('Consistency: 94%'), findsNothing);
 
       // Curated Wardrobe
       expect(find.text('Curated Wardrobe'), findsOneWidget);
@@ -207,8 +238,14 @@ void main() {
       expect(find.textContaining('BOTTOMS 1'), findsOneWidget);
       expect(find.textContaining('OUTERWEAR 1'), findsOneWidget);
 
-      // Wardrobe synthesis
+      // Wardrobe synthesis renders the backend insight verbatim
       expect(find.text('ATELIER SYNTHESIS'), findsOneWidget);
+      expect(
+        find.text(
+          'Your wardrobe is strongest in neutral tailoring, with opportunities to expand texture and accent color.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('DISCOVER COMPLEMENTARY PIECES →'), findsOneWidget);
 
       // Saved looks
@@ -217,39 +254,36 @@ void main() {
       expect(find.text('Modern Minimal Evening'), findsOneWidget);
       expect(find.text('Structured Autumn Layer'), findsOneWidget);
 
-      // Curated wishlist
-      expect(find.text('Curated Wishlist'), findsOneWidget);
-      expect(find.text('Entire Acquisition →'), findsOneWidget);
-      expect(find.text('STUDIO NICHOLSON'), findsOneWidget);
-      expect(find.text('LEMAIRE'), findsOneWidget);
+      // No fabricated commerce, AI observation, or personalized recs
+      expect(find.text('Curated Wishlist'), findsNothing);
+      expect(find.text('STUDIO NICHOLSON'), findsNothing);
+      expect(find.text('LEMAIRE'), findsNothing);
+      expect(find.text('✦ ATELIER ENGINE OBSERVATION'), findsNothing);
+      expect(find.text('PERSONALIZED RECOMMENDATIONS'), findsNothing);
+      expect(find.text('Shop Your Style Signature'), findsNothing);
+      expect(find.text('DISCOVER FOR YOU →'), findsNothing);
 
-      // Style DNA Profile
+      // Style DNA Profile: recorded attributes only (none recorded here)
       expect(find.text('Style DNA Profile'), findsOneWidget);
       expect(find.text('Signature Dimensions →'), findsOneWidget);
       expect(find.text('COLOR PALETTE'), findsOneWidget);
       expect(find.text('SILHOUETTE'), findsOneWidget);
       expect(find.text('KEY OCCASIONS'), findsOneWidget);
       expect(find.text('AESTHETIC ANCHOR'), findsOneWidget);
+      expect(find.text('Not set'), findsNWidgets(4));
 
-      // AI style observation
-      expect(find.text('✦ ATELIER ENGINE OBSERVATION'), findsOneWidget);
-      expect(find.text('EXPLORE CURATED EDITIONS →'), findsOneWidget);
-
-      // Curatorial milestones & streak
+      // Curatorial milestones & streak: real engagement state (only the
+      // saved-looks milestone is earned with these fakes) and live streak
       expect(find.text('Curatorial Milestones'), findsOneWidget);
-      expect(find.text('6 of 12 Unlocked'), findsOneWidget);
-      expect(find.textContaining('STYLE'), findsWidgets);
+      expect(find.text('1 of 4 Unlocked'), findsOneWidget);
       expect(find.text('12-Day Streak'), findsOneWidget);
-
-      // Personalized Recommendations
-      expect(find.text('PERSONALIZED RECOMMENDATIONS'), findsOneWidget);
-      expect(find.text('Shop Your Style Signature'), findsOneWidget);
-      expect(find.text('DISCOVER FOR YOU →'), findsOneWidget);
 
       // Atelier Governance
       expect(find.text('Atelier Governance'), findsOneWidget);
       expect(find.text('Settings & Membership'), findsOneWidget);
       expect(find.text('MEMBERSHIP'), findsOneWidget);
+      expect(find.text('Fansivibe Atelier'), findsOneWidget);
+      expect(find.textContaining('Pro Tier'), findsNothing);
       expect(find.text('MANAGE →'), findsOneWidget);
       expect(find.text('Preferences'), findsOneWidget);
       expect(find.text('Style Profile & Measurements'), findsOneWidget);
@@ -275,7 +309,43 @@ void main() {
       expect(find.text('@elenarostova'), findsOneWidget);
     });
 
-    testWidgets('3. Sign out button executes auth repository sign out', (
+    testWidgets('3. Empty backend wardrobe uses local items, never sample counts', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      await tester.pumpWidget(_establishedApp(wardrobeRepo: _EmptyWardrobeRepo()));
+      await tester.pumpAndSettle();
+
+      // The fabricated sample inventory must never appear …
+      expect(find.textContaining('TOPS 64'), findsNothing);
+      expect(find.textContaining('BOTTOMS 42'), findsNothing);
+      expect(find.textContaining('OUTERWEAR 28'), findsNothing);
+      expect(find.textContaining('SHOES 31'), findsNothing);
+      expect(find.textContaining('ACCESSORIES 83'), findsNothing);
+      // … and with no backend insight there is no invented synthesis.
+      expect(find.text('ATELIER SYNTHESIS'), findsNothing);
+    });
+
+    testWidgets('4. Missing summary falls back to the honest new-user design', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_establishedApp(summaryRepo: _NullSummaryRepo()));
+      await tester.pumpAndSettle();
+
+      // Identity and navigation survive; nothing is invented.
+      expect(find.text('Alex Rivera'), findsOneWidget);
+      expect(find.text('Style Profile'), findsNothing);
+      expect(find.text('--'), findsOneWidget);
+      expect(find.text('Not Ranked'), findsOneWidget);
+      expect(find.text('TOP 8% GLOBAL'), findsNothing);
+      expect(find.text('#2,481'), findsNothing);
+      expect(find.text('SIGN OUT'), findsOneWidget);
+    });
+
+    testWidgets('5. Sign out button executes auth repository sign out', (
       WidgetTester tester,
     ) async {
       tester.view.physicalSize = const Size(1080, 2400);

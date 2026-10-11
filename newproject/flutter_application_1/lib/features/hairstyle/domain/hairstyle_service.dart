@@ -303,6 +303,16 @@ class HairstyleService extends ChangeNotifier {
       _safeNotify();
       return null;
     }
+    // A winning run without a payload carries no result to render.
+    if (winner.result == null) {
+      _runOutcome = 'failed';
+      _usedMockResult = true;
+      _analysisError =
+          'Hairstyle analysis returned no result. Please try again.';
+      _isProcessing = false;
+      _safeNotify();
+      return null;
+    }
     final resolved = hairstyleResultFromRun(winner);
     _analytics.emitAppearanceScanCompleted(
       runStatus: 'completed',
@@ -339,6 +349,15 @@ class HairstyleService extends ChangeNotifier {
       _analysisError = _describeError(run.error);
       return HairstyleAnalysisResult.mock;
     } else if (run != null) {
+      // A completed run without a payload is a failure, never a result:
+      // parsing it would fall back to mock while marked real.
+      if (run.result == null) {
+        _runOutcome = 'failed';
+        _usedMockResult = true;
+        _analysisError =
+            'Hairstyle analysis returned no result. Please try again.';
+        return HairstyleAnalysisResult.mock;
+      }
       _runOutcome = 'completed';
       _usedMockResult = false;
       return hairstyleResultFromRun(run);
