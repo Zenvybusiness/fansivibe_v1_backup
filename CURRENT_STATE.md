@@ -2,6 +2,22 @@
 
 ---
 
+## PROFILE "ON THIS DEVICE" CARD WIDTH FIX (executed 2026-10-11, STATUS: DONE — Flutter-only, 2 files changed [1 edit, 1 new test]; NO backend/API/DB/AI change, no commit/push)
+
+- **Problem**: On the Profile screen (`ProfileScreen`), the guest "On this device" card appeared visibly narrower than surrounding cards (`Style Progress`, `Current Style Score`, `Global Rank`) and was centered with excessive whitespace on the left and right.
+- **Root cause (`profile_screen.dart` / `_buildGuestStatusCard`)**:
+  1. The new-user profile layout is rendered within a `Column(crossAxisAlignment: CrossAxisAlignment.center)`.
+  2. Surrounding cards explicitly span the full available width: `_buildScoreAndRankCards` uses a `Row` with `Expanded` cards, `_buildStyleProgressCard` uses `Container(width: double.infinity, ...)`, and subsequent sections use full-width containers or dividers.
+  3. `_buildGuestStatusCard` returned a bare `FansivibeCard(padding: const EdgeInsets.all(18), child: Column(crossAxisAlignment: CrossAxisAlignment.start, ...))` without a full-width constraint. Because `FansivibeCard` uses an unconstrained `Container`, it shrank horizontally to the intrinsic width of its text content (~256px), and the parent `Column(crossAxisAlignment: CrossAxisAlignment.center)` centered the narrower card.
+- **Fix**: Wrapped `FansivibeCard` in `SizedBox(width: double.infinity, child: ...)` in `_buildGuestStatusCard` (`profile_screen.dart`). This forces the card to match the incoming parent width constraints (`contentMaxWidth` minus horizontal padding), perfectly aligning with `Style Progress` and the `Score & Rank` cards across mobile, tablet, and desktop viewports, while preserving padding (18), corner radius, colors, typography, and tap behavior.
+- **Validation**:
+  - `flutter analyze lib/features/profile/presentation/profile_screen.dart test/profile_on_device_card_test.dart` → No issues found.
+  - New test `test/profile_on_device_card_test.dart` (3/3 passed): validates exact width and horizontal x-alignment matching `Style Progress` across mobile viewports (390×844, 360×640) and desktop/tablet viewport (800×600), verifies zero layout overflow, and confirms content readability and interaction.
+  - Profile test suites: `test/profile_screen_test.dart` (25/25), `test/profile_screens_test.dart` (28/28), `test/profile_established_user_test.dart` (3/3), `test/auth_identity_consistency_test.dart` (6/6), and `test/guest_phase2_test.dart` (guest on-device status test passed).
+- **Next**: None. Ready for review. No commit/push per repo rule.
+
+---
+
 ## HAIRSTYLE FACE-SCAN CAMERA PROGRESSION BUG FIX (executed 2026-10-11, STATUS: DONE — Flutter-only, 2 files changed; no backend/API/DB/AI change, no commit/push)
 
 - **Problem**: In Hairstyle Face Scan, Front photo capture succeeded, but the camera preview got stuck and did not progress correctly to Left without minimizing and reopening the app. The same stuck behavior occurred when moving from Left to Right.

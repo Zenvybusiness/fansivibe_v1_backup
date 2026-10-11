@@ -1281,35 +1281,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final pieces = service.wardrobe.length;
     final favorites = service.wardrobe.where((e) => e.isFavorite).length;
 
-    return FansivibeCard(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'On this device',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
+    return SizedBox(
+      width: double.infinity,
+      child: FansivibeCard(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'On this device',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '$pieces ${pieces == 1 ? 'piece' : 'pieces'} · '
-            '$favorites ${favorites == 1 ? 'favorite' : 'favorites'} · '
-            'score ${service.styleScore}',
-            style: const TextStyle(
-              fontSize: 13,
-              color: FansivibeColors.secondary,
+            const SizedBox(height: 8),
+            Text(
+              '$pieces ${pieces == 1 ? 'piece' : 'pieces'} · '
+              '$favorites ${favorites == 1 ? 'favorite' : 'favorites'} · '
+              'score ${service.styleScore}',
+              style: const TextStyle(
+                fontSize: 13,
+                color: FansivibeColors.secondary,
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          FansiButton.tertiary(
-            label: 'Sign in to sync & back up',
-            onPressed: () => promptGuestSignIn(context),
-          ),
-        ],
+            const SizedBox(height: 10),
+            FansiButton.tertiary(
+              label: 'Sign in to sync & back up',
+              onPressed: () => promptGuestSignIn(context),
+            ),
+          ],
+        ),
       ),
     );
   }
