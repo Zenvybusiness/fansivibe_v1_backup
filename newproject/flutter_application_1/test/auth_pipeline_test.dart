@@ -269,7 +269,7 @@ void main() {
       }
       expect(authRedirect('/sign-in', isAuthenticated: false), isNull);
 
-      // Signed out, guest: shell browsable, assistant blocked.
+      // Signed out, guest: shell browsable, assistant reachable.
       LocalStorage.savedLocally = true;
       expect(isGuestUser, isTrue);
       for (final route in shell) {
@@ -280,7 +280,7 @@ void main() {
       }
       expect(
           authRedirect('/assistant', isAuthenticated: false, isGuest: true),
-          '/entry');
+          isNull);
     });
   });
 

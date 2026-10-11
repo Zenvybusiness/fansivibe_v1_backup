@@ -13,6 +13,7 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// The Fansivibe Assistant — our own AI concierge.
 ///
@@ -85,6 +86,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
       _showUnsupportedAction();
       return;
     }
+    if (route == RouteNames.fashionReasoning && isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to use Fashion Reasoning.',
+      );
+      return;
+    }
     context.goNamed(route);
   }
 
@@ -98,6 +106,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
     if (!context.mounted) return;
     if (route == null) {
       _showUnsupportedAction();
+      return;
+    }
+    if (route == RouteNames.fashionReasoning && isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to use Fashion Reasoning.',
+      );
       return;
     }
     context.goNamed(route);
@@ -121,9 +136,18 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   /// Outfit Save: delegates to the existing service orchestration, which
   /// POSTs the snapshot and returns backend-confirmed success/failure.
-  /// No local learning signals: the backend owns look_saved/outfit_selected.
-  Future<bool> _onOutfitSave(OutfitIntelligence intelligence) =>
-      _service.saveOutfit(intelligence);
+  /// When unauthenticated / guest, prompts sign-in through the existing
+  /// intent continuation architecture and gates account-owned look persistence.
+  Future<bool> _onOutfitSave(OutfitIntelligence intelligence) async {
+    if (isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to save looks to your account.',
+      );
+      return false;
+    }
+    return _service.saveOutfit(intelligence);
+  }
 
   /// Snapshot of the already-loaded learning wardrobe as displayable items.
   ///
@@ -179,7 +203,16 @@ class _AssistantScreenState extends State<AssistantScreen> {
             icon: const Icon(Icons.psychology_alt_outlined),
             tooltip: 'Fashion Reasoning',
             color: FansivibeColors.primary,
-            onPressed: () => context.pushNamed(RouteNames.fashionReasoning),
+            onPressed: () {
+              if (isGuestUser) {
+                promptGuestSignIn(
+                  context,
+                  action: 'Sign in to use Fashion Reasoning.',
+                );
+                return;
+              }
+              context.pushNamed(RouteNames.fashionReasoning);
+            },
           ),
           IconButton(
             icon: const Icon(Icons.auto_awesome_rounded),

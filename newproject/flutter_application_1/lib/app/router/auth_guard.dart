@@ -10,14 +10,15 @@
 ///   nested path beneath them) redirects to `/entry`.
 /// - Explicit guests (chose "Continue Without Account", persisted as
 ///   `savedLocally` with no session token) may browse the whole shell:
-///   all 5 tabs plus their nested read screens (Phase 1 guest scope).
+///   all 5 tabs plus their nested read screens (Phase 1 guest scope),
+///   and open/use the AI assistant (/assistant).
 ///   Account-required writes (analysis submit, saves, wears, event
 ///   mutations, preference sync, feedback) are gated at their buttons,
 ///   not here. Guest access mints no token and bypasses no backend
 ///   auth: authenticated API clients keep resolving tokens through
 ///   `AuthSession` and 401 honestly.
-/// - Guests stay blocked from `/assistant` and `/reasoning` (redirect to
-///   `/entry`), even though `/assistant` is public for everyone else.
+/// - Guests stay blocked from `/reasoning` (redirect to
+///   `/entry`).
 /// - Authenticated users are redirected away from the auth-only routes
 ///   (`/entry`, `/sign-in`, `/create-account`, `/onboarding/account`):
 ///   Sign In UI must never render while a valid session exists. Every
@@ -36,9 +37,7 @@ String? authRedirect(
   bool isGuest = false,
 }) {
   if (isAuthenticated) return _authedRedirect(location);
-  // Phase 1 guest scope: reasoning + assistant stay blocked for guests
-  // (checked before the public list, since /assistant is public for
-  // everyone else).
+  // Reasoning stays blocked for explicit guests (account-required model budget).
   if (isGuest && _isGuestBlocked(location)) return '/entry';
   if (_isPublic(location)) return null;
   // Guests may browse the whole shell (all 5 tabs + nested read
@@ -75,17 +74,18 @@ bool _isPublic(String location) {
   if (location.startsWith('/onboarding/') || location == '/onboarding') {
     return true;
   }
-  if (location == '/assistant') return true;
+  if (location == '/assistant' || location.startsWith('/assistant/')) {
+    return true;
+  }
   return false;
 }
 
-/// Routes that stay blocked for explicit guests (Phase 1): the assistant
-/// chat and the reasoning screen. Both bundle account-only actions and
-/// shared model budget, so guests are sent back to `/entry`.
+/// Routes that stay blocked for explicit guests: the reasoning screen.
+/// It bundles account-only actions and shared model budget, so guests
+/// are sent back to `/entry`. The assistant (/assistant) is public and
+/// allows guest access with button-level gates for account actions.
 bool _isGuestBlocked(String location) {
-  return location == '/assistant' ||
-      location.startsWith('/assistant/') ||
-      location == '/reasoning' ||
+  return location == '/reasoning' ||
       location.startsWith('/reasoning/');
 }
 

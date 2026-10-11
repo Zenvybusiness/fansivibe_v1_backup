@@ -177,5 +177,6 @@ const _safePostAuthRoutes = {
   '/profile/support',
   '/profile/settings',
   '/assistant',
+  '/reasoning',
   '/entry',
 };

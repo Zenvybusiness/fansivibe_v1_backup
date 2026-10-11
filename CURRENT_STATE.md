@@ -2,6 +2,42 @@
 
 ---
 
+## AI CHATBOT GUEST ACCESS AND AUTHENTICATION GATING FIX (executed 2026-10-11, STATUS: DONE — Flutter-only, 5 files modified [3 code, 2 existing test updates], 1 new test file created; NO backend/API/DB/AI changes, no commit/push)
+
+- **Problem**: Users who have not signed in were prevented from opening and using the AI chatbot (`AssistantScreen` at `/assistant`). The chatbot was blocked by route gating for guest users, preventing them from asking questions and experiencing supported AI capabilities. Furthermore, protected actions inside the chatbot needed proper gating and post-authentication continuation rather than locking out the entire chat.
+- **Root cause (`lib/app/router/auth_guard.dart:82-90`)**:
+  1. `_isGuestBlocked(location)` explicitly included `location == '/assistant' || location.startsWith('/assistant/')`.
+  2. In `authRedirect`: whenever `isGuest` was true (e.g. `LocalStorage.savedLocally == true`), attempting to navigate to `/assistant` hit the early check `if (isGuest && _isGuestBlocked(location)) return '/entry';`, redirecting the guest away from the chatbot to the entry screen.
+  3. Meanwhile, the backend endpoint `POST /v1/assistant/chat` (`backend/app/main.py:1654-1715`) is already designed to support unauthenticated access with `authorization: str | None = Header(default=None)`, generating genuine fashion advice, hairstyle guidance, grooming tips, and outfit intelligence without requiring a bearer token.
+- **Fixes**:
+  1. `lib/app/router/auth_guard.dart`:
+     - Removed `/assistant` and `/assistant/` from `_isGuestBlocked(location)`. Now only `/reasoning` remains blocked for guests.
+     - Ensured `_isPublic(location)` returns `true` for `/assistant` and `location.startsWith('/assistant/')`.
+  2. `lib/shared/utils/pending_auth_intent.dart`:
+     - Added `'/reasoning'` to `_safePostAuthRoutes` (alongside existing `'/assistant'`), allowing post-auth resumption if a guest is gated when attempting deep reasoning.
+  3. `lib/features/assistant/presentation/assistant_screen.dart`:
+     - Gated `_onOutfitSave`: if `isGuestUser`, prompts sign-in via `promptGuestSignIn(context, action: 'Sign in to save looks to your account.')` and cancels the save with `return false`.
+     - Gated `_onCardAction` and `_onNavigationRequest`: if target route is `RouteNames.fashionReasoning` and `isGuestUser`, prompts sign-in via `promptGuestSignIn(context, action: 'Sign in to use Fashion Reasoning.')`.
+     - Gated AppBar `Fashion Reasoning` icon button: if `isGuestUser`, prompts sign-in via `promptGuestSignIn`.
+     - Ordinary fashion questions, multi-turn conversation, and advice generation remain fully accessible to guests without prompting for authentication.
+- **Validation**:
+  - `flutter analyze lib/app/router/auth_guard.dart lib/shared/utils/pending_auth_intent.dart lib/features/assistant/presentation/assistant_screen.dart test/router_auth_guard_test.dart test/auth_pipeline_test.dart test/guest_assistant_test.dart` → 0 issues found!
+  - New test suite `test/guest_assistant_test.dart` (10/10 tests passed):
+    1. `authRedirect` permits guest to access `/assistant`
+    2. Guest can open chatbot and sees assistant interface
+    3. Guest can open chatbot via floating button from shell tab
+    4. Guest can send a message and receive genuine response without sign-in
+    5. Guest can continue conversation across multiple messages without being gated
+    6. General fashion question does not trigger authentication
+    7. Guest attempting to save outfit recommendation is redirected to sign-in with intent
+    8. Guest tapping Fashion Reasoning button is redirected to sign-in with intent
+    9. Authenticated user can save outfit without being prompted to sign in
+    10. Network failure produces honest offline response with badge rather than fake data
+  - Existing router and pipeline tests: `test/router_auth_guard_test.dart` (11/11 passed), `test/auth_pipeline_test.dart` (22/22 passed), `test/assistant_screen_test.dart` (6/6 passed), `test/assistant_chat_auth_test.dart` (5/5 passed). Total 44/44 core tests passed.
+- **Next**: Ready for review. No commit/push per repo rule.
+
+---
+
 ## PROFILE "ON THIS DEVICE" CARD WIDTH FIX (executed 2026-10-11, STATUS: DONE — Flutter-only, 2 files changed [1 edit, 1 new test]; NO backend/API/DB/AI change, no commit/push)
 
 - **Problem**: On the Profile screen (`ProfileScreen`), the guest "On this device" card appeared visibly narrower than surrounding cards (`Style Progress`, `Current Style Score`, `Global Rank`) and was centered with excessive whitespace on the left and right.

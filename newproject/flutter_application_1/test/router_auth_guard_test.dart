@@ -134,9 +134,8 @@ void main() {
       }
     });
 
-    test('assistant and reasoning stay blocked for guests', () {
+    test('reasoning stays blocked for guests', () {
       for (final location in [
-        '/assistant',
         '/reasoning',
       ]) {
         expect(
@@ -149,6 +148,17 @@ void main() {
           reason: location,
         );
       }
+    });
+
+    test('assistant is reachable for guests', () {
+      expect(
+        authRedirect(
+          '/assistant',
+          isAuthenticated: false,
+          isGuest: true,
+        ),
+        isNull,
+      );
     });
 
     test('public flows stay reachable', () {
