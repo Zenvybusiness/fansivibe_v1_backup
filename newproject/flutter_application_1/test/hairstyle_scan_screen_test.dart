@@ -294,5 +294,117 @@ void main() {
       await tester.tap(find.byIcon(Icons.arrow_back_rounded));
       await tester.pumpAndSettle();
     });
+
+    testWidgets('empty gallery image is rejected honestly and not counted', (
+      WidgetTester tester,
+    ) async {
+      final service = ControllableHairstyleService();
+      addTearDown(service.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FaceScanScreen(
+            pickImage: (_) async =>
+                XFile.fromData(Uint8List(0), name: 'empty.png'),
+          ),
+        ),
+      );
+
+      await _tapVisible(tester, find.text('Gallery'));
+
+      // A blank/empty pick never counts as a capture and never advances the
+      // stage silently — the user gets honest feedback instead.
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text('Analyze Photo (0/3)'), findsOneWidget);
+      expect(find.text('Continue'), findsNothing);
+
+      // Let the snackbar's dismiss timer elapse before the test ends.
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pump(const Duration(seconds: 1));
+    });
+
+    testWidgets(
+      'camera capture advances Front -> Left -> Right automatically without lifecycle interaction',
+      (WidgetTester tester) async {
+        final image = _testPng();
+        var captureCount = 0;
+        Future<XFile?> fakeTakePhoto() async {
+          captureCount++;
+          return XFile.fromData(
+            image,
+            name: 'camera_$captureCount.jpg',
+            mimeType: 'image/jpeg',
+          );
+        }
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: FaceScanScreen(takePhoto: fakeTakePhoto),
+          ),
+        );
+
+        // 1. Initial stage: Front angle
+        expect(find.text('Front — face the camera straight on'), findsOneWidget);
+        expect(find.text('Analyze Photo (0/3)'), findsOneWidget);
+
+        // 2. Capture Front -> advances to Left automatically
+        await _tapVisible(tester, find.text('Take Photo'));
+        expect(captureCount, 1);
+        expect(find.text('Turn slowly to your left'), findsOneWidget);
+        expect(find.text('Analyze Photo (1/3)'), findsOneWidget);
+
+        // 3. Capture Left -> advances to Right automatically
+        await _tapVisible(tester, find.text('Take Photo'));
+        expect(captureCount, 2);
+        expect(find.text('Turn slowly to your right'), findsOneWidget);
+        expect(find.text('Analyze Photo (2/3)'), findsOneWidget);
+
+        // 4. Capture Right -> completes capture sequence
+        await _tapVisible(tester, find.text('Take Photo'));
+        expect(captureCount, 3);
+        expect(find.text('Done'), findsOneWidget);
+        expect(find.text('Analyze Photos'), findsOneWidget);
+
+        // 5. Consent and analysis flow can proceed
+        await _tapVisible(tester, find.byType(Checkbox));
+        expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isTrue);
+      },
+    );
+
+    testWidgets(
+      'empty camera capture is rejected honestly and capture state does not get stuck',
+      (WidgetTester tester) async {
+        var calls = 0;
+        Future<XFile?> emptyTakePhoto() async {
+          calls++;
+          return XFile.fromData(Uint8List(0), name: 'empty.jpg');
+        }
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: FaceScanScreen(takePhoto: emptyTakePhoto),
+          ),
+        );
+
+        // Tapping Take Photo with an empty frame
+        await _tapVisible(tester, find.text('Take Photo'));
+        expect(calls, 1);
+
+        // Honest SnackBar feedback shown
+        expect(find.byType(SnackBar), findsOneWidget);
+        expect(
+          find.textContaining('Blank photo captured'),
+          findsOneWidget,
+        );
+
+        // Stage is NOT advanced, still Front 0/3
+        expect(find.text('Front — face the camera straight on'), findsOneWidget);
+        expect(find.text('Analyze Photo (0/3)'), findsOneWidget);
+
+        // Clean up snackbar timer
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pump(const Duration(seconds: 1));
+      },
+    );
   });
 }
+

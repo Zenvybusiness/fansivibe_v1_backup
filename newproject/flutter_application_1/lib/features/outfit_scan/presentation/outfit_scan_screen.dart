@@ -559,6 +559,13 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
   }
 
   Widget _buildCameraPreview(BuildContext context) {
+    // A selected image (gallery pick or camera capture) takes precedence
+    // over camera state, including in widget tests so the preview layout
+    // is exercised there too.
+    if (_selectedImage != null) {
+      return _buildSelectedImagePreview(context);
+    }
+
     if (_isTestMode) {
       return const CameraPreviewPlaceholder();
     }
@@ -614,11 +621,6 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
 
     if (_uiState != _CameraUiState.ready || !_controller!.value.isInitialized) {
       return const CameraPreviewPlaceholder();
-    }
-
-    // If we have a selected image (from gallery), show it instead of camera
-    if (_selectedImage != null) {
-      return _buildSelectedImagePreview(context);
     }
 
     return SizedBox(
@@ -685,60 +687,64 @@ class _OutfitScanScreenState extends State<OutfitScanScreen>
     if (bytes == null || bytes.isEmpty) {
       return const CameraPreviewPlaceholder();
     }
-    return ClipRRect(
-      borderRadius: FansivibeRadius.baseBorder,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Image.memory(
-            bytes,
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
-            gaplessPlayback: true,
-          ),
-          Positioned(
-            top: 12,
-            right: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 6,
-              ),
-              decoration: BoxDecoration(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.2),
-                borderRadius: FansivibeRadius.smBorder,
-                border: Border.all(
-                  color: FansivibeColors.accentGold.withValues(alpha: 0.4),
+    return SizedBox(
+      height: 280,
+      width: double.infinity,
+      child: ClipRRect(
+        borderRadius: FansivibeRadius.baseBorder,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.memory(
+              bytes,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              gaplessPlayback: true,
+            ),
+            Positioned(
+              top: 12,
+              right: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
                 ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 8,
-                    height: 8,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        FansivibeColors.accentGold,
+                decoration: BoxDecoration(
+                  color: FansivibeColors.accentGold.withValues(alpha: 0.2),
+                  borderRadius: FansivibeRadius.smBorder,
+                  border: Border.all(
+                    color: FansivibeColors.accentGold.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 8,
+                      height: 8,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          FansivibeColors.accentGold,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'AI Analysis Active',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: FansivibeColors.accentGold,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 11,
+                    const SizedBox(width: 6),
+                    Text(
+                      'AI Analysis Active',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: FansivibeColors.accentGold,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -38,6 +38,7 @@ class FaceScanScreen extends StatefulWidget {
   const FaceScanScreen({
     super.key,
     this.pickImage = _defaultPickImage,
+    this.takePhoto,
     this.analytics,
   });
 
@@ -45,6 +46,9 @@ class FaceScanScreen extends StatefulWidget {
   /// a fake so no platform channel is needed. Camera capture uses the
   /// shared `camera` plugin path (same as the outfit scan flow).
   final Future<XFile?> Function(ImageSource source) pickImage;
+
+  /// Injectable camera capture for unit/widget tests without hardware camera.
+  final Future<XFile?> Function()? takePhoto;
 
   /// Injectable analytics; defaults to the shared instance.
   final AnalyticsService? analytics;
@@ -73,6 +77,8 @@ class _FaceScanScreenState extends State<FaceScanScreen>
   CameraController? _controller;
   _CameraUiState _cameraState = _CameraUiState.initial;
   String? _cameraError;
+  bool _isInitializingCamera = false;
+  bool _isCapturing = false;
 
   int _stepIndex = 0;
   final Map<FaceScanAngle, AngleCapture> _captures = {};
@@ -110,15 +116,23 @@ class _FaceScanScreenState extends State<FaceScanScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_controller == null) return;
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
-      _controller?.dispose();
+      // Release the webcam while backgrounded — and rebuild the camera card
+      // so a dead/stale preview is never left visible.
+      final oldController = _controller;
       _controller = null;
-      _cameraState = _CameraUiState.initial;
+      oldController?.dispose();
+      if (mounted) {
+        setState(() => _cameraState = _CameraUiState.initial);
+      }
       return;
     }
     if (state == AppLifecycleState.resumed) {
+      // Re-initialize the camera on return. This must run even when the
+      // controller was still mid-initialization at pause time: the previous
+      // `_controller == null` early-return skipped it, leaving the current
+      // stage stuck on a blank/missing capture after any backgrounding.
       SchedulerBinding.instance.addPostFrameCallback((_) async {
         await _initCamera();
       });
@@ -126,12 +140,20 @@ class _FaceScanScreenState extends State<FaceScanScreen>
   }
 
   Future<void> _initCamera() async {
-    if (!mounted) return;
+    if (!mounted || _isTestMode) return;
+    if (_isInitializingCamera) return;
+    _isInitializingCamera = true;
     setState(() {
       _cameraState = _CameraUiState.loading;
       _cameraError = null;
     });
     try {
+      final oldController = _controller;
+      _controller = null;
+      if (oldController != null) {
+        await oldController.dispose();
+      }
+
       // Front camera first for a face scan (unlike the outfit rear default).
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
@@ -148,9 +170,12 @@ class _FaceScanScreenState extends State<FaceScanScreen>
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
-      _controller = controller;
       await controller.initialize();
-      if (!mounted) return;
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      _controller = controller;
       setState(() => _cameraState = _CameraUiState.ready);
     } on CameraException catch (e) {
       if (!mounted) return;
@@ -171,30 +196,71 @@ class _FaceScanScreenState extends State<FaceScanScreen>
         _cameraState = _CameraUiState.error;
         _cameraError = e.toString();
       });
+    } finally {
+      _isInitializingCamera = false;
     }
   }
 
   /// Camera-first capture for the current angle: live preview →
   /// takePicture → in-memory preview (never gallery, never silent).
   Future<void> _takePhoto() async {
-    if (_isTestMode) return;
+    if (_isCapturing || _isInitializingCamera) return;
+    final isCustomTestTaker = widget.takePhoto != null;
+    if (_isTestMode && !isCustomTestTaker) return;
+
     final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
-      await _initCamera();
-      return;
+    if (!isCustomTestTaker) {
+      if (controller == null || !controller.value.isInitialized) {
+        await _initCamera();
+        return;
+      }
+      if (controller.value.isTakingPicture) return;
     }
+
+    _isCapturing = true;
     try {
-      final xFile = await controller.takePicture();
+      final XFile? xFile = isCustomTestTaker
+          ? await widget.takePhoto!()
+          : await controller!.takePicture();
+      if (xFile == null || !mounted) return;
       final bytes = await xFile.readAsBytes();
-      if (!mounted || bytes.isEmpty) return;
-      setState(() {
-        _captures[_currentAngle] = AngleCapture(
-          bytes: bytes,
-          name: xFile.name.isNotEmpty
-              ? xFile.name
-              : 'face_${_currentAngle.name}.jpg',
+      if (!mounted) return;
+      if (bytes.isEmpty) {
+        // A blank frame must not count as a capture. Say so instead of
+        // silently dropping it — otherwise the stage looks "missing".
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Blank photo captured. Make sure your face is visible and '
+              'well-lit, then try again.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
-      });
+        return;
+      }
+
+      final capturedAngle = _currentAngle;
+      final capture = AngleCapture(
+        bytes: bytes,
+        name: xFile.name.isNotEmpty
+            ? xFile.name
+            : 'face_${capturedAngle.name}.jpg',
+      );
+
+      if (_stepIndex < _angles.length - 1) {
+        setState(() {
+          _captures[capturedAngle] = capture;
+          _stepIndex++;
+        });
+        if (!isCustomTestTaker) {
+          await _initCamera();
+        }
+      } else {
+        setState(() {
+          _captures[capturedAngle] = capture;
+        });
+      }
     } on CameraException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -211,6 +277,8 @@ class _FaceScanScreenState extends State<FaceScanScreen>
           behavior: SnackBarBehavior.floating,
         ),
       );
+    } finally {
+      _isCapturing = false;
     }
   }
 
@@ -221,7 +289,18 @@ class _FaceScanScreenState extends State<FaceScanScreen>
       final picked = await widget.pickImage(ImageSource.gallery);
       if (picked == null || !mounted) return;
       final bytes = await picked.readAsBytes();
-      if (!mounted || bytes.isEmpty) return;
+      if (!mounted) return;
+      if (bytes.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'That image is empty. Please choose a valid photo.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
       setState(() {
         _captures[_currentAngle] = AngleCapture(
           bytes: bytes,
@@ -245,6 +324,9 @@ class _FaceScanScreenState extends State<FaceScanScreen>
     setState(() {
       _captures.remove(_currentAngle);
     });
+    if (!_isTestMode) {
+      _initCamera();
+    }
   }
 
   void _confirmStep() {
@@ -253,6 +335,9 @@ class _FaceScanScreenState extends State<FaceScanScreen>
       setState(() {
         _stepIndex++;
       });
+      if (!_isTestMode) {
+        _initCamera();
+      }
     }
   }
 

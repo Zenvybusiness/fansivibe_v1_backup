@@ -2,6 +2,74 @@
 
 ---
 
+## HAIRSTYLE FACE-SCAN CAMERA PROGRESSION BUG FIX (executed 2026-10-11, STATUS: DONE — Flutter-only, 2 files changed; no backend/API/DB/AI change, no commit/push)
+
+- **Problem**: In Hairstyle Face Scan, Front photo capture succeeded, but the camera preview got stuck and did not progress correctly to Left without minimizing and reopening the app. The same stuck behavior occurred when moving from Left to Right.
+- **Root cause (`face_scan_screen.dart`)**:
+  1. **Stale/frozen controller reuse across angles**: Camera capture (`takePicture()`) halts or freezes the stream on mobile/web CameraControllers. Advancing stages (`_takePhoto` and `_confirmStep`) did not re-initialize the controller for the next angle. When the user backgrounded and resumed the app, the lifecycle handler disposed the dead controller and called `_initCamera()`, which recreated a fresh controller and temporarily unblocked the stage.
+  2. **Controller disposal not serialized**: `_initCamera()` overwrote `_controller` without disposing the previous controller, causing native hardware resource lockouts during re-initialization.
+  3. **No concurrency guards on capture/init**: Rapid taps on `Take Photo` could trigger overlapping captures or concurrent `_initCamera()` calls while native capture was in flight (`isTakingPicture`).
+  4. **Manual stall on camera capture**: `_takePhoto()` stored `_captures[_currentAngle]` but never advanced the angle stepper automatically (`_stepIndex++`), stalling the user in the viewfinder instead of advancing the guided flow.
+- **Fixes**:
+  1. `_initCamera()` serializes controller disposal: properly disposes any existing controller before initializing a new one, guards against concurrent initialization (`_isInitializingCamera`), and ensures flags are reset in `finally`.
+  2. `_takePhoto()` guards against duplicate or concurrent captures (`_isCapturing`, `_isInitializingCamera`, `controller.value.isTakingPicture`), automatically advances from Front → Left and Left → Right, and re-initializes the camera for each subsequent angle so live previews are immediately streaming without app backgrounding.
+  3. `_confirmStep()` and `_retake()` re-initialize the camera when transitioning angles, ensuring live feed is ready whenever camera view is active.
+  4. Added injectable `takePhoto` callback to `FaceScanScreen` to support thorough automated widget testing of camera angle progression without hardware plugin dependencies.
+- **Validation**:
+  - `flutter test test/hairstyle_scan_screen_test.dart` → 11/11 passed (including 2 new tests verifying automated Front → Left → Right progression without lifecycle interaction and honest empty-capture handling).
+  - `flutter test test/face_scan_votes_test.dart` → 6/6 passed.
+  - `flutter analyze lib/features/hairstyle/presentation/face_scan_screen.dart test/hairstyle_scan_screen_test.dart` → No issues found.
+- **Next**: Live device verification on hardware camera. No commit/push per repo rule.
+
+---
+
+
+
+- **Question**: the hairstyle Front→Left→Right scan "continues with blank or missing captures" on later stages.
+- **Findings (live, Chrome, guest mode; backend `100.105.35.91:8000` up)**:
+  - Clean single-flow E2E: Front→Left→Right captures all succeed (3/3); consent → Analyze → processing → REAL result screen. The blank-left/right symptom does NOT reproduce in a clean foreground flow.
+  - Result is real backend output, not mock: faceShape `round`, top `Classic Pompadour` 99% match, confidence 0.38 — matches the stashed `flutter.pending_ephemeral_result` snapshot; mock discriminators (`Oval`/`Textured Quiff` 0.94 top) absent.
+  - Real inference confirmed via CDP Network log: `POST /v1/analysis/hairstyle/ephemeral` observed. The guest ephemeral path writes zero DB rows, so "no new DB runs today" is an observation artifact, not proof of a mock.
+  - Guest `_startEphemeral` submits ONLY `angleFront` (left/right collected but not analyzed for guests) — documented design, see Remaining.
+- **Root cause found for the blank-stage symptom (deterministic code bug)**:
+  - `didChangeAppLifecycleState` short-circuited with `if (_controller == null) return;`. Pausing disposes the controller (→ null), so the `resumed` handler ALWAYS hit the early return and never re-initialized the camera — after any background/resume between angles (normal on mobile) the current stage kept a dead/blank viewfinder.
+  - Blank/empty camera frames and empty gallery picks were silently dropped (`bytes.isEmpty → return`) with zero feedback — a blank capture looked exactly like a "missing" one.
+- **Fixes (surgical, exact component only)**:
+  1. Lifecycle: paused/inactive disposes the webcam AND rebuilds the camera card (added the missing `setState`); `resumed` always schedules `_initCamera`, even when the controller was null at pause.
+  2. `_takePhoto`: empty capture → honest SnackBar ("Blank photo captured… try again"); stage unchanged, nothing counted.
+  3. `_pickFromGallery`: empty pick → honest SnackBar; nothing counted.
+- **Validation**:
+  - Focused: `hairstyle_scan_screen_test.dart` + `face_scan_votes_test.dart` → 15/15 pass (includes new "empty gallery image is rejected honestly and not counted").
+  - Hairstyle regression set (12 files: all `hairstyle_*`, `face_scan_votes`, `c10_analysis_idempotency`, `ephemeral_guest_analysis`, `assistant_routes`, `saved_looks`) → 148/148 pass.
+  - Full `flutter test`: 67 failures across ~19 non-hairstyle files (wardrobe/home/auth/event/outfit). None import `face_scan_screen.dart`; stack traces are wardrobe `scrollUntilVisible`/`Bad state: No element` etc. — structurally unrelated, pre-existing / from in-progress outfit work in the working tree. NOT regressions from this change.
+  - `flutter analyze`: 11 pre-existing warnings, none in changed files.
+- **Remaining / unverified**:
+  - Guest single-angle gap: left/right captured but only front submitted. Assessment: 3 ephemeral calls + snapshot-majority aggregation would need no contract change (rate limit 30/min is fine), but it contradicts a documented design decision and triples guest latency → left unchanged, flagged for product decision.
+  - Live re-verification of the fixes on the running app NOT possible: a CDP `Page.reload` broke the Flutter debug boot (no semantics after 3+ min, no console error); dev server left running. Widget-layer behavior covered by tests; device-camera behavior is a live-check TODO.
+  - `AppLifecycleState.hidden` (web) still ignored — unchanged from original.
+
+## SCAN MY OUTFIT RESULT DATA-FLOW VERIFICATION (executed 2026-10-11, STATUS: DONE — verify-only, 1 test file changed; NO production/backend/API/DB/AI change, no commit/push)
+
+- **Question**: the Scan My Outfit result screen showed face shape `round`, skin tone / body type `Not detected`, confidence `38%`, recommendation `Classic Pompadour`, `99% match` — is that mock data?
+- **Finding: NOT mock — a genuine live backend response (classification A).** Path: `OutfitScanScreen._submitEphemeral/_submitSelected` → `OutfitScanClient` (`POST /v1/analysis/outfit[/ephemeral]`) → router `create_outfit_run`/`create_outfit_ephemeral` → `CreateOutfitRun`/`EphemeralOutfitAnalysis` → `OllamaVisionAppearanceAdapter` (real vision) → `recommend_hairstyle` (deterministic rules) → snapshot map → `OutfitAnalysisScreen` renders it verbatim.
+- **Origin of each value**: face `round` = measured by the Qwen vision adapter from the pixels (skin/body/style stay empty by design — the prompt asks face shape only, so the UI honestly shows "Not detected"). `Confidence 38%` = engine `derive_confidence` = 0.5×completeness(1 of 4 signals = 0.25) + 0.5×decisiveness(gap 0.99−0.94=0.05 / 0.1 = 0.5) = 0.375 → 0.38. `Classic Pompadour` = catalog look chosen by `recommend_hairstyle` for a round face; `99% match` = seed 0.87 + round boost 0.12 (rules, capped at 1.0). All values are computed from the measured face shape — none fabricated.
+- **Qwen verified**: env `FANSIVIBE_VISION_MODEL=qwen3-vl:4b-instruct` (Ollama, model present). Live probe: a blank 64×64 PNG POSTed to `/v1/analysis/outfit/ephemeral` returned `HTTP 422 {field_errors:[{field:"image",error:"no_face_detected"}]}` after ~11s — real inference, fail-closed, no fabricated snapshot. A mock/dev adapter would have returned a 200 result.
+- **No mock/stale/fallback**: no `OutfitAnalysisData.mock` on the path; guest stash (`peekPendingEphemeralResult`) fails closed to null and expires after 24h; prod adapter raises typed errors instead of defaulting (the `_DEFAULT_FACE_SHAPE="oval"` fallback is unreachable in production because the adapter refuses empty face shape). `outfit_scan_mock_data.dart` is dead code in the feature (referenced only by the unused `AnalysisSectionCard`/`DetectedItemChip`/`ProcessingStageIndicator` widgets) — left untouched to preserve reusable components per AGENTS.md.
+- **Correction**: none required — the results already derive from the actual photo via Qwen + the existing rules pipeline, and the outfit result shape is an intentional, backend-test-locked contract (S-1 appearance scan). Real-face success (as opposed to fail-closed) and the semantic point that an outfit scan returns a hairstyle recommendation are recorded as remaining items for a product decision; no contract change made.
+- **Validation**: `flutter test test/outfit_analysis_screen_test.dart` → 11/11 (2 new: live snapshot rendered verbatim — round/Classic Pompadour/38%/99%; no-data state shows "Not detected" and no fabricated recommendation). Related suites (`outfit_scan_screen`, `outfit_scan_client`, `ephemeral_guest_analysis`, `guest_preview`) → 60/60. `flutter analyze` on the touched test → No issues.
+- Next: none. No commit/push per repo rule.
+
+---
+
+## SCAN MY OUTFIT SELECTED-IMAGE PREVIEW CRASH FIX (executed 2026-10-11, STATUS: DONE — Flutter-only, 2 files changed; NO backend/API/DB/AI change, no new dependency, no commit/push)
+
+- **Root cause**: `OutfitScanScreen._buildSelectedImagePreview` (`newproject/flutter_application_1/lib/features/outfit_scan/presentation/outfit_scan_screen.dart`) returned a bare `ClipRRect > Stack(fit: StackFit.expand)` with no finite height. It renders inside the screen's outer `Column` within a `SingleChildScrollView`, so it received an unbounded height. `RenderStack._computeSize` then threw `BoxConstraints forces an infinite height`, cascading into the reported `RenderBox was not laid out: RenderStack`, `RenderBox was not laid out: RenderClipRRect`, and `Text layout not available` (the `Positioned` "AI Analysis Active" label). All other `_buildCameraPreview` branches already bound the preview to `height: 280`.
+- **Fix**: wrapped the selected-image `ClipRRect` in `SizedBox(height: 280, width: double.infinity)` — matching the sibling camera/placeholder branches, so the 280px preview height and overlay are preserved. Also moved the `_selectedImage != null` check to the top of `_buildCameraPreview` (removing the later duplicate) so a selected image renders in widget tests too; non-test behavior is unchanged for the no-image path and the selected preview now correctly takes precedence over camera-state cards.
+- **Validation**: reproduced the exact primary assertion (`BoxConstraints forces an infinite height` at `RenderStack._computeSize`) plus the cascading `RenderStack`/`RenderClipRRect` failures by making the branch reachable, then confirmed they are gone. `flutter test` on `outfit_scan_screen_test.dart` → 13/13 (3 new layout-regression tests: bounded selected-image preview at 360×640, saved-banner render + controls, banner dismiss); related suites (`ephemeral_guest_analysis`, `guest_preview`, `outfit_scan_client`, outfit analysis) → 69/69. `flutter analyze` on the 2 touched files → No issues (full-project analyze: 11 pre-existing warnings/infos, none in touched files).
+- Next: none for this fix. No commit/push per repo rule.
+
+---
+
 ## GUEST AI PREVIEW FOR ANALYZE MY OUTFIT (executed 2026-10-10, STATUS: DONE — Flutter-only, 4 files changed + 1 new test file; NO backend change, NO migration, NO new provider/dependency, no commit/push)
 
 - **Outcome**: the guest Analyze My Style journey now returns a genuine AI preview before the account gate. PhotoCapture (guest Continue) forwards in-memory bytes to AiAnalysis, which runs one parallel pass over the existing unauthenticated endpoints (`POST /v1/analysis/outfit/ephemeral` → face observation + `POST /v1/analysis/garment/ephemeral` → outfit observation) and forwards both verbatim snapshots + typed failure reasons to YourAnalysis. The animation screen is now a real "analysis in progress" state (indeterminate repeat, frozen before nav so tests settle); the legacy timed handoff remains for the no-bytes deep-link case.

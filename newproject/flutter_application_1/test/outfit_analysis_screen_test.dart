@@ -250,5 +250,68 @@ void main() {
       expect(find.text('Fits well'), findsOneWidget);
       expect(find.text('42'), findsOneWidget);
     });
+
+    testWidgets(
+      'renders the live appearance snapshot verbatim '
+      '(round face, empty skin/body, Classic Pompadour 99%)',
+      (WidgetTester tester) async {
+        // This is the exact production shape produced by
+        // `recommend_hairstyle`: seed 0.87 + round boost 0.12 = 0.99,
+        // confidence 0.5*0.25 (one measured signal) + 0.5*0.5 = 0.38.
+        // The screen must display those values, not a fixture.
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OutfitAnalysisScreen(
+              analysisResult: {
+                'appearance': {
+                  'faceShape': 'round',
+                  'skinTone': '',
+                  'bodyType': '',
+                  'styleType': '',
+                  'sourceRunId': 'transient-id',
+                },
+                'confidence': 0.38,
+                'needs_more_data': true,
+                'recommendations': {
+                  'top': {
+                    'id': 'classic_pompadour',
+                    'name': 'Classic Pompadour',
+                    'description': 'A polished, formal alternative.',
+                    'matchScore': 0.99,
+                    'reasons': ['Vertical emphasis suits a round face'],
+                    'stylingTips': 'Strong-hold pomade',
+                    'maintenance': 'High',
+                    'bestFor': 'Oval, Round, and Square face shapes',
+                  },
+                  'alternatives': <dynamic>[],
+                },
+              },
+            ),
+          ),
+        );
+
+        expect(find.text('Face Shape: round'), findsOneWidget);
+        expect(find.text('Skin Tone: Not detected'), findsOneWidget);
+        expect(find.text('Body Type: Not detected'), findsOneWidget);
+        expect(find.text('Confidence: 38%'), findsOneWidget);
+        expect(find.text('Classic Pompadour'), findsOneWidget);
+        expect(find.text('99% match'), findsOneWidget);
+        expect(find.text('Needs more data'), findsOneWidget);
+      },
+    );
+
+    testWidgets('shows an honest no-data state with no fabricated values', (
+      WidgetTester tester,
+    ) async {
+      // A missing/failed analysis must never be backfilled by a mock
+      // result: no recommendation card, attributes honestly "Not detected".
+      await tester.pumpWidget(
+        const MaterialApp(home: OutfitAnalysisScreen()),
+      );
+
+      expect(find.textContaining('Not detected'), findsNWidgets(3));
+      expect(find.text('Recommended for you'), findsNothing);
+      expect(find.textContaining('classic_pompadour'), findsNothing);
+    });
   });
 }
