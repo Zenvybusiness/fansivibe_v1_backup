@@ -405,6 +405,29 @@ void main() {
         await tester.pump(const Duration(seconds: 1));
       },
     );
+
+    testWidgets(
+      'camera switch toggles between back camera and front camera',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: FaceScanScreen(),
+          ),
+        );
+
+        // Initially on Front camera, option is to switch to Back Camera
+        expect(find.text('Switch to Back Camera'), findsOneWidget);
+
+        // Tap to switch to Back Camera
+        await _tapVisible(tester, find.text('Switch to Back Camera'));
+        expect(find.text('Switch to Front Camera'), findsOneWidget);
+
+        // Tap again to switch back to Front Camera
+        await _tapVisible(tester, find.text('Switch to Front Camera'));
+        expect(find.text('Switch to Back Camera'), findsOneWidget);
+      },
+    );
   });
 }
+
 

@@ -14,9 +14,10 @@
   1. `_initCamera()` serializes controller disposal: properly disposes any existing controller before initializing a new one, guards against concurrent initialization (`_isInitializingCamera`), and ensures flags are reset in `finally`.
   2. `_takePhoto()` guards against duplicate or concurrent captures (`_isCapturing`, `_isInitializingCamera`, `controller.value.isTakingPicture`), automatically advances from Front → Left and Left → Right, and re-initializes the camera for each subsequent angle so live previews are immediately streaming without app backgrounding.
   3. `_confirmStep()` and `_retake()` re-initialize the camera when transitioning angles, ensuring live feed is ready whenever camera view is active.
-  4. Added injectable `takePhoto` callback to `FaceScanScreen` to support thorough automated widget testing of camera angle progression without hardware plugin dependencies.
+  4. Added camera switching between Front and Back camera (`_switchCamera()`): added both an overlay icon button on the viewfinder and an explicit action button (`Switch to Back Camera` / `Switch to Front Camera`) with `_selectedCameraIndex` preservation across angle transitions and multi-camera / single-camera handling.
+  5. Added injectable `takePhoto` callback to `FaceScanScreen` to support thorough automated widget testing of camera angle progression without hardware plugin dependencies.
 - **Validation**:
-  - `flutter test test/hairstyle_scan_screen_test.dart` → 11/11 passed (including 2 new tests verifying automated Front → Left → Right progression without lifecycle interaction and honest empty-capture handling).
+  - `flutter test test/hairstyle_scan_screen_test.dart` → 12/12 passed (including tests verifying automated Front → Left → Right progression, honest empty-capture rejection, and camera toggle switching).
   - `flutter test test/face_scan_votes_test.dart` → 6/6 passed.
   - `flutter analyze lib/features/hairstyle/presentation/face_scan_screen.dart test/hairstyle_scan_screen_test.dart` → No issues found.
 - **Next**: Live device verification on hardware camera. No commit/push per repo rule.

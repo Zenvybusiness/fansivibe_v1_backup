@@ -75,10 +75,22 @@ class _FaceScanScreenState extends State<FaceScanScreen>
   static const List<FaceScanAngle> _angles = FaceScanAngle.values;
 
   CameraController? _controller;
+  List<CameraDescription> _availableCameras = const [];
+  int _selectedCameraIndex = -1;
   _CameraUiState _cameraState = _CameraUiState.initial;
   String? _cameraError;
   bool _isInitializingCamera = false;
   bool _isCapturing = false;
+
+  bool get _isRearCamera {
+    if (_availableCameras.isNotEmpty &&
+        _selectedCameraIndex >= 0 &&
+        _selectedCameraIndex < _availableCameras.length) {
+      return _availableCameras[_selectedCameraIndex].lensDirection ==
+          CameraLensDirection.back;
+    }
+    return _selectedCameraIndex == 1;
+  }
 
   int _stepIndex = 0;
   final Map<FaceScanAngle, AngleCapture> _captures = {};
@@ -154,18 +166,23 @@ class _FaceScanScreenState extends State<FaceScanScreen>
         await oldController.dispose();
       }
 
-      // Front camera first for a face scan (unlike the outfit rear default).
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
         if (!mounted) return;
         setState(() => _cameraState = _CameraUiState.unavailable);
         return;
       }
-      final frontIndex = cameras.indexWhere(
-        (c) => c.lensDirection == CameraLensDirection.front,
-      );
+      _availableCameras = cameras;
+      if (_selectedCameraIndex < 0 ||
+          _selectedCameraIndex >= cameras.length) {
+        // Front camera first by default for face scan, unless back camera selected.
+        final frontIndex = cameras.indexWhere(
+          (c) => c.lensDirection == CameraLensDirection.front,
+        );
+        _selectedCameraIndex = frontIndex >= 0 ? frontIndex : 0;
+      }
       final controller = CameraController(
-        cameras[frontIndex >= 0 ? frontIndex : 0],
+        cameras[_selectedCameraIndex],
         ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
@@ -199,6 +216,31 @@ class _FaceScanScreenState extends State<FaceScanScreen>
     } finally {
       _isInitializingCamera = false;
     }
+  }
+
+  /// Switches between available cameras (front / back) with serialized lifecycle.
+  Future<void> _switchCamera() async {
+    if (_isCapturing || _isInitializingCamera) return;
+    if (_isTestMode) {
+      setState(() {
+        _selectedCameraIndex = _selectedCameraIndex == 1 ? 0 : 1;
+      });
+      return;
+    }
+    if (_availableCameras.length < 2) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only one camera is available on this device.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final nextIndex = (_selectedCameraIndex + 1) % _availableCameras.length;
+    _selectedCameraIndex = nextIndex;
+    await _initCamera();
   }
 
   /// Camera-first capture for the current angle: live preview →
@@ -633,6 +675,26 @@ class _FaceScanScreenState extends State<FaceScanScreen>
                     ),
                   ),
                 ),
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Material(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    shape: const CircleBorder(),
+                    clipBehavior: Clip.antiAlias,
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.cameraswitch_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                      tooltip: _isRearCamera
+                          ? 'Switch to Front Camera'
+                          : 'Switch to Back Camera',
+                      onPressed: _switchCamera,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -718,25 +780,37 @@ class _FaceScanScreenState extends State<FaceScanScreen>
   }
 
   Widget _buildSourceButtons() {
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: FansiButton.secondary(
-            label: 'Take Photo',
-            icon: Icons.camera_alt_rounded,
-            expanded: false,
-            // Camera-first: live-preview capture, never gallery.
-            onPressed: _takePhoto,
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: FansiButton.secondary(
+                label: 'Take Photo',
+                icon: Icons.camera_alt_rounded,
+                expanded: false,
+                // Camera-first: live-preview capture, never gallery.
+                onPressed: _takePhoto,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FansiButton.secondary(
+                label: 'Gallery',
+                icon: Icons.photo_library_rounded,
+                expanded: false,
+                onPressed: _pickFromGallery,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: FansiButton.secondary(
-            label: 'Gallery',
-            icon: Icons.photo_library_rounded,
-            expanded: false,
-            onPressed: _pickFromGallery,
-          ),
+        const SizedBox(height: 10),
+        FansiButton.secondary(
+          label: _isRearCamera
+              ? 'Switch to Front Camera'
+              : 'Switch to Back Camera',
+          icon: Icons.cameraswitch_rounded,
+          onPressed: _switchCamera,
         ),
       ],
     );
