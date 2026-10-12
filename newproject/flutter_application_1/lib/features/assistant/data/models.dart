@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:fansivibe/features/learning/data/models.dart';
 
 /// Typed contract DTOs mirroring `backend/app/models/schemas.py`.
@@ -417,6 +419,7 @@ class AssistantMessage {
     this.outfitIntelligence,
     this.pending = false,
     this.isOffline = false,
+    this.imageBytes,
   });
 
   final String role;
@@ -432,6 +435,11 @@ class AssistantMessage {
   /// True when this content was produced from offline/local fallback data
   /// rather than live backend intelligence.
   final bool isOffline;
+
+  /// Attached outfit photo for user image messages (in-memory only — never
+  /// a temp path, never persisted). Null for text-only messages and all
+  /// assistant messages.
+  final Uint8List? imageBytes;
 
   bool get isUser => role == 'user';
 
@@ -449,6 +457,7 @@ class AssistantMessage {
     outfitIntelligence: outfitIntelligence ?? this.outfitIntelligence,
     pending: pending ?? this.pending,
     isOffline: isOffline ?? this.isOffline,
+    imageBytes: imageBytes,
   );
 }
 

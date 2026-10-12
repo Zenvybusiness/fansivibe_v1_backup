@@ -36,6 +36,15 @@ class AssistantService extends ChangeNotifier {
 
   bool _disposed = false;
 
+  /// Retry chip value for a failed image analysis (see [sendWithImage]).
+  /// Intercepted in [selectClarification] — never sent to the backend.
+  static const String retryImageValue = '__retry_image_analysis__';
+
+  Uint8List? _lastImageBytes;
+  String _lastImageText = '';
+  String _lastImageName = 'outfit.jpg';
+  bool _imageFailed = false;
+
   /// Read-only snapshot of the already-loaded learning wardrobe.
   ///
   /// Presentation uses this to resolve outfit selections into displayable
@@ -99,8 +108,166 @@ class AssistantService extends ChangeNotifier {
   }
 
   /// Send a clarification option (e.g. tapping an occasion chip).
-  Future<void> selectClarification(ClarificationOption option) =>
-      send(option.value);
+  ///
+  /// The image-retry chip ([retryImageValue]) re-sends the kept photo
+  /// instead of posting a text turn.
+  Future<void> selectClarification(ClarificationOption option) {
+    if (option.value == retryImageValue) return retryLastImage();
+    return send(option.value);
+  }
+
+  /// Send an outfit photo with an optional question for genuine vision
+  /// analysis (`POST /v1/assistant/chat-with-image`).
+  ///
+  /// The ACTUAL bytes travel to the vision-capable endpoint; follow-ups
+  /// reuse the plain text path because the observation text stays in
+  /// history (no re-upload). A null reply is an honest error with a retry
+  /// chip — never the offline fallback, which has no vision and would
+  /// fabricate an analysis. Duplicate sends are ignored via [_isSending].
+  Future<void> sendWithImage({
+    required String text,
+    required Uint8List imageBytes,
+    String? filename,
+  }) async {
+    final trimmed = text.trim();
+    if (imageBytes.isEmpty || _isSending) return;
+
+    _lastImageBytes = imageBytes;
+    _lastImageText = text;
+    _lastImageName = (filename != null && filename.isNotEmpty)
+        ? filename
+        : 'outfit.jpg';
+    _imageFailed = false;
+
+    _learning?.recordSignal(
+      'assistant_message',
+      trimmed.isEmpty ? 'outfit photo' : trimmed,
+    );
+
+    _messages.add(
+      AssistantMessage(role: 'user', text: trimmed, imageBytes: imageBytes),
+    );
+    _messages.add(
+      const AssistantMessage(role: 'assistant', text: '', pending: true),
+    );
+    _isSending = true;
+    _safeNotify();
+
+    final reply = await _client.chatWithImage(
+      bytes: imageBytes,
+      filename: _lastImageName,
+      message: trimmed,
+      history: _messages.where((m) => !m.pending).toList(),
+      context: _buildImageContext(),
+    );
+
+    if (_disposed) return;
+
+    final index = _messages.length - 1;
+    if (reply == null) {
+      _imageFailed = true;
+      _messages[index] = const AssistantMessage(
+        role: 'assistant',
+        text:
+            "I couldn't analyze that photo — the service didn't respond. "
+            'Your photo is still in the chat; retry when you have a connection.',
+        clarifications: [
+          ClarificationOption(label: 'Retry analysis', value: retryImageValue),
+        ],
+      );
+    } else {
+      _messages[index] = AssistantMessage(
+        role: 'assistant',
+        text: reply.text,
+        cards: reply.cards,
+        clarifications: reply.clarifications,
+        navigation: reply.navigation,
+        outfitIntelligence: reply.outfitIntelligence,
+      );
+    }
+    _isSending = false;
+    _safeNotify();
+  }
+
+  /// Re-send the kept photo after a failed analysis (retry chip).
+  ///
+  /// Drops the trailing error message so history stays clean; the original
+  /// user photo turn is reused, never duplicated. No-op unless the last
+  /// image turn actually failed.
+  Future<void> retryLastImage() async {
+    final bytes = _lastImageBytes;
+    if (_isSending || bytes == null || !_imageFailed) return;
+    if (_messages.isNotEmpty &&
+        !_messages.last.pending &&
+        _messages.last.role == 'assistant' &&
+        _messages.last.clarifications.any((c) => c.value == retryImageValue)) {
+      _messages.removeLast();
+    }
+    _messages.add(
+      const AssistantMessage(role: 'assistant', text: '', pending: true),
+    );
+    _isSending = true;
+    _safeNotify();
+
+    final reply = await _client.chatWithImage(
+      bytes: bytes,
+      filename: _lastImageName,
+      message: _lastImageText.trim(),
+      history: _messages.where((m) => !m.pending).toList(),
+      context: _buildImageContext(),
+    );
+
+    if (_disposed) return;
+
+    final index = _messages.length - 1;
+    if (reply == null) {
+      _messages[index] = const AssistantMessage(
+        role: 'assistant',
+        text:
+            "Still couldn't analyze that photo. Check your connection and retry — "
+            'text chat keeps working meanwhile.',
+        clarifications: [
+          ClarificationOption(label: 'Retry analysis', value: retryImageValue),
+        ],
+      );
+    } else {
+      _imageFailed = false;
+      _messages[index] = AssistantMessage(
+        role: 'assistant',
+        text: reply.text,
+        cards: reply.cards,
+        clarifications: reply.clarifications,
+        navigation: reply.navigation,
+        outfitIntelligence: reply.outfitIntelligence,
+      );
+    }
+    _isSending = false;
+    _safeNotify();
+  }
+
+  /// Image-chat context: the standard snapshot minus wardrobe photo bytes.
+  ///
+  /// Matching needs category/color — never the base64 photo library, which
+  /// would bloat every image request and leak private bytes on the wire.
+  AssistantUserContext _buildImageContext() {
+    final base = _buildContext();
+    return AssistantUserContext(
+      wardrobe: [
+        for (final entry in base.wardrobe)
+          WardrobeEntry(
+            id: entry.id,
+            name: entry.name,
+            category: entry.category,
+            color: entry.color,
+            material: entry.material,
+            isFavorite: entry.isFavorite,
+          ),
+      ],
+      face: base.face,
+      savedLooks: base.savedLooks,
+      preferredOccasions: base.preferredOccasions,
+    );
+  }
 
   /// Save the current [OutfitIntelligence] via `POST /v1/looks/saved`.
   ///

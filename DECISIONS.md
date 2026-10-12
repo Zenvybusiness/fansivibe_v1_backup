@@ -1578,3 +1578,20 @@ remain distinct, and `publishedCandidates` stays empty without qualifying real
 demand evidence. The Google Trends adapter, authentication, and any live call
 remain gated (D9C) on alpha access, the verified API contract, and confirmed
 storage/display terms; `google_trends` stays out of the source registry.
+
+## DEC-028 - Assistant image chat gets its own multipart endpoint (chat-with-image)
+
+Status: Accepted (owner-approved option A, 2026-10-11)
+
+`POST /v1/assistant/chat` is text-only (role/content turns + wardrobe/face
+snapshot) and its engine has no vision, so sending an image placeholder there
+would be fake analysis. Image-aware chat therefore lives at a **separate**
+`POST /v1/assistant/chat-with-image` multipart endpoint (image bytes +
+question + history + user snapshot) rather than extending the frozen chat
+contract: the actual bytes run through the shared garment vision adapter
+(same as the garment passes), matching uses only the caller-supplied wardrobe
+snapshot, and the reply is the existing typed `AssistantReply` (observation
+card + real-item match cards, no scores). Stateless and unauthenticated like
+the ephemeral passes (per-IP rate limit, zero DB rows); bytes are hashed and
+discarded, never persisted or logged. Follow-ups reuse plain chat (the
+observation text rides in history), so the image is never re-uploaded.

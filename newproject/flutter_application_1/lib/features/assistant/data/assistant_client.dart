@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/assistant/data/models.dart';
@@ -21,6 +22,10 @@ class AssistantClient {
 
   final http.Client _client;
   static const Duration _timeout = Duration(seconds: 12);
+
+  // Vision budget (20s) + overhead, same as the garment/outfit clients, so
+  // a legitimate image analysis never surfaces as a client timeout.
+  static const Duration _imageTimeout = Duration(seconds: 30);
 
   static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',
@@ -72,6 +77,66 @@ class AssistantClient {
     return null;
   }
 
+  /// Image-aware chat (`POST /v1/assistant/chat-with-image`).
+  ///
+  /// Sends the ACTUAL photo bytes as multipart `image` plus the question as
+  /// `message` and the conversation/user snapshot as `history`/`user`
+  /// fields — the same JSON shapes as [chat]. Returns the typed
+  /// [AssistantReply] on 200, null otherwise so the caller shows an honest
+  /// error instead of a fabricated analysis. Same Bearer convention as
+  /// [chat] (the endpoint is unauthenticated + rate-limited server-side,
+  /// so guests work). Never throws.
+  Future<AssistantReply?> chatWithImage({
+    required Uint8List bytes,
+    required String filename,
+    required String message,
+    required List<AssistantMessage> history,
+    required AssistantUserContext context,
+  }) async {
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/v1/assistant/chat-with-image'),
+      )
+        ..headers['Authorization'] = 'Bearer $_devToken'
+        ..fields['message'] = message
+        ..fields['history'] = jsonEncode(
+          history.map((m) => {'role': m.role, 'content': m.text}).toList(),
+        )
+        ..fields['user'] = jsonEncode(context.toJson());
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'image',
+          bytes,
+          filename: filename,
+          contentType: MediaType.parse(_contentTypeFor(filename)),
+        ),
+      );
+      final streamed = await _client.send(request).timeout(_imageTimeout);
+      final response = await http.Response.fromStream(
+        streamed,
+      ).timeout(_imageTimeout);
+      AuthSession.noteStatus(response.statusCode);
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return AssistantReply.fromJson(decoded);
+      }
+      debugPrint(
+        'Assistant image backend responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Assistant image backend unreachable: $error');
+    }
+    return null;
+  }
+
+  static String _contentTypeFor(String filename) {
+    final lower = filename.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
   /// Saves an Outfit via the existing contract `POST /v1/looks/saved`.
   ///
   /// Sends `lookId: null`, `title`, `snapshot`, `sourceContext: "outfit"`

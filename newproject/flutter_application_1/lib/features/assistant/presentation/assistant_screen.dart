@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:fansivibe/app/router/route_names.dart';
 
@@ -21,10 +24,14 @@ import 'package:fansivibe/shared/utils/guest_mode.dart';
 /// right screen. Grounded in the user model; falls back to the offline rules
 /// assistant when the backend is unreachable.
 class AssistantScreen extends StatefulWidget {
-  const AssistantScreen({super.key, this.service});
+  const AssistantScreen({super.key, this.service, this.pickImage});
 
   /// Injectable for tests; when null the screen owns its own service.
   final AssistantService? service;
+
+  /// Injectable gallery/camera picker (defaults to [ImagePicker]); tests
+  /// supply a fake. Mirrors the outfit-scan precedent.
+  final Future<XFile?> Function(ImageSource source)? pickImage;
 
   @override
   State<AssistantScreen> createState() => _AssistantScreenState();
@@ -35,6 +42,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
   final ScrollController _scroll = ScrollController();
   late final AssistantService _service;
   late final bool _ownsService;
+
+  /// Staged outfit photo (in-memory bytes only — never a temp path).
+  /// Null means no attachment; cleared on send, kept on picker cancel.
+  Uint8List? _attachedImageBytes;
+  String _attachedName = 'outfit.jpg';
+
+  /// Client-side guard mirroring the backend 20 MB image contract.
+  static const int maxAttachBytes = 20 * 1024 * 1024;
 
   @override
   void initState() {
@@ -72,10 +87,130 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 
   void _send() {
+    final attachment = _attachedImageBytes;
+    if (attachment != null) {
+      final text = _input.text;
+      setState(() => _attachedImageBytes = null);
+      _input.clear();
+      _service.sendWithImage(
+        text: text,
+        imageBytes: attachment,
+        filename: _attachedName,
+      );
+      return;
+    }
     final text = _input.text;
     if (text.trim().isEmpty) return;
     _input.clear();
     _service.send(text);
+  }
+
+  static Future<XFile?> _defaultPickImage(ImageSource source) {
+    return ImagePicker().pickImage(source: source, imageQuality: 90);
+  }
+
+  /// Stage an outfit photo beside the composer (gallery or camera via the
+  /// existing [ImagePicker] architecture — no new dependency).
+  ///
+  /// Cancelling (sheet dismiss, picker cancel, validation failure) keeps
+  /// the unsent text untouched. Disabled while a message is sending.
+  Future<void> _attachImage() async {
+    if (_service.isSending) return;
+    final source = await _chooseImageSource();
+    if (source == null || !mounted) return;
+    final picked = await (widget.pickImage ?? _defaultPickImage)(source);
+    if (picked == null || !mounted) return;
+    final bytes = await picked.readAsBytes();
+    final error = _validateAttachment(picked, bytes);
+    if (error != null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: FansivibeColors.surfaceContainerHighest,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: FansivibeRadius.smdBorder,
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _attachedImageBytes = bytes;
+      _attachedName = _fileNameFor(picked);
+    });
+  }
+
+  /// Multipart filename: the picker name when present, else derived from
+  /// the MIME type so the upload content-type header stays truthful.
+  static String _fileNameFor(XFile picked) {
+    if (picked.name.isNotEmpty) return picked.name;
+    return switch (picked.mimeType?.toLowerCase()) {
+      'image/png' => 'outfit.png',
+      'image/webp' => 'outfit.webp',
+      _ => 'outfit.jpg',
+    };
+  }
+
+  /// Gallery/camera chooser. Null on dismiss (cancel keeps text).
+  Future<ImageSource?> _chooseImageSource() {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: FansivibeColors.surfaceContainerLow,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              key: const Key('assistant_pick_gallery'),
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.of(context).pop(ImageSource.gallery),
+            ),
+            ListTile(
+              key: const Key('assistant_pick_camera'),
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.of(context).pop(ImageSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Backend-contract validation before staging: JPEG/PNG/WebP, non-empty,
+  /// at most 20 MB. Returns the user-facing reason, or null when valid.
+  ///
+  /// The extension wins when the picker supplies a name (all real picks);
+  /// otherwise the MIME type decides (`XFile.fromData` drops the name on
+  /// native, so tests and pasted bytes land here).
+  String? _validateAttachment(XFile picked, Uint8List bytes) {
+    if (bytes.isEmpty) return 'That photo came back empty — try again.';
+    if (bytes.length > maxAttachBytes) {
+      return 'That photo is too large (max 20 MB).';
+    }
+    if (picked.name.isNotEmpty) {
+      final lower = picked.name.toLowerCase();
+      final namedOk =
+          lower.endsWith('.jpg') ||
+          lower.endsWith('.jpeg') ||
+          lower.endsWith('.png') ||
+          lower.endsWith('.webp');
+      if (!namedOk) {
+        return 'Unsupported photo format — use JPG, PNG, or WebP.';
+      }
+      return null;
+    }
+    const supportedMime = {'image/jpeg', 'image/png', 'image/webp'};
+    if (!supportedMime.contains(picked.mimeType?.toLowerCase())) {
+      return 'Unsupported photo format — use JPG, PNG, or WebP.';
+    }
+    return null;
   }
 
   void _onCardAction(SuggestionCard card) {
@@ -343,52 +478,137 @@ class _AssistantScreenState extends State<AssistantScreen> {
       ),
       child: SafeArea(
         top: false,
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: TextField(
-                controller: _input,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _send(),
-                style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                  color: FansivibeColors.onSurface,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'Ask your stylist…',
-                  hintStyle: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                    color: FansivibeColors.secondary.withValues(alpha: 0.6),
-                  ),
-                  filled: true,
-                  fillColor: FansivibeColors.surfaceContainerHigh,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: FansivibeSpacing.md,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: FansivibeRadius.fullBorder,
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: FansivibeRadius.fullBorder,
-                    borderSide: BorderSide(
-                      color: FansivibeColors.primary.withValues(alpha: 0.6),
+            if (_attachedImageBytes != null) _buildAttachmentPreview(),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _input,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _send(),
+                    style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                      color: FansivibeColors.onSurface,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'Ask your stylist…',
+                      hintStyle: FansivibeTypography.bodyMediumWithFamily
+                          .copyWith(
+                            color: FansivibeColors.secondary.withValues(
+                              alpha: 0.6,
+                            ),
+                          ),
+                      filled: true,
+                      fillColor: FansivibeColors.surfaceContainerHigh,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: FansivibeSpacing.md,
+                        vertical: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: FansivibeRadius.fullBorder,
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: FansivibeRadius.fullBorder,
+                        borderSide: BorderSide(
+                          color: FansivibeColors.primary.withValues(alpha: 0.6),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: FansivibeSpacing.sm),
-            IconButton.filled(
-              onPressed: _service.isSending ? null : _send,
-              icon: const Icon(Icons.send_rounded, size: 20),
-              style: IconButton.styleFrom(
-                backgroundColor: FansivibeColors.primary,
-                foregroundColor: FansivibeColors.onPrimary,
-                disabledBackgroundColor: FansivibeColors.surfaceContainerHigh,
-              ),
+                const SizedBox(width: FansivibeSpacing.sm),
+                IconButton(
+                  key: const Key('assistant_attach_button'),
+                  tooltip: 'Attach outfit photo',
+                  onPressed: _service.isSending ? null : _attachImage,
+                  icon: const Icon(Icons.image_outlined, size: 22),
+                  color: FansivibeColors.primary,
+                  style: IconButton.styleFrom(
+                    backgroundColor: FansivibeColors.surfaceContainerHigh,
+                    disabledBackgroundColor:
+                        FansivibeColors.surfaceContainerHigh,
+                  ),
+                ),
+                const SizedBox(width: FansivibeSpacing.sm),
+                IconButton.filled(
+                  onPressed: _service.isSending ? null : _send,
+                  icon: const Icon(Icons.send_rounded, size: 20),
+                  style: IconButton.styleFrom(
+                    backgroundColor: FansivibeColors.primary,
+                    foregroundColor: FansivibeColors.onPrimary,
+                    disabledBackgroundColor:
+                        FansivibeColors.surfaceContainerHigh,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Staged-photo preview: thumbnail with replace/remove. Removing or
+  /// replacing never touches the unsent text.
+  Widget _buildAttachmentPreview() {
+    final bytes = _attachedImageBytes;
+    if (bytes == null) return const SizedBox.shrink();
+    return Container(
+      key: const Key('assistant_attachment_preview'),
+      margin: const EdgeInsets.only(bottom: FansivibeSpacing.sm),
+      padding: const EdgeInsets.all(FansivibeSpacing.sm),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerHigh,
+        borderRadius: FansivibeRadius.smdBorder,
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(FansivibeRadius.xs),
+            child: Image.memory(
+              bytes,
+              width: 56,
+              height: 56,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Container(
+                width: 56,
+                height: 56,
+                color: FansivibeColors.surfaceContainerHighest,
+                child: const Icon(Icons.broken_image_outlined, size: 24),
+              ),
+            ),
+          ),
+          const SizedBox(width: FansivibeSpacing.sm),
+          Expanded(
+            child: Text(
+              _attachedName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                color: FansivibeColors.onSurface,
+              ),
+            ),
+          ),
+          IconButton(
+            key: const Key('assistant_attachment_replace'),
+            tooltip: 'Replace photo',
+            onPressed: _service.isSending ? null : _attachImage,
+            icon: const Icon(Icons.cached_rounded, size: 20),
+            color: FansivibeColors.primary,
+          ),
+          IconButton(
+            key: const Key('assistant_attachment_remove'),
+            tooltip: 'Remove photo',
+            onPressed: _service.isSending
+                ? null
+                : () => setState(() => _attachedImageBytes = null),
+            icon: const Icon(Icons.close_rounded, size: 20),
+            color: FansivibeColors.secondary,
+          ),
+        ],
       ),
     );
   }

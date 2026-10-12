@@ -82,11 +82,36 @@ class MessageBubble extends StatelessWidget {
               bottomRight: Radius.circular(FansivibeRadius.md),
             ),
           ),
-          child: Text(
-            message.text,
-            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-              color: FansivibeColors.onPrimary,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (message.imageBytes != null)
+                Padding(
+                  padding: EdgeInsets.only(
+                    bottom: message.text.isNotEmpty
+                        ? FansivibeSpacing.sm
+                        : 0,
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(FansivibeRadius.sm),
+                    child: Image.memory(
+                      message.imageBytes!,
+                      width: 200,
+                      height: 200,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+              if (message.text.isNotEmpty)
+                Text(
+                  message.text,
+                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                    color: FansivibeColors.onPrimary,
+                  ),
+                ),
+            ],
           ),
         ),
       );
