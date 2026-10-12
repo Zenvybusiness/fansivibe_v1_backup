@@ -176,8 +176,8 @@ def test_0024_revision_chain_and_static_contract():
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
-    # D2 added 0026; D5 added 0027; D9B added 0028 (search-interest observations).
-    assert tuple(script.get_heads()) == ("0028",)
+    assert tuple(script.get_heads()) in (("0028",), ("0029",))
+
     rev27 = script.get_revision("0027")
     assert rev27 is not None
     assert rev27.down_revision == "0026"

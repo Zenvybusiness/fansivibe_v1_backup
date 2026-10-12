@@ -1,5 +1,139 @@
 # Fansivibe Current State
 
+## TASK D9B STAGE 2: GDELT MEDIA ATTENTION PERSISTENCE (executed 2026-10-13, STATUS: DONE — Backend-only, 1 new migration [0029], 1 new test file [25 PG persistence tests], updated models, repositories, ports; NO network requests, NO D6/D7 changes, DEMAND_SIGNAL_AVAILABLE = False preserved, no commit/push)
+
+- **Objective**: Implement Stage 2 (Persistence) of D9B GDELT Media Attention Source per the approved D9A.6 architectural contract.
+- **Implemented**:
+  1. Alembic Migration `0029_media_attention_observations.py`:
+     - Creates `media_attention_observations` table with natural key unique index `uq_media_attention_observations_natural_key` covering: `(source, metric, query_kind, query_key, geo_scope, aggregation_interval, period_start, period_end, query_config_version, clustering_version)`.
+     - Check constraint `ck_media_attention_observations_status_matrix` enforcing the 4 approved status pairs:
+       `('present', 'complete')`, `('suppressed', 'truncated')`, `('missing', 'unavailable')`, `('invalid', 'unavailable')`.
+     - Check constraint `ck_media_attention_observations_value_counts_integrity` enforcing:
+       - Rejection of non-finite numbers (`value <> 'NaN'::numeric`, `value <> 'Infinity'::numeric`, `value <> '-Infinity'::numeric`).
+       - Value non-negativity (`value >= 0.0`).
+       - Strict equality of value to stories (`value = estimated_deduplicated_story_count::numeric`).
+       - Count hierarchy for zero observations (`raw = 0 -> distinct = 0, stories = 0, value = 0.0`).
+       - Count hierarchy for positive observations (`raw >= 1 -> 1 <= distinct <= raw, 1 <= stories <= raw, value >= 1.0`).
+       - Null consistency on suppressed/missing/invalid states (`value IS NULL`, `raw_article_count IS NULL`, `distinct_outlet_count IS NULL`, `estimated_deduplicated_story_count IS NULL`).
+     - Check constraint `ck_media_attention_observations_period_order` enforcing `period_end > period_start`.
+     - Creates `media_attention_contributing_records` provenance join table with foreign keys `ON DELETE CASCADE` to `media_attention_observations(id)` and `raw_source_records(id)`.
+  2. SQLAlchemy models in `backend/app/infrastructure/db/models.py`:
+     - `MediaAttentionObservation` mapped to `media_attention_observations`.
+     - `MediaAttentionContributingRecord` mapped to `media_attention_contributing_records`.
+  3. Domain Port in `backend/app/domain/ports/repositories.py`:
+     - Protocol `MediaAttentionRepository` with runtime checkability:
+       - `insert_observation_with_contributing_records(observation, contributing_records) -> tuple[MediaAttentionEvidence, int, bool]`
+       - `relink_contributing_records(observation_id, contributing_records) -> int`
+       - `observations_in_window(window_start, window_end, query_key, geo_scope) -> tuple[MediaAttentionEvidence, ...]`
+       - `get_contributing_records(observation_id, limit, offset) -> tuple[ContributingRecordAssignment, ...]`
+       - `prune_expired_raw_records(older_than) -> int`
+  4. Repository SQL Implementation in `backend/app/infrastructure/db/repositories.py`:
+     - `MediaAttentionRepositorySQL` using SQLAlchemy nested savepoints (`begin_nested()`).
+     - Idempotent natural key handling: rollback savepoint on collision, fetch existing record non-destructively, insert missing provenance links, update provenance count, return `(existing_evidence, links_added, False)`.
+     - Safe relinking: ignores existing link duplicates, atomically updates provenance count and clears `provenance_pruned` flag.
+     - Raw record pruning: cascades deletion of provenance links while retaining permanent observation rows with `provenance_pruned = True`.
+  5. Test suite:
+     - `backend/tests/test_d9b_media_attention_persistence.py`: 25 passing PostgreSQL tests verifying empirical zero, positive counts, status matrix, invalid states, numeric constraints (NaN, Infinity, negative values), natural key idempotency, multi-version coexistence, atomicity, pruning, and architecture protocol compliance.
+     - Linearly updated 8 migration head assertions to support head `"0029"`.
+- **Validation**:
+  - `backend/tests/test_d9b_media_attention_persistence.py` (PostgreSQL `fansivibe_test`): **25/25 passed**.
+  - `backend/tests/test_d9b_media_attention.py`: **60/60 passed**.
+  - `backend/tests/test_d9b_search_interest.py`: **36/36 passed**.
+  - Offline regression suite (`pytest tests -k "not db"`): **1256 passed, 0 failures** (549 skipped, 92 deselected).
+- **Strict Boundaries Maintained**:
+  - Stage 2 only: Persistence layer implemented; collection adapter/workflow deferred to Stage 3.
+  - No live network or GDELT calls.
+  - `DEMAND_SIGNAL_AVAILABLE = False` strictly preserved.
+  - D6/D7 discovery code untouched.
+  - No commit or push.
+
+---
+
+## TASK D9B STAGE 1: GDELT MEDIA ATTENTION DOMAIN FOUNDATION (executed 2026-10-13, STATUS: DONE — Backend-only, 1 new domain module, 1 new test file; NO persistence/migration changes, NO network requests, NO D6/D7 changes, no commit/push)
+
+- **Objective**: Implement Stage 1 (Domain foundation) of D9B GDELT Media Attention Source per the approved D9A.6 architectural contract.
+- **Implemented**:
+  1. `backend/app/domain/services/media_attention.py`:
+     - Created immutable frozen domain dataclasses: `MediaAttentionObservation`, `MediaArticle`, `StoryCluster`, `ContributingRecordAssignment`, `MediaAttentionEvidence`, and `MediaAttentionResult`.
+     - Deterministic validation in `MediaAttentionObservation.__post_init__`:
+       - Enforced exact 4 approved status pairs: `('present', 'complete')`, `('suppressed', 'truncated')`, `('missing', 'unavailable')`, `('invalid', 'unavailable')`. Rejected all other combinations.
+       - Rejection of non-finite numbers (`NaN`, `+Infinity`, `-Infinity`).
+       - Rejection of negative values (`value < 0.0`) and signed negative zero (`-0.0`).
+       - Rejection of negative counts (`raw_article_count < 0`, `distinct_outlet_count < 0`, `estimated_deduplicated_story_count < 0`).
+       - Rejection of boolean types masquerading as numeric/integer values.
+       - Enforced exact relationship: `value == float(estimated_deduplicated_story_count)`.
+       - Count hierarchy validation:
+         - Zero branch (`raw_article_count == 0`): `distinct_outlet_count == 0`, `estimated_deduplicated_story_count == 0`, `value == 0.0`.
+         - Positive branch (`raw_article_count >= 1`): `1 <= distinct_outlet_count <= raw_article_count`, `1 <= estimated_deduplicated_story_count <= raw_article_count`, `value >= 1.0`.
+       - Null consistency: `value` and all counts are strictly `None` when `value_status` is in `('suppressed', 'missing', 'invalid')`, and strictly non-`None` when `present`.
+       - Timezone-aware UTC period validation (`period_end > period_start`).
+       - Bounded string lengths for `query_config_version` (1-60), `clustering_version` (1-60), `query_key` (1-200), `value_scale` (1-120).
+     - Pure article normalization & deduplication:
+       - `extract_outlet_domain`: Strips `www.`, `m.`, `amp.`, `amp-`, ports, lowercase normalization, fallback domain support.
+       - `normalize_article_url`: Strips tracking parameters (`utm_*`, `fbclid`, etc.), fragments, trailing slashes. Exact URL deduplication.
+       - `parse_media_timestamp`: Supports ISO 8601 UTC and GDELT compact formats (`YYYYMMDDTHHMMSSZ`, `YYYYMMDDHHMMSS`).
+       - `canonicalize_headline_tokens`: NFKC unicode normalization, lowercasing, HTML entity unescaping, wire/publisher suffix stripping (`_PUBLISHER_SUFFIX_RE`), stop words removal, token length >= 2 filtering.
+     - Deterministic 48-Hour Inception-Anchored Clustering:
+       - `cluster_stories`: Sorted deterministically by `(published_at, outlet_domain, normalized_url)`.
+       - Evaluates candidate clusters within 48 hours of cluster inception anchor timestamp (`0 <= t_A - t_anchor <= 48h`).
+       - Computes `jaccard_similarity` with threshold `>= 0.70` (or identical token set).
+       - Deterministic tie-breaker on equal similarity (earliest anchor, lowest cluster UUID).
+       - Prevents infinite chaining/drift by anchoring window strictly to cluster inception timestamp.
+     - Pure high-level pipeline: `normalize_media_attention`.
+  2. `backend/tests/test_d9b_media_attention.py`:
+     - Added 60 comprehensive offline unit tests covering:
+       - Approved status matrix and rejection of invalid status pairs.
+       - Null metric enforcement on non-present states and non-null on present.
+       - NaN, infinity, negative values, and signed negative zero rejection.
+       - Count hierarchy integrity (both zero branch and positive branch violations).
+       - Exact `value == float(stories)` equality.
+       - Outlet domain extraction, prefix stripping, port stripping, and fallback resolution.
+       - Timestamp parsing across formats and naive datetime rejection.
+       - Headline canonicalization and publisher/wire suffix stripping.
+       - 48-hour inception clustering, boundary tests (+47h59m vs +48h01m), and chaining prevention.
+       - High-level pipeline runs on raw dictionaries, exact duplicate handling, and empirical zero.
+       - Version string length bounds and frozen boundary invariants (`DEMAND_SIGNAL_AVAILABLE = False`).
+- **Validation**:
+  - `backend/tests/test_d9b_media_attention.py`: **60/60 passing tests**.
+  - Full backend offline test suite (`pytest tests -k "not db"`): **1256 passed, 0 failures** (532 DB-skipped, 84 deselected).
+  - Python byte compilation (`py_compile`): Clean syntax, 0 errors.
+- **Strict Boundaries Maintained**:
+  - Stage 1 only: No persistence tables or migrations added yet (deferred to Stage 2 per review discipline).
+  - No network requests, zero live GDELT calls.
+  - `DEMAND_SIGNAL_AVAILABLE = False` preserved.
+  - D6/D7 discovery code untouched.
+  - No commit or push.
+
+---
+
+## YOUTUBE DATA API V3 KEY CONFIGURATION (executed 2026-10-13, STATUS: DONE — Backend-only, 2 files modified [1 code, 1 example env], 1 new test file; NO adapters, NO network requests, NO schema/migration changes, NO Discovery changes, no commit/push)
+
+- **Objective**: Add typed, environment-driven configuration for a YouTube Data API v3 key to Fansivibe's backend settings, strictly scoped to configuration only.
+- **Changes**:
+  1. `backend/app/config/settings.py`:
+     - Added optional typed setting `youtube_data_api_key: str | None = Field(default=None, alias="YOUTUBE_DATA_API_KEY", repr=False)` to `Settings`.
+     - Added `@field_validator("youtube_data_api_key", mode="before")` method `_sanitize_youtube_data_api_key` ensuring empty (`""`) and whitespace-only (`"   "`) values are treated as unset (`None`), and surrounding whitespace is stripped.
+     - Protected secret exposure in representations via `repr=False`.
+  2. `backend/.env.example`:
+     - Added `YOUTUBE_DATA_API_KEY=` under `# --- External Integrations [OPTIONAL] ---` with explicit comments stating it is optional and must never contain a committed real key.
+  3. `backend/tests/test_settings.py`:
+     - Added 12 focused unit tests verifying:
+       - Setting defaults to unset (`None`).
+       - Loads properly from `YOUTUBE_DATA_API_KEY` environment variable.
+       - Empty and whitespace-only environment values are treated as unset (`None`).
+       - Leading/trailing whitespace around valid keys is stripped.
+       - Keyword argument instantiation with field name and alias.
+       - `repr()` / `str()` representation omits the secret key value.
+       - Settings caching and `clear_settings_cache()` lifecycle.
+       - Core settings defaults and production security invariants are preserved intact.
+- **Validation**:
+  - `backend/tests/test_settings.py`: 12/12 passing tests.
+  - Settings & hardening regression suites (`test_settings.py`, `test_production_hardening.py`, `test_rate_limit.py`, `test_staging_observability.py`, `test_production_canary.py`, `test_production_soak.py`): 109/109 passing tests.
+- **Strict Boundaries Maintained**:
+  - Strictly configuration-only: no adapters created, no network requests, no D6/D7 logic modified, `DEMAND_SIGNAL_AVAILABLE` untouched, no database migrations, `.env` file untouched, no secrets logged or exposed.
+
+---
+
 ## CRITICAL CAMERA LIFECYCLE FIX: PREVENT CAMERA STAYING ACTIVE IN BACKGROUND & AUTOMATIC RESUME (executed 2026-10-11, STATUS: DONE — Flutter-only, 6 files modified [5 lib, 1 test], 2 new files; NO backend/API/DB/AI/schema changes, NO Discovery changes, no commit/push)
 
 - **Problem & Root Cause**:

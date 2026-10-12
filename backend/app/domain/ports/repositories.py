@@ -7,10 +7,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from typing import TYPE_CHECKING, Any, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Optional, Protocol, Sequence, runtime_checkable
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from app.domain.services.media_attention import (
+        ContributingRecordAssignment,
+        MediaAttentionEvidence,
+        MediaAttentionObservation,
+    )
     from app.domain.services.normalization import NormalizedProduct
     from app.domain.services.product_identity import IdentityDecision
     from app.domain.services.search_interest import SearchInterestObservation
@@ -1064,3 +1069,79 @@ class SearchInterestRepository(Protocol):
         Read-only; ordered by ``(query_key, geo_scope, period_start)``.
         """
         ...
+
+
+@runtime_checkable
+class MediaAttentionRepository(Protocol):
+    """Persistence boundary for media-attention observations (D9B).
+
+    Deliberately separate from ``DiscoveryRepository`` and ``SearchInterestRepository``:
+    a media-attention observation is an aggregated concept-level editorial press signal
+    derived from clustered news articles, not a search query index or product listing.
+    """
+
+    def insert_observation_with_contributing_records(
+        self,
+        *,
+        observation: "MediaAttentionObservation",
+        run_id: Optional[UUID],
+        contributing_records: Sequence["ContributingRecordAssignment"] = (),
+    ) -> tuple[UUID, bool]:
+        """Atomically persist one observation and its contributing records.
+
+        Returns ``(observation_id, created)``.
+        - If an observation with the same natural key already exists, returns
+          ``(existing_id, False)`` without overwriting the existing observation.
+        - Idempotently ensures all provided contributing records are linked
+          (relinking any missing/pruned records) while maintaining atomicity.
+        """
+        ...
+
+    def relink_contributing_records(
+        self,
+        *,
+        observation_id: UUID,
+        contributing_records: Sequence["ContributingRecordAssignment"],
+    ) -> int:
+        """Insert missing join records for an existing observation.
+
+        Returns count of newly linked records. Resets ``provenance_pruned = False``.
+        """
+        ...
+
+    def observations_in_window(
+        self,
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        query_key: Optional[str] = None,
+        geo_scope: Optional[str] = None,
+    ) -> tuple["MediaAttentionEvidence", ...]:
+        """Observations whose period is fully contained in ``[window_start, window_end)``.
+
+        Read-only; ordered by ``(query_key, geo_scope, period_start)``.
+        """
+        ...
+
+    def get_contributing_records(
+        self,
+        *,
+        observation_id: UUID,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple["ContributingRecordAssignment", ...]:
+        """Read drill-down contributing record assignments for an observation."""
+        ...
+
+    def prune_expired_raw_records(
+        self,
+        *,
+        older_than: datetime,
+    ) -> int:
+        """Prune raw source records older than a cutoff date.
+
+        Cascades link removal, marks parent observations as ``provenance_pruned = True``,
+        and returns the number of pruned raw records.
+        """
+        ...
+

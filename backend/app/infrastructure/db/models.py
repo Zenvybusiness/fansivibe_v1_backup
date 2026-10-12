@@ -1085,3 +1085,263 @@ class SearchInterestObservation(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class MediaAttentionObservation(Base):
+    """One append-only concept-level media-attention observation (D9B).
+
+    Represents an aggregated editorial press signal over a geography and period,
+    derived from clustered, deduplicated media articles. Kept in its own table so
+    it can never be confused with ``products``/``product_observations`` or
+    ``search_interest_observations``.
+
+    Semantics:
+    - ``value`` represents the estimated deduplicated story count and is present
+      only when ``value_status = 'present'`` and ``completeness_status = 'complete'``.
+      Missing, suppressed, or invalid stay NULL (never 0).
+    - Status matrix is strictly closed: exactly 4 valid pairs:
+      ('present', 'complete'), ('suppressed', 'truncated'),
+      ('missing', 'unavailable'), ('invalid', 'unavailable').
+    - Count hierarchy:
+      - empirical zero: raw_article_count = 0 => outlets = 0, stories = 0, value = 0.0.
+      - positive branch: raw_article_count >= 1 => 1 <= outlets <= raw, 1 <= stories <= raw, value == float(stories) >= 1.0.
+    - PostgreSQL numeric checks: value <> NaN, value <> Infinity, value <> -Infinity.
+    - ``period_start``/``period_end`` bound the observation period (aware UTC).
+    - Natural key includes ``query_config_version`` and ``clustering_version``
+      to guarantee coexistence of different configurations and clustering algorithms
+      without overwriting historical observations.
+    - Idempotent repeated collection preserves the original observation.
+    """
+
+    __tablename__ = "media_attention_observations"
+    __table_args__ = (
+        CheckConstraint(
+            "metric = 'media_attention'",
+            name="ck_media_attention_observations_metric",
+        ),
+        CheckConstraint(
+            "query_kind IN ('concept', 'search_term', 'topic')",
+            name="ck_media_attention_observations_query_kind",
+        ),
+        CheckConstraint(
+            "geo_scope_type IN ('country', 'region', 'worldwide')",
+            name="ck_media_attention_observations_geo_type",
+        ),
+        CheckConstraint(
+            "aggregation_interval IN ('daily', 'weekly', 'monthly', 'rolling_7d')",
+            name="ck_media_attention_observations_interval",
+        ),
+        CheckConstraint(
+            "value_status IS NOT NULL AND completeness_status IS NOT NULL AND ("
+            "  (value_status = 'present' AND completeness_status = 'complete') OR "
+            "  (value_status = 'suppressed' AND completeness_status = 'truncated') OR "
+            "  (value_status = 'missing' AND completeness_status = 'unavailable') OR "
+            "  (value_status = 'invalid' AND completeness_status = 'unavailable')"
+            ")",
+            name="ck_media_attention_observations_status_matrix",
+        ),
+        CheckConstraint(
+            "CASE "
+            "  WHEN value_status = 'present' THEN ("
+            "    value IS NOT NULL "
+            "    AND value <> 'NaN'::numeric "
+            "    AND value <> 'Infinity'::numeric "
+            "    AND value <> '-Infinity'::numeric "
+            "    AND raw_article_count IS NOT NULL "
+            "    AND distinct_outlet_count IS NOT NULL "
+            "    AND estimated_deduplicated_story_count IS NOT NULL "
+            "    AND value = estimated_deduplicated_story_count "
+            "    AND ("
+            "      (raw_article_count = 0 "
+            "       AND distinct_outlet_count = 0 "
+            "       AND estimated_deduplicated_story_count = 0 "
+            "       AND value = 0.0) "
+            "      OR "
+            "      (raw_article_count >= 1 "
+            "       AND distinct_outlet_count >= 1 "
+            "       AND distinct_outlet_count <= raw_article_count "
+            "       AND estimated_deduplicated_story_count >= 1 "
+            "       AND estimated_deduplicated_story_count <= raw_article_count "
+            "       AND value >= 1.0) "
+            "    )"
+            "  ) "
+            "  WHEN value_status IN ('suppressed', 'missing', 'invalid') THEN ("
+            "    value IS NULL "
+            "    AND raw_article_count IS NULL "
+            "    AND distinct_outlet_count IS NULL "
+            "    AND estimated_deduplicated_story_count IS NULL"
+            "  ) "
+            "  ELSE FALSE "
+            "END",
+            name="ck_media_attention_observations_value_counts_integrity",
+        ),
+        CheckConstraint(
+            "period_end > period_start",
+            name="ck_media_attention_observations_period_order",
+        ),
+        CheckConstraint(
+            "char_length(query_key) BETWEEN 1 AND 200",
+            name="ck_media_attention_observations_query_key_len",
+        ),
+        CheckConstraint(
+            "char_length(query_display) BETWEEN 1 AND 300",
+            name="ck_media_attention_observations_query_display_len",
+        ),
+        CheckConstraint(
+            "char_length(value_scale) BETWEEN 1 AND 120",
+            name="ck_media_attention_observations_value_scale_len",
+        ),
+        CheckConstraint(
+            "char_length(query_config_version) BETWEEN 1 AND 60",
+            name="ck_media_attention_observations_query_config_ver_len",
+        ),
+        CheckConstraint(
+            "char_length(clustering_version) BETWEEN 1 AND 60",
+            name="ck_media_attention_observations_clustering_ver_len",
+        ),
+        UniqueConstraint(
+            "source",
+            "metric",
+            "query_kind",
+            "query_key",
+            "geo_scope",
+            "aggregation_interval",
+            "period_start",
+            "period_end",
+            "query_config_version",
+            "clustering_version",
+            name="uq_media_attention_observations_natural_key",
+        ),
+        Index(
+            "ix_media_attention_observations_query_geo_period",
+            "query_key",
+            "geo_scope",
+            "period_start",
+        ),
+        Index(
+            "ix_media_attention_observations_source_observed_at",
+            "source",
+            "observed_at",
+        ),
+        Index(
+            "ix_media_attention_observations_run_id",
+            "collection_run_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    collection_run_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("collection_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    metric: Mapped[str] = mapped_column(Text, nullable=False)
+    query_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    query_key: Mapped[str] = mapped_column(Text, nullable=False)
+    query_display: Mapped[str] = mapped_column(Text, nullable=False)
+    geo_scope: Mapped[str] = mapped_column(Text, nullable=False)
+    geo_scope_type: Mapped[str] = mapped_column(Text, nullable=False)
+    aggregation_interval: Mapped[str] = mapped_column(Text, nullable=False)
+    period_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    period_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    value: Mapped[Optional[float]] = mapped_column(Numeric(18, 6), nullable=True)
+    value_scale: Mapped[str] = mapped_column(Text, nullable=False)
+    value_status: Mapped[str] = mapped_column(Text, nullable=False)
+    completeness_status: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_article_count: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    distinct_outlet_count: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    estimated_deduplicated_story_count: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    query_config_version: Mapped[str] = mapped_column(Text, nullable=False)
+    clustering_version: Mapped[str] = mapped_column(Text, nullable=False)
+    contributing_raw_record_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    provenance_pruned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    is_relative: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    source_timestamp: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    synthetic: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class MediaAttentionContributingRecord(Base):
+    """Linkage between a media-attention observation and a raw source record (D9B).
+
+    Provides durable, bidirectionally indexable provenance from an aggregated story
+    observation back to each contributing raw article payload.
+    - Foreign key to ``media_attention_observations.id`` uses ON DELETE CASCADE.
+    - Foreign key to ``raw_source_records.id`` uses ON DELETE CASCADE.
+    - Deleting raw records during retention pruning (e.g. 180-day hot storage cleanup)
+      safely cascades and removes the join row, leaving the parent observation intact.
+    """
+
+    __tablename__ = "media_attention_contributing_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "observation_id",
+            "raw_source_record_id",
+            name="uq_media_attention_contrib_obs_raw",
+        ),
+        Index(
+            "ix_media_attention_contrib_raw_id",
+            "raw_source_record_id",
+        ),
+        Index(
+            "ix_media_attention_contrib_cluster_id",
+            "similarity_cluster_id",
+        ),
+        CheckConstraint(
+            "char_length(outlet_domain) BETWEEN 1 AND 255",
+            name="ck_media_attention_contrib_outlet_domain_len",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    observation_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("media_attention_observations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    raw_source_record_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("raw_source_records.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    similarity_cluster_id: Mapped[UUID] = mapped_column(
+        Uuid, nullable=False
+    )
+    is_canonical: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    outlet_domain: Mapped[str] = mapped_column(
+        Text, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+

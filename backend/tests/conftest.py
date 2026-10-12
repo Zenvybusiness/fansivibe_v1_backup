@@ -49,7 +49,8 @@ from app.config.settings import _DEFAULT_DATABASE_URL
 from app.infrastructure.db.session import DATABASE_URL
 
 _TRUNCATE = (
-    "TRUNCATE search_interest_observations, product_observations, "
+    "TRUNCATE media_attention_contributing_records, media_attention_observations, "
+    "search_interest_observations, product_observations, "
     "product_source_map, raw_source_records, "
     "products, collection_runs, learning_signals, activity_days, saved_looks, "
     "analysis_runs, feedback_events, user_events, wardrobe_wear_events, "

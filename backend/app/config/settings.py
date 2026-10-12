@@ -137,6 +137,11 @@ class Settings(BaseSettings):
         default="INFO", alias="FANSIVIBE_LOG_LEVEL"
     )
 
+    # YouTube Data API v3 configuration (optional, secret key)
+    youtube_data_api_key: str | None = Field(
+        default=None, alias="YOUTUBE_DATA_API_KEY", repr=False
+    )
+
     # CORS configuration (P2-9): explicit origins list, never wildcard in prod.
     cors_origins: list[str] = Field(
         default_factory=list, alias="FANSIVIBE_CORS_ORIGINS"
@@ -227,6 +232,16 @@ class Settings(BaseSettings):
         if isinstance(v, (list, tuple, set)):
             return [str(item).strip() for item in v if str(item).strip()]
         return []
+
+    @field_validator("youtube_data_api_key", mode="before")
+    @classmethod
+    def _sanitize_youtube_data_api_key(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            val = v.strip()
+            return val if val else None
+        return v
 
     @model_validator(mode="before")
     @classmethod

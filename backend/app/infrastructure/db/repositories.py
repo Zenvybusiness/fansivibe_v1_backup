@@ -22,6 +22,7 @@ from app.domain.ports.repositories import (
     AuthAccountRecord,
     AuthSessionRecord,
     FeedbackEventRecord,
+    MediaAttentionRepository,
     SavedLookCoverage,
     SavedLookRecord,
     SearchInterestEvidence,
@@ -33,6 +34,11 @@ from app.domain.ports.repositories import (
     WearEventRecord,
     WearGroupRecord,
     WearSummary,
+)
+from app.domain.services.media_attention import (
+    ContributingRecordAssignment,
+    MediaAttentionEvidence,
+    MediaAttentionObservation,
 )
 from app.domain.services.normalization import NormalizedProduct
 from app.domain.services.product_identity import (
@@ -52,6 +58,8 @@ from app.infrastructure.db.models import (
     FeedbackEvents,
     LearningSignals,
     Looks,
+    MediaAttentionContributingRecord as MediaAttentionContributingRecordModel,
+    MediaAttentionObservation as MediaAttentionObservationModel,
     Product,
     ProductObservation,
     ProductSourceMap,
@@ -1940,3 +1948,309 @@ class SearchInterestRepositorySQL:
             )
             for row in rows
         )
+
+
+class MediaAttentionRepositorySQL:
+    """SQL adapter for concept-level media-attention observations (D9B).
+
+    Deliberately separate from the product and search-interest paths.
+    Enforces atomic persistence between observations and contributing records,
+    natural-key idempotency with version coexistence, savepoint rollback handling,
+    provenance cascade awareness, and safe relinking.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def insert_observation_with_contributing_records(
+        self,
+        *,
+        observation: MediaAttentionObservation,
+        run_id: Optional[UUID],
+        contributing_records: Sequence[ContributingRecordAssignment] = (),
+    ) -> tuple[UUID, bool]:
+        """Atomically persist one observation and its contributing records.
+
+        Returns (observation_id, created). If a natural-key collision occurs,
+        the nested savepoint rolls back cleanly without leaving orphan or partial
+        rows, leaves the existing observation untouched, optionally relinks any
+        unlinked contributing records, and returns (existing_id, False).
+        """
+        obs_row = MediaAttentionObservationModel(
+            collection_run_id=run_id,
+            source=observation.source,
+            metric=observation.metric,
+            query_kind=observation.query_kind,
+            query_key=observation.query_key,
+            query_display=observation.query_display,
+            geo_scope=observation.geo_scope,
+            geo_scope_type=observation.geo_scope_type,
+            aggregation_interval=observation.aggregation_interval,
+            period_start=observation.period_start,
+            period_end=observation.period_end,
+            value=observation.value,
+            value_scale=observation.value_scale,
+            value_status=observation.value_status,
+            completeness_status=observation.completeness_status,
+            raw_article_count=observation.raw_article_count,
+            distinct_outlet_count=observation.distinct_outlet_count,
+            estimated_deduplicated_story_count=observation.estimated_deduplicated_story_count,
+            query_config_version=observation.query_config_version,
+            clustering_version=observation.clustering_version,
+            contributing_raw_record_count=len(contributing_records),
+            provenance_pruned=False,
+            source_timestamp=observation.source_timestamp,
+            is_relative=observation.is_relative,
+            synthetic=observation.synthetic,
+        )
+
+        try:
+            with self._session.begin_nested():
+                self._session.add(obs_row)
+                self._session.flush()
+
+                for cr in contributing_records:
+                    contrib_row = MediaAttentionContributingRecordModel(
+                        observation_id=obs_row.id,
+                        raw_source_record_id=cr.raw_source_record_id,
+                        similarity_cluster_id=cr.similarity_cluster_id,
+                        is_canonical=cr.is_canonical,
+                        outlet_domain=cr.outlet_domain,
+                    )
+                    self._session.add(contrib_row)
+                self._session.flush()
+
+            self._session.commit()
+            return obs_row.id, True
+
+        except IntegrityError:
+            # Savepoint was rolled back automatically by the context manager.
+            # Query existing observation by natural key:
+            existing_id = self._session.execute(
+                select(MediaAttentionObservationModel.id).where(
+                    MediaAttentionObservationModel.source == observation.source,
+                    MediaAttentionObservationModel.metric == observation.metric,
+                    MediaAttentionObservationModel.query_kind == observation.query_kind,
+                    MediaAttentionObservationModel.query_key == observation.query_key,
+                    MediaAttentionObservationModel.geo_scope == observation.geo_scope,
+                    MediaAttentionObservationModel.aggregation_interval
+                    == observation.aggregation_interval,
+                    MediaAttentionObservationModel.period_start == observation.period_start,
+                    MediaAttentionObservationModel.period_end == observation.period_end,
+                    MediaAttentionObservationModel.query_config_version
+                    == observation.query_config_version,
+                    MediaAttentionObservationModel.clustering_version
+                    == observation.clustering_version,
+                )
+            ).scalar_one_or_none()
+
+            if existing_id is None:
+                self._session.rollback()
+                raise
+
+            # Existing observation found; preserve it without modifying values.
+            # If contributing records are provided, relink any unlinked ones.
+            if contributing_records:
+                self.relink_contributing_records(
+                    observation_id=existing_id,
+                    contributing_records=contributing_records,
+                )
+            else:
+                self._session.commit()
+
+            return existing_id, False
+
+    def relink_contributing_records(
+        self,
+        *,
+        observation_id: UUID,
+        contributing_records: Sequence[ContributingRecordAssignment],
+    ) -> int:
+        """Insert missing join records for an existing observation.
+
+        Returns count of newly linked records. Resets ``provenance_pruned = False``.
+        """
+        if not contributing_records:
+            return 0
+
+        new_links = 0
+        with self._session.begin_nested():
+            existing_raw_ids = set(
+                self._session.execute(
+                    select(
+                        MediaAttentionContributingRecordModel.raw_source_record_id
+                    ).where(
+                        MediaAttentionContributingRecordModel.observation_id
+                        == observation_id
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+            for cr in contributing_records:
+                if cr.raw_source_record_id not in existing_raw_ids:
+                    contrib_row = MediaAttentionContributingRecordModel(
+                        observation_id=observation_id,
+                        raw_source_record_id=cr.raw_source_record_id,
+                        similarity_cluster_id=cr.similarity_cluster_id,
+                        is_canonical=cr.is_canonical,
+                        outlet_domain=cr.outlet_domain,
+                    )
+                    self._session.add(contrib_row)
+                    existing_raw_ids.add(cr.raw_source_record_id)
+                    new_links += 1
+
+            self._session.flush()
+
+            if new_links > 0:
+                obs = self._session.get(MediaAttentionObservationModel, observation_id)
+                if obs is not None:
+                    obs.contributing_raw_record_count = len(existing_raw_ids)
+                    obs.provenance_pruned = False
+                    self._session.flush()
+
+        self._session.commit()
+        return new_links
+
+    def observations_in_window(
+        self,
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        query_key: Optional[str] = None,
+        geo_scope: Optional[str] = None,
+    ) -> tuple[MediaAttentionEvidence, ...]:
+        """Observations whose period is fully contained in ``[window_start, window_end)``.
+
+        Read-only; ordered by ``(query_key, geo_scope, period_start)``.
+        """
+        stmt = select(MediaAttentionObservationModel).where(
+            MediaAttentionObservationModel.period_start >= window_start,
+            MediaAttentionObservationModel.period_end <= window_end,
+        )
+        if query_key is not None:
+            stmt = stmt.where(MediaAttentionObservationModel.query_key == query_key)
+        if geo_scope is not None:
+            stmt = stmt.where(MediaAttentionObservationModel.geo_scope == geo_scope)
+
+        stmt = stmt.order_by(
+            MediaAttentionObservationModel.query_key,
+            MediaAttentionObservationModel.geo_scope,
+            MediaAttentionObservationModel.period_start,
+        )
+
+        rows = self._session.execute(stmt).scalars().all()
+        return tuple(
+            MediaAttentionEvidence(
+                observation_id=row.id,
+                source=row.source,
+                metric=row.metric,
+                query_kind=row.query_kind,
+                query_key=row.query_key,
+                query_display=row.query_display,
+                geo_scope=row.geo_scope,
+                geo_scope_type=row.geo_scope_type,
+                aggregation_interval=row.aggregation_interval,
+                period_start=row.period_start,
+                period_end=row.period_end,
+                value=float(row.value) if row.value is not None else None,
+                value_scale=row.value_scale,
+                value_status=row.value_status,
+                completeness_status=row.completeness_status,
+                raw_article_count=row.raw_article_count,
+                distinct_outlet_count=row.distinct_outlet_count,
+                estimated_deduplicated_story_count=row.estimated_deduplicated_story_count,
+                query_config_version=row.query_config_version,
+                clustering_version=row.clustering_version,
+                contributing_raw_record_count=row.contributing_raw_record_count,
+                provenance_pruned=bool(row.provenance_pruned),
+                observed_at=row.observed_at,
+                source_timestamp=row.source_timestamp,
+                synthetic=bool(row.synthetic),
+            )
+            for row in rows
+        )
+
+    def get_contributing_records(
+        self,
+        *,
+        observation_id: UUID,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[ContributingRecordAssignment, ...]:
+        """Read drill-down contributing record assignments for an observation."""
+        stmt = (
+            select(MediaAttentionContributingRecordModel)
+            .where(
+                MediaAttentionContributingRecordModel.observation_id == observation_id
+            )
+            .order_by(
+                MediaAttentionContributingRecordModel.is_canonical.desc(),
+                MediaAttentionContributingRecordModel.outlet_domain,
+                MediaAttentionContributingRecordModel.raw_source_record_id,
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = self._session.execute(stmt).scalars().all()
+        return tuple(
+            ContributingRecordAssignment(
+                raw_source_record_id=row.raw_source_record_id,
+                similarity_cluster_id=row.similarity_cluster_id,
+                is_canonical=row.is_canonical,
+                outlet_domain=row.outlet_domain,
+            )
+            for row in rows
+        )
+
+    def prune_expired_raw_records(
+        self,
+        *,
+        older_than: datetime,
+    ) -> int:
+        """Prune raw source records older than a cutoff date.
+
+        Cascades link removal, marks parent observations as ``provenance_pruned = True``,
+        and returns the number of pruned raw records.
+        """
+        # 1. Identify observation IDs linked to raw records about to be deleted
+        subq = (
+            select(MediaAttentionContributingRecordModel.observation_id)
+            .join(
+                RawSourceRecord,
+                MediaAttentionContributingRecordModel.raw_source_record_id
+                == RawSourceRecord.id,
+            )
+            .where(RawSourceRecord.created_at < older_than)
+            .distinct()
+        )
+        affected_obs_ids = set(self._session.execute(subq).scalars().all())
+
+        # 2. Delete the raw records
+        raw_ids_to_del = list(
+            self._session.execute(
+                select(RawSourceRecord.id).where(RawSourceRecord.created_at < older_than)
+            )
+            .scalars()
+            .all()
+        )
+        if not raw_ids_to_del:
+            return 0
+
+        for raw_id in raw_ids_to_del:
+            raw_rec = self._session.get(RawSourceRecord, raw_id)
+            if raw_rec is not None:
+                self._session.delete(raw_rec)
+
+        self._session.flush()
+
+        # 3. Mark affected observations as provenance_pruned
+        for obs_id in affected_obs_ids:
+            obs = self._session.get(MediaAttentionObservationModel, obs_id)
+            if obs is not None:
+                obs.provenance_pruned = True
+
+        self._session.commit()
+        return len(raw_ids_to_del)
+
