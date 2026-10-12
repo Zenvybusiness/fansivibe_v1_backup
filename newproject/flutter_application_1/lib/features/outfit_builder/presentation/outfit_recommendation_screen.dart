@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_client.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_models.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_repository.dart';
@@ -400,6 +402,25 @@ class _OutfitRecommendationScreenState
           label: _regenerating ? 'Regenerating…' : 'Regenerate',
           icon: Icons.refresh_rounded,
           onPressed: busy ? null : _handleRegenerate,
+        ),
+        const SizedBox(height: 12),
+        // Stage F0 mock try-on preview (Path B): component UUIDs travel
+        // as labels only — test data, never genuine AI output.
+        FansiButton.secondary(
+          label: 'Try On (Test Preview)',
+          icon: Icons.visibility_outlined,
+          onPressed: busy
+              ? null
+              : () => context.pushNamed(
+                  RouteNames.tryOn,
+                  extra: {
+                    'outfitSource': 'outfit',
+                    'garmentIds': [
+                      for (final c in _rec.components) c.id,
+                    ],
+                    'title': _rec.title,
+                  },
+                ),
         ),
       ],
     );

@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -324,6 +323,94 @@ void main() {
       expect(find.byType(Image), findsWidgets);
       expect(find.text('What is this?'), findsOneWidget);
       expect(find.textContaining('oxford shirt'), findsWidgets);
+      service.dispose();
+    });
+
+    testWidgets('camera selection reaches the picker as ImageSource.camera',
+        (tester) async {
+      ImageSource? seen;
+      Future<XFile?> pick(ImageSource source) async {
+        seen = source;
+        return XFile.fromData(
+          kPngBytes,
+          name: 'photo.jpg',
+          mimeType: 'image/jpeg',
+        );
+      }
+
+      final service = _service(_FakeImageClient());
+      await tester.pumpWidget(app(service, pick));
+      await tester.tap(find.byKey(const Key('assistant_attach_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('assistant_pick_camera')));
+      await tester.pumpAndSettle();
+      expect(seen, ImageSource.camera);
+      expect(
+        find.byKey(const Key('assistant_attachment_preview')),
+        findsOneWidget,
+      );
+      service.dispose();
+    });
+
+    testWidgets('gallery selection reaches the picker as ImageSource.gallery',
+        (tester) async {
+      ImageSource? seen;
+      Future<XFile?> pick(ImageSource source) async {
+        seen = source;
+        return XFile.fromData(
+          kPngBytes,
+          name: 'photo.jpg',
+          mimeType: 'image/jpeg',
+        );
+      }
+
+      final service = _service(_FakeImageClient());
+      await tester.pumpWidget(app(service, pick));
+      await tester.tap(find.byKey(const Key('assistant_attach_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('assistant_pick_gallery')));
+      await tester.pumpAndSettle();
+      expect(seen, ImageSource.gallery);
+      expect(
+        find.byKey(const Key('assistant_attachment_preview')),
+        findsOneWidget,
+      );
+      service.dispose();
+    });
+
+    testWidgets('camera cancel keeps unsent text', (tester) async {
+      final service = _service(_FakeImageClient());
+      await tester.pumpWidget(app(service, pickCancel));
+      await tester.enterText(find.byType(TextField), 'keep me');
+      await tester.tap(find.byKey(const Key('assistant_attach_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('assistant_pick_camera')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('assistant_attachment_preview')),
+        findsNothing,
+      );
+      expect(find.text('keep me'), findsOneWidget);
+      service.dispose();
+    });
+
+    testWidgets('camera failure shows honest error, keeps text, stages nothing',
+        (tester) async {
+      Future<XFile?> pickDenied(ImageSource source) async =>
+          throw PlatformException(code: 'camera_access_denied');
+      final service = _service(_FakeImageClient());
+      await tester.pumpWidget(app(service, pickDenied));
+      await tester.enterText(find.byType(TextField), 'keep me');
+      await tester.tap(find.byKey(const Key('assistant_attach_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('assistant_pick_camera')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining("Couldn't open the camera"), findsOneWidget);
+      expect(
+        find.byKey(const Key('assistant_attachment_preview')),
+        findsNothing,
+      );
+      expect(find.text('keep me'), findsOneWidget);
       service.dispose();
     });
   });

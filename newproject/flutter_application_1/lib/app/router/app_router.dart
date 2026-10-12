@@ -39,6 +39,7 @@ import 'package:fansivibe/features/hairstyle/presentation/hairstyle_details_scre
 import 'package:fansivibe/features/hairstyle/presentation/hairstyle_result_screen.dart';
 import 'package:fansivibe/features/home/presentation/daily_outfit_screen.dart';
 import 'package:fansivibe/features/home/presentation/home_screen.dart';
+import 'package:fansivibe/features/try_on/presentation/try_on_screen.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/build_outfit_screen.dart';
 import 'package:fansivibe/features/outfit_builder/outfit_builder.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/outfit_generation_screen.dart';
@@ -183,6 +184,23 @@ final List<RouteBase> appRoutes = [
                 path: 'daily-outfit',
                 name: RouteNames.dailyOutfit,
                 builder: (context, state) => const DailyOutfitScreen(),
+              ),
+              GoRoute(
+                // Stage F0 mock try-on: one shared route for both outfit
+                // paths (Today's Look + user outfits). Test data only.
+                path: 'try-on',
+                name: RouteNames.tryOn,
+                builder: (context, state) {
+                  final extra = state.extra as Map<String, dynamic>?;
+                  final rawIds = extra?['garmentIds'];
+                  return TryOnScreen(
+                    outfitSource: extra?['outfitSource'] as String? ?? 'today',
+                    garmentIds: rawIds is List
+                        ? rawIds.whereType<String>().toList()
+                        : const <String>[],
+                    title: extra?['title'] as String? ?? 'Try-On Preview',
+                  );
+                },
               ),
             ],
           ),

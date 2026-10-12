@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -113,33 +112,67 @@ class _AssistantScreenState extends State<AssistantScreen> {
   /// existing [ImagePicker] architecture — no new dependency).
   ///
   /// Cancelling (sheet dismiss, picker cancel, validation failure) keeps
-  /// the unsent text untouched. Disabled while a message is sending.
+  /// the unsent text untouched. A picker/platform failure (camera denied,
+  /// no camera, unreadable file) shows an honest error instead of crashing
+  /// or silently falling back to the other source. Disabled while a
+  /// message is sending.
   Future<void> _attachImage() async {
     if (_service.isSending) return;
     final source = await _chooseImageSource();
     if (source == null || !mounted) return;
-    final picked = await (widget.pickImage ?? _defaultPickImage)(source);
+    XFile? picked;
+    try {
+      picked = await (widget.pickImage ?? _defaultPickImage)(source);
+    } on PlatformException {
+      // Permission denied, no camera, or the OS picker failed: stay on
+      // the composer with the text intact and say so truthfully.
+      if (!mounted) return;
+      _showAttachError(
+        source == ImageSource.camera
+            ? "Couldn't open the camera — check camera permission, or choose from gallery instead."
+            : "Couldn't open the gallery — try again.",
+      );
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      _showAttachError(
+        source == ImageSource.camera
+            ? "Couldn't open the camera — try again."
+            : "Couldn't open the gallery — try again.",
+      );
+      return;
+    }
     if (picked == null || !mounted) return;
-    final bytes = await picked.readAsBytes();
+    Uint8List bytes;
+    try {
+      bytes = await picked.readAsBytes();
+    } catch (_) {
+      if (!mounted) return;
+      _showAttachError("That photo couldn't be read — try again.");
+      return;
+    }
     final error = _validateAttachment(picked, bytes);
     if (error != null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error),
-          backgroundColor: FansivibeColors.surfaceContainerHighest,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: FansivibeRadius.smdBorder,
-          ),
-        ),
-      );
+      _showAttachError(error);
       return;
     }
     setState(() {
       _attachedImageBytes = bytes;
-      _attachedName = _fileNameFor(picked);
+      _attachedName = _fileNameFor(picked!);
     });
+  }
+
+  /// Honest one-line picker/validation error; never touches unsent text.
+  void _showAttachError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: FansivibeColors.surfaceContainerHighest,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
+      ),
+    );
   }
 
   /// Multipart filename: the picker name when present, else derived from

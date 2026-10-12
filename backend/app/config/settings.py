@@ -119,6 +119,20 @@ class Settings(BaseSettings):
     disable_reasoning: bool = Field(
         default=False, alias="FANSIVIBE_DISABLE_REASONING"
     )
+    # Stage F0 mock virtual try-on: provider interface with safe defaults.
+    # Only `mock` (deterministic $0 SVG) and `off` exist — no paid
+    # provider code path, so a paid model cannot be silently enabled.
+    # `tryon_enabled=false` (or provider `off`) fails closed with 503.
+    tryon_enabled: bool = Field(
+        default=True, alias="FANSIVIBE_TRYON_ENABLED"
+    )
+    tryon_provider: str = Field(default="mock", alias="FANSIVIBE_TRYON_PROVIDER")
+    tryon_consent_version: str = Field(
+        default="tryon-v1", alias="FANSIVIBE_TRYON_CONSENT_VERSION"
+    )
+    tryon_daily_quota_per_user: int = Field(
+        default=20, alias="FANSIVIBE_TRYON_DAILY_QUOTA"
+    )
     log_level: str = Field(
         default="INFO", alias="FANSIVIBE_LOG_LEVEL"
     )
@@ -238,6 +252,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_invariants(self) -> typing.Self:
+        if self.tryon_provider not in ("mock", "off"):
+            raise ValueError(
+                "FANSIVIBE_TRYON_PROVIDER must be 'mock' or 'off'."
+            )
+        if self.tryon_daily_quota_per_user < 1:
+            raise ValueError(
+                "FANSIVIBE_TRYON_DAILY_QUOTA must be at least 1."
+            )
         if self.rate_limit_auth_per_minute < 1:
             raise ValueError(
                 "FANSIVIBE_RATE_LIMIT_AUTH_PER_MINUTE must be at least 1."

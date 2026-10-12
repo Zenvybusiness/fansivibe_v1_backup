@@ -38,6 +38,7 @@ from app.api.routers import (
     reasoning,
     trend_analysis,
     trending,
+    tryon,
     users,
     wardrobe,
 )
@@ -160,6 +161,7 @@ app.include_router(outfits.router)
 app.include_router(reasoning.router)
 app.include_router(trend_analysis.router)
 app.include_router(trending.router)
+app.include_router(tryon.router)
 app.include_router(users.router)
 app.include_router(wardrobe.router)
 

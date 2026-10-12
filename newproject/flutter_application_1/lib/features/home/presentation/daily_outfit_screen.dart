@@ -1,5 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/home/data/today_look_client.dart';
 import 'package:fansivibe/features/home/data/today_look_models.dart';
 import 'package:fansivibe/features/home/data/today_look_repository.dart';
@@ -235,6 +237,29 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     } else {
       _showSnackBar('Couldn\'t save this look. Please try again.');
     }
+  }
+
+  /// Opens the Stage F0 mock try-on preview for this look (Path A).
+  ///
+  /// Guest-gated like the other account actions. The look's backend
+  /// UUIDs travel as labels only — the mock renders test data, never
+  /// genuine AI output.
+  void _handleTryOn(TodayLook look) {
+    if (_guestBlocked) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to preview try-ons. Browsing stays free.',
+      );
+      return;
+    }
+    context.pushNamed(
+      RouteNames.tryOn,
+      extra: {
+        'outfitSource': 'today',
+        'garmentIds': look.selectedItemIds,
+        'title': look.title,
+      },
+    );
   }
 
   void _showSnackBar(String message) {
@@ -1226,6 +1251,12 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
               ? Icons.bookmark_rounded
               : Icons.bookmark_outline_rounded,
           onPressed: busy || _saved ? null : _handleSaveOutfit,
+        ),
+        SizedBox(height: FansivibeSpacing.sm + 4),
+        FansiButton.secondary(
+          label: 'Try On (Test Preview)',
+          icon: Icons.visibility_outlined,
+          onPressed: busy ? null : () => _handleTryOn(look),
         ),
         SizedBox(height: FansivibeSpacing.sm + 4),
         SizedBox(
