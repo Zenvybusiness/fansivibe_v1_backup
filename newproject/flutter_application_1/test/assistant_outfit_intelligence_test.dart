@@ -399,8 +399,10 @@ void main() {
       ),
     );
 
-    FilledButton saveButton(WidgetTester tester) =>
-        tester.widget<FilledButton>(find.byType(FilledButton));
+    ButtonStyleButton saveButton(WidgetTester tester) =>
+        tester.widget<ButtonStyleButton>(
+          find.byWidgetPredicate((w) => w is ButtonStyleButton),
+        );
 
     testWidgets('save action is available with an onSave callback', (
       tester,

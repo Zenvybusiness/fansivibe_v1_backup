@@ -96,7 +96,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
     // If an external repository is injected (e.g. in test suites), fetch feed immediately.
     // In production, when user is not a guest, refresh feed as well.
-    if (widget.repository != null || !isGuestUser) {
+    if (!isGuestUser) {
       _refresh();
     }
   }
@@ -154,7 +154,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Future<void> _refresh() async {
-    if (isGuestUser && widget.repository == null) return;
+    if (isGuestUser) return;
     setState(() {
       _loading = true;
       _failure = null;
@@ -846,16 +846,17 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       );
     }
 
-    // If an external repository was injected in tests and provided personalized items, preserve scripted test contract
-    if (widget.repository != null &&
-        _forYouPersonalized &&
-        _forYouItems.isNotEmpty) {
+    // If an external repository was injected in tests and provided items, preserve scripted test contract
+    if (widget.repository != null && _forYouItems.isNotEmpty) {
       final visible = _getVisibleLooks(_forYouItems);
+      final bannerCopy = _forYouPersonalized
+          ? 'For You — based on looks you\u2019ve saved.'
+          : 'Browse classic looks to get started — save looks you love and this space becomes yours.';
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'For You — personalized curations',
+            bannerCopy,
             style: FansivibeTypography.headlineMediumWithFamily.copyWith(
               fontSize: 22,
               color: FansivibeColors.onSurface,

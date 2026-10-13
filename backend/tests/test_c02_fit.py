@@ -89,7 +89,7 @@ def test_0023_revision_chain_and_static_contract():
     script = ScriptDirectory.from_config(config)
     # C-10 extended the head: 0025 (analysis_runs idempotency) on top of 0024.
     # D2 extended it: 0026 (discovery foundation); D5 added 0027 (observations);
-    assert tuple(script.get_heads()) in (("0028",), ("0029",))
+    assert tuple(script.get_heads()) == ("0029",)
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None

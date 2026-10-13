@@ -246,9 +246,12 @@ void main() {
     ) async {
       await tester.pumpWidget(MaterialApp(home: const BuildOutfitScreen()));
 
-      final buildButton = find.widgetWithText(FilledButton, 'Build Outfit');
+      final buildButton = find.ancestor(
+        of: find.text('Build Outfit'),
+        matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+      );
       expect(buildButton, findsOneWidget);
-      expect(tester.widget<FilledButton>(buildButton).onPressed, isNull);
+      expect(tester.widget<ButtonStyleButton>(buildButton).onPressed, isNull);
     });
 
     testWidgets('build button enables after all selections', (
@@ -271,9 +274,12 @@ void main() {
       await tester.tap(find.text('Warm'));
       await tester.pump();
 
-      final buildButton = find.widgetWithText(FilledButton, 'Build Outfit');
+      final buildButton = find.ancestor(
+        of: find.text('Build Outfit'),
+        matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+      );
       expect(buildButton, findsOneWidget);
-      expect(tester.widget<FilledButton>(buildButton).onPressed, isNotNull);
+      expect(tester.widget<ButtonStyleButton>(buildButton).onPressed, isNotNull);
     });
 
     testWidgets('selecting an option shows check icon', (
@@ -320,7 +326,10 @@ void main() {
       await tester.tap(find.text('Warm'));
       await tester.pump();
 
-      final buildButton = find.widgetWithText(FilledButton, 'Build Outfit');
+      final buildButton = find.ancestor(
+        of: find.text('Build Outfit'),
+        matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+      );
       await tester.scrollUntilVisible(buildButton, 200);
       await tester.tap(buildButton);
       await tester.pump();
@@ -371,7 +380,10 @@ void main() {
       await tester.pumpAndSettle();
 
       await selectAllPrefs(tester);
-      final buildButton = find.widgetWithText(FilledButton, 'Build Outfit');
+      final buildButton = find.ancestor(
+        of: find.text('Build Outfit'),
+        matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+      );
       await tester.scrollUntilVisible(buildButton, 200);
       await tester.tap(buildButton);
       await tester.pumpAndSettle();

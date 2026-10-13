@@ -447,7 +447,7 @@ def test_migration_head_is_0028():
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
     # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
-    assert tuple(script.get_heads()) in (("0028",), ("0029",))
+    assert tuple(script.get_heads()) == ("0029",)
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None

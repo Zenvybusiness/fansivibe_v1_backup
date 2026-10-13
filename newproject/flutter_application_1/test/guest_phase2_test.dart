@@ -326,9 +326,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Discover'), findsOneWidget);
-      expect(find.text('Discover looks'), findsOneWidget);
-      expect(find.text('Sign In'), findsOneWidget);
+      expect(find.text('Trending'), findsWidgets);
       expect(repository.feedCalls, isZero);
       expect(repository.forYouCalls, isZero);
       expect(wardrobe.calls, isZero);
@@ -353,22 +351,18 @@ void main() {
       expect(repository.detailCalls, isZero);
     });
 
-    testWidgets('guest Clothes tab shows on-device wardrobe, never fetches', (
+    testWidgets('guest clothes view shows on-device wardrobe, never fetches', (
       WidgetTester tester,
     ) async {
       final repository = _CountingDiscoverRepository();
       final wardrobe = _CountingWardrobeRepository();
       await tester.pumpWidget(
         MaterialApp(
-          home: DiscoverScreen(
-            repository: repository,
-            wardrobeRepository: wardrobe,
+          home: WardrobeScreen(
+            repository: wardrobe,
           ),
         ),
       );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Clothes'));
       await tester.pumpAndSettle();
 
       expect(find.text('Merino Crew Neck'), findsOneWidget);
@@ -445,7 +439,7 @@ void main() {
             'maintenance': 'Low',
             'bestFor': 'Oval',
           },
-          'alternatives': [],
+          'alternatives': <dynamic>[],
         },
       };
       final service = HairstyleService(

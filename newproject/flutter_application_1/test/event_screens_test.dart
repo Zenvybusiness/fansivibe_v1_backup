@@ -328,15 +328,14 @@ void main() {
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
 
+      final submitCta = find.text('Add Event').first;
       await tester.scrollUntilVisible(
-        find.byType(FilledButton),
-        100,
-        scrollable: find.byType(Scrollable).first,
+        submitCta,
+        200,
+        scrollable: find.byType(Scrollable).last,
       );
-      await tester.tap(find.byType(FilledButton));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(submitCta);
+      await tester.pumpAndSettle();
 
       expect(find.text('Upcoming Events'), findsOneWidget);
       expect(find.text('Rooftop Party'), findsOneWidget);
@@ -778,19 +777,18 @@ void main() {
       await tester.scrollUntilVisible(
         find.text('Party'),
         100,
-        scrollable: find.byType(Scrollable).first,
+        scrollable: find.byType(Scrollable).last,
       );
       await tester.tap(find.text('Party'));
       await tester.pump();
+      final submitCta = find.text('Add Event').first;
       await tester.scrollUntilVisible(
-        find.byType(FilledButton),
-        100,
-        scrollable: find.byType(Scrollable).first,
+        submitCta,
+        200,
+        scrollable: find.byType(Scrollable).last,
       );
-      await tester.tap(find.byType(FilledButton));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(submitCta);
+      await tester.pumpAndSettle();
 
       // Created event exists AND is visibly selected.
       expect(find.text('Rooftop Party'), findsOneWidget);

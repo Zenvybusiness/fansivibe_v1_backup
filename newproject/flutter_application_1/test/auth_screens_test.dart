@@ -161,7 +161,7 @@ void main() {
 
       expect(fake.registerCalls, 1);
       expect(AuthSession.token, isNull);
-      expect(find.textContaining('already registered'), findsOneWidget);
+      expect(find.textContaining('already exists'), findsOneWidget);
       expect(find.byType(NavigationBar), findsNothing);
     });
 
@@ -177,7 +177,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Welcome Back'), findsOneWidget);
+      expect(find.text('Welcome back'), findsOneWidget);
       await tester.enterText(
         find.widgetWithText(TextField, 'Email address'),
         'sam@example.com',
@@ -208,7 +208,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final googleCta = find.text('Google');
+      final googleCta = find.textContaining('Google');
       await tester.ensureVisible(googleCta);
       await tester.pumpAndSettle();
       await tester.tap(googleCta);
@@ -233,7 +233,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
-      expect(find.text('Welcome Back'), findsOneWidget);
+      expect(find.text('Welcome back'), findsOneWidget);
     });
   });
 
@@ -248,7 +248,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final signOutFinder = find.text('Sign Out');
+      final signOutFinder = find.text('SIGN OUT');
       await tester.ensureVisible(signOutFinder);
       await tester.tap(signOutFinder);
       await tester.pump();

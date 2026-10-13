@@ -33,6 +33,8 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
   /// (duplicate protection is structural, not tied to rebuilds).
   bool _viewedEmitted = false;
   bool _explanationEmitted = false;
+  bool _saving = false;
+  bool _saved = false;
 
   @override
   Widget build(BuildContext context) {
@@ -399,14 +401,16 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
         FansiButton.primary(
           label: 'Save Style',
           icon: Icons.favorite_rounded,
-          onPressed: () {
-            _analytics.emitRecommendationSelected(
-              action: 'save',
-              recommendationId: top.id,
-              confidenceAtSelection: top.matchScore,
-            );
-            _saveStyle(context, top);
-          },
+          onPressed: _saving || _saved
+              ? null
+              : () {
+                  _analytics.emitRecommendationSelected(
+                    action: 'save',
+                    recommendationId: top.id,
+                    confidenceAtSelection: top.matchScore,
+                  );
+                  _saveStyle(context, top);
+                },
         ),
       ],
     );
@@ -416,6 +420,8 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
     BuildContext context,
     HairstyleRecommendation recommendation,
   ) async {
+    if (_saving || _saved) return;
+    setState(() => _saving = true);
     // Guests: the ephemeral result is already stashed device-locally at
     // analysis time — record the save intent and route to the existing
     // sign-in flow. After authentication the origin banner restores this
@@ -425,6 +431,7 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
         context,
         action: 'Sign in to save your hairstyle. Browsing stays free.',
       );
+      if (mounted) setState(() => _saving = false);
       return;
     }
     final owned = widget.service == null;
@@ -439,7 +446,10 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
         recommendation: recommendation,
         title: recommendation.name,
       );
-      if (ok) clearPendingEphemeralResult();
+      if (ok) {
+        clearPendingEphemeralResult();
+        _saved = true;
+      }
       if (!context.mounted) return;
       final snackbarShown = true;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -467,6 +477,9 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
     } finally {
       if (owned) {
         svc.dispose();
+      }
+      if (mounted) {
+        setState(() => _saving = false);
       }
     }
   }

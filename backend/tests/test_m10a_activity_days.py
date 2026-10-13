@@ -452,12 +452,36 @@ class _FakeRuns:
     def __init__(self) -> None:
         self._rows: dict = {}
 
-    def create(self, *, user_id, run_type, engine_version, input_media, knowledge_version):
+    def create(
+        self,
+        *,
+        user_id,
+        run_type,
+        engine_version,
+        input_media,
+        knowledge_version,
+        idempotency_key=None,
+    ):
         from uuid import uuid4
 
         run_id = uuid4()
-        self._rows[run_id] = {"user_id": user_id, "run_type": run_type, "status": "pending"}
+        self._rows[run_id] = {
+            "user_id": user_id,
+            "run_type": run_type,
+            "status": "pending",
+            "idempotency_key": idempotency_key,
+        }
         return run_id
+
+    def get_by_idempotency(self, *, user_id, idempotency_key):
+        for run_id, row in self._rows.items():
+            if row.get("user_id") == user_id and row.get("idempotency_key") == idempotency_key:
+                class _StubRecord:
+                    id = run_id
+                    run_type = row.get("run_type")
+                    input_media = row.get("input_media")
+                return _StubRecord()
+        return None
 
     def complete(self, *, run_id, user_id, status, result):
         self._rows[run_id]["status"] = status

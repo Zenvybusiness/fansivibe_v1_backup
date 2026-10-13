@@ -237,6 +237,7 @@ class AnalysisRunRepositorySQL:
             created_at=row.created_at,
             completed_at=row.completed_at,
             input_media=row.input_media,
+            knowledge_version=getattr(row, "knowledge_version", None),
         )
 
 
@@ -2245,11 +2246,20 @@ class MediaAttentionRepositorySQL:
 
         self._session.flush()
 
-        # 3. Mark affected observations as provenance_pruned
+        # 3. Mark affected observations as provenance_pruned and update retained link count
         for obs_id in affected_obs_ids:
             obs = self._session.get(MediaAttentionObservationModel, obs_id)
             if obs is not None:
                 obs.provenance_pruned = True
+                retained_count = self._session.execute(
+                    select(func.count())
+                    .select_from(MediaAttentionContributingRecordModel)
+                    .where(
+                        MediaAttentionContributingRecordModel.observation_id
+                        == obs_id
+                    )
+                ).scalar_one()
+                obs.contributing_raw_record_count = retained_count
 
         self._session.commit()
         return len(raw_ids_to_del)

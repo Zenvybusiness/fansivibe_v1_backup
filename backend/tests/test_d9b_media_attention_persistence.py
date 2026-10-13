@@ -907,6 +907,10 @@ def test_prune_expired_raw_records_and_safe_relink(db: None, migrated_db: str) -
         assert obs_row is not None
         assert obs_row.provenance_pruned is True
         assert len(repo.get_contributing_records(observation_id=obs_id)) == 0
+        # Retained link count is updated to 0, while historical aggregate counts remain intact
+        assert obs_row.contributing_raw_record_count == 0
+        assert obs_row.raw_article_count == 3
+        assert obs_row.value == 1.0
 
         # Safe relinking: new raw records ingested
         new_raws = _create_raw_records(session, run.id, count=2)
@@ -931,6 +935,9 @@ def test_prune_expired_raw_records_and_safe_relink(db: None, migrated_db: str) -
         assert refreshed_obs is not None
         assert refreshed_obs.provenance_pruned is False
         assert refreshed_obs.contributing_raw_record_count == 2
+        # Historical aggregate counts remain unchanged
+        assert refreshed_obs.raw_article_count == 3
+        assert refreshed_obs.value == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -981,3 +988,93 @@ def test_observations_in_window(db: None, migrated_db: str) -> None:
         )
         assert len(results_all) == 2
         assert [r.value for r in results_all] == [5.0, 7.0]
+
+
+def test_partial_pruning_retains_accurate_link_count(
+    db: None, migrated_db: str
+) -> None:
+    """Validate that when a subset of contributing raw records is pruned:
+    - Retained-link count (contributing_raw_record_count) is accurately updated.
+    - provenance_pruned is set to True.
+    - Historical aggregate counts (raw_article_count, value) remain unchanged.
+    """
+    SessionClass = make_session(migrated_db)
+    with SessionClass() as session:
+        run = _create_collection_run(session)
+        repo = MediaAttentionRepositorySQL(session)
+
+        cutoff = datetime(2026, 1, 10, 0, 0, 0, tzinfo=timezone.utc)
+        expired_date = datetime(2025, 12, 1, 0, 0, 0, tzinfo=timezone.utc)
+        fresh_date = datetime(2026, 1, 12, 0, 0, 0, tzinfo=timezone.utc)
+
+        # 2 expired raw records and 1 fresh raw record
+        expired_raws = _create_raw_records(
+            session, run.id, count=2, created_at=expired_date
+        )
+        fresh_raws = _create_raw_records(
+            session, run.id, count=1, created_at=fresh_date
+        )
+        all_raws = expired_raws + fresh_raws
+
+        assignments = tuple(
+            ContributingRecordAssignment(
+                raw_source_record_id=r.id,
+                similarity_cluster_id=uuid4(),
+                is_canonical=(i == 0),
+                outlet_domain=f"domain{i}.com",
+            )
+            for i, r in enumerate(all_raws)
+        )
+
+        obs = _make_domain_observation(
+            query_key="partial_prune_test",
+            value=3.0,
+            raw_article_count=3,
+            distinct_outlet_count=3,
+            estimated_deduplicated_story_count=3,
+        )
+        obs_id, _ = repo.insert_observation_with_contributing_records(
+            observation=obs, run_id=run.id, contributing_records=assignments
+        )
+
+        obs_before = session.get(MediaAttentionObservationModel, obs_id)
+        assert obs_before is not None
+        assert obs_before.contributing_raw_record_count == 3
+        assert obs_before.raw_article_count == 3
+        assert obs_before.provenance_pruned is False
+
+        # Prune only the 2 expired records
+        pruned_count = repo.prune_expired_raw_records(older_than=cutoff)
+        assert pruned_count == 2
+
+        # 1 fresh record remains linked
+        obs_after = session.get(MediaAttentionObservationModel, obs_id)
+        assert obs_after is not None
+        assert obs_after.provenance_pruned is True
+        # Retained link count is 1
+        assert obs_after.contributing_raw_record_count == 1
+        assert len(repo.get_contributing_records(observation_id=obs_id)) == 1
+        # Historical aggregate counts are completely preserved
+        assert obs_after.raw_article_count == 3
+        assert obs_after.distinct_outlet_count == 3
+        assert obs_after.estimated_deduplicated_story_count == 3
+        assert obs_after.value == 3.0
+
+
+def test_migration_head_is_0029_linear_off_0028() -> None:
+    """Ensure fully migrated repository requires head 0029 off 0028."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    config = Config("alembic.ini")
+    config.set_main_option("script_location", "alembic")
+    script = ScriptDirectory.from_config(config)
+
+    assert tuple(script.get_heads()) == ("0029",)
+    rev29 = script.get_revision("0029")
+    assert rev29 is not None
+    assert rev29.down_revision == "0028"
+
+    rev28 = script.get_revision("0028")
+    assert rev28 is not None
+    assert rev28.down_revision == "0027"

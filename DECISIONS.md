@@ -1595,3 +1595,96 @@ card + real-item match cards, no scores). Stateless and unauthenticated like
 the ephemeral passes (per-IP rate limit, zero DB rows); bytes are hashed and
 discarded, never persisted or logged. Follow-ups reuse plain chat (the
 observation text rides in history), so the image is never re-uploaded.
+
+---
+
+## DEC-029 — GDELT DOC 2.0 API Rate-Limit Compliance (D9C.1)
+
+Status: Accepted (D9C.1 implementation, 2026-10-13)
+
+During the controlled live validation exercise (Task D9C, executed 2026-10-13),
+the live GDELT DOC 2.0 API rejected requests spaced at the previously assumed
+1.5-second pacing interval with HTTP 429 and an explicit text body:
+`Please limit requests to one every 5 seconds or contact kalev.leetaru5@gmail.com`.
+The live HTTP 429 response did not supply a standard `Retry-After` HTTP header,
+and the adapter's previous default backoff base of 0.5s (yielding 0.5s, 1.0s,
+and 2.0s retries) was exhausted before the provider's rate-limit window cleared.
+
+To align with observed upstream provider behavior while maintaining strict
+fail-closed operation:
+
+1. **Request Pacing (5.5s minimum interval)**:
+   - `DEFAULT_PACE_INTERVAL_S` is set to 5.5 seconds (the observed 5.0-second
+     provider policy plus a 0.5-second safety margin to account for transport
+     jitter and clock skew).
+   - Minimum interval pacing is strictly enforced across all outbound requests,
+     including initial queries, adaptive recursive time slices, and retries.
+   - Retries cannot bypass request pacing.
+
+2. **Exponential Backoff Base (5.0s base, 5s/10s/20s nominal delays)**:
+   - `DEFAULT_BACKOFF_BASE_S` is set to 5.0 seconds, yielding nominal backoff
+     delays of 5.0s, 10.0s, and 20.0s for retry attempts 0, 1, and 2 before any
+     applicable pacing requirement.
+   - Retries remain strictly bounded by `DEFAULT_MAX_RETRIES = 3` (4 total
+     attempts). Collection never loops indefinitely on HTTP 429.
+
+3. **Retry-After Header Handling with Configured Fallback**:
+   - The adapter continues to inspect and honor valid numeric `Retry-After`
+     headers when provided by the server.
+   - If `Retry-After` is absent or invalid (e.g. non-numeric, negative, or
+     non-finite), the adapter uses the configured exponential backoff fallback.
+
+4. **Cooperative Deadline Preservation**:
+   - Both request pacing and retry backoff respect the cooperative deadline.
+     If a deadline would be exceeded during pacing or backoff, a typed
+     `SourceDeadlineError` is raised immediately to prevent blocking.
+
+5. **Shared-IP and Multi-Worker Limitations**:
+   - Pacing is enforced locally in memory per adapter instance. In a distributed
+     or multi-worker deployment where multiple processes or containers share a
+     single egress public IP (e.g. behind NAT or corporate gateways), local
+     in-process pacing cannot coordinate across workers.
+   - No distributed locking (e.g. Redis) is introduced without separate review.
+     If multiple instances share an IP and call GDELT concurrently, upstream
+     rate limits may be triggered.
+   - If rate limits or retry limits are exhausted, the workflow fails closed:
+     no partial aggregates are published, no incomplete observations are
+     persisted, and the run is recorded as failed with sanitized error summaries.
+
+6. **Non-Guarantee & Future Availability Disclaimer**:
+   - These configurations reflect empirical provider behavior observed during
+     the 2026-10-13 validation exercise. They are not a guarantee of future
+     availability, upstream service stability, or exemption from provider-side
+     rate limiting, burst throttling, or IP reputation policies.
+
+---
+
+## DEC-030 — Local Ollama Reasoning Model Qualification & Incompatibility Finding (F13)
+
+Status: Accepted (F13 Diagnosis, 2026-10-13)
+
+During Task F13 diagnosis of live reasoning failures reported with `qwen3-vl:4b-instruct`,
+empirical testing established that `qwen3-vl:4b-instruct` cannot reliably satisfy
+Fansivibe's FFO reasoning contract and local deployment requirements:
+
+1. **Abstention Contract Incompatibility**:
+   - When evaluating unsupported, comparative, insufficient-evidence, or contested queries
+     (e.g., `cmp-cotton-linen`, `ins-kimono-sizing`, `uns-sneaker-prices`), `qwen3-vl:4b-instruct`
+     produces structurally valid JSON with `unsupported: true` or empty conclusions, but
+     systematically returns an empty string for the answer field (`"answer": ""`).
+   - Fansivibe Contract v2.0 (`app/domain/services/ffo_reasoning.py:validate_output`) strictly
+     mandates a non-empty `answer` string across all outcomes, including abstentions.
+   - Injecting synthetic fallback text or treating empty output as success is explicitly prohibited
+     as answer fabrication.
+
+2. **Resource Exhaustion on 6 GB Edge Hardware**:
+   - `qwen3-vl:4b-instruct` (4.4B parameters, ~5.7 GB active allocation) induces Linux systemd
+     OOM-killer events (`oom-kill`) during sustained benchmark execution on 6 GB GPU hardware
+     (NVIDIA RTX 3050 Laptop GPU).
+
+3. **Model Qualification Policy**:
+   - `qwen3-vl:4b-instruct` is declared **incompatible** with Fansivibe FFO fashion reasoning.
+   - `qwen2.5vl:3b` remains the frozen, verified local Ollama reasoning model (Phase 3AG/3AH/3AN).
+   - In accordance with the FFO contract integrity rule, validation assertions must never be
+     weakened to accommodate model deficiencies.
+

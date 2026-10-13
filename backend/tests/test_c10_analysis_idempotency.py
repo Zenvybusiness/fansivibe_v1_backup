@@ -47,7 +47,7 @@ from app.application.analysis import (
 from app.domain.ports.repositories import AnalysisRunRecord
 from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.domain.value_objects import AppearanceProfile, GarmentProfile
-from app.infrastructure.db.models import AnalysisRuns
+from app.infrastructure.db.models import AnalysisRuns, Users
 from app.infrastructure.db.repositories import AnalysisRunRepositorySQL
 from app.infrastructure.external.knowledge import CatalogKnowledgeSource
 
@@ -293,7 +293,7 @@ def test_0025_revision_chain_and_static_contract():
     script = ScriptDirectory.from_config(config)
 
     # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
-    assert tuple(script.get_heads()) in (("0028",), ("0029",))
+    assert tuple(script.get_heads()) == ("0029",)
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None
@@ -609,6 +609,10 @@ def test_sql_repository_idempotency_and_uniqueness(db):
 
     Session = make_session()
     with Session() as session:
+        session.add(Users(id=USER_1, auth_provider="dev", auth_subject=f"c10-user-{USER_1}", display_name="User 1"))
+        session.add(Users(id=USER_2, auth_provider="dev", auth_subject=f"c10-user-{USER_2}", display_name="User 2"))
+        session.flush()
+
         repo = AnalysisRunRepositorySQL(session)
 
         # 1. Create with idempotency key

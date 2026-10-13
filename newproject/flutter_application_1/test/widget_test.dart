@@ -49,8 +49,8 @@ void main() {
 
     // Verify Discover screen is shown.
     expect(find.text('Discover'), findsWidgets);
-    expect(find.text('Find looks tailored to your style'), findsOneWidget);
-    expect(find.text('Explore'), findsOneWidget);
+    expect(find.text('Fashion inspiration for your next chapter.'), findsOneWidget);
+    expect(find.text('Trending'), findsOneWidget);
     expect(find.text('For You'), findsOneWidget);
 
     // Tap Stylist tab.
@@ -284,8 +284,8 @@ void main() {
 
     // Verify Discover screen is still showing (state preserved via IndexedStack).
     expect(find.text('Discover'), findsWidgets);
-    expect(find.text('Find looks tailored to your style'), findsOneWidget);
-    expect(find.text('Explore'), findsOneWidget);
+    expect(find.text('Fashion inspiration for your next chapter.'), findsOneWidget);
+    expect(find.text('Trending'), findsOneWidget);
     expect(find.text('For You'), findsOneWidget);
   });
 }

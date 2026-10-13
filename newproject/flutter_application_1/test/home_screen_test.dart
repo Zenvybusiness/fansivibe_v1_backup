@@ -245,6 +245,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_freshApp());
+      await tester.pumpAndSettle();
 
       // Verify unauthenticated user sees generic greeting without "Alex"
       expect(find.text('Good morning'), findsOneWidget);
@@ -257,6 +258,7 @@ void main() {
     ) async {
       LocalStorage.displayName = 'Taylor';
       await tester.pumpWidget(_freshApp());
+      await tester.pumpAndSettle();
 
       // Verify real stored display name is used
       expect(find.text('Good morning, Taylor'), findsOneWidget);
@@ -308,10 +310,11 @@ void main() {
       // server under the test binding the slot keeps its title and shows
       // the honest error state — never a fabricated score.
       await tester.pumpWidget(_freshApp());
+      // Flush the backend future (no server under the test binding).
+      await tester.pumpAndSettle();
 
       // Scroll to find Style Score section
       await tester.scrollUntilVisible(find.text('Style Score'), 500.0);
-      // Flush the backend future (no server under the test binding).
       await tester.pumpAndSettle();
 
       expect(find.text('Style Score'), findsWidgets);
@@ -330,6 +333,7 @@ void main() {
 
     testWidgets('renders Quick Actions section', (WidgetTester tester) async {
       await tester.pumpWidget(_freshApp());
+      await tester.pumpAndSettle();
 
       await tester.scrollUntilVisible(find.text('Quick Actions'), 500.0);
 
@@ -353,9 +357,10 @@ void main() {
       // server under the test binding the slot keeps its title and shows
       // the honest error state — never fabricated week data.
       await tester.pumpWidget(_freshApp());
+      // Flush the backend future (no server under the test binding).
+      await tester.pumpAndSettle();
 
       await tester.scrollUntilVisible(find.text('Style Streak'), 500.0);
-      // Flush the backend future (no server under the test binding).
       await tester.pumpAndSettle();
 
       expect(find.text('Style Streak'), findsOneWidget);
@@ -503,6 +508,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_freshApp());
+      await tester.pumpAndSettle();
 
       final scrollable = find.byType(SingleChildScrollView);
       await tester.dragUntilVisible(

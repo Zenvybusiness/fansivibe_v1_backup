@@ -514,7 +514,7 @@ void main() {
             'maintenance': 'Medium',
             'bestFor': 'Oval',
           },
-          'alternatives': [],
+          'alternatives': <dynamic>[],
         },
       };
       final service = GroomingService(

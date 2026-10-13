@@ -231,7 +231,9 @@ void main() {
         find.textContaining('based on looks you\u2019ve saved'),
         findsOneWidget,
       );
-      expect(find.textContaining('Trending'), findsNothing);
+      // 'Trending' exists only as the tab label, never in the personalized recommendation copy.
+      expect(find.text('Trending'), findsOneWidget);
+      expect(find.textContaining('Trending Looks'), findsNothing);
       expect(find.textContaining('Popular'), findsNothing);
     });
 
@@ -251,7 +253,9 @@ void main() {
         );
       await openForYou(tester, repo);
       expect(find.textContaining('save looks you love'), findsOneWidget);
-      expect(find.textContaining('Trending'), findsNothing);
+      // 'Trending' exists only as the tab label, never in the cold-start recommendation copy.
+      expect(find.text('Trending'), findsOneWidget);
+      expect(find.textContaining('Trending Looks'), findsNothing);
       expect(find.textContaining('Popular'), findsNothing);
       expect(find.textContaining('Recommended for you'), findsNothing);
     });
@@ -311,7 +315,7 @@ void main() {
       expect(find.byType(LookCard), findsNothing);
     });
 
-    testWidgets('explore tab still uses the /v1/looks feed', (
+    testWidgets('trending tab still uses the /v1/looks feed', (
       WidgetTester tester,
     ) async {
       final repo = ScriptedForYouRepository();
@@ -319,10 +323,10 @@ void main() {
         MaterialApp(home: DiscoverScreen(repository: repo)),
       );
       await tester.pumpAndSettle();
-      // Explore is the default tab: backend error surfaces, no for-you call.
+      // Trending is the default tab: backend error surfaces, no for-you call.
       expect(repo.forYouRequests, isEmpty);
       expect(find.text('Looks unavailable'), findsOneWidget);
-      expect(find.text('Explore'), findsOneWidget);
+      expect(find.text('Trending'), findsOneWidget);
       expect(find.text('For You'), findsOneWidget);
     });
   });

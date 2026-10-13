@@ -69,7 +69,7 @@ Map<String, dynamic> _hairstyleSnapshot() => {
       'maintenance': 'Low',
       'bestFor': 'Oval',
     },
-    'alternatives': [],
+    'alternatives': <dynamic>[],
   },
 };
 
@@ -94,7 +94,7 @@ Map<String, dynamic> _groomingSnapshot() => {
       'maintenance': 'Medium',
       'bestFor': 'Oval',
     },
-    'alternatives': [],
+    'alternatives': <dynamic>[],
   },
 };
 

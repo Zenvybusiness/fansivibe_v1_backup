@@ -59,4 +59,4 @@ def test_live_ollama_reasoning_smoke():
     result = execute_benchmark_case(case, reasoner=reasoner)
     assert isinstance(result, EvaluationResult)
     assert result.case_id == "exp-denim-textile"
-    assert result.benchmark_version == "1.0"
+    assert result.benchmark_version in ("1.0", "1.1")

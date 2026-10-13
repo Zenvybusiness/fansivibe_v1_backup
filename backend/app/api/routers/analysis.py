@@ -78,7 +78,7 @@ def _run_summary_to_schema(record) -> AnalysisRunSummary:
         created_at=record.created_at,
         completed_at=record.completed_at,
         engine_version=record.engine_version,
-        knowledge_version=record.knowledge_version,
+        knowledge_version=getattr(record, "knowledge_version", None),
         input_media=record.input_media,
     )
 
