@@ -8,6 +8,7 @@ import 'package:fansivibe/features/discover/data/discover_models.dart';
 import 'package:fansivibe/features/discover/data/discover_repository.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_editorial_widgets.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/product_impression_detector.dart';
+import 'package:fansivibe/features/discover/presentation/widgets/product_offer_comparison_sheet.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
     show WardrobeItemData;
@@ -742,70 +743,15 @@ class _EstablishedUserForYouFeedState extends State<EstablishedUserForYouFeed> {
   }
 
   void _handleShop(BuildContext context, ForYouProductItem product) {
-    if (product.isSyntheticFixture) {
-      showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: FansivibeColors.surfaceContainerHigh,
-          shape: RoundedRectangleBorder(
-            borderRadius: FansivibeRadius.mdBorder,
-          ),
-          title: Row(
-            children: const [
-              Icon(Icons.science_outlined, color: Color(0xFFE67E22), size: 20),
-              SizedBox(width: 8),
-              Text(
-                'Synthetic Demo Product',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: FansivibeColors.onSurface,
-                ),
-              ),
-            ],
-          ),
-          content: Text(
-            '${product.title} is a synthetic demonstration fixture catalog item. It is not currently available for commercial purchase from a verified retailer.',
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 13.5,
-              height: 1.4,
-              color: FansivibeColors.secondary,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text(
-                'Understood',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontWeight: FontWeight.w700,
-                  color: FansivibeColors.primary,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
     if (widget.onShopTap != null) {
       widget.onShopTap!(product);
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Opening ${product.retailer}...'),
-        backgroundColor: FansivibeColors.accentGold,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: FansivibeRadius.smdBorder,
-        ),
-        duration: const Duration(seconds: 2),
-      ),
+
+    showProductOfferComparisonSheet(
+      context: context,
+      product: product,
+      repository: widget.repository,
     );
   }
 

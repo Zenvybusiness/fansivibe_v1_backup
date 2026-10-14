@@ -18,12 +18,16 @@ Invariants:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-from uuid import UUID
+from urllib.parse import urlparse
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.exc import SQLAlchemyError
+
+from app.config.settings import get_settings
 
 from app.api.deps import (
     get_candidate_repository,
@@ -35,6 +39,7 @@ from app.api.deps import (
     get_wardrobe_repository,
 )
 from app.api.errors import (
+    ApiError,
     authentication_error,
     database_failure,
     not_found,
@@ -59,14 +64,21 @@ from app.api.schemas.discovery import (
     ForYouDiscoveryResponse,
     LookSlotItemSchema,
     ProductExplanationSchema,
+    ProductOfferItemSchema,
+    ProductOffersResponse,
     ProductRecommendationItemSchema,
     ProductScoreBreakdownSchema,
+    ProductVariantSummarySchema,
+    RetailerSummarySchema,
     UserPersonalizationContextSummarySchema,
 )
 from app.api.schemas.trend_analysis import TrendSignalSchema
 from app.application.candidate_retrieval import RetrieveProductCandidates
 from app.application.complete_looks import AssembleCompleteLooks
-from app.application.discovery_events import IngestDiscoveryEvents
+from app.application.discovery_events import (
+    IngestDiscoveryEvents,
+    compute_payload_hash,
+)
 from app.application.for_you import PersonalizeForYou
 from app.domain.ports.repositories import DiscoveryEventRepository
 from app.application.trends import AnalyzeTrends, TrendConfig
@@ -83,6 +95,41 @@ from app.domain.services.trends import DEMAND_SIGNAL_AVAILABLE
 logger = logging.getLogger("fansivibe.discovery")
 
 router = APIRouter(prefix="/v1/discovery", tags=["discovery"])
+
+
+# ---------------------------------------------------------------------------
+# Helper: Routable Image URL Resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_image_urls(
+    image_urls: list[str] | tuple[str, ...],
+    request: Optional[Request] = None,
+) -> list[str]:
+    """Resolve image URLs to fully qualified, routable URLs without hardcoding localhost."""
+    settings = get_settings()
+    base = settings.static_asset_base_url
+    if not base and request:
+        base = str(request.base_url).rstrip("/")
+    if not base:
+        base = ""
+    resolved: list[str] = []
+    for u in image_urls:
+        if isinstance(u, str) and u.startswith("/"):
+            resolved.append(f"{base}{u}")
+        else:
+            resolved.append(u)
+    return resolved
+
+
+def _resolve_single_image_url(
+    image_url: Optional[str],
+    request: Optional[Request] = None,
+) -> Optional[str]:
+    """Resolve a single image URL or return None."""
+    if not image_url:
+        return None
+    return _resolve_image_urls([image_url], request)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +195,7 @@ def get_for_you_recommendations(
     candidate_repo=Depends(get_candidate_repository),
     user_state_repo=Depends(get_user_state_repository),
     wardrobe_repo=Depends(get_wardrobe_repository),
+    request: Request = None,  # type: ignore[assignment]
 ) -> ForYouDiscoveryResponse:
     """Retrieve and rank personalized product candidates."""
     try:
@@ -235,7 +283,7 @@ def get_for_you_recommendations(
                 price=prod.price,
                 currency=prod.currency or "INR",
                 availability=prod.availability,
-                imageUrls=list(prod.image_urls),
+                imageUrls=_resolve_image_urls(prod.image_urls, request),
                 attributes=raw_attrs,
                 ffoConcepts=ffo_concepts,
                 isSynthetic=prod.is_synthetic,
@@ -319,6 +367,7 @@ def get_complete_looks(
     user_id: Optional[UUID] = Depends(get_optional_user_id),
     candidate_repo=Depends(get_candidate_repository),
     wardrobe_repo=Depends(get_wardrobe_repository),
+    request: Request = None,  # type: ignore[assignment]
 ) -> CompleteLooksDiscoveryResponse:
     """Assemble compatible complete looks."""
     # Guard: anchoring to a wardrobe item requires an authenticated user
@@ -381,7 +430,7 @@ def get_complete_looks(
                 silhouette=item.silhouette,
                 price=item.price,
                 currency=item.currency or "INR",
-                imageUrl=item.image_url,
+                imageUrl=_resolve_single_image_url(item.image_url, request),
                 isSynthetic=item.is_synthetic,
                 isFixture=item.is_fixture,
                 ffoConcepts=list(item.ffo_concepts),
@@ -577,4 +626,251 @@ def ingest_discovery_events(
 ) -> DiscoveryEventsIngestResponse:
     use_case = IngestDiscoveryEvents(event_repo)
     return use_case(request=request, user_id=user_id)
+
+
+# ---------------------------------------------------------------------------
+# D. Multi-Retailer Product Offers & Outbound Redirect (DISCOVERY-10B-3)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/products/{product_id}/offers",
+    response_model=ProductOffersResponse,
+    summary="Get verified retailer offers for a product",
+    description=(
+        "Returns active, verified retailer offers for a canonical product with pricing, "
+        "currency, availability, variants, and freshness metadata. If the product is a "
+        "synthetic fixture or has no commercial listings, an honest empty response is returned."
+    ),
+)
+def get_product_offers(
+    product_id: UUID = Path(..., description="Canonical product UUID"),
+    candidate_repo=Depends(get_candidate_repository),
+) -> ProductOffersResponse:
+    """Retrieve verified retailer offers for a canonical product."""
+    product = candidate_repo.get_by_id(product_id)
+    if product is None:
+        raise not_found()
+
+    is_fixture = bool(product.is_fixture or product.is_synthetic)
+    if is_fixture:
+        # Development fixtures have no real commercial retailer inventory
+        return ProductOffersResponse(
+            productId=product.id,
+            title=product.title,
+            brand=product.brand,
+            isSyntheticFixture=True,
+            offersCount=0,
+            offers=[],
+        )
+
+    offers = candidate_repo.get_product_offers(product_id)
+    now = datetime.now(timezone.utc)
+    max_price_age = timedelta(hours=24)
+
+    offer_schemas: list[ProductOfferItemSchema] = []
+    for o in offers:
+        is_fresh = False
+        freshness_status = "unverified"
+        last_checked_iso = None
+
+        if o.last_checked_at is not None:
+            last_checked_dt = (
+                o.last_checked_at
+                if o.last_checked_at.tzinfo is not None
+                else o.last_checked_at.replace(tzinfo=timezone.utc)
+            )
+            last_checked_iso = last_checked_dt.isoformat()
+            if (now - last_checked_dt) <= max_price_age:
+                is_fresh = True
+                freshness_status = "fresh"
+            else:
+                is_fresh = False
+                freshness_status = "stale"
+
+        variant_schema = None
+        if o.variant:
+            variant_schema = ProductVariantSummarySchema(
+                id=o.variant.id,
+                sku=o.variant.sku,
+                gtin=o.variant.gtin,
+                size=o.variant.size,
+                color=o.variant.color,
+                attributes=dict(o.variant.attributes or {}),
+            )
+
+        retailer_schema = RetailerSummarySchema(
+            id=o.retailer_id,
+            name=o.retailer_name,
+            slug=o.retailer_slug,
+            domain=o.retailer_domain,
+        )
+
+        offer_schemas.append(
+            ProductOfferItemSchema(
+                id=o.id,
+                retailer=retailer_schema,
+                price=o.price,
+                originalPrice=o.original_price,
+                currency=o.currency,
+                availability=o.availability,
+                inStock=o.in_stock,
+                productUrl=o.product_url,
+                redirectUrl=f"/v1/discovery/offers/{o.id}/redirect",
+                variant=variant_schema,
+                lastCheckedAt=last_checked_iso,
+                isPriceFresh=is_fresh,
+                freshnessStatus=freshness_status,
+            )
+        )
+
+    return ProductOffersResponse(
+        productId=product.id,
+        title=product.title,
+        brand=product.brand,
+        isSyntheticFixture=False,
+        offersCount=len(offer_schemas),
+        offers=offer_schemas,
+    )
+
+
+@router.get(
+    "/offers/{offer_id}/redirect",
+    status_code=307,
+    summary="Outbound retailer purchase redirect with attribution",
+    description=(
+        "Validates destination against authorized retailer domain, records a minimal "
+        "offer_click attribution event, and redirects (HTTP 307) to the authorized merchant page."
+    ),
+)
+def redirect_to_offer(
+    offer_id: UUID = Path(..., description="Offer UUID"),
+    guest_session_id: Optional[UUID] = Query(
+        default=None,
+        description="Guest session identifier if unauthenticated",
+    ),
+    surface: str = Query(
+        default="product_offers",
+        description="Discovery surface where the click originated",
+    ),
+    position: Optional[int] = Query(
+        default=None,
+        ge=0,
+        le=1000,
+        description="Feed position if clicked from a feed surface",
+    ),
+    user_id: Optional[UUID] = Depends(get_optional_user_id),
+    candidate_repo=Depends(get_candidate_repository),
+    event_repo: DiscoveryEventRepository = Depends(get_discovery_event_repository),
+) -> RedirectResponse:
+    """Validate offer destination, record minimal attribution event, and redirect to merchant."""
+    # 1. Lookup offer
+    offer = candidate_repo.get_offer_by_id(offer_id)
+    if offer is None:
+        raise not_found()
+
+    # 2. Check active state (inactive/expired offer handling)
+    if not offer.is_active:
+        raise ApiError(
+            status_code=410,
+            code="OFFER_INACTIVE",
+            message="This commercial offer is no longer active.",
+        )
+
+    # 3. Lookup destination URL
+    destination = offer.affiliate_url or offer.product_url
+    if not destination or not destination.strip():
+        raise ApiError(
+            status_code=404,
+            code="DESTINATION_NOT_FOUND",
+            message="No destination URL is configured for this offer.",
+        )
+
+    destination_url = destination.strip()
+
+    # 4. Validate authorized retailer destination domain (prevent open redirect / SSRF)
+    parsed = urlparse(destination_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ApiError(
+            status_code=400,
+            code="INVALID_URL_SCHEME",
+            message="Destination URL must use HTTP or HTTPS.",
+        )
+
+    dest_host = (parsed.hostname or "").lower()
+    authorized_domain = (offer.retailer_domain or "").lower().strip()
+    if not authorized_domain or not (
+        dest_host == authorized_domain or dest_host.endswith(f".{authorized_domain}")
+    ):
+        raise ApiError(
+            status_code=403,
+            code="UNAUTHORIZED_DESTINATION",
+            message=f"Destination '{dest_host}' is not an authorized domain for retailer '{offer.retailer_name}'.",
+        )
+
+    # 5. Record minimal offer-click attribution event
+    now = datetime.now(timezone.utc)
+    target_id = str(offer.product_id) if offer.product_id else str(offer.id)
+    metadata = {
+        "offerId": str(offer.id),
+        "retailer": offer.retailer_name,
+        "retailerSlug": offer.retailer_slug,
+    }
+
+    # Validate surface against allowed surfaces
+    valid_surface = (
+        surface
+        if surface
+        in {
+            "for_you_hero",
+            "for_you_grid",
+            "because_you_like",
+            "complete_looks",
+            "product_offers",
+            "product_offer_sheet",
+        }
+        else "product_offers"
+    )
+
+    payload_hash = compute_payload_hash(
+        event_type="offer_click",
+        target_type="product",
+        target_id=target_id,
+        surface=valid_surface,
+        position=position,
+        metadata=metadata,
+    )
+
+    client_event_id = uuid4()
+    effective_user_id = user_id
+    effective_guest_id = None if user_id is not None else (guest_session_id or uuid4())
+
+    event_payload = {
+        "client_event_id": client_event_id,
+        "event_type": "offer_click",
+        "target_type": "product",
+        "target_id": target_id,
+        "product_id": offer.product_id,
+        "surface": valid_surface,
+        "position": position,
+        "payload_hash": payload_hash,
+        "metadata": metadata,
+        "client_occurred_at": now,
+    }
+
+    try:
+        event_repo.persist_events_batch(
+            events=[event_payload],
+            user_id=effective_user_id,
+            guest_session_id=effective_guest_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to record offer_click attribution event: %s",
+            exc,
+            exc_info=True,
+        )
+
+    return RedirectResponse(url=destination_url, status_code=307)
+
 

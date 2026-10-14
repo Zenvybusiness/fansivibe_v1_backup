@@ -88,6 +88,37 @@ abstract final class AppConfig {
   /// Platform-resolved API base URL (see [resolveApiBaseUrl]).
   static String get resolvedApiBaseUrl => resolveApiBaseUrl();
 
+  /// Resolves an image URL or asset path for the current runtime platform.
+  ///
+  /// - Relative URL (starts with `/`) -> prepends [resolvedApiBaseUrl].
+  /// - Loopback URL (`localhost`/`127.0.0.1`) -> rewrites authority to
+  ///   [resolvedApiBaseUrl] so physical devices and Android emulators connect
+  ///   to the reachable backend host rather than failing on device-local loopback.
+  /// - Standard public URL (`https://...`) -> preserved unchanged.
+  /// - Local Flutter asset (`assets/...`) -> preserved unchanged.
+  static String resolveImageUrl(String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return trimmed;
+    if (trimmed.startsWith('/')) {
+      final base = resolvedApiBaseUrl.endsWith('/')
+          ? resolvedApiBaseUrl.substring(0, resolvedApiBaseUrl.length - 1)
+          : resolvedApiBaseUrl;
+      return '$base$trimmed';
+    }
+    if (isLocalhostUrl(trimmed)) {
+      final uri = Uri.tryParse(trimmed);
+      final baseUri = Uri.tryParse(resolvedApiBaseUrl);
+      if (uri != null && baseUri != null && baseUri.hasAuthority) {
+        return uri.replace(
+          scheme: baseUri.scheme,
+          host: baseUri.host,
+          port: baseUri.hasPort ? baseUri.port : null,
+        ).toString();
+      }
+    }
+    return trimmed;
+  }
+
   /// Whether [url] uses HTTPS.
   static bool isHttpsUrl(String url) => url.startsWith('https://');
 

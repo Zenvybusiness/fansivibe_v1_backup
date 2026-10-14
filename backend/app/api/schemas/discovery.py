@@ -532,3 +532,82 @@ class DiscoveryEventsIngestResponse(BaseModel):
         description="Per-event acknowledgement details"
     )
 
+
+# ---------------------------------------------------------------------------
+# Multi-Retailer Product Offer Schemas (DISCOVERY-10B-3)
+# ---------------------------------------------------------------------------
+
+
+class RetailerSummarySchema(BaseModel):
+    """Public summary of a verified retailer/merchant."""
+
+    id: UUID = Field(description="Retailer UUID")
+    name: str = Field(description="Display name of retailer")
+    slug: str = Field(description="Canonical retailer slug")
+    domain: str = Field(description="Verified merchant website domain")
+
+
+class ProductVariantSummarySchema(BaseModel):
+    """Product variant attributes associated with an offer."""
+
+    id: UUID = Field(description="Variant UUID")
+    sku: Optional[str] = Field(default=None, description="Merchant SKU")
+    gtin: Optional[str] = Field(default=None, description="Global Trade Item Number")
+    size: Optional[str] = Field(default=None, description="Variant size")
+    color: Optional[str] = Field(default=None, description="Variant color")
+    attributes: dict[str, Any] = Field(
+        default_factory=dict, description="Additional variant attributes"
+    )
+
+
+class ProductOfferItemSchema(BaseModel):
+    """One verified commercial retailer offer for a canonical product."""
+
+    id: UUID = Field(description="Stable offer UUID")
+    retailer: RetailerSummarySchema = Field(description="Verified merchant information")
+    price: float = Field(ge=0.0, description="Verified commercial price")
+    originalPrice: Optional[float] = Field(
+        default=None, ge=0.0, description="Original list/strikethrough price"
+    )
+    currency: str = Field(default="INR", description="Three-letter currency code")
+    availability: bool = Field(description="Whether the product is orderable")
+    inStock: bool = Field(description="Whether item is currently in-stock")
+    productUrl: Optional[str] = Field(
+        default=None, description="Direct merchant product URL"
+    )
+    redirectUrl: str = Field(
+        description="Authorized server-mediated redirect endpoint for outbound purchase"
+    )
+    variant: Optional[ProductVariantSummarySchema] = Field(
+        default=None, description="Variant details if known"
+    )
+    lastCheckedAt: Optional[str] = Field(
+        default=None, description="ISO-8601 timestamp of last price verification"
+    )
+    isPriceFresh: bool = Field(
+        default=True,
+        description="True if price was verified within max freshness window (24h)",
+    )
+    freshnessStatus: str = Field(
+        default="fresh",
+        description="Price freshness classification: 'fresh', 'stale', or 'unverified'",
+    )
+
+
+class ProductOffersResponse(BaseModel):
+    """Shopping comparison response containing verified retailer offers."""
+
+    productId: UUID = Field(description="Canonical product UUID")
+    title: str = Field(description="Canonical product title")
+    brand: Optional[str] = Field(default=None, description="Product brand name")
+    isSyntheticFixture: bool = Field(
+        default=False,
+        description="True if this is a synthetic demonstration fixture catalog item",
+    )
+    offersCount: int = Field(
+        ge=0, description="Count of active verified retailer offers"
+    )
+    offers: list[ProductOfferItemSchema] = Field(
+        default_factory=list, description="List of active verified commercial offers"
+    )
+

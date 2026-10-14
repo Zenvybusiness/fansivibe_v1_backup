@@ -476,6 +476,78 @@ class DiscoverClient {
     }
   }
 
+  /// Fetches verified retailer offers for a canonical product (GET /v1/discovery/products/{product_id}/offers).
+  Future<ProductOffersResult> getProductOffers({
+    required String productId,
+  }) async {
+    try {
+      final base = Uri.parse(baseUrl);
+      final uri = base.replace(
+        pathSegments: [
+          ...base.pathSegments.where((s) => s.isNotEmpty),
+          'v1',
+          'discovery',
+          'products',
+          productId,
+          'offers',
+        ],
+      );
+
+      final response = await _client
+          .get(uri, headers: _headersFor())
+          .timeout(_timeout);
+
+      if (response.statusCode == 200) {
+        try {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+          return ProductOffersResult.success(
+            ProductOffersResponse.fromJson(decoded),
+          );
+        } catch (error) {
+          debugPrint('Discover offers: malformed 200 body: $error');
+          return const ProductOffersResult.failure(
+            DiscoverFailure.networkError,
+          );
+        }
+      }
+
+      final failure = _failureFor(response.statusCode);
+      debugPrint(
+        'Discover offers responded ${response.statusCode}: ${response.body}',
+      );
+      return ProductOffersResult.failure(failure);
+    } catch (error) {
+      debugPrint('Discover backend unreachable during offers fetch: $error');
+      return const ProductOffersResult.failure(DiscoverFailure.networkError);
+    }
+  }
+
+  /// Builds the authorized outbound redirect URI for an offer (GET /v1/discovery/offers/{offer_id}/redirect).
+  Uri getOfferRedirectUri({
+    required String offerId,
+    String? guestSessionId,
+    String surface = 'product_offers',
+    int? position,
+  }) {
+    final base = Uri.parse(baseUrl);
+    return base.replace(
+      pathSegments: [
+        ...base.pathSegments.where((s) => s.isNotEmpty),
+        'v1',
+        'discovery',
+        'offers',
+        offerId,
+        'redirect',
+      ],
+      queryParameters: {
+        'surface': surface,
+        if (guestSessionId != null && guestSessionId.isNotEmpty)
+          'guest_session_id': guestSessionId,
+        if (position != null) 'position': '$position',
+      },
+    );
+  }
+
   /// Closes the underlying HTTP client.
   void dispose() => _client.close();
 }

@@ -137,9 +137,31 @@ class Settings(BaseSettings):
         default="INFO", alias="FANSIVIBE_LOG_LEVEL"
     )
 
+    # Optional static asset base URL override (e.g. CDN or reverse-proxy host)
+    static_asset_base_url: str | None = Field(
+        default=None, alias="FANSIVIBE_STATIC_ASSET_BASE_URL"
+    )
+
     # YouTube Data API v3 configuration (optional, secret key)
     youtube_data_api_key: str | None = Field(
         default=None, alias="YOUTUBE_DATA_API_KEY", repr=False
+    )
+
+    # Amazon PA-API 5.0 and Rainforest API configuration (DISCOVERY-10B-4)
+    amazon_associate_tag: str | None = Field(
+        default=None, alias="AMAZON_ASSOCIATE_TAG", repr=False
+    )
+    amazon_paapi_access_key: str | None = Field(
+        default=None, alias="AMAZON_PAAPI_ACCESS_KEY", repr=False
+    )
+    amazon_paapi_secret_key: str | None = Field(
+        default=None, alias="AMAZON_PAAPI_SECRET_KEY", repr=False
+    )
+    amazon_paapi_region: str = Field(
+        default="eu-west-1", alias="AMAZON_PAAPI_REGION"
+    )
+    rainforest_api_key: str | None = Field(
+        default=None, alias="RAINFOREST_API_KEY", repr=False
     )
 
     # CORS configuration (P2-9): explicit origins list, never wildcard in prod.
@@ -236,6 +258,22 @@ class Settings(BaseSettings):
     @field_validator("youtube_data_api_key", mode="before")
     @classmethod
     def _sanitize_youtube_data_api_key(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            val = v.strip()
+            return val if val else None
+        return v
+
+    @field_validator(
+        "amazon_associate_tag",
+        "amazon_paapi_access_key",
+        "amazon_paapi_secret_key",
+        "rainforest_api_key",
+        mode="before",
+    )
+    @classmethod
+    def _sanitize_ecommerce_credentials(cls, v: Any) -> str | None:
         if v is None:
             return None
         if isinstance(v, str):

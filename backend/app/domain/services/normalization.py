@@ -211,13 +211,15 @@ def _clean_availability(value: object, errors: list[str]) -> Optional[bool]:
     return None
 
 
-def _clean_url(value: object) -> Optional[str]:
-    """An absolute ``http(s)`` URL or ``None`` (never a data:/javascript: URL)."""
+def _clean_url(value: object, *, allow_relative: bool = False) -> Optional[str]:
+    """An absolute ``http(s)`` URL, optional root-relative path, or ``None``."""
     if not isinstance(value, str):
         return None
     text = _normalize_text(value)
     if not text or len(text) > _URL_MAX:
         return None
+    if allow_relative and text.startswith("/"):
+        return text
     try:
         parts = urlsplit(text)
     except ValueError:
@@ -312,7 +314,7 @@ def normalize_product(raw: RawSourceRecord) -> NormalizationResult:
     if raw_images is not None:
         entries = raw_images if isinstance(raw_images, (list, tuple)) else [raw_images]
         for entry in entries:
-            url = _clean_url(entry)
+            url = _clean_url(entry, allow_relative=True)
             if url is None:
                 errors.append("image_urls must contain valid http(s) URLs")
                 break

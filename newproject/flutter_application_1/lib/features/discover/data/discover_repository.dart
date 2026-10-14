@@ -83,6 +83,17 @@ abstract class DiscoverRepository {
     List<DiscoveryEventItem> events, {
     String? guestSessionId,
   });
+
+  /// Returns verified retailer offers for a product (GET /v1/discovery/products/{product_id}/offers).
+  Future<ProductOffersResult> getProductOffers(String productId);
+
+  /// Returns the authorized server redirect URI for an offer.
+  Uri getOfferRedirectUri({
+    required String offerId,
+    String? guestSessionId,
+    String surface = 'product_offers',
+    int? position,
+  });
 }
 
 /// Backend implementation of [DiscoverRepository].
@@ -220,6 +231,29 @@ class DiscoverRepositoryImpl implements DiscoverRepository {
         events: events,
       ),
       isGuest: !isAuth,
+    );
+  }
+
+  @override
+  Future<ProductOffersResult> getProductOffers(String productId) {
+    return _client.getProductOffers(productId: productId);
+  }
+
+  @override
+  Uri getOfferRedirectUri({
+    required String offerId,
+    String? guestSessionId,
+    String surface = 'product_offers',
+    int? position,
+  }) {
+    final effectiveGuestSessionId = AuthSession.isAuthenticated
+        ? null
+        : (guestSessionId ?? GuestSessionManager.getSessionId());
+    return _client.getOfferRedirectUri(
+      offerId: offerId,
+      guestSessionId: effectiveGuestSessionId,
+      surface: surface,
+      position: position,
     );
   }
 }

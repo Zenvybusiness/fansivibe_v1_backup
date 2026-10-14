@@ -27,6 +27,8 @@ from app.domain.ports.repositories import (
     MediaAttentionRepository,
     ProductCandidateRepository,
     ProductFilterCriteria,
+    ProductOfferRecord,
+    ProductVariantRecord,
     SavedLookCoverage,
     SavedLookRecord,
     SearchInterestEvidence,
@@ -81,6 +83,10 @@ from app.infrastructure.db.models import (
     Colors,
     Materials,
     DiscoveryEvent,
+    Retailer,
+    ProductVariant,
+    RetailerOffer,
+    OfferPriceHistory,
 )
 
 _ENGINE_VERSION = "rules-v1"
@@ -1637,6 +1643,304 @@ class DiscoveryRepositorySQL:
             )
         )
 
+    def _is_primary_source(
+        self, product_id: UUID, source: str, source_product_id: str
+    ) -> bool:
+        """True if (source, source_product_id) was the original creator of this canonical product."""
+        first_map = self._session.execute(
+            select(ProductSourceMap)
+            .where(ProductSourceMap.product_id == product_id)
+            .order_by(ProductSourceMap.created_at.asc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if first_map is None:
+            return True
+        return (
+            first_map.source == source
+            and first_map.source_product_id == source_product_id
+        )
+
+    def _get_or_create_retailer(self, source: str) -> Retailer:
+        """Get or create the Retailer entity for a source adapter slug."""
+        retailer = self._session.execute(
+            select(Retailer).where(Retailer.slug == source)
+        ).scalar_one_or_none()
+        if retailer is None:
+            known_retailers = {
+                "amazon_in": ("Amazon India", "amazon.in"),
+                "flipkart": ("Flipkart", "flipkart.com"),
+                "myntra": ("Myntra", "myntra.com"),
+                "ajio": ("Ajio", "ajio.com"),
+                "tata_cliq": ("Tata CLiQ", "tatacliq.com"),
+            }
+            name, domain = known_retailers.get(
+                source,
+                (source.replace("_", " ").title(), f"{source.replace('_', '')}.com"),
+            )
+            retailer = Retailer(
+                slug=source,
+                name=name,
+                domain=domain,
+                is_active=True,
+            )
+            self._session.add(retailer)
+            self._session.flush()
+        return retailer
+
+    def _find_or_create_variant(
+        self, product_id: UUID, product: NormalizedProduct, raw_id: Optional[UUID] = None
+    ) -> Optional[UUID]:
+        """Optionally resolve or create a ProductVariant if variant attributes exist."""
+        payload: dict = {}
+        if raw_id:
+            raw_rec = self._session.get(RawSourceRecord, raw_id)
+            if raw_rec and isinstance(raw_rec.payload, dict):
+                payload = raw_rec.payload
+
+        size = (
+            getattr(product, "size", None)
+            or product.attributes.get("size")
+            or payload.get("size")
+            or (payload.get("attributes", {}).get("size") if isinstance(payload.get("attributes"), dict) else None)
+        )
+        color = (
+            getattr(product, "color", None)
+            or product.attributes.get("color")
+            or payload.get("color")
+            or (payload.get("attributes", {}).get("color") if isinstance(payload.get("attributes"), dict) else None)
+        )
+        sku = (
+            getattr(product, "sku", None)
+            or product.attributes.get("sku")
+            or payload.get("sku")
+            or (payload.get("attributes", {}).get("sku") if isinstance(payload.get("attributes"), dict) else None)
+        )
+        gtin = product.gtin or payload.get("gtin")
+
+        if not (size or color or sku):
+            return None
+
+        stmt = select(ProductVariant).where(ProductVariant.product_id == product_id)
+        if sku:
+            stmt = stmt.where(ProductVariant.sku == str(sku))
+        if size:
+            stmt = stmt.where(ProductVariant.size == str(size))
+        if color:
+            stmt = stmt.where(ProductVariant.color == str(color))
+        existing = self._session.execute(stmt.limit(1)).scalar_one_or_none()
+        if existing is not None:
+            return existing.id
+
+        variant_attrs = dict(product.attributes)
+        if size and "size" not in variant_attrs:
+            variant_attrs["size"] = str(size)
+        if color and "color" not in variant_attrs:
+            variant_attrs["color"] = str(color)
+        if sku and "sku" not in variant_attrs:
+            variant_attrs["sku"] = str(sku)
+
+        variant = ProductVariant(
+            product_id=product_id,
+            sku=str(sku)[:100] if sku else None,
+            gtin=str(gtin)[:14] if gtin else None,
+            size=str(size)[:50] if size else None,
+            color=str(color)[:50] if color else None,
+            attributes=variant_attrs,
+        )
+        self._session.add(variant)
+        self._session.flush()
+        return variant.id
+
+    def _upsert_retailer_offer(
+        self,
+        *,
+        product_id: UUID,
+        retailer_id: UUID,
+        variant_id: Optional[UUID],
+        source_product_id: str,
+        raw_id: UUID,
+        product: NormalizedProduct,
+    ) -> RetailerOffer:
+        """Upsert a retailer-specific product offer and append price history on change."""
+        offer = self._session.execute(
+            select(RetailerOffer).where(
+                RetailerOffer.retailer_id == retailer_id,
+                RetailerOffer.source_product_id == source_product_id,
+            )
+        ).scalar_one_or_none()
+
+        if offer is None:
+            price_val = float(product.price) if product.price is not None else 0.0
+            currency_val = product.currency or "INR"
+            avail_val = bool(product.availability) if product.availability is not None else True
+            url_val = product.product_url if product.product_url else None
+            offer = RetailerOffer(
+                product_id=product_id,
+                retailer_id=retailer_id,
+                variant_id=variant_id,
+                source_product_id=source_product_id,
+                raw_source_record_id=raw_id,
+                product_url=url_val,
+                price=price_val,
+                currency=currency_val,
+                availability=avail_val,
+                in_stock=avail_val,
+                last_checked_at=func.now(),
+                is_active=True,
+            )
+            self._session.add(offer)
+            self._session.flush()
+            self._session.add(
+                OfferPriceHistory(
+                    offer_id=offer.id,
+                    price=price_val,
+                    currency=currency_val,
+                    availability=avail_val,
+                    observed_at=product.observed_at or func.now(),
+                    raw_source_record_id=raw_id,
+                )
+            )
+        else:
+            price_changed = False
+            avail_changed = False
+            if product.price is not None:
+                new_price = float(product.price)
+                if float(offer.price) != new_price:
+                    offer.price = new_price
+                    price_changed = True
+            if product.currency is not None:
+                offer.currency = product.currency
+            if product.product_url is not None:
+                offer.product_url = product.product_url if product.product_url else None
+            if product.availability is not None:
+                if offer.availability != product.availability:
+                    offer.availability = product.availability
+                    offer.in_stock = product.availability
+                    avail_changed = True
+            offer.last_checked_at = func.now()
+            offer.raw_source_record_id = raw_id
+            offer.updated_at = func.now()
+            if variant_id is not None:
+                offer.variant_id = variant_id
+
+            if price_changed or avail_changed:
+                self._session.add(
+                    OfferPriceHistory(
+                        offer_id=offer.id,
+                        price=offer.price,
+                        currency=offer.currency,
+                        availability=offer.availability,
+                        observed_at=product.observed_at or func.now(),
+                        raw_source_record_id=raw_id,
+                    )
+                )
+
+        return offer
+
+    def _sync_product_legacy_fields(self, product_id: UUID) -> None:
+        """Synchronize legacy Product columns from active RetailerOffers without database triggers."""
+        row = self._session.get(Product, product_id)
+        if row is None:
+            return
+
+        offers = (
+            self._session.execute(
+                select(RetailerOffer)
+                .where(
+                    RetailerOffer.product_id == product_id,
+                    RetailerOffer.is_active == True,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not offers:
+            return
+
+        row.availability = any(o.availability and o.in_stock for o in offers)
+        row.last_verified_at = func.now()
+
+    @staticmethod
+    def _to_offer_record(
+        offer: RetailerOffer,
+        retailer: Retailer,
+        variant: Optional[ProductVariant] = None,
+    ) -> ProductOfferRecord:
+        variant_record = None
+        if variant is not None:
+            variant_record = ProductVariantRecord(
+                id=variant.id,
+                sku=variant.sku,
+                gtin=variant.gtin,
+                size=variant.size,
+                color=variant.color,
+                attributes=dict(variant.attributes or {}),
+            )
+        return ProductOfferRecord(
+            id=offer.id,
+            retailer_id=retailer.id,
+            retailer_name=retailer.name,
+            retailer_slug=retailer.slug,
+            price=float(offer.price),
+            currency=offer.currency,
+            availability=offer.availability,
+            product_url=offer.product_url or "",
+            affiliate_url=offer.affiliate_url,
+            in_stock=offer.in_stock,
+            original_price=float(offer.original_price) if offer.original_price is not None else None,
+            last_checked_at=offer.last_checked_at,
+            retailer_domain=retailer.domain,
+            variant=variant_record,
+            product_id=offer.product_id,
+            is_active=bool(offer.is_active and retailer.is_active),
+        )
+
+    def get_product_offers(
+        self, product_id: UUID
+    ) -> tuple[ProductOfferRecord, ...]:
+        """Fetch all active commercial offers for a canonical product from active retailers."""
+        rows = (
+            self._session.execute(
+                select(RetailerOffer, Retailer, ProductVariant)
+                .join(Retailer, Retailer.id == RetailerOffer.retailer_id)
+                .outerjoin(ProductVariant, ProductVariant.id == RetailerOffer.variant_id)
+                .where(
+                    RetailerOffer.product_id == product_id,
+                    RetailerOffer.is_active == True,
+                    Retailer.is_active == True,
+                )
+                .order_by(
+                    RetailerOffer.in_stock.desc(),
+                    RetailerOffer.availability.desc(),
+                    RetailerOffer.price.asc(),
+                    RetailerOffer.created_at.asc(),
+                )
+            )
+            .all()
+        )
+        return tuple(
+            self._to_offer_record(offer, retailer, variant)
+            for offer, retailer, variant in rows
+        )
+
+    def get_offer_by_id(
+        self, offer_id: UUID
+    ) -> Optional[ProductOfferRecord]:
+        """Fetch a specific retailer offer by its UUID with retailer and variant info."""
+        row = (
+            self._session.execute(
+                select(RetailerOffer, Retailer, ProductVariant)
+                .join(Retailer, Retailer.id == RetailerOffer.retailer_id)
+                .outerjoin(ProductVariant, ProductVariant.id == RetailerOffer.variant_id)
+                .where(RetailerOffer.id == offer_id)
+            )
+            .first()
+        )
+        if row is None:
+            return None
+        offer, retailer, variant = row
+        return self._to_offer_record(offer, retailer, variant)
+
     def upsert_product(
         self,
         *,
@@ -1647,6 +1951,12 @@ class DiscoveryRepositorySQL:
         raw_id: UUID,
         payload_hash: str,
     ) -> IdentityDecision:
+        is_fixture = bool(
+            product.attributes.get("fixture", False)
+            or product.attributes.get("synthetic", False)
+            or source in ("fashion_seed", "fixture")
+        )
+
         mapping = self._session.execute(
             select(ProductSourceMap).where(
                 ProductSourceMap.source == source,
@@ -1655,10 +1965,7 @@ class DiscoveryRepositorySQL:
         ).scalar_one_or_none()
 
         if mapping is not None:
-            # Exact source identity re-observed: refresh canonical values but
-            # keep first_seen_at (discovery time) intact. The new observation
-            # records the change history.
-            self._update_product_fields(mapping.product_id, product)
+            # Exact source identity re-observed: refresh mapping & record observation
             mapping.raw_source_record_id = raw_id
             mapping.observed_at = product.observed_at
             self._record_observation(
@@ -1670,6 +1977,26 @@ class DiscoveryRepositorySQL:
                 raw_id=raw_id,
                 payload_hash=payload_hash,
             )
+
+            if is_fixture:
+                # Synthetic fixtures maintain fields directly on Product row
+                self._update_product_fields(mapping.product_id, product)
+            else:
+                retailer = self._get_or_create_retailer(source)
+                variant_id = self._find_or_create_variant(mapping.product_id, product, raw_id=raw_id)
+                self._upsert_retailer_offer(
+                    product_id=mapping.product_id,
+                    retailer_id=retailer.id,
+                    variant_id=variant_id,
+                    source_product_id=source_product_id,
+                    raw_id=raw_id,
+                    product=product,
+                )
+                # Primary source refreshes canonical metadata on Product; secondary source never overwrites
+                if self._is_primary_source(mapping.product_id, source, source_product_id):
+                    self._update_product_fields(mapping.product_id, product)
+                self._sync_product_legacy_fields(mapping.product_id)
+
             self._session.commit()
             return IdentityDecision(MATCH_EXACT, mapping.product_id)
 
@@ -1703,6 +2030,19 @@ class DiscoveryRepositorySQL:
                 raw_id=raw_id,
                 payload_hash=payload_hash,
             )
+            if not is_fixture:
+                retailer = self._get_or_create_retailer(source)
+                variant_id = self._find_or_create_variant(decision.product_id, product, raw_id=raw_id)
+                self._upsert_retailer_offer(
+                    product_id=decision.product_id,
+                    retailer_id=retailer.id,
+                    variant_id=variant_id,
+                    source_product_id=source_product_id,
+                    raw_id=raw_id,
+                    product=product,
+                )
+                self._sync_product_legacy_fields(decision.product_id)
+
             self._session.commit()
             return decision
 
@@ -1713,8 +2053,8 @@ class DiscoveryRepositorySQL:
             subcategory=product.subcategory,
             attributes=self._db_attributes(product),
             price=product.price,
-            currency=product.currency,
-            availability=product.availability,
+            currency=product.currency or "INR",
+            availability=product.availability if product.availability is not None else True,
             product_url=product.product_url,
             image_urls=list(product.image_urls),
         )
@@ -1738,6 +2078,19 @@ class DiscoveryRepositorySQL:
             raw_id=raw_id,
             payload_hash=payload_hash,
         )
+        if not is_fixture:
+            retailer = self._get_or_create_retailer(source)
+            variant_id = self._find_or_create_variant(row.id, product, raw_id=raw_id)
+            self._upsert_retailer_offer(
+                product_id=row.id,
+                retailer_id=retailer.id,
+                variant_id=variant_id,
+                source_product_id=source_product_id,
+                raw_id=raw_id,
+                product=product,
+            )
+            self._sync_product_legacy_fields(row.id)
+
         self._session.commit()
         return decision
 
@@ -1776,7 +2129,9 @@ class DiscoveryRepositorySQL:
         self._session.rollback()
 
     @staticmethod
-    def _to_catalog_product(row: Product) -> CatalogProductRecord:
+    def _to_catalog_product(
+        row: Product, offers: tuple[ProductOfferRecord, ...] = ()
+    ) -> CatalogProductRecord:
         """Convert a SQLAlchemy Product row into an immutable CatalogProductRecord."""
         return CatalogProductRecord(
             id=row.id,
@@ -1790,6 +2145,7 @@ class DiscoveryRepositorySQL:
             availability=row.availability,
             product_url=row.product_url,
             image_urls=tuple(row.image_urls or ()),
+            offers=offers,
             first_seen_at=row.first_seen_at,
             last_verified_at=row.last_verified_at,
             created_at=row.created_at,
@@ -1797,11 +2153,12 @@ class DiscoveryRepositorySQL:
         )
 
     def get_by_id(self, product_id: UUID) -> Optional[CatalogProductRecord]:
-        """Fetch a single catalog product by its canonical UUID."""
+        """Fetch a single catalog product by its canonical UUID with active offers."""
         row = self._session.get(Product, product_id)
         if row is None:
             return None
-        return self._to_catalog_product(row)
+        offers = self.get_product_offers(product_id)
+        return self._to_catalog_product(row, offers=offers)
 
     def _build_filter_clauses(self, criteria: ProductFilterCriteria) -> list[Any]:
         """Compile hard filter criteria into SQLAlchemy WHERE expressions."""

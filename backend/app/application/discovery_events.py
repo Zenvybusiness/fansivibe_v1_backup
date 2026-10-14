@@ -44,6 +44,7 @@ _ALLOWED_EVENT_TYPES = {
     "product_save",
     "product_unsave",
     "look_select",
+    "offer_click",
 }
 _DEFERRED_EVENT_TYPES = {"look_save", "product_dismiss"}
 _ALLOWED_SURFACES = {
@@ -51,6 +52,8 @@ _ALLOWED_SURFACES = {
     "for_you_grid",
     "because_you_like",
     "complete_looks",
+    "product_offers",
+    "product_offer_sheet",
 }
 _ALLOWED_CATEGORIES = {"tops", "bottoms", "outerwear", "footwear", "accessories"}
 
@@ -159,6 +162,7 @@ class IngestDiscoveryEvents:
                     "product_click",
                     "product_save",
                     "product_unsave",
+                    "offer_click",
                 }:
                     field_errors.append(
                         {
@@ -294,6 +298,59 @@ class IngestDiscoveryEvents:
                             {
                                 "field": f"{prefix}.metadata.{k}",
                                 "error": f"Disallowed metadata key '{k}' for {ev.eventType}.",
+                            }
+                        )
+                if "activeCategoryFilter" in meta:
+                    v = meta["activeCategoryFilter"]
+                    if v is not None and v not in _ALLOWED_CATEGORIES:
+                        field_errors.append(
+                            {
+                                "field": f"{prefix}.metadata.activeCategoryFilter",
+                                "error": "activeCategoryFilter must be null or an allowed category.",
+                            }
+                        )
+            elif ev.eventType == "offer_click":
+                allowed_keys = {
+                    "offerId",
+                    "retailer",
+                    "retailerSlug",
+                    "activeCategoryFilter",
+                }
+                for k in meta.keys():
+                    if k not in allowed_keys:
+                        field_errors.append(
+                            {
+                                "field": f"{prefix}.metadata.{k}",
+                                "error": f"Disallowed metadata key '{k}' for offer_click.",
+                            }
+                        )
+                if "offerId" in meta:
+                    v = meta["offerId"]
+                    try:
+                        UUID(str(v))
+                    except (ValueError, TypeError):
+                        field_errors.append(
+                            {
+                                "field": f"{prefix}.metadata.offerId",
+                                "error": "offerId must be a valid UUID string.",
+                            }
+                        )
+                if "retailer" in meta:
+                    v = meta["retailer"]
+                    if not isinstance(v, str) or not (1 <= len(v) <= 100):
+                        field_errors.append(
+                            {
+                                "field": f"{prefix}.metadata.retailer",
+                                "error": "retailer must be a non-empty string up to 100 characters.",
+                            }
+                        )
+                if "retailerSlug" in meta:
+                    v = meta["retailerSlug"]
+                    if not isinstance(v, str) or not (1 <= len(v) <= 100):
+                        field_errors.append(
+                            {
+                                "field": f"{prefix}.metadata.retailerSlug",
+                                "error": "retailerSlug must be a non-empty string up to 100 characters.",
                             }
                         )
                 if "activeCategoryFilter" in meta:

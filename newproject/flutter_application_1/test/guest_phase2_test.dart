@@ -268,6 +268,29 @@ class _CountingDiscoverRepository implements DiscoverRepository {
       DiscoveryEventsBatchResponse(acceptedCount: 1, events: []),
     );
   }
+
+  @override
+  Future<ProductOffersResult> getProductOffers(String productId) async {
+    return ProductOffersResult.success(
+      ProductOffersResponse(
+        productId: productId,
+        title: 'Guest Product',
+        isSyntheticFixture: false,
+        offersCount: 0,
+        offers: const [],
+      ),
+    );
+  }
+
+  @override
+  Uri getOfferRedirectUri({
+    required String offerId,
+    String? guestSessionId,
+    String surface = 'product_offers',
+    int? position,
+  }) {
+    return Uri.parse('http://localhost:8000/v1/discovery/offers/$offerId/redirect');
+  }
 }
 
 class _CountingOutfitRepository implements OutfitBuilderRepository {

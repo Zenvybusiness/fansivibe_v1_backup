@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/discover/data/discover_models.dart';
 import 'package:fansivibe/features/discover/data/discover_repository.dart';
 import 'package:fansivibe/features/discover/presentation/discover_screen.dart';
@@ -185,6 +186,29 @@ class MockDiscoverRepository implements DiscoverRepository {
         const DiscoveryEventsResult.success(
           DiscoveryEventsBatchResponse(acceptedCount: 1, events: []),
         );
+  }
+
+  @override
+  Future<ProductOffersResult> getProductOffers(String productId) async {
+    return ProductOffersResult.success(
+      ProductOffersResponse(
+        productId: productId,
+        title: 'Mock Product',
+        isSyntheticFixture: false,
+        offersCount: 0,
+        offers: const [],
+      ),
+    );
+  }
+
+  @override
+  Uri getOfferRedirectUri({
+    required String offerId,
+    String? guestSessionId,
+    String surface = 'product_offers',
+    int? position,
+  }) {
+    return Uri.parse('http://localhost:8000/v1/discovery/offers/$offerId/redirect');
   }
 }
 
@@ -2713,6 +2737,59 @@ void main() {
       final aspectRatios = tester.widgetList<AspectRatio>(find.byType(AspectRatio));
       expect(aspectRatios.any((a) => a.aspectRatio == 0.85), isTrue); // EditorialLookCard visual area
       expect(aspectRatios.any((a) => a.aspectRatio == 0.95), isTrue); // EditorialCommerceItemCard visual area
+    });
+
+    // =========================================================================
+    // TASK DISCOVERY-10B-1: FIXTURE IMAGERY REPAIR & ROUTABLE RESOLUTION TESTS
+    // =========================================================================
+    test('10. AppConfig.resolveImageUrl resolves relative, loopback, public, and asset URLs safely', () {
+      // 1. Relative static asset path prepends resolvedApiBaseUrl
+      final relativeUrl = '/static/fixtures/fashion/SEED-TOP-001.png';
+      final resolvedRelative = AppConfig.resolveImageUrl(relativeUrl);
+      expect(resolvedRelative, startsWith('http'));
+      expect(resolvedRelative, endsWith(relativeUrl));
+
+      // 2. Public CDN / HTTPS URL is preserved verbatim
+      const publicCdn = 'https://rukminim1.flixcart.com/image/832/832/product.jpg';
+      expect(AppConfig.resolveImageUrl(publicCdn), publicCdn);
+
+      // 3. Bundled Flutter asset path is preserved verbatim
+      const assetPath = 'assets/images/discover_hero_quiet_luxury.jpg';
+      expect(AppConfig.resolveImageUrl(assetPath), assetPath);
+
+      // 4. Empty and blank strings return unchanged
+      expect(AppConfig.resolveImageUrl(''), '');
+      expect(AppConfig.resolveImageUrl('   '), '');
+    });
+
+    testWidgets('11. AtelierImage resolves routable URLs, supports Image.network and graceful fallback', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: const [
+                // 1. Network image with relative path
+                AtelierImage(
+                  assetPath: '/static/fixtures/fashion/SEED-TOP-001.png',
+                  width: 100,
+                  height: 120,
+                ),
+                // 2. Bundled Flutter asset
+                AtelierImage(
+                  assetPath: 'assets/images/discover_hero_quiet_luxury.jpg',
+                  width: 100,
+                  height: 120,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // AtelierImage renders without crashing and mounts the image widgets
+      expect(find.byType(AtelierImage), findsNWidgets(2));
+      expect(find.byType(Image), findsNWidgets(2));
     });
   });
 }

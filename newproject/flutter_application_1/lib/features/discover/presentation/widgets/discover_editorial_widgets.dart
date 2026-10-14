@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 
@@ -47,12 +48,13 @@ class AtelierImage extends StatelessWidget {
           ),
         );
 
+    final resolvedPath = AppConfig.resolveImageUrl(assetPath);
     final isNetwork =
-        assetPath.startsWith('http://') || assetPath.startsWith('https://');
+        resolvedPath.startsWith('http://') || resolvedPath.startsWith('https://');
 
     if (isNetwork) {
       return Image.network(
-        assetPath,
+        resolvedPath,
         fit: fit,
         alignment: alignment,
         width: width,
@@ -62,7 +64,7 @@ class AtelierImage extends StatelessWidget {
     }
 
     return Image.asset(
-      assetPath,
+      resolvedPath,
       fit: fit,
       alignment: alignment,
       width: width,

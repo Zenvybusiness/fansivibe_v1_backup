@@ -111,7 +111,8 @@ def test_all_records_normalize_successfully() -> None:
         assert prod.availability is True
         assert prod.product_url is not None and prod.product_url.startswith("https://")
         assert len(prod.image_urls) > 0
-        assert prod.image_urls[0].startswith("https://")
+        assert prod.image_urls[0].startswith("/static/fixtures/fashion/") or prod.image_urls[0].startswith("http")
+        assert "cdn.fixture.test" not in prod.image_urls[0]
 
 
 def test_category_coverage() -> None:
@@ -305,7 +306,7 @@ def test_updated_source_record_creates_observation_without_duplicate_product(db)
             "currency": "INR",
             "availability": True,
             "product_url": "https://catalog.fixture.test/products/SEED-UPDATE-TEST",
-            "image_urls": ["https://cdn.fixture.test/fashion/SEED-UPDATE-TEST.jpg"],
+            "image_urls": ["/static/fixtures/fashion/SEED-UPDATE-TEST.png"],
             "attributes": {"fixture": True, "synthetic": True, "note": "test"},
         },
     )
@@ -339,7 +340,7 @@ def test_updated_source_record_creates_observation_without_duplicate_product(db)
             "currency": "INR",
             "availability": True,
             "product_url": "https://catalog.fixture.test/products/SEED-UPDATE-TEST",
-            "image_urls": ["https://cdn.fixture.test/fashion/SEED-UPDATE-TEST.jpg"],
+            "image_urls": ["/static/fixtures/fashion/SEED-UPDATE-TEST.png"],
             "attributes": {"fixture": True, "synthetic": True, "note": "test"},
         },
     )

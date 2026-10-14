@@ -1302,4 +1302,199 @@ class DiscoveryEventsResult {
   bool get isSuccess => response != null;
 }
 
+// =========================================================================
+// Multi-Retailer Product Offers Models (DISCOVERY-10B-3)
+// =========================================================================
+
+/// Public summary of a verified retailer/merchant (DISCOVERY-10B-3).
+class RetailerSummary {
+  const RetailerSummary({
+    required this.id,
+    required this.name,
+    required this.slug,
+    required this.domain,
+  });
+
+  final String id;
+  final String name;
+  final String slug;
+  final String domain;
+
+  factory RetailerSummary.fromJson(Map<String, dynamic> json) =>
+      RetailerSummary(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        slug: json['slug'] as String,
+        domain: json['domain'] as String? ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'slug': slug,
+        'domain': domain,
+      };
+}
+
+/// Product variant attributes associated with an offer (DISCOVERY-10B-3).
+class ProductVariantSummary {
+  const ProductVariantSummary({
+    required this.id,
+    this.sku,
+    this.gtin,
+    this.size,
+    this.color,
+    this.attributes = const {},
+  });
+
+  final String id;
+  final String? sku;
+  final String? gtin;
+  final String? size;
+  final String? color;
+  final Map<String, dynamic> attributes;
+
+  factory ProductVariantSummary.fromJson(Map<String, dynamic> json) =>
+      ProductVariantSummary(
+        id: json['id'] as String,
+        sku: json['sku'] as String?,
+        gtin: json['gtin'] as String?,
+        size: json['size'] as String?,
+        color: json['color'] as String?,
+        attributes: (json['attributes'] as Map<String, dynamic>?) ?? const {},
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'sku': sku,
+        'gtin': gtin,
+        'size': size,
+        'color': color,
+        'attributes': attributes,
+      };
+}
+
+/// One verified commercial retailer offer for a canonical product (DISCOVERY-10B-3).
+class ProductOfferItem {
+  const ProductOfferItem({
+    required this.id,
+    required this.retailer,
+    required this.price,
+    this.originalPrice,
+    this.currency = 'INR',
+    this.availability = true,
+    this.inStock = true,
+    this.productUrl,
+    required this.redirectUrl,
+    this.variant,
+    this.lastCheckedAt,
+    this.isPriceFresh = true,
+    this.freshnessStatus = 'fresh',
+  });
+
+  final String id;
+  final RetailerSummary retailer;
+  final double price;
+  final double? originalPrice;
+  final String currency;
+  final bool availability;
+  final bool inStock;
+  final String? productUrl;
+  final String redirectUrl;
+  final ProductVariantSummary? variant;
+  final String? lastCheckedAt;
+  final bool isPriceFresh;
+  final String freshnessStatus;
+
+  factory ProductOfferItem.fromJson(Map<String, dynamic> json) =>
+      ProductOfferItem(
+        id: json['id'] as String,
+        retailer: RetailerSummary.fromJson(
+            json['retailer'] as Map<String, dynamic>),
+        price: (json['price'] as num).toDouble(),
+        originalPrice: (json['originalPrice'] as num?)?.toDouble(),
+        currency: json['currency'] as String? ?? 'INR',
+        availability: json['availability'] as bool? ?? true,
+        inStock: json['inStock'] as bool? ?? true,
+        productUrl: json['productUrl'] as String?,
+        redirectUrl: json['redirectUrl'] as String? ?? '',
+        variant: json['variant'] != null
+            ? ProductVariantSummary.fromJson(
+                json['variant'] as Map<String, dynamic>)
+            : null,
+        lastCheckedAt: json['lastCheckedAt'] as String?,
+        isPriceFresh: json['isPriceFresh'] as bool? ?? true,
+        freshnessStatus: json['freshnessStatus'] as String? ?? 'fresh',
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'retailer': retailer.toJson(),
+        'price': price,
+        'originalPrice': originalPrice,
+        'currency': currency,
+        'availability': availability,
+        'inStock': inStock,
+        'productUrl': productUrl,
+        'redirectUrl': redirectUrl,
+        if (variant != null) 'variant': variant!.toJson(),
+        'lastCheckedAt': lastCheckedAt,
+        'isPriceFresh': isPriceFresh,
+        'freshnessStatus': freshnessStatus,
+      };
+}
+
+/// Shopping comparison response containing verified retailer offers (DISCOVERY-10B-3).
+class ProductOffersResponse {
+  const ProductOffersResponse({
+    required this.productId,
+    required this.title,
+    this.brand,
+    this.isSyntheticFixture = false,
+    this.offersCount = 0,
+    this.offers = const [],
+  });
+
+  final String productId;
+  final String title;
+  final String? brand;
+  final bool isSyntheticFixture;
+  final int offersCount;
+  final List<ProductOfferItem> offers;
+
+  factory ProductOffersResponse.fromJson(Map<String, dynamic> json) =>
+      ProductOffersResponse(
+        productId: json['productId'] as String,
+        title: json['title'] as String? ?? '',
+        brand: json['brand'] as String?,
+        isSyntheticFixture: json['isSyntheticFixture'] as bool? ?? false,
+        offersCount: (json['offersCount'] as num?)?.toInt() ?? 0,
+        offers: (json['offers'] as List?)
+                ?.map((e) =>
+                    ProductOfferItem.fromJson(e as Map<String, dynamic>))
+                .toList() ??
+            const [],
+      );
+
+  Map<String, dynamic> toJson() => {
+        'productId': productId,
+        'title': title,
+        'brand': brand,
+        'isSyntheticFixture': isSyntheticFixture,
+        'offersCount': offersCount,
+        'offers': offers.map((e) => e.toJson()).toList(),
+      };
+}
+
+/// Result envelope for product offers requests.
+class ProductOffersResult {
+  const ProductOffersResult.success(this.response) : failure = null;
+  const ProductOffersResult.failure(this.failure) : response = null;
+
+  final ProductOffersResponse? response;
+  final DiscoverFailure? failure;
+
+  bool get isSuccess => response != null;
+}
+
 

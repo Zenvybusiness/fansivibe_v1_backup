@@ -992,6 +992,40 @@ class DiscoveryRepository(Protocol):
 
 
 @dataclass(frozen=True)
+class ProductVariantRecord:
+    """Variant metadata (size, color, SKU, GTIN) for a product (DISCOVERY-10B-3)."""
+
+    id: UUID
+    sku: Optional[str] = None
+    gtin: Optional[str] = None
+    size: Optional[str] = None
+    color: Optional[str] = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ProductOfferRecord:
+    """One retailer's commercial offer for a canonical product (DISCOVERY-10B-2)."""
+
+    id: UUID
+    retailer_id: UUID
+    retailer_name: str
+    retailer_slug: str
+    price: float
+    product_url: str
+    currency: str = "INR"
+    availability: bool = True
+    in_stock: bool = True
+    original_price: Optional[float] = None
+    affiliate_url: Optional[str] = None
+    last_checked_at: Optional[datetime] = None
+    retailer_domain: str = ""
+    variant: Optional[ProductVariantRecord] = None
+    product_id: Optional[UUID] = None
+    is_active: bool = True
+
+
+@dataclass(frozen=True)
 class CatalogProductRecord:
     """One normalized catalog product shaped for domain use cases (DISCOVERY-03).
 
@@ -999,6 +1033,7 @@ class CatalogProductRecord:
     ``None`` (or empty) — never fabricated. ``price`` is exact numeric INR.
     ``image_urls`` holds provider CDN URLs only (never binaries).
     ``is_synthetic`` / ``is_fixture`` explicitly flag test fixtures.
+    ``offers`` contains all active multi-retailer commercial offers.
     """
 
     id: UUID
@@ -1012,6 +1047,7 @@ class CatalogProductRecord:
     availability: Optional[bool] = None
     product_url: Optional[str] = None
     image_urls: tuple[str, ...] = ()
+    offers: tuple[ProductOfferRecord, ...] = ()
     first_seen_at: Optional[datetime] = None
     last_verified_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
@@ -1109,6 +1145,14 @@ class ProductCandidateRepository(Protocol):
         offset: int = 0,
         limit: int = 20,
     ) -> tuple[CatalogProductRecord, ...]: ...
+
+    def get_product_offers(
+        self, product_id: UUID
+    ) -> tuple[ProductOfferRecord, ...]: ...
+
+    def get_offer_by_id(
+        self, offer_id: UUID
+    ) -> Optional[ProductOfferRecord]: ...
 
 
 

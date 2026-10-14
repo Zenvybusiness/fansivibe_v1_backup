@@ -67,7 +67,7 @@ def _seed_payload(
         "currency": "INR",
         "availability": True,
         "product_url": f"https://catalog.fixture.test/products/{record_id}",
-        "image_urls": [f"https://cdn.fixture.test/fashion/{record_id}.jpg"],
+        "image_urls": [f"/static/fixtures/fashion/{record_id}.png"],
         "gtin": gtin,
         "attributes": {
             "fixture": True,

@@ -1357,7 +1357,7 @@ class DiscoveryEvent(Base):
             name="ck_discovery_events_identity",
         ),
         CheckConstraint(
-            "event_type IN ('product_impression', 'product_click', 'product_save', 'product_unsave', 'look_select')",
+            "event_type IN ('product_impression', 'product_click', 'product_save', 'product_unsave', 'look_select', 'offer_click')",
             name="ck_discovery_events_event_type",
         ),
         CheckConstraint(
@@ -1369,7 +1369,7 @@ class DiscoveryEvent(Base):
             name="ck_discovery_events_target_consistency",
         ),
         CheckConstraint(
-            "surface IN ('for_you_hero', 'for_you_grid', 'because_you_like', 'complete_looks')",
+            "surface IN ('for_you_hero', 'for_you_grid', 'because_you_like', 'complete_looks', 'product_offers', 'product_offer_sheet')",
             name="ck_discovery_events_surface",
         ),
         CheckConstraint(
@@ -1438,5 +1438,219 @@ class DiscoveryEvent(Base):
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("clock_timestamp()")
     )
+
+
+class Retailer(Base):
+    """Verified retailer/merchant registry for multi-retailer offers (DISCOVERY-10B-2)."""
+
+    __tablename__ = "retailers"
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_retailers_slug"),
+        CheckConstraint(
+            "char_length(slug) BETWEEN 1 AND 100",
+            name="ck_retailers_slug_len",
+        ),
+        CheckConstraint(
+            "char_length(name) BETWEEN 1 AND 200",
+            name="ck_retailers_name_len",
+        ),
+        CheckConstraint(
+            "char_length(domain) BETWEEN 1 AND 200",
+            name="ck_retailers_domain_len",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    slug: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    domain: Mapped[str] = mapped_column(Text, nullable=False)
+    affiliate_network: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    affiliate_url_template: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ProductVariant(Base):
+    """Product variant (size/color/SKU) under a canonical product (DISCOVERY-10B-2)."""
+
+    __tablename__ = "product_variants"
+    __table_args__ = (
+        CheckConstraint(
+            "sku IS NULL OR char_length(sku) BETWEEN 1 AND 100",
+            name="ck_product_variants_sku_len",
+        ),
+        CheckConstraint(
+            "gtin IS NULL OR char_length(gtin) BETWEEN 8 AND 14",
+            name="ck_product_variants_gtin_len",
+        ),
+        CheckConstraint(
+            "size IS NULL OR char_length(size) BETWEEN 1 AND 50",
+            name="ck_product_variants_size_len",
+        ),
+        CheckConstraint(
+            "color IS NULL OR char_length(color) BETWEEN 1 AND 50",
+            name="ck_product_variants_color_len",
+        ),
+        Index("ix_product_variants_product_id", "product_id"),
+        Index(
+            "ix_product_variants_gtin",
+            "gtin",
+            postgresql_where=text("gtin IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="CASCADE"), nullable=False
+    )
+    sku: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    gtin: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    size: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    color: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attributes: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class RetailerOffer(Base):
+    """Independent retailer-specific commercial product offer (DISCOVERY-10B-2)."""
+
+    __tablename__ = "retailer_offers"
+    __table_args__ = (
+        UniqueConstraint(
+            "retailer_id",
+            "source_product_id",
+            name="uq_retailer_offers_retailer_source_product",
+        ),
+        CheckConstraint(
+            "price >= 0",
+            name="ck_retailer_offers_price_nonnegative",
+        ),
+        CheckConstraint(
+            "original_price IS NULL OR original_price >= 0",
+            name="ck_retailer_offers_original_price_nonnegative",
+        ),
+        CheckConstraint(
+            "char_length(currency) BETWEEN 1 AND 10",
+            name="ck_retailer_offers_currency_len",
+        ),
+        CheckConstraint(
+            "char_length(source_product_id) BETWEEN 1 AND 200",
+            name="ck_retailer_offers_source_product_id_len",
+        ),
+        CheckConstraint(
+            "product_url IS NULL OR char_length(product_url) BETWEEN 1 AND 2048",
+            name="ck_retailer_offers_product_url_len",
+        ),
+        Index("ix_retailer_offers_product_id", "product_id"),
+        Index("ix_retailer_offers_retailer_id", "retailer_id"),
+        Index("ix_retailer_offers_last_checked_at", "last_checked_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="CASCADE"), nullable=False
+    )
+    retailer_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("retailers.id", ondelete="CASCADE"), nullable=False
+    )
+    variant_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("product_variants.id", ondelete="SET NULL"), nullable=True
+    )
+    source_product_id: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_source_record_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("raw_source_records.id", ondelete="SET NULL"), nullable=True
+    )
+    product_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    affiliate_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    original_price: Mapped[Optional[float]] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    currency: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'INR'")
+    )
+    availability: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    in_stock: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    last_checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class OfferPriceHistory(Base):
+    """Append-only price history and freshness audit ledger for offers (DISCOVERY-10B-2)."""
+
+    __tablename__ = "offer_price_history"
+    __table_args__ = (
+        CheckConstraint(
+            "price >= 0",
+            name="ck_offer_price_history_price_nonnegative",
+        ),
+        CheckConstraint(
+            "char_length(currency) BETWEEN 1 AND 10",
+            name="ck_offer_price_history_currency_len",
+        ),
+        Index(
+            "ix_offer_price_history_offer_observed",
+            "offer_id",
+            text("observed_at DESC"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    offer_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("retailer_offers.id", ondelete="CASCADE"), nullable=False
+    )
+    price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'INR'")
+    )
+    availability: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    source_timestamp: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    raw_source_record_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("raw_source_records.id", ondelete="SET NULL"), nullable=True
+    )
+
 
 
