@@ -201,6 +201,73 @@ class _CountingDiscoverRepository implements DiscoverRepository {
     forYouCalls++;
     return const ForYouFeedResult.failure(DiscoverFailure.networkError);
   }
+
+  int forYouRecommendationsCalls = 0;
+  int completeLooksCalls = 0;
+  int trendingCalls = 0;
+
+  @override
+  Future<ForYouDiscoveryResult> getForYouRecommendations({
+    int page = 1,
+    int pageSize = 20,
+    String? q,
+    List<String>? categories,
+    List<String>? excludeCategories,
+    List<String>? brands,
+    List<String>? excludeBrands,
+    double? minPrice,
+    double? maxPrice,
+    String? currency,
+    List<String>? colors,
+    List<String>? materials,
+    List<String>? fits,
+    List<String>? silhouettes,
+    bool? inStockOnly,
+    bool includeSynthetic = true,
+    bool isGuest = false,
+  }) async {
+    forYouRecommendationsCalls++;
+    return const ForYouDiscoveryResult.failure(DiscoverFailure.networkError);
+  }
+
+  @override
+  Future<CompleteLooksDiscoveryResult> getCompleteLooks({
+    int limit = 10,
+    double? maxBudget,
+    String? targetOccasion,
+    String? targetAesthetic,
+    String? anchorProductId,
+    String? anchorWardrobeItemId,
+    bool allowWardrobe = true,
+    bool includeSynthetic = true,
+  }) async {
+    completeLooksCalls++;
+    return const CompleteLooksDiscoveryResult.failure(DiscoverFailure.networkError);
+  }
+
+  @override
+  Future<DiscoveryTrendingResult> getTrending({
+    DateTime? windowStart,
+    DateTime? windowEnd,
+    int limit = 20,
+    String? category,
+  }) async {
+    trendingCalls++;
+    return const DiscoveryTrendingResult.failure(DiscoverFailure.networkError);
+  }
+
+  int recordEventsCalls = 0;
+
+  @override
+  Future<DiscoveryEventsResult> recordEvents(
+    List<DiscoveryEventItem> events, {
+    String? guestSessionId,
+  }) async {
+    recordEventsCalls++;
+    return const DiscoveryEventsResult.success(
+      DiscoveryEventsBatchResponse(acceptedCount: 1, events: []),
+    );
+  }
 }
 
 class _CountingOutfitRepository implements OutfitBuilderRepository {

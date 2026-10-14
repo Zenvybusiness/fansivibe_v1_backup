@@ -862,13 +862,17 @@ class CollectMediaAttention:
 def _source_registry() -> dict:
     """Bundled adapters, keyed by explicit source id.
 
-    Only the deterministic fixture adapter ships in this phase. Live
-    providers are deliberately absent — they require approved access and
+    Only deterministic fixture and catalog seed adapters ship in this phase.
+    Live providers are deliberately absent — they require approved access and
     configured credentials, so an unknown source is refused, never guessed.
     """
+    from app.infrastructure.external.fashion_catalog_seed import FashionCatalogSeedAdapter
     from app.infrastructure.external.fixture_source import FixtureSourceAdapter
 
-    return {"fixture_catalog": FixtureSourceAdapter}
+    return {
+        "fixture_catalog": FixtureSourceAdapter,
+        "fashion_seed": FashionCatalogSeedAdapter,
+    }
 
 
 def main(argv: Optional[list[str]] = None) -> int:

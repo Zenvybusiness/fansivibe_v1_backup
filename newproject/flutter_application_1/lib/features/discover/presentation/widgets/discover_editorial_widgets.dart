@@ -23,34 +23,51 @@ class AtelierImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    Widget buildFallback(BuildContext context, Object error, StackTrace? stackTrace) =>
+        Container(
+          width: width,
+          height: height,
+          decoration: BoxDecoration(
+            color: FansivibeColors.surfaceContainerLow,
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                FansivibeColors.surfaceContainerHigh,
+                FansivibeColors.surfaceContainerLow,
+              ],
+            ),
+          ),
+          child: Center(
+            child: Icon(
+              fallbackIcon,
+              color: FansivibeColors.primary.withValues(alpha: 0.5),
+              size: 28,
+            ),
+          ),
+        );
+
+    final isNetwork =
+        assetPath.startsWith('http://') || assetPath.startsWith('https://');
+
+    if (isNetwork) {
+      return Image.network(
+        assetPath,
+        fit: fit,
+        alignment: alignment,
+        width: width,
+        height: height,
+        errorBuilder: buildFallback,
+      );
+    }
+
     return Image.asset(
       assetPath,
       fit: fit,
       alignment: alignment,
       width: width,
       height: height,
-      errorBuilder: (context, error, stackTrace) => Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          color: FansivibeColors.surfaceContainerLow,
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              FansivibeColors.surfaceContainerHigh,
-              FansivibeColors.surfaceContainerLow,
-            ],
-          ),
-        ),
-        child: Center(
-          child: Icon(
-            fallbackIcon,
-            color: FansivibeColors.primary.withValues(alpha: 0.5),
-            size: 28,
-          ),
-        ),
-      ),
+      errorBuilder: buildFallback,
     );
   }
 }
@@ -573,10 +590,12 @@ class EditorialSectionHeader extends StatelessWidget {
 class SpotlightHeroCard extends StatelessWidget {
   const SpotlightHeroCard({
     required this.onTap,
+    this.badgeText = 'CURATED DIRECTIVE',
     super.key,
   });
 
   final VoidCallback onTap;
+  final String badgeText;
 
   @override
   Widget build(BuildContext context) {
@@ -626,7 +645,7 @@ class SpotlightHeroCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                // Top trending pill badge
+                // Top curated directive pill badge
                 Positioned(
                   top: 16,
                   left: 16,
@@ -656,7 +675,7 @@ class SpotlightHeroCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'TRENDING',
+                          badgeText,
                           style: FansivibeTypography.labelSmallWithFamily.copyWith(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
@@ -856,7 +875,7 @@ class EditorialLookCard extends StatelessWidget {
     required this.id,
     required this.title,
     required this.subtitle,
-    required this.savesCount,
+    this.badge = 'CURATED',
     required this.imageAsset,
     required this.onTap,
     this.isSaved = false,
@@ -867,7 +886,7 @@ class EditorialLookCard extends StatelessWidget {
   final String id;
   final String title;
   final String subtitle;
-  final String savesCount;
+  final String badge;
   final String imageAsset;
   final VoidCallback onTap;
   final bool isSaved;
@@ -877,7 +896,7 @@ class EditorialLookCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: '$title look, $savesCount',
+      label: '$title look, $badge curation',
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
@@ -957,7 +976,7 @@ class EditorialLookCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    // Saves counter pill (bottom left)
+                    // Editorial curation pill (bottom left)
                     Positioned(
                       left: 10,
                       bottom: 10,
@@ -975,7 +994,7 @@ class EditorialLookCard extends StatelessWidget {
                           ),
                         ),
                         child: Text(
-                          savesCount,
+                          badge,
                           style: FansivibeTypography.labelSmallWithFamily.copyWith(
                             fontSize: 9.5,
                             fontWeight: FontWeight.w600,
@@ -1025,7 +1044,7 @@ class EditorialLookCard extends StatelessWidget {
   }
 }
 
-/// Editorial Commerce Item Card (Zara Wool Coat, Adidas Samba in Trending.jpg).
+/// Editorial Commerce Item Card adhering to the 65% image / 35% content card rule.
 class EditorialCommerceItemCard extends StatelessWidget {
   const EditorialCommerceItemCard({
     required this.brand,
@@ -1035,6 +1054,8 @@ class EditorialCommerceItemCard extends StatelessWidget {
     required this.onTap,
     this.isSaved = false,
     this.onFavoriteToggle,
+    this.isSyntheticFixture = false,
+    this.fixtureLabel,
     super.key,
   });
 
@@ -1045,6 +1066,8 @@ class EditorialCommerceItemCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool isSaved;
   final VoidCallback? onFavoriteToggle;
+  final bool isSyntheticFixture;
+  final String? fixtureLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1067,7 +1090,7 @@ class EditorialCommerceItemCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Product image
+              // Product image (65% visual area)
               AspectRatio(
                 aspectRatio: 0.95,
                 child: Stack(
@@ -1077,13 +1100,39 @@ class EditorialCommerceItemCard extends StatelessWidget {
                       assetPath: imageAsset,
                       fit: BoxFit.cover,
                     ),
-                    // Favorite button
+                    // Synthetic fixture disclosure badge (top left)
+                    if (isSyntheticFixture)
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD35400).withValues(alpha: 0.9),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            fixtureLabel ?? 'FIXTURE',
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.5,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    // Favorite button (top right)
                     Positioned(
                       top: 10,
                       right: 10,
                       child: Semantics(
                         button: true,
-                        label: isSaved ? 'Remove from wishlist' : 'Save item',
+                        label: isSaved ? 'Remove from saved' : 'Save item',
                         child: InkWell(
                           onTap: onFavoriteToggle,
                           borderRadius: BorderRadius.circular(20),
@@ -1114,7 +1163,7 @@ class EditorialCommerceItemCard extends StatelessWidget {
                   ],
                 ),
               ),
-              // Commerce details
+              // Commerce details (35% content area)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 child: Column(

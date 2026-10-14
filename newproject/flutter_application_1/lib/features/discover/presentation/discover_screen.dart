@@ -77,6 +77,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   String? _nextCursor;
   bool _hasMore = false;
   bool _loadingMore = false;
+  bool _feedLoaded = false;
 
   // For You bucket: separate feed state per tab
   bool _forYouLoading = false;
@@ -88,23 +89,78 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   bool _forYouLoadingMore = false;
   bool _forYouPersonalized = false;
 
+  // Trending intelligence state (GET /v1/discovery/trending)
+  bool _trendingLoading = false;
+  DiscoverFailure? _trendingFailure;
+  DiscoveryTrendingResponse? _trendingResponse;
+
   @override
   void initState() {
     super.initState();
     _savedLookIds = Set<String>.from(LocalStorage.savedLookIds);
     _repository = widget.repository ?? DiscoverRepositoryImpl();
 
+    AuthSession.authVersion.addListener(_handleAuthVersionChanged);
+
     // If an external repository is injected (e.g. in test suites), fetch feed immediately.
     // In production, when user is not a guest, refresh feed as well.
     if (!isGuestUser) {
       _refresh();
+      _loadTrendingIntelligence();
     }
   }
 
   @override
   void dispose() {
+    AuthSession.authVersion.removeListener(_handleAuthVersionChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _handleAuthVersionChanged() {
+    if (!mounted) return;
+    setState(() {
+      _forYouPersonalized = false;
+      _forYouItems.clear();
+      _forYouLoaded = false;
+      _feedLoaded = false;
+      _trendingResponse = null;
+      _trendingFailure = null;
+      _savedLookIds = Set<String>.from(LocalStorage.savedLookIds);
+    });
+    if (AuthSession.isAuthenticated) {
+      _loadTrendingIntelligence();
+    }
+  }
+
+  Future<void> _loadTrendingIntelligence() async {
+    if (!AuthSession.isAuthenticated) {
+      return;
+    }
+
+    setState(() {
+      _trendingLoading = true;
+      _trendingFailure = null;
+    });
+
+    try {
+      final result = await _repository.getTrending();
+      if (!mounted) return;
+      setState(() {
+        _trendingLoading = false;
+        if (result.isSuccess) {
+          _trendingResponse = result.response;
+        } else {
+          _trendingFailure = result.failure;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _trendingLoading = false;
+        _trendingFailure = DiscoverFailure.unknown;
+      });
+    }
   }
 
   String? _activeOrNull(String id) => id == 'all' ? null : id;
@@ -168,10 +224,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     setState(() {
       _loading = false;
       if (result.isPage) {
+        _feedLoaded = true;
         _items = result.page!.items;
         _nextCursor = result.page!.nextCursor;
         _hasMore = result.page!.hasMore;
       } else {
+        _feedLoaded = false;
         _failure = result.failure;
         _items = [];
         _nextCursor = null;
@@ -216,6 +274,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     if (_tab == tab) return;
     setState(() => _tab = tab);
     if (tab == _DiscoverTab.forYou && !_forYouLoaded) _refreshForYou();
+    if (tab == _DiscoverTab.trending &&
+        _trendingResponse == null &&
+        !_trendingLoading) {
+      _loadTrendingIntelligence();
+    }
   }
 
   Future<void> _refreshForYou() async {
@@ -541,7 +604,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     if (widget.repository != null && _failure != null) {
       return _buildErrorState(context, _failure!);
     }
-    if (widget.repository != null && _items.isEmpty && !_loading) {
+    if (widget.repository != null && _feedLoaded && _items.isEmpty && !_loading) {
       return _buildEmptyState(context);
     }
 
@@ -720,8 +783,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 child: EditorialLookCard(
                   id: 'look_urban_minimal',
                   title: 'Urban Minimal',
-                  subtitle: '128 pieces cataloged',
-                  savesCount: '1.4K SAVES',
+                  subtitle: 'Monochrome architectural layering',
+                  badge: 'CURATED',
                   imageAsset: 'assets/images/discover_look_urban_minimal.jpg',
                   isSaved: _savedLookIds.contains('look_urban_minimal'),
                   onFavoriteToggle: () => _toggleSaveLook(
@@ -739,8 +802,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 child: EditorialLookCard(
                   id: 'look_modern_classics',
                   title: 'Modern Classics',
-                  subtitle: '96 pieces cataloged',
-                  savesCount: '920 SAVES',
+                  subtitle: 'Tailored heritage essentials',
+                  badge: 'CURATED',
                   imageAsset: 'assets/images/discover_look_modern_classics.jpg',
                   isSaved: _savedLookIds.contains('look_modern_classics'),
                   onFavoriteToggle: () => _toggleSaveLook(
@@ -760,12 +823,19 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         const SizedBox(height: 32),
 
         // ----------------------------------------------------
+        // SECTION 3.5: CATALOG OBSERVATION INTELLIGENCE
+        // ----------------------------------------------------
+        _buildTrendingIntelligenceSection(context),
+
+        const SizedBox(height: 32),
+
+        // ----------------------------------------------------
         // SECTION 4: ACQUISITION WATCH / Trending Items
         // ----------------------------------------------------
         EditorialSectionHeader(
           tag: 'ACQUISITION WATCH',
           title: 'Trending Items',
-          subtitle: 'Most saved across top global wishlists',
+          subtitle: 'Curated staple silhouettes & studio concept references',
           onActionTap: () => context.pushNamed(RouteNames.dailyOutfit),
         ),
         const SizedBox(height: 14),
@@ -774,13 +844,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           children: [
             Expanded(
               child: EditorialCommerceItemCard(
-                brand: 'ZARA ATELIER',
+                brand: 'STUDIO ATELIER',
                 productName: 'Tailored Wool Coat',
                 price: '\$179',
                 imageAsset: 'assets/images/discover_item_wool_coat.jpg',
-                isSaved: _savedLookIds.contains('item_zara_coat'),
+                isSyntheticFixture: true,
+                isSaved: _savedLookIds.contains('item_wool_coat'),
                 onFavoriteToggle: () => _toggleSaveLook(
-                  'item_zara_coat',
+                  'item_wool_coat',
                   'Tailored Wool Coat',
                 ),
                 onTap: () => context.pushNamed(RouteNames.dailyOutfit),
@@ -789,13 +860,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             const SizedBox(width: 14),
             Expanded(
               child: EditorialCommerceItemCard(
-                brand: 'ADIDAS ORIGINALS',
+                brand: 'HERITAGE ARCHIVE',
                 productName: 'Samba OG Archive',
                 price: '\$120',
                 imageAsset: 'assets/images/discover_item_samba.jpg',
-                isSaved: _savedLookIds.contains('item_adidas_samba'),
+                isSyntheticFixture: true,
+                isSaved: _savedLookIds.contains('item_samba_archive'),
                 onFavoriteToggle: () => _toggleSaveLook(
-                  'item_adidas_samba',
+                  'item_samba_archive',
                   'Samba OG Archive',
                 ),
                 onTap: () => context.pushNamed(RouteNames.dailyOutfit),
@@ -822,6 +894,132 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           onAccentsTap: () => context.pushNamed(RouteNames.dailyOutfit),
         ),
       ],
+    );
+  }
+
+  Widget _buildTrendingIntelligenceSection(BuildContext context) {
+    if (!AuthSession.isAuthenticated) {
+      return TrendingGuestNoticeCard(
+        onSignInTap: () => context.pushNamed(RouteNames.signIn),
+      );
+    }
+
+    if (_trendingLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (_trendingFailure != null) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: FansivibeColors.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.redAccent.withValues(alpha: 0.2),
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.cloud_off, color: Colors.redAccent, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _failureCopy(_trendingFailure),
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12.5,
+                  color: FansivibeColors.onSurface,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: _loadTrendingIntelligence,
+              child: const Text('Retry',
+                  style: TextStyle(color: FansivibeColors.primary)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_trendingResponse != null) {
+      final publishableItems =
+          _trendingResponse!.items.where((i) => i.publishable).toList();
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TrendingEvidenceStatusCard(
+            response: _trendingResponse!,
+            onRetry: _loadTrendingIntelligence,
+          ),
+          if (publishableItems.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _buildTrendingCandidatesGrid(publishableItems),
+          ] else ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: FansivibeColors.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.04),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.rule_folder_outlined,
+                    size: 16,
+                    color: FansivibeColors.secondary,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'No candidate trends currently meet publishable evidence thresholds (${_trendingResponse!.items.length} observations in evaluation). Missing consumer demand signals remain unmeasured.',
+                      style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: FansivibeColors.secondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildTrendingCandidatesGrid(List<DiscoveryTrendItem> items) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 14.0;
+        final columnWidth = (constraints.maxWidth - gap) / 2;
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: items.map((item) {
+            return SizedBox(
+              width: columnWidth,
+              child: TrendingCandidateCard(item: item),
+            );
+          }).toList(),
+        );
+      },
     );
   }
 
@@ -902,8 +1100,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     // Produces a polished, production-quality, personalized fashion-commerce feed
     // based on real profile, style preferences, wardrobe, and interaction data.
     if (_isEstablishedUser) {
+      final repo = widget.repository ??
+          (AuthSession.isAuthenticated ? _repository : null);
       return EstablishedUserForYouFeed(
+        repository: repo,
+        wardrobeRepository: widget.wardrobeRepository,
         searchQuery: _searchQuery,
+        onResetFilters: _resetAll,
       );
     }
 
@@ -1297,3 +1500,507 @@ class _FilterSheet extends StatelessWidget {
     );
   }
 }
+
+// =========================================================================
+// TRENDING INTELLIGENCE WIDGETS (M14 / DISCOVERY-06)
+// =========================================================================
+
+/// Displays catalog observation status and demand limitations truthfully.
+class TrendingEvidenceStatusCard extends StatelessWidget {
+  const TrendingEvidenceStatusCard({
+    required this.response,
+    this.onRetry,
+    super.key,
+  });
+
+  final DiscoveryTrendingResponse response;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final directDemand = response.directDemandAvailable;
+    final limitations = response.limitations;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.06),
+          width: 1,
+        ),
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Expanded(
+                child: Text(
+                  'CATALOG OBSERVATION INTELLIGENCE',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                    color: FansivibeColors.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: directDemand
+                      ? const Color(0xFF2ECC71).withValues(alpha: 0.2)
+                      : const Color(0xFFD35400).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: directDemand
+                        ? const Color(0xFF2ECC71)
+                        : const Color(0xFFD35400),
+                    width: 0.8,
+                  ),
+                ),
+                child: Text(
+                  directDemand
+                      ? 'DIRECT DEMAND VERIFIED'
+                      : 'DEMAND SIGNALS UNAVAILABLE',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: directDemand
+                        ? const Color(0xFF2ECC71)
+                        : const Color(0xFFE67E22),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Observed Catalog Assortment & Velocity',
+            style: TextStyle(
+              fontFamily: 'Noto Serif',
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+              color: FansivibeColors.onSurface,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            directDemand
+                ? 'Trends confirmed by active consumer demand and sales signals.'
+                : 'Direct consumer search volume and checkout signals are currently unavailable. The observations below reflect catalog assortment growth across partner sources, not consumer purchase demand.',
+            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+              fontSize: 12.5,
+              height: 1.4,
+              color: FansivibeColors.secondary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Evidence Signal Domains (Phase 3: Catalog Activity vs Media Attention vs Consumer Demand)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: FansivibeColors.surfaceContainer,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.04),
+                width: 0.8,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'EVIDENCE SIGNAL DOMAINS',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.0,
+                    color: FansivibeColors.secondary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _buildEvidenceDomainRow(
+                  domain: 'Catalog Activity',
+                  status: '${response.catalogActivityStatus.toUpperCase()} (${response.observationCount} observations)',
+                  isAvailable: true,
+                  color: const Color(0xFF2ECC71),
+                ),
+                const SizedBox(height: 6),
+                _buildEvidenceDomainRow(
+                  domain: 'Media Attention',
+                  status: 'Inactive / Unverified',
+                  isAvailable: false,
+                  color: FansivibeColors.secondary,
+                ),
+                const SizedBox(height: 6),
+                _buildEvidenceDomainRow(
+                  domain: 'Consumer Demand',
+                  status: directDemand
+                      ? 'Verified Demand'
+                      : 'Unavailable (insufficient evidence)',
+                  isAvailable: directDemand,
+                  color: directDemand
+                      ? const Color(0xFF2ECC71)
+                      : const Color(0xFFE67E22),
+                ),
+              ],
+            ),
+          ),
+          if (limitations.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: FansivibeColors.surfaceContainer,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'OBSERVATION LIMITATIONS',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.0,
+                      color: FansivibeColors.secondary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ...limitations.map(
+                    (lim) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('• ',
+                              style: TextStyle(
+                                  color: FansivibeColors.secondary,
+                                  fontSize: 12)),
+                          Expanded(
+                            child: Text(
+                              lim,
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 11.5,
+                                color: FansivibeColors.secondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEvidenceDomainRow({
+    required String domain,
+    required String status,
+    required bool isAvailable,
+    required Color color,
+  }) {
+    return Row(
+      children: [
+        Icon(
+          isAvailable
+              ? Icons.check_circle_outline_rounded
+              : Icons.radio_button_unchecked_rounded,
+          size: 13,
+          color: color,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '$domain:',
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: FansivibeColors.onSurface,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            status,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: color,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Prompt card for guests when viewing trend analytics requiring authentication.
+class TrendingGuestNoticeCard extends StatelessWidget {
+  const TrendingGuestNoticeCard({
+    required this.onSignInTap,
+    super.key,
+  });
+
+  final VoidCallback onSignInTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.06),
+          width: 1,
+        ),
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.analytics_outlined,
+                color: FansivibeColors.primary,
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'TREND INTELLIGENCE ACCESS',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.5,
+                  color: FansivibeColors.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Authenticated Fashion Analytics',
+            style: TextStyle(
+              fontFamily: 'Noto Serif',
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+              color: FansivibeColors.onSurface,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Direct catalog observation metrics and brand assortment velocity require an active account session. Sign in to view global trends.',
+            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+              fontSize: 12.5,
+              height: 1.4,
+              color: FansivibeColors.secondary,
+            ),
+          ),
+          const SizedBox(height: 14),
+          InkWell(
+            onTap: onSignInTap,
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: FansivibeColors.primary.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: FansivibeColors.primary.withValues(alpha: 0.5),
+                  width: 1,
+                ),
+              ),
+              child: const Text(
+                'SIGN IN FOR TREND ANALYTICS →',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.0,
+                  color: FansivibeColors.primary,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One card in the catalog trend candidates grid adhering to 65/35 proportion rule.
+class TrendingCandidateCard extends StatelessWidget {
+  const TrendingCandidateCard({
+    required this.item,
+    super.key,
+  });
+
+  final DiscoveryTrendItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.05),
+          width: 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 65% Visual Area
+          AspectRatio(
+            aspectRatio: 0.95,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                const AtelierImage(
+                  assetPath: 'assets/images/discover_look_urban_minimal.jpg',
+                  fit: BoxFit.cover,
+                ),
+                // Top-left catalog status
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: FansivibeColors.primary.withValues(alpha: 0.5),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Text(
+                      item.catalogActivityStatus.toUpperCase(),
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        color: FansivibeColors.primary,
+                      ),
+                    ),
+                  ),
+                ),
+                // Fixture badge if fixtureDerived
+                if (item.fixtureDerived)
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD35400).withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'FIXTURE',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // 35% Information Hierarchy
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.category.toUpperCase(),
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.0,
+                    color: FansivibeColors.primary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  item.canonicalName,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: FansivibeColors.onSurface,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${item.distinctProducts} products • ${item.distinctSources} sources',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    color: FansivibeColors.secondary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (item.catalogGrowth != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '+${(item.catalogGrowth! * 100).toInt()}% catalog additions',
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF2ECC71),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

@@ -105,6 +105,110 @@ class ScriptedDiscoverRepository implements DiscoverRepository {
     if (forYouQueue.isNotEmpty) return forYouQueue.removeAt(0);
     return forYouFallback;
   }
+
+  ForYouDiscoveryResult forYouRecommendationsFallback =
+      const ForYouDiscoveryResult.failure(DiscoverFailure.networkError);
+  final List<ForYouDiscoveryResult> forYouRecommendationsQueue = [];
+  final List<Map<String, Object?>> forYouRecommendationsRequests = [];
+
+  @override
+  Future<ForYouDiscoveryResult> getForYouRecommendations({
+    int page = 1,
+    int pageSize = 20,
+    String? q,
+    List<String>? categories,
+    List<String>? excludeCategories,
+    List<String>? brands,
+    List<String>? excludeBrands,
+    double? minPrice,
+    double? maxPrice,
+    String? currency,
+    List<String>? colors,
+    List<String>? materials,
+    List<String>? fits,
+    List<String>? silhouettes,
+    bool? inStockOnly,
+    bool includeSynthetic = true,
+    bool isGuest = false,
+  }) async {
+    forYouRecommendationsRequests.add({
+      'page': page,
+      'pageSize': pageSize,
+      'q': q,
+      'categories': categories,
+      'isGuest': isGuest,
+    });
+    if (forYouRecommendationsQueue.isNotEmpty) {
+      return forYouRecommendationsQueue.removeAt(0);
+    }
+    return forYouRecommendationsFallback;
+  }
+
+  CompleteLooksDiscoveryResult completeLooksFallback =
+      const CompleteLooksDiscoveryResult.failure(DiscoverFailure.networkError);
+  final List<CompleteLooksDiscoveryResult> completeLooksQueue = [];
+  final List<Map<String, Object?>> completeLooksRequests = [];
+
+  @override
+  Future<CompleteLooksDiscoveryResult> getCompleteLooks({
+    int limit = 10,
+    double? maxBudget,
+    String? targetOccasion,
+    String? targetAesthetic,
+    String? anchorProductId,
+    String? anchorWardrobeItemId,
+    bool allowWardrobe = true,
+    bool includeSynthetic = true,
+  }) async {
+    completeLooksRequests.add({
+      'limit': limit,
+      'maxBudget': maxBudget,
+      'targetOccasion': targetOccasion,
+      'targetAesthetic': targetAesthetic,
+    });
+    if (completeLooksQueue.isNotEmpty) {
+      return completeLooksQueue.removeAt(0);
+    }
+    return completeLooksFallback;
+  }
+
+  DiscoveryTrendingResult trendingFallback =
+      const DiscoveryTrendingResult.failure(DiscoverFailure.networkError);
+  final List<DiscoveryTrendingResult> trendingQueue = [];
+  final List<Map<String, Object?>> trendingRequests = [];
+
+  @override
+  Future<DiscoveryTrendingResult> getTrending({
+    DateTime? windowStart,
+    DateTime? windowEnd,
+    int limit = 20,
+    String? category,
+  }) async {
+    trendingRequests.add({
+      'limit': limit,
+      'category': category,
+      'windowStart': windowStart,
+      'windowEnd': windowEnd,
+    });
+    if (trendingQueue.isNotEmpty) {
+      return trendingQueue.removeAt(0);
+    }
+    return trendingFallback;
+  }
+
+  final List<List<DiscoveryEventItem>> recordedEvents = [];
+  DiscoveryEventsResult recordEventsFallback = const DiscoveryEventsResult.success(
+    DiscoveryEventsBatchResponse(acceptedCount: 1, events: []),
+  );
+
+  @override
+  Future<DiscoveryEventsResult> recordEvents(
+    List<DiscoveryEventItem> events, {
+    String? guestSessionId,
+  }) async {
+    recordedEvents.add(events);
+    return recordEventsFallback;
+  }
 }
 
 Widget discoverHarness(ScriptedDiscoverRepository repo) {

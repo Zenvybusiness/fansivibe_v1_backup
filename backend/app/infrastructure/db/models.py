@@ -1345,3 +1345,98 @@ class MediaAttentionContributingRecord(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+
+class DiscoveryEvent(Base):
+    """Discovery interaction events ledger for telemetry and behavioral analytics (DISCOVERY-10A)."""
+
+    __tablename__ = "discovery_events"
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NOT NULL AND guest_session_id IS NULL) OR "
+            "(user_id IS NULL AND guest_session_id IS NOT NULL)",
+            name="ck_discovery_events_identity",
+        ),
+        CheckConstraint(
+            "event_type IN ('product_impression', 'product_click', 'product_save', 'product_unsave', 'look_select')",
+            name="ck_discovery_events_event_type",
+        ),
+        CheckConstraint(
+            "target_type IN ('product', 'complete_look')",
+            name="ck_discovery_events_target_type",
+        ),
+        CheckConstraint(
+            "(target_type = 'complete_look' AND product_id IS NULL) OR (target_type = 'product')",
+            name="ck_discovery_events_target_consistency",
+        ),
+        CheckConstraint(
+            "surface IN ('for_you_hero', 'for_you_grid', 'because_you_like', 'complete_looks')",
+            name="ck_discovery_events_surface",
+        ),
+        CheckConstraint(
+            "position IS NULL OR (position >= 0 AND position <= 1000)",
+            name="ck_discovery_events_position",
+        ),
+        Index(
+            "uq_discovery_events_user_event",
+            "user_id",
+            "client_event_id",
+            unique=True,
+            postgresql_where=text("user_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_discovery_events_guest_event",
+            "guest_session_id",
+            "client_event_id",
+            unique=True,
+            postgresql_where=text("guest_session_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_discovery_events_user_type_received",
+            "user_id",
+            "event_type",
+            text("received_at DESC"),
+            postgresql_where=text("user_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_discovery_events_product_type_received",
+            "product_id",
+            "event_type",
+            text("received_at DESC"),
+            postgresql_where=text("product_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_discovery_events_received_at",
+            "received_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+    )
+    guest_session_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, nullable=True
+    )
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[str] = mapped_column(Text, nullable=False)
+    product_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
+    surface: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    client_event_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    client_occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("clock_timestamp()")
+    )
+
+

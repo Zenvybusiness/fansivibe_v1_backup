@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import Boolean, and_, cast, func, select, update
+from sqlalchemy import Boolean, and_, cast, func, or_, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -21,8 +21,12 @@ from app.domain.ports.repositories import (
     AnalysisRunSummary,
     AuthAccountRecord,
     AuthSessionRecord,
+    CatalogProduct,
+    CatalogProductRecord,
     FeedbackEventRecord,
     MediaAttentionRepository,
+    ProductCandidateRepository,
+    ProductFilterCriteria,
     SavedLookCoverage,
     SavedLookRecord,
     SearchInterestEvidence,
@@ -76,6 +80,7 @@ from app.infrastructure.db.models import (
     WardrobeWearGroups,
     Colors,
     Materials,
+    DiscoveryEvent,
 )
 
 _ENGINE_VERSION = "rules-v1"
@@ -1770,6 +1775,204 @@ class DiscoveryRepositorySQL:
     def rollback(self) -> None:
         self._session.rollback()
 
+    @staticmethod
+    def _to_catalog_product(row: Product) -> CatalogProductRecord:
+        """Convert a SQLAlchemy Product row into an immutable CatalogProductRecord."""
+        return CatalogProductRecord(
+            id=row.id,
+            title=row.title,
+            brand=row.brand,
+            category=row.category,
+            subcategory=row.subcategory,
+            attributes=dict(row.attributes or {}),
+            price=float(row.price) if row.price is not None else None,
+            currency=row.currency,
+            availability=row.availability,
+            product_url=row.product_url,
+            image_urls=tuple(row.image_urls or ()),
+            first_seen_at=row.first_seen_at,
+            last_verified_at=row.last_verified_at,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    def get_by_id(self, product_id: UUID) -> Optional[CatalogProductRecord]:
+        """Fetch a single catalog product by its canonical UUID."""
+        row = self._session.get(Product, product_id)
+        if row is None:
+            return None
+        return self._to_catalog_product(row)
+
+    def _build_filter_clauses(self, criteria: ProductFilterCriteria) -> list[Any]:
+        """Compile hard filter criteria into SQLAlchemy WHERE expressions."""
+        clauses: list[Any] = []
+
+        # Synthetic fixture filtering
+        if not criteria.include_synthetic:
+            clauses.append(
+                func.coalesce(
+                    cast(Product.attributes["synthetic"].astext, Boolean), False
+                ).is_(False)
+            )
+            clauses.append(
+                func.coalesce(
+                    cast(Product.attributes["fixture"].astext, Boolean), False
+                ).is_(False)
+            )
+
+        # Categories inclusion / exclusion
+        if criteria.categories:
+            clauses.append(
+                func.lower(Product.category).in_([c.lower().strip() for c in criteria.categories])
+            )
+        if criteria.exclude_categories:
+            clauses.append(
+                func.lower(Product.category).not_in([c.lower().strip() for c in criteria.exclude_categories])
+            )
+
+        # Subcategories inclusion / exclusion
+        if criteria.subcategories:
+            clauses.append(
+                func.lower(Product.subcategory).in_([s.lower().strip() for s in criteria.subcategories])
+            )
+        if criteria.exclude_subcategories:
+            clauses.append(
+                func.lower(Product.subcategory).not_in([s.lower().strip() for s in criteria.exclude_subcategories])
+            )
+
+        # Brands inclusion / exclusion
+        if criteria.brands:
+            clauses.append(
+                func.lower(Product.brand).in_([b.lower().strip() for b in criteria.brands])
+            )
+        if criteria.exclude_brands:
+            clauses.append(
+                func.lower(Product.brand).not_in([b.lower().strip() for b in criteria.exclude_brands])
+            )
+
+        # Price boundaries
+        if criteria.has_price is True:
+            clauses.append(Product.price.is_not(None))
+        elif criteria.has_price is False:
+            clauses.append(Product.price.is_(None))
+
+        if criteria.min_price is not None:
+            clauses.append(Product.price >= criteria.min_price)
+        if criteria.max_price is not None:
+            clauses.append(Product.price <= criteria.max_price)
+
+        # Currency match
+        if criteria.currency is not None:
+            clauses.append(Product.currency == criteria.currency.strip().upper())
+
+        # Stock / availability
+        if criteria.in_stock_only is True:
+            clauses.append(Product.availability.is_(True))
+        elif criteria.in_stock_only is False:
+            clauses.append(Product.availability.is_(False))
+
+        # Images
+        if criteria.has_images is True:
+            clauses.append(func.jsonb_array_length(Product.image_urls) > 0)
+        elif criteria.has_images is False:
+            clauses.append(func.jsonb_array_length(Product.image_urls) == 0)
+
+        # Normalized attributes (materials, colors, fits, silhouettes)
+        if criteria.materials:
+            clauses.append(
+                func.lower(Product.attributes["material"].astext).in_(
+                    [m.lower().strip() for m in criteria.materials]
+                )
+            )
+        if criteria.colors:
+            clauses.append(
+                func.lower(Product.attributes["color"].astext).in_(
+                    [c.lower().strip() for c in criteria.colors]
+                )
+            )
+        if criteria.fits:
+            clauses.append(
+                func.lower(Product.attributes["fit"].astext).in_(
+                    [f.lower().strip() for f in criteria.fits]
+                )
+            )
+        if criteria.silhouettes:
+            clauses.append(
+                func.lower(Product.attributes["silhouette"].astext).in_(
+                    [s.lower().strip() for s in criteria.silhouettes]
+                )
+            )
+
+        # Search query (q) across title, brand, category, subcategory
+        if criteria.q:
+            clean_q = criteria.q.strip()
+            if clean_q:
+                # Escape SQL LIKE wildcards % and _ and escape character \
+                escaped_q = (
+                    clean_q.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_")
+                )
+                pattern = f"%{escaped_q}%"
+                clauses.append(
+                    or_(
+                        Product.title.ilike(pattern, escape="\\"),
+                        Product.brand.ilike(pattern, escape="\\"),
+                        Product.category.ilike(pattern, escape="\\"),
+                        Product.subcategory.ilike(pattern, escape="\\"),
+                    )
+                )
+
+        return clauses
+
+    @staticmethod
+    def _order_by_terms(sort_order: str) -> list[Any]:
+        """Deterministic ordering terms; always tie-breaks by Product.id ASC."""
+        sort = sort_order.lower().strip()
+        if sort in ("newest", "created_at_desc"):
+            return [Product.created_at.desc(), Product.id.asc()]
+        if sort in ("oldest", "created_at_asc"):
+            return [Product.created_at.asc(), Product.id.asc()]
+        if sort == "price_asc":
+            return [Product.price.asc().nulls_last(), Product.id.asc()]
+        if sort == "price_desc":
+            return [Product.price.desc().nulls_last(), Product.id.asc()]
+        if sort == "title_asc":
+            return [Product.title.asc(), Product.id.asc()]
+        if sort == "id_asc":
+            return [Product.id.asc()]
+        return [Product.created_at.desc(), Product.id.asc()]
+
+    def count_candidates(self, criteria: ProductFilterCriteria) -> int:
+        """Count total matching catalog candidates under hard filters."""
+        clauses = self._build_filter_clauses(criteria)
+        stmt = select(func.count(Product.id))
+        if clauses:
+            stmt = stmt.where(and_(*clauses))
+        return int(self._session.execute(stmt).scalar_one())
+
+    def get_candidates(
+        self,
+        criteria: ProductFilterCriteria,
+        *,
+        sort_order: str = "newest",
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[CatalogProductRecord, ...]:
+        """Retrieve a bounded, deterministically ordered slice of catalog candidates."""
+        clauses = self._build_filter_clauses(criteria)
+        stmt = select(Product)
+        if clauses:
+            stmt = stmt.where(and_(*clauses))
+        order_terms = self._order_by_terms(sort_order)
+        stmt = stmt.order_by(*order_terms).offset(max(0, offset)).limit(max(1, limit))
+        rows = self._session.execute(stmt).scalars().all()
+        return tuple(self._to_catalog_product(row) for row in rows)
+
+
+ProductCandidateRepositorySQL = DiscoveryRepositorySQL
+ProductCatalogRepositorySQL = DiscoveryRepositorySQL
+
 
 class TrendRepositorySQL:
     """Read-only SQL adapter for the D6 trend engine over ``product_observations``.
@@ -2263,4 +2466,167 @@ class MediaAttentionRepositorySQL:
 
         self._session.commit()
         return len(raw_ids_to_del)
+
+
+class DiscoveryEventRepositorySQL:
+    """SQLAlchemy implementation of DiscoveryEventRepository (DISCOVERY-10A)."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get_existing_product_ids(self, product_ids: set[UUID]) -> set[UUID]:
+        if not product_ids:
+            return set()
+        stmt = select(Product.id).where(Product.id.in_(product_ids))
+        return set(self._session.execute(stmt).scalars().all())
+
+    def persist_events_batch(
+        self,
+        *,
+        events: Sequence[dict[str, Any]],
+        user_id: Optional[UUID],
+        guest_session_id: Optional[UUID],
+    ) -> list[tuple[UUID, str, bool]]:
+        if not events:
+            return []
+
+        # Enforce identity mutual exclusivity
+        if (user_id is not None and guest_session_id is not None) or (
+            user_id is None and guest_session_id is None
+        ):
+            from app.api.errors import validation
+
+            raise validation(
+                [
+                    {
+                        "field": "identity",
+                        "error": "Event batch must belong to an authenticated user OR a guest session, never both or neither.",
+                    }
+                ]
+            )
+
+        from app.api.errors import ApiError
+
+        # Intra-batch conflict check
+        seen_batch_ids: dict[UUID, str] = {}
+        for ev in events:
+            cid = ev["client_event_id"]
+            phash = ev["payload_hash"]
+            if cid in seen_batch_ids:
+                if seen_batch_ids[cid] != phash:
+                    raise ApiError(
+                        status_code=409,
+                        code="CONFLICT",
+                        message="Event ID collision with conflicting payload in batch.",
+                        details={
+                            "kind": "duplicate_event_id_conflict",
+                            "eventId": str(cid),
+                        },
+                    )
+            else:
+                seen_batch_ids[cid] = phash
+
+        # Query existing rows for this identity
+        client_event_ids = list({ev["client_event_id"] for ev in events})
+        identity_clause = (
+            DiscoveryEvent.user_id == user_id
+            if user_id is not None
+            else DiscoveryEvent.guest_session_id == guest_session_id
+        )
+
+        stmt = select(
+            DiscoveryEvent.client_event_id, DiscoveryEvent.payload_hash
+        ).where(
+            identity_clause,
+            DiscoveryEvent.client_event_id.in_(client_event_ids),
+        )
+        existing_rows = dict(self._session.execute(stmt).all())
+
+        results: list[tuple[UUID, str, bool]] = []
+        rows_to_insert: list[DiscoveryEvent] = []
+        already_handled_in_batch: set[UUID] = set()
+
+        for ev in events:
+            cid = ev["client_event_id"]
+            phash = ev["payload_hash"]
+
+            if cid in existing_rows:
+                db_hash = existing_rows[cid]
+                if db_hash == phash:
+                    results.append((cid, "acknowledged", True))
+                else:
+                    raise ApiError(
+                        status_code=409,
+                        code="CONFLICT",
+                        message="Event ID collision with conflicting payload.",
+                        details={
+                            "kind": "duplicate_event_id_conflict",
+                            "eventId": str(cid),
+                        },
+                    )
+            elif cid in already_handled_in_batch:
+                # Same payload repeated in same batch
+                results.append((cid, "acknowledged", True))
+            else:
+                row = DiscoveryEvent(
+                    user_id=user_id,
+                    guest_session_id=guest_session_id,
+                    event_type=ev["event_type"],
+                    target_type=ev["target_type"],
+                    target_id=ev["target_id"],
+                    product_id=ev.get("product_id"),
+                    surface=ev["surface"],
+                    position=ev.get("position"),
+                    client_event_id=cid,
+                    payload_hash=phash,
+                    metadata_=ev.get("metadata", {}),
+                    client_occurred_at=ev["client_occurred_at"],
+                )
+                rows_to_insert.append(row)
+                already_handled_in_batch.add(cid)
+                results.append((cid, "accepted", False))
+
+        if rows_to_insert:
+            try:
+                for row in rows_to_insert:
+                    self._session.add(row)
+                self._session.commit()
+            except IntegrityError:
+                self._session.rollback()
+                # A concurrent insert took place for one of these events
+                # Re-check database state to determine if it was identical replay or conflicting payload
+                stmt = select(
+                    DiscoveryEvent.client_event_id, DiscoveryEvent.payload_hash
+                ).where(
+                    identity_clause,
+                    DiscoveryEvent.client_event_id.in_(client_event_ids),
+                )
+                concurrent_rows = dict(self._session.execute(stmt).all())
+                for ev in events:
+                    cid = ev["client_event_id"]
+                    if cid in concurrent_rows:
+                        if concurrent_rows[cid] != ev["payload_hash"]:
+                            raise ApiError(
+                                status_code=409,
+                                code="CONFLICT",
+                                message="Event ID collision with conflicting payload.",
+                                details={
+                                    "kind": "duplicate_event_id_conflict",
+                                    "eventId": str(cid),
+                                },
+                            )
+                # If concurrent rows are identical, update results to reflect replayed status
+                updated_results: list[tuple[UUID, str, bool]] = []
+                for cid, status, replayed in results:
+                    if (
+                        cid in concurrent_rows
+                        and concurrent_rows[cid] == seen_batch_ids.get(cid)
+                    ):
+                        updated_results.append((cid, "acknowledged", True))
+                    else:
+                        updated_results.append((cid, status, replayed))
+                return updated_results
+
+        return results
+
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -175,6 +176,292 @@ class DiscoverClient {
     }
   }
 
+  Map<String, String> _headersFor({
+    bool isGuest = false,
+    bool requireAuth = false,
+  }) {
+    if (isGuest) return const {};
+    if (AuthSession.isAuthenticated) {
+      final t = AuthSession.token;
+      if (t != null && t.isNotEmpty) {
+        return {'Authorization': 'Bearer $t'};
+      }
+    }
+    if (requireAuth) {
+      return {'Authorization': 'Bearer $_devToken'};
+    }
+    return const {};
+  }
+
+  /// Fetches personalized catalog recommendations (GET /v1/discovery/for-you).
+  ///
+  /// Safe for both authenticated users and guests. Guest requests never attach
+  /// another user's Bearer token and enforce [isGuest] = true.
+  Future<ForYouDiscoveryResult> getForYouRecommendations({
+    int page = 1,
+    int pageSize = 20,
+    String? q,
+    List<String>? categories,
+    List<String>? excludeCategories,
+    List<String>? brands,
+    List<String>? excludeBrands,
+    double? minPrice,
+    double? maxPrice,
+    String? currency,
+    List<String>? colors,
+    List<String>? materials,
+    List<String>? fits,
+    List<String>? silhouettes,
+    bool? inStockOnly,
+    bool includeSynthetic = true,
+    bool isGuest = false,
+  }) async {
+    try {
+      final effectiveGuest = isGuest || !AuthSession.isAuthenticated;
+      final cleanQ = q?.trim();
+      final query = <String, dynamic>{
+        'page': '$page',
+        'page_size': '$pageSize',
+        'include_synthetic': '$includeSynthetic',
+        if (cleanQ != null && cleanQ.isNotEmpty) 'q': cleanQ,
+        if (effectiveGuest) 'is_guest': 'true',
+        if (categories != null && categories.isNotEmpty) 'categories': categories,
+        if (excludeCategories != null && excludeCategories.isNotEmpty)
+          'exclude_categories': excludeCategories,
+        if (brands != null && brands.isNotEmpty) 'brands': brands,
+        if (excludeBrands != null && excludeBrands.isNotEmpty)
+          'exclude_brands': excludeBrands,
+        if (minPrice != null) 'min_price': '$minPrice',
+        if (maxPrice != null) 'max_price': '$maxPrice',
+        if (currency != null) 'currency': currency,
+        if (colors != null && colors.isNotEmpty) 'colors': colors,
+        if (materials != null && materials.isNotEmpty) 'materials': materials,
+        if (fits != null && fits.isNotEmpty) 'fits': fits,
+        if (silhouettes != null && silhouettes.isNotEmpty)
+          'silhouettes': silhouettes,
+        if (inStockOnly != null) 'in_stock_only': '$inStockOnly',
+      };
+
+      final base = Uri.parse(baseUrl);
+      final uri = base.replace(
+        pathSegments: [
+          ...base.pathSegments.where((s) => s.isNotEmpty),
+          'v1',
+          'discovery',
+          'for-you',
+        ],
+        queryParameters: query,
+      );
+
+      final headers = _headersFor(isGuest: effectiveGuest);
+      final response = await _client.get(uri, headers: headers).timeout(_timeout);
+
+      if (response.statusCode == 200) {
+        try {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+          return ForYouDiscoveryResult.success(
+            ForYouDiscoveryResponse.fromJson(decoded),
+          );
+        } catch (error) {
+          debugPrint('For You discovery: malformed 200 body: $error');
+          return const ForYouDiscoveryResult.failure(
+            DiscoverFailure.networkError,
+          );
+        }
+      }
+
+      final failure = _failureFor(response.statusCode);
+      debugPrint(
+        'For You discovery responded ${response.statusCode}: ${response.body}',
+      );
+      return ForYouDiscoveryResult.failure(failure);
+    } catch (error) {
+      debugPrint('Discover backend unreachable during for-you discovery: $error');
+      return const ForYouDiscoveryResult.failure(DiscoverFailure.networkError);
+    }
+  }
+
+  /// Fetches complete outfit combinations (GET /v1/discovery/looks/complete).
+  Future<CompleteLooksDiscoveryResult> getCompleteLooks({
+    int limit = 10,
+    double? maxBudget,
+    String? targetOccasion,
+    String? targetAesthetic,
+    String? anchorProductId,
+    String? anchorWardrobeItemId,
+    bool allowWardrobe = true,
+    bool includeSynthetic = true,
+  }) async {
+    try {
+      final isAuth = AuthSession.isAuthenticated;
+      final query = <String, dynamic>{
+        'limit': '$limit',
+        'allow_wardrobe': '$allowWardrobe',
+        'include_synthetic': '$includeSynthetic',
+        if (maxBudget != null) 'max_budget': '$maxBudget',
+        if (targetOccasion != null) 'target_occasion': targetOccasion,
+        if (targetAesthetic != null) 'target_aesthetic': targetAesthetic,
+        if (anchorProductId != null) 'anchor_product_id': anchorProductId,
+        if (anchorWardrobeItemId != null)
+          'anchor_wardrobe_item_id': anchorWardrobeItemId,
+      };
+
+      final base = Uri.parse(baseUrl);
+      final uri = base.replace(
+        pathSegments: [
+          ...base.pathSegments.where((s) => s.isNotEmpty),
+          'v1',
+          'discovery',
+          'looks',
+          'complete',
+        ],
+        queryParameters: query,
+      );
+
+      final headers = _headersFor(isGuest: !isAuth);
+      final response = await _client.get(uri, headers: headers).timeout(_timeout);
+
+      if (response.statusCode == 200) {
+        try {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+          return CompleteLooksDiscoveryResult.success(
+            CompleteLooksDiscoveryResponse.fromJson(decoded),
+          );
+        } catch (error) {
+          debugPrint('Complete looks: malformed 200 body: $error');
+          return const CompleteLooksDiscoveryResult.failure(
+            DiscoverFailure.networkError,
+          );
+        }
+      }
+
+      final failure = _failureFor(response.statusCode);
+      debugPrint(
+        'Complete looks responded ${response.statusCode}: ${response.body}',
+      );
+      return CompleteLooksDiscoveryResult.failure(failure);
+    } catch (error) {
+      debugPrint('Discover backend unreachable during complete looks: $error');
+      return const CompleteLooksDiscoveryResult.failure(
+        DiscoverFailure.networkError,
+      );
+    }
+  }
+
+  /// Fetches discovery trending intelligence (GET /v1/discovery/trending).
+  ///
+  /// Requires authentication. Preserves DEMAND_SIGNAL_AVAILABLE = False.
+  Future<DiscoveryTrendingResult> getTrending({
+    DateTime? windowStart,
+    DateTime? windowEnd,
+    int limit = 20,
+    String? category,
+  }) async {
+    try {
+      final query = <String, dynamic>{
+        'limit': '$limit',
+        if (category != null && category.isNotEmpty) 'category': category,
+        if (windowStart != null)
+          'window_start': windowStart.toUtc().toIso8601String(),
+        if (windowEnd != null)
+          'window_end': windowEnd.toUtc().toIso8601String(),
+      };
+
+      final base = Uri.parse(baseUrl);
+      final uri = base.replace(
+        pathSegments: [
+          ...base.pathSegments.where((s) => s.isNotEmpty),
+          'v1',
+          'discovery',
+          'trending',
+        ],
+        queryParameters: query,
+      );
+
+      final headers = _headersFor(requireAuth: true);
+      final response = await _client.get(uri, headers: headers).timeout(_timeout);
+
+      if (response.statusCode == 200) {
+        try {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+          return DiscoveryTrendingResult.success(
+            DiscoveryTrendingResponse.fromJson(decoded),
+          );
+        } catch (error) {
+          debugPrint('Trending discovery: malformed 200 body: $error');
+          return const DiscoveryTrendingResult.failure(
+            DiscoverFailure.networkError,
+          );
+        }
+      }
+
+      final failure = _failureFor(response.statusCode);
+      debugPrint(
+        'Trending discovery responded ${response.statusCode}: ${response.body}',
+      );
+      return DiscoveryTrendingResult.failure(failure);
+    } catch (error) {
+      debugPrint('Discover backend unreachable during trending discovery: $error');
+      return const DiscoveryTrendingResult.failure(
+        DiscoverFailure.networkError,
+      );
+    }
+  }
+
+  /// Dispatches a batch of interaction events to POST /v1/discovery/events.
+  ///
+  /// Never throws. Non-blocking: failures return DiscoveryEventsResult.failure.
+  Future<DiscoveryEventsResult> postEvents(
+    DiscoveryEventsBatchRequest request, {
+    bool isGuest = false,
+  }) async {
+    try {
+      final effectiveGuest = isGuest || !AuthSession.isAuthenticated;
+      final base = Uri.parse(baseUrl);
+      final uri = base.replace(
+        pathSegments: [
+          ...base.pathSegments.where((s) => s.isNotEmpty),
+          'v1',
+          'discovery',
+          'events',
+        ],
+      );
+
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        ..._headersFor(isGuest: effectiveGuest),
+      };
+
+      final body = jsonEncode(request.toJson());
+      final response = await _client
+          .post(uri, headers: headers, body: body)
+          .timeout(_timeout);
+
+      if (response.statusCode == 202 || response.statusCode == 200) {
+        try {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+          return DiscoveryEventsResult.success(
+            DiscoveryEventsBatchResponse.fromJson(decoded),
+          );
+        } catch (error) {
+          debugPrint('Discovery events: malformed 202 body: $error');
+          return const DiscoveryEventsResult.failure(
+            DiscoverFailure.networkError,
+          );
+        }
+      }
+
+      final failure = _failureFor(response.statusCode);
+      debugPrint(
+        'Discovery events responded ${response.statusCode}: ${response.body}',
+      );
+      return DiscoveryEventsResult.failure(failure);
+    } catch (error) {
+      debugPrint('Discover backend unreachable during events dispatch: $error');
+      return const DiscoveryEventsResult.failure(DiscoverFailure.networkError);
+    }
+  }
+
   DiscoverFailure _failureFor(int statusCode) {
     switch (statusCode) {
       case 401:
@@ -192,3 +479,16 @@ class DiscoverClient {
   /// Closes the underlying HTTP client.
   void dispose() => _client.close();
 }
+
+/// Generates a stable RFC 4122 compliant UUIDv4 identifier for telemetry events.
+String newDiscoveryEventId() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0F) | 0x40; // Version 4
+  bytes[8] = (bytes[8] & 0x3F) | 0x80; // Variant 1
+  String hex(int v) => v.toRadixString(16).padLeft(2, '0');
+  final h = bytes.map(hex).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-'
+      '${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
+}
+

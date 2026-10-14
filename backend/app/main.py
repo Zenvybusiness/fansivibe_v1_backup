@@ -29,6 +29,7 @@ from app.api.routers import (
     analysis,
     assistant,
     auth,
+    discovery,
     events,
     feedback,
     knowledge,
@@ -152,6 +153,7 @@ errors.register_error_handlers(app)
 app.include_router(auth.router)
 app.include_router(analysis.router)
 app.include_router(assistant.router)
+app.include_router(discovery.router)
 app.include_router(events.router)
 app.include_router(feedback.router)
 app.include_router(knowledge.router)
