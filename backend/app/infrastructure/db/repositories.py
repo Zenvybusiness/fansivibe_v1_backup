@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import Boolean, and_, cast, func, or_, select, update
+from sqlalchemy import Boolean, and_, cast, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -2127,6 +2127,55 @@ class DiscoveryRepositorySQL:
 
     def rollback(self) -> None:
         self._session.rollback()
+
+    def prune_expired_source_records(
+        self,
+        *,
+        source: str,
+        older_than: datetime,
+        batch_limit: int = 1000,
+    ) -> int:
+        """Prune raw source records for a specific source older than a cutoff date.
+
+        Strictly scoped to rows matching ``source``.
+        Deletes at most ``batch_limit`` records per transaction for bounded, idempotent cleanup.
+        Returns the count of pruned records.
+        """
+        stmt = (
+            select(RawSourceRecord.id)
+            .where(
+                RawSourceRecord.source == source,
+                RawSourceRecord.fetched_at < older_than,
+            )
+            .order_by(RawSourceRecord.fetched_at.asc())
+            .limit(batch_limit)
+        )
+        raw_ids = list(self._session.execute(stmt).scalars().all())
+        if not raw_ids:
+            return 0
+
+        self._session.execute(
+            delete(RawSourceRecord).where(RawSourceRecord.id.in_(raw_ids))
+        )
+        self._session.commit()
+        return len(raw_ids)
+
+    def count_expired_source_records(
+        self,
+        *,
+        source: str,
+        older_than: datetime,
+    ) -> int:
+        """Count raw source records for a specific source older than a cutoff date."""
+        stmt = (
+            select(func.count())
+            .select_from(RawSourceRecord)
+            .where(
+                RawSourceRecord.source == source,
+                RawSourceRecord.fetched_at < older_than,
+            )
+        )
+        return self._session.execute(stmt).scalar_one()
 
     @staticmethod
     def _to_catalog_product(

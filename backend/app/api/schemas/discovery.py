@@ -340,6 +340,23 @@ class DiscoveryTrendItemExplanationSchema(BaseModel):
     )
 
 
+class MatchedProductSummarySchema(BaseModel):
+    """Summary of a genuine catalog product matched to a trend concept."""
+
+    productId: str = Field(description="Product UUID or external identifier")
+    title: str = Field(description="Canonical product title")
+    brand: Optional[str] = Field(default=None, description="Product brand")
+    category: str = Field(description="Product category")
+    price: Optional[float] = Field(default=None, description="Current price in INR")
+    currency: Optional[str] = Field(default="INR", description="Currency code")
+    availability: Optional[bool] = Field(default=None, description="In-stock availability")
+    productUrl: Optional[str] = Field(default=None, description="Verified destination product URL")
+    imageUrl: Optional[str] = Field(default=None, description="Product image URL")
+    retailer: Optional[str] = Field(default=None, description="Retailer display name")
+    matchScore: float = Field(ge=0.0, le=1.0, description="Product-to-concept match confidence")
+    matchReasons: list[str] = Field(default_factory=list, description="Reasons for match")
+
+
 class DiscoveryTrendItemSchema(BaseModel):
     """One concept's observation evidence for the discovery trending feed."""
 
@@ -401,6 +418,10 @@ class DiscoveryTrendItemSchema(BaseModel):
         description="Direct consumer demand signal availability (always False)",
     )
     explanation: DiscoveryTrendItemExplanationSchema
+    matchedProducts: list[MatchedProductSummarySchema] = Field(
+        default_factory=list,
+        description="Genuine catalog products matched to this trend concept (fixtures excluded)",
+    )
 
 
 class DiscoveryTrendingResponse(BaseModel):

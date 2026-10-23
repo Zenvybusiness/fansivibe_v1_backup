@@ -990,6 +990,30 @@ class DiscoveryRepository(Protocol):
         """Drop a failed unit of work so a poisoned session can finish the run."""
         ...
 
+    def prune_expired_source_records(
+        self,
+        *,
+        source: str,
+        older_than: datetime,
+        batch_limit: int = 1000,
+    ) -> int:
+        """Prune raw source records for a specific source older than a cutoff date.
+
+        Strictly scoped to rows matching ``source``.
+        Deletes at most ``batch_limit`` records per transaction for bounded, idempotent cleanup.
+        Returns the count of pruned records.
+        """
+        ...
+
+    def count_expired_source_records(
+        self,
+        *,
+        source: str,
+        older_than: datetime,
+    ) -> int:
+        """Count raw source records for a specific source older than a cutoff date."""
+        ...
+
 
 @dataclass(frozen=True)
 class ProductVariantRecord:

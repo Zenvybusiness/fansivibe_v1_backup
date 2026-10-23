@@ -63,6 +63,7 @@ from app.api.schemas.discovery import (
     DiscoveryTrendingResponse,
     ForYouDiscoveryResponse,
     LookSlotItemSchema,
+    MatchedProductSummarySchema,
     ProductExplanationSchema,
     ProductOfferItemSchema,
     ProductOffersResponse,
