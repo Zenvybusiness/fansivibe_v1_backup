@@ -307,8 +307,8 @@ def test_migration_head_is_single_revision_0028():
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
-    # D6 added no migration of its own; D9B added 0028/0029.
-    assert tuple(script.get_heads()) in (("0028",), ("0029",))
+    # D6 added no migration of its own; D9B added 0029.
+    assert tuple(script.get_heads()) == ("0029",)
 
 
 

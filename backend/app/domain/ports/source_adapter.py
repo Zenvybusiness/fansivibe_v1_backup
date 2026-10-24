@@ -56,6 +56,10 @@ class SourceTransientError(SourceError):
     """A network, timeout or 5xx failure — safe to retry with backoff."""
 
 
+class SourceDeadlineError(SourceTransientError):
+    """The cooperative deadline was exceeded before the operation could complete."""
+
+
 class SourcePayloadError(SourceError):
     """The provider returned a structurally invalid or unusable payload."""
 

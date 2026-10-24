@@ -54,6 +54,7 @@ class AnalysisRunSummary:
     created_at: datetime
     completed_at: Optional[datetime]
     input_media: Optional[dict]
+    knowledge_version: Optional[str] = None
 
 
 @dataclass(frozen=True)

@@ -79,7 +79,9 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   /// and stay hidden). Injected fakes are ignored without a session, so
   /// guest tests can assert the backend is never touched.
   void _initDataSource() {
-    if (!AuthSession.isAuthenticated) {
+    final hasInjectedRepo =
+        widget.repository != null || widget.insightRepository != null;
+    if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) {
       _repository = LocalWardrobeRepository();
       _insightFuture = Future.value(null);
       _wearSummaryFuture = Future.value(null);

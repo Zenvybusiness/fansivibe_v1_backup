@@ -122,6 +122,17 @@ class MediaAttentionObservation:
 
     Represents an aggregated editorial press signal over a geography and period.
     Never direct demand, never search interest, never catalog inventory.
+
+    Provenance & Count Semantics:
+    - ``raw_article_count``, ``distinct_outlet_count``, ``estimated_deduplicated_story_count``,
+      and ``value``: Immutable historical aggregate metrics of the observation; these
+      metrics reflect the state at observation collection/generation time and are NEVER
+      altered by downstream operational raw record pruning.
+    - ``contributing_raw_record_count``: Count of raw record join records currently
+      retained in the ``media_attention_contributing_records`` provenance table for this
+      observation. It reflects retained links (decreases on pruning, increases on relinking).
+    - ``provenance_pruned``: Boolean flag indicating that historical contributing raw records
+      have been pruned by operational retention cleanup (cleared to False upon safe relinking).
     """
 
     source: str

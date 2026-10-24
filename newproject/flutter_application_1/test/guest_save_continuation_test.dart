@@ -10,7 +10,6 @@ import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/features/grooming/data/grooming_service.dart';
 import 'package:fansivibe/features/grooming/presentation/grooming_result_screen.dart';
 import 'package:fansivibe/features/hairstyle/data/hairstyle_mock_data.dart';
-import 'package:fansivibe/features/hairstyle/domain/hairstyle_service.dart';
 import 'package:fansivibe/features/hairstyle/presentation/hairstyle_result_screen.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_analysis_screen.dart';
@@ -51,7 +50,7 @@ Map<String, dynamic> _hairstyleSnapshot() => {
       'maintenance': 'Low',
       'bestFor': 'Oval',
     },
-    'alternatives': [],
+    'alternatives': <dynamic>[],
   },
 };
 
@@ -76,7 +75,7 @@ Map<String, dynamic> _groomingSnapshot() => {
       'maintenance': 'Medium',
       'bestFor': 'Oval',
     },
-    'alternatives': [],
+    'alternatives': <dynamic>[],
   },
 };
 
@@ -101,7 +100,7 @@ Map<String, dynamic> _outfitSnapshot() => {
       'maintenance': 'Low',
       'bestFor': 'Office',
     },
-    'alternatives': [],
+    'alternatives': <dynamic>[],
   },
 };
 

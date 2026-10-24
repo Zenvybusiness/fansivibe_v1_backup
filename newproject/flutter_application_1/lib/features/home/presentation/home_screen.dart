@@ -56,13 +56,13 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late final LearningSummaryRepository _summaryRepository;
+  late LearningSummaryRepository _summaryRepository;
   Future<LearningSummary?>? _summaryFuture;
-  late final TodayLookRepository _todayLookRepository;
+  late TodayLookRepository _todayLookRepository;
   Future<TodayLookResult>? _todayLookFuture;
-  late final WardrobeRepository _wardrobeRepository;
+  late WardrobeRepository _wardrobeRepository;
   Future<WardrobeInsightData?>? _insightFuture;
-  late final EventsRepository _eventsRepository;
+  late EventsRepository _eventsRepository;
   Future<EventListPage?>? _eventsFuture;
 
   /// Account-scoped classification answer. Null until the learning-summary
@@ -273,7 +273,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final hasCompleted = LocalStorage.onboardingComplete;
     final storedDisplayName = LocalStorage.displayName;
     final storedVibe = LocalStorage.vibe;
-    if (hasCompleted || storedVibe != null) {
+    if (hasCompleted || (!AuthSession.isAuthenticated && storedVibe != null)) {
       return <String, dynamic>{
         'onboarding_complete': hasCompleted,
         'display_name': storedDisplayName,
@@ -429,8 +429,8 @@ class _HomeScreenState extends State<HomeScreen> {
       'route=/home\n'
       'widget=$chosenWidget\n'
       'auth=${AuthSession.isAuthenticated}\n'
-      'sync=${_syncIsNew}\n'
-      'server=${_serverClassification}\n'
+      'sync=$_syncIsNew\n'
+      'server=$_serverClassification\n'
       'failed=$_summaryFailed\n'
       'preferences=${LocalStorage.vibe != null}\n'
       'displayName=$_displayName\n'
@@ -786,11 +786,17 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         final summary = snapshot.data;
         if (snapshot.hasError || summary == null) {
-          return SummaryErrorCard(
-            title: 'Style Journey',
-            message:
-                'Couldn\'t load style summary. Please check your connection.',
-            onRetry: _retrySummary,
+          return Column(
+            children: [
+              SummaryErrorCard(
+                title: 'Style Journey',
+                message:
+                    'Couldn\'t load style summary. Please check your connection.',
+                onRetry: _retrySummary,
+              ),
+              const SizedBox(height: 16),
+              _buildStreakSlot(),
+            ],
           );
         }
         return Column(

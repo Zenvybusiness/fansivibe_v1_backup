@@ -54,9 +54,11 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
     super.initState();
     _repository = widget.repository ?? SavedLooksRepositoryImpl();
     _feedbackRepository = widget.feedbackRepository ?? FeedbackRepositoryImpl();
-    // No session, no fetch: GET /v1/looks/saved 401s without one. The
-    // build below renders the sign-in prompt instead.
-    if (!AuthSession.isAuthenticated) {
+    // No session, no fetch: GET /v1/looks/saved 401s without one. Injected
+    // fakes without savedLocally keep exercising the authenticated backend
+    // path (per guest_mode.dart contract).
+    final hasInjectedRepo = widget.repository != null;
+    if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) {
       _isLoading = false;
       _loadFailed = false;
     } else {
@@ -75,7 +77,8 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
 
   void _onAuthChanged() {
     if (!mounted) return;
-    if (!AuthSession.isAuthenticated) {
+    final hasInjectedRepo = widget.repository != null;
+    if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) {
       setState(() {
         _looks = [];
         _isLoading = false;
@@ -87,7 +90,8 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
   }
 
   Future<void> _loadSavedLooks() async {
-    if (!AuthSession.isAuthenticated) return;
+    final hasInjectedRepo = widget.repository != null;
+    if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) return;
     final page = await _repository.listSavedLooks(page: 1, pageSize: 20);
 
     if (!mounted) return;
@@ -100,7 +104,8 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
   }
 
   Future<void> _retryLoad() async {
-    if (!AuthSession.isAuthenticated) return;
+    final hasInjectedRepo = widget.repository != null;
+    if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) return;
     setState(() {
       _isLoading = true;
       _loadFailed = false;

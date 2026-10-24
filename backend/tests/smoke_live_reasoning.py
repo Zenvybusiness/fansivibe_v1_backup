@@ -16,7 +16,7 @@ from app.api.deps import get_fashion_reasoner
 from app.main import app
 
 def run_smoke():
-    config = ReasoningConfig(model="qwen2.5vl:3b", timeout_s=120.0, temperature=0.0)
+    config = ReasoningConfig.from_env(timeout_s=120.0, temperature=0.0)
     real_reasoner = OllamaFashionReasoner(config)
     app.dependency_overrides[get_fashion_reasoner] = lambda: real_reasoner
 

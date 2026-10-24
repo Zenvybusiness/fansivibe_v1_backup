@@ -75,9 +75,9 @@ class _WardrobeItemDetailsScreenState
   void initState() {
     super.initState();
     // Signed-out screens read/edit/delete through the local repository —
-    // same screen, zero API calls. Injected fakes are ignored without
-    // a session, so guest tests can assert the backend is never touched.
-    if (!AuthSession.isAuthenticated) {
+    // same screen, zero API calls. Injected fakes without savedLocally keep
+    // exercising the authenticated backend path (per guest_mode.dart contract).
+    if (isGuestUser || (!AuthSession.isAuthenticated && widget.repository == null)) {
       _repository = LocalWardrobeRepository();
     } else {
       _repository = widget.repository ?? WardrobeRepositoryImpl();
@@ -90,7 +90,7 @@ class _WardrobeItemDetailsScreenState
 
   void _onAuthChanged() {
     if (!mounted) return;
-    if (!AuthSession.isAuthenticated) {
+    if (isGuestUser || (!AuthSession.isAuthenticated && widget.repository == null)) {
       _repository = LocalWardrobeRepository();
     } else {
       _repository = widget.repository ?? WardrobeRepositoryImpl();

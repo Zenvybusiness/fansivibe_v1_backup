@@ -513,3 +513,45 @@ def test_create_outfit_failed_analyzer_marks_run_failed(db, monkeypatch):
     assert body["error"]["details"]["reason"] == "no_face_detected"
 
 
+def test_run_summary_to_schema_safely_handles_missing_knowledge_version():
+    """Regression test for Task F11: _run_summary_to_schema must not fail with
+    AttributeError when record does not have knowledge_version attribute."""
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from app.api.routers.analysis import _run_summary_to_schema
+
+    dummy_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    # Record without knowledge_version attribute
+    rec_without = SimpleNamespace(
+        id=dummy_id,
+        run_type="outfit",
+        status="completed",
+        created_at=now,
+        completed_at=now,
+        engine_version="vision-v1",
+        input_media={"url": "test"},
+    )
+    schema_without = _run_summary_to_schema(rec_without)
+    assert schema_without.run_id == dummy_id
+    assert schema_without.knowledge_version is None
+    assert schema_without.run_type == "outfit"
+
+    # Record with knowledge_version attribute
+    rec_with = SimpleNamespace(
+        id=dummy_id,
+        run_type="hairstyle",
+        status="completed",
+        created_at=now,
+        completed_at=now,
+        engine_version="vision-v1",
+        knowledge_version="1.1+1.0",
+        input_media=None,
+    )
+    schema_with = _run_summary_to_schema(rec_with)
+    assert schema_with.run_id == dummy_id
+    assert schema_with.knowledge_version == "1.1+1.0"
+
+
+

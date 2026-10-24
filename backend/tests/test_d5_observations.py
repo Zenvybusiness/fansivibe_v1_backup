@@ -86,7 +86,7 @@ def test_migration_head_is_0028_linear_off_0027():
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
-    assert tuple(script.get_heads()) in (("0028",), ("0029",))
+    assert tuple(script.get_heads()) == ("0029",)
 
     rev = script.get_revision("0028")
     assert rev is not None and rev.down_revision == "0027"

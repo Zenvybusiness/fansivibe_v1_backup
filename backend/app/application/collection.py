@@ -29,17 +29,37 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import dataclass
-from typing import Optional
+from collections.abc import Sequence
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.domain.ports.repositories import DiscoveryRepository, SearchInterestRepository
+from app.domain.ports.repositories import (
+    DiscoveryRepository,
+    MediaAttentionRepository,
+    SearchInterestRepository,
+)
 from app.domain.ports.source_adapter import (
     RawSourceRecord,
     SourceAdapter,
+    SourceDeadlineError,
     SourceError,
     SourcePayloadError,
+    SourceRateLimitError,
+    SourceTransientError,
+)
+from app.domain.services.media_attention import (
+    COMPLETENESS_COMPLETE,
+    COMPLETENESS_TRUNCATED,
+    DEFAULT_CLUSTERING_VERSION,
+    DEFAULT_QUERY_CONFIG_VERSION,
+    DEFAULT_VALUE_SCALE,
+    GEO_TYPE_COUNTRY,
+    SOURCE_GDELT_DOC,
+    STATUS_PRESENT,
+    STATUS_SUPPRESSED,
+    normalize_media_attention,
 )
 from app.domain.services.normalization import normalize_product, payload_hash
 from app.domain.services.product_identity import (
@@ -48,6 +68,7 @@ from app.domain.services.product_identity import (
     IdentityDecision,
 )
 from app.domain.services.search_interest import normalize_search_interest
+from app.infrastructure.external.gdelt_source import GdeltSliceResult
 
 _MAX_ERROR_SUMMARY = 2000
 
@@ -57,6 +78,7 @@ _SAFE_SOURCE_ERRORS = {
     "SourceAuthError": "source authentication failed",
     "SourceRateLimitError": "source rate limit reached",
     "SourceTransientError": "source temporarily unavailable",
+    "SourceDeadlineError": "cooperative deadline exceeded",
     "SourcePayloadError": "source returned an unusable payload",
 }
 
@@ -414,6 +436,426 @@ class CollectSearchInterest:
         return SearchInterestCollectionResult(
             run_id, self._adapter.source_id, status,
             fetched, inserted, skipped, failed, error_summary,
+        )
+
+
+@dataclass(frozen=True)
+class MediaAttentionCollectionConfig:
+    """Bounds and parameters for one media-attention collection run."""
+
+    window_start: datetime
+    window_end: datetime
+    query_key: str = "streetwear"
+    source: str = SOURCE_GDELT_DOC
+    query_display: Optional[str] = None
+    geo_scope: str = "IN"
+    geo_scope_type: str = GEO_TYPE_COUNTRY
+    aggregation_interval: str = "rolling_7d"
+    query_config_version: str = DEFAULT_QUERY_CONFIG_VERSION
+    clustering_version: str = DEFAULT_CLUSTERING_VERSION
+    value_scale: str = DEFAULT_VALUE_SCALE
+    max_depth: int = 5
+    min_slice_duration: timedelta = timedelta(minutes=15)
+    deadline: Optional[datetime] = None
+    timeout_s: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class MediaAttentionCollectionResult:
+    """Outcome of one media-attention collection run."""
+
+    run_id: UUID
+    source: str
+    status: str
+    observation_id: Optional[UUID]
+    value_status: Optional[str]
+    completeness_status: Optional[str]
+    value: Optional[float]
+    fetched: int
+    inserted: int
+    skipped: int
+    failed: int
+    window_covered: bool
+    error_summary: Optional[str]
+
+
+def verify_window_coverage(
+    intervals: Sequence[tuple[datetime, datetime]],
+    window_start: datetime,
+    window_end: datetime,
+) -> bool:
+    """Verify that a set of closed-open [start, end) intervals completely and
+    contiguously covers the requested [window_start, window_end) without gaps.
+    """
+    if not intervals:
+        return False
+    sorted_ints = sorted(intervals, key=lambda iv: iv[0])
+    curr_start, curr_end = sorted_ints[0]
+    if curr_start > window_start:
+        return False
+    for s, e in sorted_ints[1:]:
+        if s > curr_end:
+            return False
+        curr_end = max(curr_end, e)
+    return curr_start <= window_start and curr_end >= window_end
+
+
+class CollectMediaAttention:
+    """Run one bounded media-attention collection with adaptive time slicing.
+
+    Orchestrates collection across query and time slices from GDELT DOC API (or
+    conforming adapter).
+
+    Discipline & Invariants:
+    - Adaptive time-slicing with recursive bisection on provider-cap truncation.
+    - Recursion/depth limits prevent infinite subdivision.
+    - Cooperative deadline enforcement throughout pacing and requests.
+    - Full-window coverage is explicitly tracked.
+    - An individual empty slice NEVER implies an empty complete window.
+    - Publishes present/complete ONLY after every required slice succeeds
+      and the entire requested window is covered.
+    - When depth limit is reached on provider-capped slices, publishes
+      suppressed/truncated observation with null metrics.
+    - When transport, rate limit, timeout or deadline interruptions occur,
+      never publishes present/complete.
+    - Preserves query_config_version and clustering_version throughout.
+    - Normalization and story clustering remain in the pure domain layer.
+    """
+
+    def __init__(
+        self,
+        *,
+        adapter: GdeltSourceAdapter | SourceAdapter,
+        discovery: DiscoveryRepository,
+        observations: MediaAttentionRepository,
+    ) -> None:
+        self._adapter = adapter
+        self._discovery = discovery
+        self._observations = observations
+
+    def __call__(
+        self, config: MediaAttentionCollectionConfig
+    ) -> MediaAttentionCollectionResult:
+        adapter = self._adapter
+        if config.source != adapter.source_id:
+            raise ValueError(
+                f"config source {config.source!r} does not match adapter "
+                f"source {adapter.source_id!r}"
+            )
+
+        if config.window_end <= config.window_start:
+            raise ValueError("window_end must be strictly after window_start")
+
+        effective_deadline = config.deadline
+        if effective_deadline is None and config.timeout_s is not None:
+            effective_deadline = datetime.now(timezone.utc) + timedelta(
+                seconds=config.timeout_s
+            )
+
+        run_id = self._discovery.start_run(source=adapter.source_id)
+        fetched = inserted = skipped = failed = 0
+
+        collected_records: list[RawSourceRecord] = []
+        covered_slices: list[tuple[datetime, datetime]] = []
+        cap_truncated = False
+        truncated_slice: Optional[tuple[datetime, datetime]] = None
+
+        query_display = config.query_display or config.query_key
+        geo_filter = (
+            f" sourcecountry:{config.geo_scope}"
+            if config.geo_scope and config.geo_scope != "worldwide"
+            else ""
+        )
+        query_str = f"{config.query_key}{geo_filter}"
+
+        def _collect_slice(start: datetime, end: datetime, depth: int) -> bool:
+            nonlocal cap_truncated, truncated_slice
+
+            if (
+                effective_deadline is not None
+                and datetime.now(timezone.utc) >= effective_deadline
+            ):
+                raise SourceDeadlineError(
+                    "cooperative deadline exceeded during collection"
+                )
+
+            if hasattr(adapter, "query_slice"):
+                slice_res = adapter.query_slice(
+                    query=query_str,
+                    start_datetime=start,
+                    end_datetime=end,
+                    deadline=effective_deadline,
+                )
+            else:
+                batch = adapter.fetch_batch(limit=250)
+                slice_res = GdeltSliceResult(
+                    slice_start=start,
+                    slice_end=end,
+                    records=batch.records,
+                    is_capped=False,
+                    articles_count=len(batch.records),
+                    raw_payload={},
+                )
+
+            if not slice_res.is_capped:
+                collected_records.extend(slice_res.records)
+                covered_slices.append((start, end))
+                return True
+
+            duration = end - start
+            if depth >= config.max_depth or duration <= config.min_slice_duration:
+                cap_truncated = True
+                truncated_slice = (start, end)
+                return False
+
+            mid = start + duration / 2
+            if not _collect_slice(start, mid, depth + 1):
+                return False
+            if not _collect_slice(mid, end, depth + 1):
+                return False
+            return True
+
+        try:
+            slice_ok = _collect_slice(config.window_start, config.window_end, 0)
+        except SourceDeadlineError:
+            summary = "cooperative deadline interrupted collection"
+            return self._finish_failure(run_id, summary)
+        except SourceRateLimitError as exc:
+            summary = _safe_source_error(exc)
+            return self._finish_failure(run_id, summary)
+        except SourceTransientError as exc:
+            summary = _safe_source_error(exc)
+            return self._finish_failure(run_id, summary)
+        except SourcePayloadError as exc:
+            summary = _safe_source_error(exc)
+            return self._finish_failure(run_id, summary)
+        except SourceError as exc:
+            summary = _safe_source_error(exc)
+            return self._finish_failure(run_id, summary)
+        except SQLAlchemyError as exc:
+            summary = f"database failure: {type(exc).__name__}"
+            try:
+                self._discovery.rollback()
+                self._discovery.finish_run(
+                    run_id=run_id,
+                    status="failed",
+                    fetched=0,
+                    inserted=0,
+                    updated=0,
+                    skipped=0,
+                    failed=0,
+                    error_summary=summary,
+                )
+            except SQLAlchemyError:
+                raise exc
+            return MediaAttentionCollectionResult(
+                run_id=run_id,
+                source=adapter.source_id,
+                status="failed",
+                observation_id=None,
+                value_status=None,
+                completeness_status=None,
+                value=None,
+                fetched=0,
+                inserted=0,
+                skipped=0,
+                failed=0,
+                window_covered=False,
+                error_summary=summary,
+            )
+
+        # Provider cap truncation at max depth
+        if cap_truncated:
+            summary = f"provider-cap truncation encountered on slice {truncated_slice}"
+            norm_res = normalize_media_attention(
+                records=(),
+                period_start=config.window_start,
+                period_end=config.window_end,
+                query_key=config.query_key,
+                query_display=query_display,
+                geo_scope=config.geo_scope,
+                geo_scope_type=config.geo_scope_type,
+                aggregation_interval=config.aggregation_interval,
+                value_status=STATUS_SUPPRESSED,
+                completeness_status=COMPLETENESS_TRUNCATED,
+                query_config_version=config.query_config_version,
+                clustering_version=config.clustering_version,
+                value_scale=config.value_scale,
+            )
+            assert norm_res.observation is not None
+            obs_id, _ = self._observations.insert_observation_with_contributing_records(
+                observation=norm_res.observation,
+                run_id=run_id,
+                contributing_records=(),
+            )
+            self._discovery.finish_run(
+                run_id=run_id,
+                status="completed",
+                fetched=0,
+                inserted=0,
+                updated=0,
+                skipped=0,
+                failed=0,
+                error_summary=summary,
+            )
+            return MediaAttentionCollectionResult(
+                run_id=run_id,
+                source=adapter.source_id,
+                status="completed",
+                observation_id=obs_id,
+                value_status=STATUS_SUPPRESSED,
+                completeness_status=COMPLETENESS_TRUNCATED,
+                value=None,
+                fetched=0,
+                inserted=0,
+                skipped=0,
+                failed=0,
+                window_covered=False,
+                error_summary=summary,
+            )
+
+        # Check full window coverage
+        window_covered = verify_window_coverage(
+            covered_slices, config.window_start, config.window_end
+        )
+        if not window_covered or not slice_ok:
+            summary = "requested window was not fully covered"
+            return self._finish_failure(run_id, summary)
+
+        # Full window is covered! Persist raw records and normalize
+        records_for_norm: list[RawSourceRecord] = []
+        for r in collected_records:
+            fetched += 1
+            raw_hash = payload_hash(r.payload)
+            raw_id, created = self._discovery.insert_raw_if_absent(
+                run_id=run_id,
+                source=adapter.source_id,
+                source_record_id=r.source_record_id,
+                payload=r.payload,
+                payload_hash=raw_hash,
+                source_timestamp=r.source_timestamp,
+            )
+            if created:
+                inserted += 1
+            else:
+                skipped += 1
+            self._discovery.mark_raw(raw_id=raw_id, status="processed", error=None)
+            records_for_norm.append(
+                RawSourceRecord(
+                    source=adapter.source_id,
+                    payload=r.payload,
+                    source_record_id=str(raw_id),
+                    source_timestamp=r.source_timestamp,
+                )
+            )
+
+        norm_res = normalize_media_attention(
+            records=records_for_norm,
+            period_start=config.window_start,
+            period_end=config.window_end,
+            query_key=config.query_key,
+            query_display=query_display,
+            geo_scope=config.geo_scope,
+            geo_scope_type=config.geo_scope_type,
+            aggregation_interval=config.aggregation_interval,
+            value_status=STATUS_PRESENT,
+            completeness_status=COMPLETENESS_COMPLETE,
+            query_config_version=config.query_config_version,
+            clustering_version=config.clustering_version,
+            value_scale=config.value_scale,
+        )
+
+        if not norm_res.ok or norm_res.observation is None:
+            failed_count = len(norm_res.errors)
+            summary = "; ".join(norm_res.errors)[:_MAX_ERROR_SUMMARY]
+            self._discovery.finish_run(
+                run_id=run_id,
+                status="failed",
+                fetched=fetched,
+                inserted=inserted,
+                updated=0,
+                skipped=skipped,
+                failed=failed_count,
+                error_summary=summary,
+            )
+            return MediaAttentionCollectionResult(
+                run_id=run_id,
+                source=adapter.source_id,
+                status="failed",
+                observation_id=None,
+                value_status=None,
+                completeness_status=None,
+                value=None,
+                fetched=fetched,
+                inserted=inserted,
+                skipped=skipped,
+                failed=failed_count,
+                window_covered=True,
+                error_summary=summary,
+            )
+
+        obs_id, _ = self._observations.insert_observation_with_contributing_records(
+            observation=norm_res.observation,
+            run_id=run_id,
+            contributing_records=norm_res.contributing_records,
+        )
+
+        self._discovery.finish_run(
+            run_id=run_id,
+            status="completed",
+            fetched=fetched,
+            inserted=inserted,
+            updated=0,
+            skipped=skipped,
+            failed=0,
+            error_summary=None,
+        )
+
+        return MediaAttentionCollectionResult(
+            run_id=run_id,
+            source=adapter.source_id,
+            status="completed",
+            observation_id=obs_id,
+            value_status=STATUS_PRESENT,
+            completeness_status=COMPLETENESS_COMPLETE,
+            value=norm_res.observation.value,
+            fetched=fetched,
+            inserted=inserted,
+            skipped=skipped,
+            failed=0,
+            window_covered=True,
+            error_summary=None,
+        )
+
+    def _finish_failure(
+        self,
+        run_id: UUID,
+        summary: str,
+    ) -> MediaAttentionCollectionResult:
+        self._discovery.finish_run(
+            run_id=run_id,
+            status="failed",
+            fetched=0,
+            inserted=0,
+            updated=0,
+            skipped=0,
+            failed=0,
+            error_summary=summary,
+        )
+        return MediaAttentionCollectionResult(
+            run_id=run_id,
+            source=self._adapter.source_id,
+            status="failed",
+            observation_id=None,
+            value_status=None,
+            completeness_status=None,
+            value=None,
+            fetched=0,
+            inserted=0,
+            skipped=0,
+            failed=0,
+            window_covered=False,
+            error_summary=summary,
         )
 
 

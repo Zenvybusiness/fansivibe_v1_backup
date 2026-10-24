@@ -580,9 +580,10 @@ class _SignInScreenState extends State<SignInScreen>
 
   Widget _buildCreateAccountSwitchFooter() {
     return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+       children: [
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text(
               'New to Fansivibe? ',

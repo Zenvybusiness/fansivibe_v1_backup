@@ -11,7 +11,7 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 
-class GroomingResultScreen extends StatelessWidget {
+class GroomingResultScreen extends StatefulWidget {
   const GroomingResultScreen({
     required this.faceShape,
     required this.beardStyle,
@@ -28,6 +28,21 @@ class GroomingResultScreen extends StatelessWidget {
   final String beardColor;
   final GroomingAnalysisResult? result;
   final GroomingService? service;
+
+  @override
+  State<GroomingResultScreen> createState() => _GroomingResultScreenState();
+}
+
+class _GroomingResultScreenState extends State<GroomingResultScreen> {
+  bool _saving = false;
+  bool _saved = false;
+
+  String get faceShape => widget.faceShape;
+  String get beardStyle => widget.beardStyle;
+  String get beardDensity => widget.beardDensity;
+  String get beardColor => widget.beardColor;
+  GroomingAnalysisResult? get result => widget.result;
+  GroomingService? get service => widget.service;
 
   @override
   Widget build(BuildContext context) {
@@ -621,43 +636,52 @@ class GroomingResultScreen extends StatelessWidget {
           child: FansiButton.primary(
             label: 'Save Look',
             icon: Icons.favorite_rounded,
-            onPressed: () async {
-              // Guests: the ephemeral result is already stashed
-              // device-locally at analysis time — record the save intent
-              // and route to the existing sign-in flow (class-D replay
-              // after authentication via the origin banner).
-              if (isGuestUser) {
-                promptGuestSignIn(
-                  context,
-                  action:
-                      'Sign in to save your grooming look. Browsing stays free.',
-                );
-                return;
-              }
-              // Reachable only when a real result exists (null returns the
-              // error state above), so the bang never fires on missing data.
-              final rec = result!.topRecommendation;
-              final ok = await service.saveGroomingLook(
-                recommendation: rec,
-                title: rec.name,
-              );
-              if (ok) clearPendingEphemeralResult();
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    ok ? 'Look saved to profile' : 'Could not save look',
-                  ),
-                  backgroundColor: ok
-                      ? FansivibeColors.accentGold
-                      : FansivibeColors.surfaceContainerHigh,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: FansivibeRadius.smdBorder,
-                  ),
-                ),
-              );
-            },
+            onPressed: _saving || _saved
+                ? null
+                : () async {
+                    if (_saving || _saved) return;
+                    setState(() => _saving = true);
+                    try {
+                      // Guests: the ephemeral result is already stashed
+                      // device-locally at analysis time — record the save intent
+                      // and route to the existing sign-in flow (class-D replay
+                      // after authentication via the origin banner).
+                      if (isGuestUser) {
+                        promptGuestSignIn(
+                          context,
+                          action:
+                              'Sign in to save your grooming look. Browsing stays free.',
+                        );
+                        return;
+                      }
+                      final rec = result!.topRecommendation;
+                      final ok = await service.saveGroomingLook(
+                        recommendation: rec,
+                        title: rec.name,
+                      );
+                      if (ok) {
+                        clearPendingEphemeralResult();
+                        _saved = true;
+                      }
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            ok ? 'Look saved to profile' : 'Could not save look',
+                          ),
+                          backgroundColor: ok
+                              ? FansivibeColors.accentGold
+                              : FansivibeColors.surfaceContainerHigh,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: FansivibeRadius.smdBorder,
+                          ),
+                        ),
+                      );
+                    } finally {
+                      if (mounted) setState(() => _saving = false);
+                    }
+                  },
           ),
         ),
       ],

@@ -13,6 +13,7 @@ DB-backed — runs when PostgreSQL is reachable, skips otherwise
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import json
 
 import pytest
@@ -123,10 +124,11 @@ def test_r36_append_preserves_synced_value():
     """The UI-synced code survives the contracted R36 event feed (P1-2:
     the synced value reaches the R36 path instead of being clobbered)."""
     assert _patch(["casual"]).status_code == 200
+    future_date = (datetime.now(timezone.utc).date() + timedelta(days=30)).isoformat()
     created = client.post(
         "/v1/events",
         headers=HEADERS,
-        json={"title": "Sync Gala", "eventType": "date", "eventDate": "2026-10-01"},
+        json={"title": "Sync Gala", "eventType": "date", "eventDate": future_date},
     )
     assert created.status_code == 201
     assert _prefs() == ["casual", "date"]
