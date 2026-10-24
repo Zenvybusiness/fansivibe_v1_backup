@@ -123,3 +123,47 @@ def get_lifecycle_manager():
     from app.ai.lifecycle import OllamaLifecycleManager
 
     return OllamaLifecycleManager()
+
+
+def get_optional_user_id(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> UUID | None:
+    """Optional Bearer-token auth: returns user_id if authenticated, or None for guest requests.
+
+    If an Authorization header is provided, it must be valid; malformed/expired
+    tokens fail closed with 401 instead of masquerading as guests.
+    """
+    if not authorization:
+        return None
+    return get_current_user_id(authorization=authorization, db=db)
+
+
+def get_candidate_repository(db: Session = Depends(get_db)):
+    """Discovery candidate repository dependency seam."""
+    from app.infrastructure.db.repositories import DiscoveryRepositorySQL
+
+    return DiscoveryRepositorySQL(db)
+
+
+def get_user_state_repository(db: Session = Depends(get_db)):
+    """User state repository dependency seam."""
+    from app.infrastructure.db.repositories import UserStateRepositorySQL
+
+    return UserStateRepositorySQL(db)
+
+
+def get_wardrobe_repository(db: Session = Depends(get_db)):
+    """Wardrobe item repository dependency seam."""
+    from app.infrastructure.db.repositories import WardrobeItemRepositorySQL
+
+    return WardrobeItemRepositorySQL(db)
+
+
+def get_discovery_event_repository(db: Session = Depends(get_db)):
+    """Discovery event repository dependency seam (DISCOVERY-10A)."""
+    from app.infrastructure.db.repositories import DiscoveryEventRepositorySQL
+
+    return DiscoveryEventRepositorySQL(db)
+
+

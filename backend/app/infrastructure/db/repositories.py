@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import Boolean, and_, cast, func, select, update
+from sqlalchemy import Boolean, and_, cast, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -21,8 +21,14 @@ from app.domain.ports.repositories import (
     AnalysisRunSummary,
     AuthAccountRecord,
     AuthSessionRecord,
+    CatalogProduct,
+    CatalogProductRecord,
     FeedbackEventRecord,
     MediaAttentionRepository,
+    ProductCandidateRepository,
+    ProductFilterCriteria,
+    ProductOfferRecord,
+    ProductVariantRecord,
     SavedLookCoverage,
     SavedLookRecord,
     SearchInterestEvidence,
@@ -76,6 +82,11 @@ from app.infrastructure.db.models import (
     WardrobeWearGroups,
     Colors,
     Materials,
+    DiscoveryEvent,
+    Retailer,
+    ProductVariant,
+    RetailerOffer,
+    OfferPriceHistory,
 )
 
 _ENGINE_VERSION = "rules-v1"
@@ -1632,6 +1643,304 @@ class DiscoveryRepositorySQL:
             )
         )
 
+    def _is_primary_source(
+        self, product_id: UUID, source: str, source_product_id: str
+    ) -> bool:
+        """True if (source, source_product_id) was the original creator of this canonical product."""
+        first_map = self._session.execute(
+            select(ProductSourceMap)
+            .where(ProductSourceMap.product_id == product_id)
+            .order_by(ProductSourceMap.created_at.asc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if first_map is None:
+            return True
+        return (
+            first_map.source == source
+            and first_map.source_product_id == source_product_id
+        )
+
+    def _get_or_create_retailer(self, source: str) -> Retailer:
+        """Get or create the Retailer entity for a source adapter slug."""
+        retailer = self._session.execute(
+            select(Retailer).where(Retailer.slug == source)
+        ).scalar_one_or_none()
+        if retailer is None:
+            known_retailers = {
+                "amazon_in": ("Amazon India", "amazon.in"),
+                "flipkart": ("Flipkart", "flipkart.com"),
+                "myntra": ("Myntra", "myntra.com"),
+                "ajio": ("Ajio", "ajio.com"),
+                "tata_cliq": ("Tata CLiQ", "tatacliq.com"),
+            }
+            name, domain = known_retailers.get(
+                source,
+                (source.replace("_", " ").title(), f"{source.replace('_', '')}.com"),
+            )
+            retailer = Retailer(
+                slug=source,
+                name=name,
+                domain=domain,
+                is_active=True,
+            )
+            self._session.add(retailer)
+            self._session.flush()
+        return retailer
+
+    def _find_or_create_variant(
+        self, product_id: UUID, product: NormalizedProduct, raw_id: Optional[UUID] = None
+    ) -> Optional[UUID]:
+        """Optionally resolve or create a ProductVariant if variant attributes exist."""
+        payload: dict = {}
+        if raw_id:
+            raw_rec = self._session.get(RawSourceRecord, raw_id)
+            if raw_rec and isinstance(raw_rec.payload, dict):
+                payload = raw_rec.payload
+
+        size = (
+            getattr(product, "size", None)
+            or product.attributes.get("size")
+            or payload.get("size")
+            or (payload.get("attributes", {}).get("size") if isinstance(payload.get("attributes"), dict) else None)
+        )
+        color = (
+            getattr(product, "color", None)
+            or product.attributes.get("color")
+            or payload.get("color")
+            or (payload.get("attributes", {}).get("color") if isinstance(payload.get("attributes"), dict) else None)
+        )
+        sku = (
+            getattr(product, "sku", None)
+            or product.attributes.get("sku")
+            or payload.get("sku")
+            or (payload.get("attributes", {}).get("sku") if isinstance(payload.get("attributes"), dict) else None)
+        )
+        gtin = product.gtin or payload.get("gtin")
+
+        if not (size or color or sku):
+            return None
+
+        stmt = select(ProductVariant).where(ProductVariant.product_id == product_id)
+        if sku:
+            stmt = stmt.where(ProductVariant.sku == str(sku))
+        if size:
+            stmt = stmt.where(ProductVariant.size == str(size))
+        if color:
+            stmt = stmt.where(ProductVariant.color == str(color))
+        existing = self._session.execute(stmt.limit(1)).scalar_one_or_none()
+        if existing is not None:
+            return existing.id
+
+        variant_attrs = dict(product.attributes)
+        if size and "size" not in variant_attrs:
+            variant_attrs["size"] = str(size)
+        if color and "color" not in variant_attrs:
+            variant_attrs["color"] = str(color)
+        if sku and "sku" not in variant_attrs:
+            variant_attrs["sku"] = str(sku)
+
+        variant = ProductVariant(
+            product_id=product_id,
+            sku=str(sku)[:100] if sku else None,
+            gtin=str(gtin)[:14] if gtin else None,
+            size=str(size)[:50] if size else None,
+            color=str(color)[:50] if color else None,
+            attributes=variant_attrs,
+        )
+        self._session.add(variant)
+        self._session.flush()
+        return variant.id
+
+    def _upsert_retailer_offer(
+        self,
+        *,
+        product_id: UUID,
+        retailer_id: UUID,
+        variant_id: Optional[UUID],
+        source_product_id: str,
+        raw_id: UUID,
+        product: NormalizedProduct,
+    ) -> RetailerOffer:
+        """Upsert a retailer-specific product offer and append price history on change."""
+        offer = self._session.execute(
+            select(RetailerOffer).where(
+                RetailerOffer.retailer_id == retailer_id,
+                RetailerOffer.source_product_id == source_product_id,
+            )
+        ).scalar_one_or_none()
+
+        if offer is None:
+            price_val = float(product.price) if product.price is not None else 0.0
+            currency_val = product.currency or "INR"
+            avail_val = bool(product.availability) if product.availability is not None else True
+            url_val = product.product_url if product.product_url else None
+            offer = RetailerOffer(
+                product_id=product_id,
+                retailer_id=retailer_id,
+                variant_id=variant_id,
+                source_product_id=source_product_id,
+                raw_source_record_id=raw_id,
+                product_url=url_val,
+                price=price_val,
+                currency=currency_val,
+                availability=avail_val,
+                in_stock=avail_val,
+                last_checked_at=func.now(),
+                is_active=True,
+            )
+            self._session.add(offer)
+            self._session.flush()
+            self._session.add(
+                OfferPriceHistory(
+                    offer_id=offer.id,
+                    price=price_val,
+                    currency=currency_val,
+                    availability=avail_val,
+                    observed_at=product.observed_at or func.now(),
+                    raw_source_record_id=raw_id,
+                )
+            )
+        else:
+            price_changed = False
+            avail_changed = False
+            if product.price is not None:
+                new_price = float(product.price)
+                if float(offer.price) != new_price:
+                    offer.price = new_price
+                    price_changed = True
+            if product.currency is not None:
+                offer.currency = product.currency
+            if product.product_url is not None:
+                offer.product_url = product.product_url if product.product_url else None
+            if product.availability is not None:
+                if offer.availability != product.availability:
+                    offer.availability = product.availability
+                    offer.in_stock = product.availability
+                    avail_changed = True
+            offer.last_checked_at = func.now()
+            offer.raw_source_record_id = raw_id
+            offer.updated_at = func.now()
+            if variant_id is not None:
+                offer.variant_id = variant_id
+
+            if price_changed or avail_changed:
+                self._session.add(
+                    OfferPriceHistory(
+                        offer_id=offer.id,
+                        price=offer.price,
+                        currency=offer.currency,
+                        availability=offer.availability,
+                        observed_at=product.observed_at or func.now(),
+                        raw_source_record_id=raw_id,
+                    )
+                )
+
+        return offer
+
+    def _sync_product_legacy_fields(self, product_id: UUID) -> None:
+        """Synchronize legacy Product columns from active RetailerOffers without database triggers."""
+        row = self._session.get(Product, product_id)
+        if row is None:
+            return
+
+        offers = (
+            self._session.execute(
+                select(RetailerOffer)
+                .where(
+                    RetailerOffer.product_id == product_id,
+                    RetailerOffer.is_active == True,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not offers:
+            return
+
+        row.availability = any(o.availability and o.in_stock for o in offers)
+        row.last_verified_at = func.now()
+
+    @staticmethod
+    def _to_offer_record(
+        offer: RetailerOffer,
+        retailer: Retailer,
+        variant: Optional[ProductVariant] = None,
+    ) -> ProductOfferRecord:
+        variant_record = None
+        if variant is not None:
+            variant_record = ProductVariantRecord(
+                id=variant.id,
+                sku=variant.sku,
+                gtin=variant.gtin,
+                size=variant.size,
+                color=variant.color,
+                attributes=dict(variant.attributes or {}),
+            )
+        return ProductOfferRecord(
+            id=offer.id,
+            retailer_id=retailer.id,
+            retailer_name=retailer.name,
+            retailer_slug=retailer.slug,
+            price=float(offer.price),
+            currency=offer.currency,
+            availability=offer.availability,
+            product_url=offer.product_url or "",
+            affiliate_url=offer.affiliate_url,
+            in_stock=offer.in_stock,
+            original_price=float(offer.original_price) if offer.original_price is not None else None,
+            last_checked_at=offer.last_checked_at,
+            retailer_domain=retailer.domain,
+            variant=variant_record,
+            product_id=offer.product_id,
+            is_active=bool(offer.is_active and retailer.is_active),
+        )
+
+    def get_product_offers(
+        self, product_id: UUID
+    ) -> tuple[ProductOfferRecord, ...]:
+        """Fetch all active commercial offers for a canonical product from active retailers."""
+        rows = (
+            self._session.execute(
+                select(RetailerOffer, Retailer, ProductVariant)
+                .join(Retailer, Retailer.id == RetailerOffer.retailer_id)
+                .outerjoin(ProductVariant, ProductVariant.id == RetailerOffer.variant_id)
+                .where(
+                    RetailerOffer.product_id == product_id,
+                    RetailerOffer.is_active == True,
+                    Retailer.is_active == True,
+                )
+                .order_by(
+                    RetailerOffer.in_stock.desc(),
+                    RetailerOffer.availability.desc(),
+                    RetailerOffer.price.asc(),
+                    RetailerOffer.created_at.asc(),
+                )
+            )
+            .all()
+        )
+        return tuple(
+            self._to_offer_record(offer, retailer, variant)
+            for offer, retailer, variant in rows
+        )
+
+    def get_offer_by_id(
+        self, offer_id: UUID
+    ) -> Optional[ProductOfferRecord]:
+        """Fetch a specific retailer offer by its UUID with retailer and variant info."""
+        row = (
+            self._session.execute(
+                select(RetailerOffer, Retailer, ProductVariant)
+                .join(Retailer, Retailer.id == RetailerOffer.retailer_id)
+                .outerjoin(ProductVariant, ProductVariant.id == RetailerOffer.variant_id)
+                .where(RetailerOffer.id == offer_id)
+            )
+            .first()
+        )
+        if row is None:
+            return None
+        offer, retailer, variant = row
+        return self._to_offer_record(offer, retailer, variant)
+
     def upsert_product(
         self,
         *,
@@ -1642,6 +1951,12 @@ class DiscoveryRepositorySQL:
         raw_id: UUID,
         payload_hash: str,
     ) -> IdentityDecision:
+        is_fixture = bool(
+            product.attributes.get("fixture", False)
+            or product.attributes.get("synthetic", False)
+            or source in ("fashion_seed", "fixture")
+        )
+
         mapping = self._session.execute(
             select(ProductSourceMap).where(
                 ProductSourceMap.source == source,
@@ -1650,10 +1965,7 @@ class DiscoveryRepositorySQL:
         ).scalar_one_or_none()
 
         if mapping is not None:
-            # Exact source identity re-observed: refresh canonical values but
-            # keep first_seen_at (discovery time) intact. The new observation
-            # records the change history.
-            self._update_product_fields(mapping.product_id, product)
+            # Exact source identity re-observed: refresh mapping & record observation
             mapping.raw_source_record_id = raw_id
             mapping.observed_at = product.observed_at
             self._record_observation(
@@ -1665,6 +1977,26 @@ class DiscoveryRepositorySQL:
                 raw_id=raw_id,
                 payload_hash=payload_hash,
             )
+
+            if is_fixture:
+                # Synthetic fixtures maintain fields directly on Product row
+                self._update_product_fields(mapping.product_id, product)
+            else:
+                retailer = self._get_or_create_retailer(source)
+                variant_id = self._find_or_create_variant(mapping.product_id, product, raw_id=raw_id)
+                self._upsert_retailer_offer(
+                    product_id=mapping.product_id,
+                    retailer_id=retailer.id,
+                    variant_id=variant_id,
+                    source_product_id=source_product_id,
+                    raw_id=raw_id,
+                    product=product,
+                )
+                # Primary source refreshes canonical metadata on Product; secondary source never overwrites
+                if self._is_primary_source(mapping.product_id, source, source_product_id):
+                    self._update_product_fields(mapping.product_id, product)
+                self._sync_product_legacy_fields(mapping.product_id)
+
             self._session.commit()
             return IdentityDecision(MATCH_EXACT, mapping.product_id)
 
@@ -1698,6 +2030,19 @@ class DiscoveryRepositorySQL:
                 raw_id=raw_id,
                 payload_hash=payload_hash,
             )
+            if not is_fixture:
+                retailer = self._get_or_create_retailer(source)
+                variant_id = self._find_or_create_variant(decision.product_id, product, raw_id=raw_id)
+                self._upsert_retailer_offer(
+                    product_id=decision.product_id,
+                    retailer_id=retailer.id,
+                    variant_id=variant_id,
+                    source_product_id=source_product_id,
+                    raw_id=raw_id,
+                    product=product,
+                )
+                self._sync_product_legacy_fields(decision.product_id)
+
             self._session.commit()
             return decision
 
@@ -1708,8 +2053,8 @@ class DiscoveryRepositorySQL:
             subcategory=product.subcategory,
             attributes=self._db_attributes(product),
             price=product.price,
-            currency=product.currency,
-            availability=product.availability,
+            currency=product.currency or "INR",
+            availability=product.availability if product.availability is not None else True,
             product_url=product.product_url,
             image_urls=list(product.image_urls),
         )
@@ -1733,6 +2078,19 @@ class DiscoveryRepositorySQL:
             raw_id=raw_id,
             payload_hash=payload_hash,
         )
+        if not is_fixture:
+            retailer = self._get_or_create_retailer(source)
+            variant_id = self._find_or_create_variant(row.id, product, raw_id=raw_id)
+            self._upsert_retailer_offer(
+                product_id=row.id,
+                retailer_id=retailer.id,
+                variant_id=variant_id,
+                source_product_id=source_product_id,
+                raw_id=raw_id,
+                product=product,
+            )
+            self._sync_product_legacy_fields(row.id)
+
         self._session.commit()
         return decision
 
@@ -1769,6 +2127,257 @@ class DiscoveryRepositorySQL:
 
     def rollback(self) -> None:
         self._session.rollback()
+
+    def prune_expired_source_records(
+        self,
+        *,
+        source: str,
+        older_than: datetime,
+        batch_limit: int = 1000,
+    ) -> int:
+        """Prune raw source records for a specific source older than a cutoff date.
+
+        Strictly scoped to rows matching ``source``.
+        Deletes at most ``batch_limit`` records per transaction for bounded, idempotent cleanup.
+        Returns the count of pruned records.
+        """
+        stmt = (
+            select(RawSourceRecord.id)
+            .where(
+                RawSourceRecord.source == source,
+                RawSourceRecord.fetched_at < older_than,
+            )
+            .order_by(RawSourceRecord.fetched_at.asc())
+            .limit(batch_limit)
+        )
+        raw_ids = list(self._session.execute(stmt).scalars().all())
+        if not raw_ids:
+            return 0
+
+        self._session.execute(
+            delete(RawSourceRecord).where(RawSourceRecord.id.in_(raw_ids))
+        )
+        self._session.commit()
+        return len(raw_ids)
+
+    def count_expired_source_records(
+        self,
+        *,
+        source: str,
+        older_than: datetime,
+    ) -> int:
+        """Count raw source records for a specific source older than a cutoff date."""
+        stmt = (
+            select(func.count())
+            .select_from(RawSourceRecord)
+            .where(
+                RawSourceRecord.source == source,
+                RawSourceRecord.fetched_at < older_than,
+            )
+        )
+        return self._session.execute(stmt).scalar_one()
+
+    @staticmethod
+    def _to_catalog_product(
+        row: Product, offers: tuple[ProductOfferRecord, ...] = ()
+    ) -> CatalogProductRecord:
+        """Convert a SQLAlchemy Product row into an immutable CatalogProductRecord."""
+        return CatalogProductRecord(
+            id=row.id,
+            title=row.title,
+            brand=row.brand,
+            category=row.category,
+            subcategory=row.subcategory,
+            attributes=dict(row.attributes or {}),
+            price=float(row.price) if row.price is not None else None,
+            currency=row.currency,
+            availability=row.availability,
+            product_url=row.product_url,
+            image_urls=tuple(row.image_urls or ()),
+            offers=offers,
+            first_seen_at=row.first_seen_at,
+            last_verified_at=row.last_verified_at,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    def get_by_id(self, product_id: UUID) -> Optional[CatalogProductRecord]:
+        """Fetch a single catalog product by its canonical UUID with active offers."""
+        row = self._session.get(Product, product_id)
+        if row is None:
+            return None
+        offers = self.get_product_offers(product_id)
+        return self._to_catalog_product(row, offers=offers)
+
+    def _build_filter_clauses(self, criteria: ProductFilterCriteria) -> list[Any]:
+        """Compile hard filter criteria into SQLAlchemy WHERE expressions."""
+        clauses: list[Any] = []
+
+        # Synthetic fixture filtering
+        if not criteria.include_synthetic:
+            clauses.append(
+                func.coalesce(
+                    cast(Product.attributes["synthetic"].astext, Boolean), False
+                ).is_(False)
+            )
+            clauses.append(
+                func.coalesce(
+                    cast(Product.attributes["fixture"].astext, Boolean), False
+                ).is_(False)
+            )
+
+        # Categories inclusion / exclusion
+        if criteria.categories:
+            clauses.append(
+                func.lower(Product.category).in_([c.lower().strip() for c in criteria.categories])
+            )
+        if criteria.exclude_categories:
+            clauses.append(
+                func.lower(Product.category).not_in([c.lower().strip() for c in criteria.exclude_categories])
+            )
+
+        # Subcategories inclusion / exclusion
+        if criteria.subcategories:
+            clauses.append(
+                func.lower(Product.subcategory).in_([s.lower().strip() for s in criteria.subcategories])
+            )
+        if criteria.exclude_subcategories:
+            clauses.append(
+                func.lower(Product.subcategory).not_in([s.lower().strip() for s in criteria.exclude_subcategories])
+            )
+
+        # Brands inclusion / exclusion
+        if criteria.brands:
+            clauses.append(
+                func.lower(Product.brand).in_([b.lower().strip() for b in criteria.brands])
+            )
+        if criteria.exclude_brands:
+            clauses.append(
+                func.lower(Product.brand).not_in([b.lower().strip() for b in criteria.exclude_brands])
+            )
+
+        # Price boundaries
+        if criteria.has_price is True:
+            clauses.append(Product.price.is_not(None))
+        elif criteria.has_price is False:
+            clauses.append(Product.price.is_(None))
+
+        if criteria.min_price is not None:
+            clauses.append(Product.price >= criteria.min_price)
+        if criteria.max_price is not None:
+            clauses.append(Product.price <= criteria.max_price)
+
+        # Currency match
+        if criteria.currency is not None:
+            clauses.append(Product.currency == criteria.currency.strip().upper())
+
+        # Stock / availability
+        if criteria.in_stock_only is True:
+            clauses.append(Product.availability.is_(True))
+        elif criteria.in_stock_only is False:
+            clauses.append(Product.availability.is_(False))
+
+        # Images
+        if criteria.has_images is True:
+            clauses.append(func.jsonb_array_length(Product.image_urls) > 0)
+        elif criteria.has_images is False:
+            clauses.append(func.jsonb_array_length(Product.image_urls) == 0)
+
+        # Normalized attributes (materials, colors, fits, silhouettes)
+        if criteria.materials:
+            clauses.append(
+                func.lower(Product.attributes["material"].astext).in_(
+                    [m.lower().strip() for m in criteria.materials]
+                )
+            )
+        if criteria.colors:
+            clauses.append(
+                func.lower(Product.attributes["color"].astext).in_(
+                    [c.lower().strip() for c in criteria.colors]
+                )
+            )
+        if criteria.fits:
+            clauses.append(
+                func.lower(Product.attributes["fit"].astext).in_(
+                    [f.lower().strip() for f in criteria.fits]
+                )
+            )
+        if criteria.silhouettes:
+            clauses.append(
+                func.lower(Product.attributes["silhouette"].astext).in_(
+                    [s.lower().strip() for s in criteria.silhouettes]
+                )
+            )
+
+        # Search query (q) across title, brand, category, subcategory
+        if criteria.q:
+            clean_q = criteria.q.strip()
+            if clean_q:
+                # Escape SQL LIKE wildcards % and _ and escape character \
+                escaped_q = (
+                    clean_q.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_")
+                )
+                pattern = f"%{escaped_q}%"
+                clauses.append(
+                    or_(
+                        Product.title.ilike(pattern, escape="\\"),
+                        Product.brand.ilike(pattern, escape="\\"),
+                        Product.category.ilike(pattern, escape="\\"),
+                        Product.subcategory.ilike(pattern, escape="\\"),
+                    )
+                )
+
+        return clauses
+
+    @staticmethod
+    def _order_by_terms(sort_order: str) -> list[Any]:
+        """Deterministic ordering terms; always tie-breaks by Product.id ASC."""
+        sort = sort_order.lower().strip()
+        if sort in ("newest", "created_at_desc"):
+            return [Product.created_at.desc(), Product.id.asc()]
+        if sort in ("oldest", "created_at_asc"):
+            return [Product.created_at.asc(), Product.id.asc()]
+        if sort == "price_asc":
+            return [Product.price.asc().nulls_last(), Product.id.asc()]
+        if sort == "price_desc":
+            return [Product.price.desc().nulls_last(), Product.id.asc()]
+        if sort == "title_asc":
+            return [Product.title.asc(), Product.id.asc()]
+        if sort == "id_asc":
+            return [Product.id.asc()]
+        return [Product.created_at.desc(), Product.id.asc()]
+
+    def count_candidates(self, criteria: ProductFilterCriteria) -> int:
+        """Count total matching catalog candidates under hard filters."""
+        clauses = self._build_filter_clauses(criteria)
+        stmt = select(func.count(Product.id))
+        if clauses:
+            stmt = stmt.where(and_(*clauses))
+        return int(self._session.execute(stmt).scalar_one())
+
+    def get_candidates(
+        self,
+        criteria: ProductFilterCriteria,
+        *,
+        sort_order: str = "newest",
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[CatalogProductRecord, ...]:
+        """Retrieve a bounded, deterministically ordered slice of catalog candidates."""
+        clauses = self._build_filter_clauses(criteria)
+        stmt = select(Product)
+        if clauses:
+            stmt = stmt.where(and_(*clauses))
+        order_terms = self._order_by_terms(sort_order)
+        stmt = stmt.order_by(*order_terms).offset(max(0, offset)).limit(max(1, limit))
+        rows = self._session.execute(stmt).scalars().all()
+        return tuple(self._to_catalog_product(row) for row in rows)
+
+
+ProductCandidateRepositorySQL = DiscoveryRepositorySQL
+ProductCatalogRepositorySQL = DiscoveryRepositorySQL
 
 
 class TrendRepositorySQL:
@@ -2263,4 +2872,167 @@ class MediaAttentionRepositorySQL:
 
         self._session.commit()
         return len(raw_ids_to_del)
+
+
+class DiscoveryEventRepositorySQL:
+    """SQLAlchemy implementation of DiscoveryEventRepository (DISCOVERY-10A)."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get_existing_product_ids(self, product_ids: set[UUID]) -> set[UUID]:
+        if not product_ids:
+            return set()
+        stmt = select(Product.id).where(Product.id.in_(product_ids))
+        return set(self._session.execute(stmt).scalars().all())
+
+    def persist_events_batch(
+        self,
+        *,
+        events: Sequence[dict[str, Any]],
+        user_id: Optional[UUID],
+        guest_session_id: Optional[UUID],
+    ) -> list[tuple[UUID, str, bool]]:
+        if not events:
+            return []
+
+        # Enforce identity mutual exclusivity
+        if (user_id is not None and guest_session_id is not None) or (
+            user_id is None and guest_session_id is None
+        ):
+            from app.api.errors import validation
+
+            raise validation(
+                [
+                    {
+                        "field": "identity",
+                        "error": "Event batch must belong to an authenticated user OR a guest session, never both or neither.",
+                    }
+                ]
+            )
+
+        from app.api.errors import ApiError
+
+        # Intra-batch conflict check
+        seen_batch_ids: dict[UUID, str] = {}
+        for ev in events:
+            cid = ev["client_event_id"]
+            phash = ev["payload_hash"]
+            if cid in seen_batch_ids:
+                if seen_batch_ids[cid] != phash:
+                    raise ApiError(
+                        status_code=409,
+                        code="CONFLICT",
+                        message="Event ID collision with conflicting payload in batch.",
+                        details={
+                            "kind": "duplicate_event_id_conflict",
+                            "eventId": str(cid),
+                        },
+                    )
+            else:
+                seen_batch_ids[cid] = phash
+
+        # Query existing rows for this identity
+        client_event_ids = list({ev["client_event_id"] for ev in events})
+        identity_clause = (
+            DiscoveryEvent.user_id == user_id
+            if user_id is not None
+            else DiscoveryEvent.guest_session_id == guest_session_id
+        )
+
+        stmt = select(
+            DiscoveryEvent.client_event_id, DiscoveryEvent.payload_hash
+        ).where(
+            identity_clause,
+            DiscoveryEvent.client_event_id.in_(client_event_ids),
+        )
+        existing_rows = dict(self._session.execute(stmt).all())
+
+        results: list[tuple[UUID, str, bool]] = []
+        rows_to_insert: list[DiscoveryEvent] = []
+        already_handled_in_batch: set[UUID] = set()
+
+        for ev in events:
+            cid = ev["client_event_id"]
+            phash = ev["payload_hash"]
+
+            if cid in existing_rows:
+                db_hash = existing_rows[cid]
+                if db_hash == phash:
+                    results.append((cid, "acknowledged", True))
+                else:
+                    raise ApiError(
+                        status_code=409,
+                        code="CONFLICT",
+                        message="Event ID collision with conflicting payload.",
+                        details={
+                            "kind": "duplicate_event_id_conflict",
+                            "eventId": str(cid),
+                        },
+                    )
+            elif cid in already_handled_in_batch:
+                # Same payload repeated in same batch
+                results.append((cid, "acknowledged", True))
+            else:
+                row = DiscoveryEvent(
+                    user_id=user_id,
+                    guest_session_id=guest_session_id,
+                    event_type=ev["event_type"],
+                    target_type=ev["target_type"],
+                    target_id=ev["target_id"],
+                    product_id=ev.get("product_id"),
+                    surface=ev["surface"],
+                    position=ev.get("position"),
+                    client_event_id=cid,
+                    payload_hash=phash,
+                    metadata_=ev.get("metadata", {}),
+                    client_occurred_at=ev["client_occurred_at"],
+                )
+                rows_to_insert.append(row)
+                already_handled_in_batch.add(cid)
+                results.append((cid, "accepted", False))
+
+        if rows_to_insert:
+            try:
+                for row in rows_to_insert:
+                    self._session.add(row)
+                self._session.commit()
+            except IntegrityError:
+                self._session.rollback()
+                # A concurrent insert took place for one of these events
+                # Re-check database state to determine if it was identical replay or conflicting payload
+                stmt = select(
+                    DiscoveryEvent.client_event_id, DiscoveryEvent.payload_hash
+                ).where(
+                    identity_clause,
+                    DiscoveryEvent.client_event_id.in_(client_event_ids),
+                )
+                concurrent_rows = dict(self._session.execute(stmt).all())
+                for ev in events:
+                    cid = ev["client_event_id"]
+                    if cid in concurrent_rows:
+                        if concurrent_rows[cid] != ev["payload_hash"]:
+                            raise ApiError(
+                                status_code=409,
+                                code="CONFLICT",
+                                message="Event ID collision with conflicting payload.",
+                                details={
+                                    "kind": "duplicate_event_id_conflict",
+                                    "eventId": str(cid),
+                                },
+                            )
+                # If concurrent rows are identical, update results to reflect replayed status
+                updated_results: list[tuple[UUID, str, bool]] = []
+                for cid, status, replayed in results:
+                    if (
+                        cid in concurrent_rows
+                        and concurrent_rows[cid] == seen_batch_ids.get(cid)
+                    ):
+                        updated_results.append((cid, "acknowledged", True))
+                    else:
+                        updated_results.append((cid, status, replayed))
+                return updated_results
+
+        return results
+
 

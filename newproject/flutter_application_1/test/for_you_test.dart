@@ -67,6 +67,80 @@ class ScriptedForYouRepository implements DiscoverRepository {
   @override
   Future<LookDetailResult> getLookDetail({required String lookId}) =>
       throw UnimplementedError();
+
+  @override
+  Future<ForYouDiscoveryResult> getForYouRecommendations({
+    int page = 1,
+    int pageSize = 20,
+    String? q,
+    List<String>? categories,
+    List<String>? excludeCategories,
+    List<String>? brands,
+    List<String>? excludeBrands,
+    double? minPrice,
+    double? maxPrice,
+    String? currency,
+    List<String>? colors,
+    List<String>? materials,
+    List<String>? fits,
+    List<String>? silhouettes,
+    bool? inStockOnly,
+    bool includeSynthetic = true,
+    bool isGuest = false,
+  }) async => const ForYouDiscoveryResult.failure(DiscoverFailure.networkError);
+
+  @override
+  Future<CompleteLooksDiscoveryResult> getCompleteLooks({
+    int limit = 10,
+    double? maxBudget,
+    String? targetOccasion,
+    String? targetAesthetic,
+    String? anchorProductId,
+    String? anchorWardrobeItemId,
+    bool allowWardrobe = true,
+    bool includeSynthetic = true,
+  }) async =>
+      const CompleteLooksDiscoveryResult.failure(DiscoverFailure.networkError);
+
+  @override
+  Future<DiscoveryTrendingResult> getTrending({
+    DateTime? windowStart,
+    DateTime? windowEnd,
+    int limit = 20,
+    String? category,
+  }) async => const DiscoveryTrendingResult.failure(DiscoverFailure.networkError);
+
+  @override
+  Future<DiscoveryEventsResult> recordEvents(
+    List<DiscoveryEventItem> events, {
+    String? guestSessionId,
+  }) async =>
+      const DiscoveryEventsResult.success(
+        DiscoveryEventsBatchResponse(acceptedCount: 1, events: []),
+      );
+
+  @override
+  Future<ProductOffersResult> getProductOffers(String productId) async {
+    return ProductOffersResult.success(
+      ProductOffersResponse(
+        productId: productId,
+        title: 'Scripted For You Product',
+        isSyntheticFixture: false,
+        offersCount: 0,
+        offers: const [],
+      ),
+    );
+  }
+
+  @override
+  Uri getOfferRedirectUri({
+    required String offerId,
+    String? guestSessionId,
+    String surface = 'product_offers',
+    int? position,
+  }) {
+    return Uri.parse('http://localhost:8000/v1/discovery/offers/$offerId/redirect');
+  }
 }
 
 void main() {

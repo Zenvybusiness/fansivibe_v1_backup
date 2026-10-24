@@ -272,6 +272,114 @@ class CollectSource:
         )
 
 
+class CollectYouTubeVideos:
+    """Run one bounded fashion-video collection for a single adapter."""
+
+    def __init__(self, *, adapter: SourceAdapter, discovery: DiscoveryRepository) -> None:
+        self._adapter = adapter
+        self._discovery = discovery
+
+    def __call__(self, config: CollectionConfig) -> CollectionResult:
+        adapter = self._adapter
+        if config.source != adapter.source_id:
+            raise ValueError(
+                f"config source {config.source!r} does not match adapter "
+                f"source {adapter.source_id!r}"
+            )
+
+        run_id = self._discovery.start_run(source=adapter.source_id)
+        fetched = inserted = updated = skipped = failed = 0
+        continuation: Optional[str] = None
+        pages = 0
+
+        try:
+            while fetched < config.max_records and pages < config.max_pages:
+                limit = min(config.batch_size, config.max_records - fetched)
+                batch = adapter.fetch_batch(continuation=continuation, limit=limit)
+                if batch.source != adapter.source_id:
+                    raise SourcePayloadError("adapter returned a batch for a different source")
+                if not batch.records:
+                    break
+                for raw in batch.records:
+                    if fetched >= config.max_records:
+                        break
+                    fetched += 1
+                    outcome = self._process_record(run_id, raw)
+                    if outcome == "inserted":
+                        inserted += 1
+                    elif outcome == "skipped":
+                        skipped += 1
+                    else:
+                        failed += 1
+                pages += 1
+                continuation = batch.continuation
+                if continuation is None:
+                    break
+        except SourceError as exc:
+            summary = _safe_source_error(exc)
+            return self._finish(run_id, "failed", fetched, inserted, updated, skipped, failed, summary)
+        except SQLAlchemyError as exc:
+            summary = f"database failure: {type(exc).__name__}"
+            try:
+                self._discovery.rollback()
+                self._finish(run_id, "failed", fetched, inserted, updated, skipped, failed, summary)
+            except SQLAlchemyError:
+                raise exc
+            return CollectionResult(
+                run_id, adapter.source_id, "failed",
+                fetched, inserted, updated, skipped, failed, summary,
+            )
+
+        summary = f"{failed} record(s) failed validation" if failed else None
+        return self._finish(run_id, "completed", fetched, inserted, updated, skipped, failed, summary)
+
+    def _process_record(self, run_id: UUID, raw: RawSourceRecord) -> str:
+        adapter_source = self._adapter.source_id
+        if raw.source != adapter_source:
+            return "failed"
+
+        raw_id, created = self._discovery.insert_raw_if_absent(
+            run_id=run_id,
+            source=adapter_source,
+            source_record_id=raw.source_record_id,
+            payload=raw.payload,
+            payload_hash=payload_hash(raw.payload),
+            source_timestamp=raw.source_timestamp,
+        )
+        if not created:
+            return "skipped"
+
+        self._discovery.mark_raw(raw_id=raw_id, status="processed", error=None)
+        return "inserted"
+
+    def _finish(
+        self,
+        run_id: UUID,
+        status: str,
+        fetched: int,
+        inserted: int,
+        updated: int,
+        skipped: int,
+        failed: int,
+        error_summary: Optional[str],
+    ) -> CollectionResult:
+        self._discovery.finish_run(
+            run_id=run_id,
+            status=status,
+            fetched=fetched,
+            inserted=inserted,
+            updated=updated,
+            skipped=skipped,
+            failed=failed,
+            error_summary=error_summary,
+        )
+        return CollectionResult(
+            run_id, self._adapter.source_id, status,
+            fetched, inserted, updated, skipped, failed, error_summary,
+        )
+
+
+
 @dataclass(frozen=True)
 class SearchInterestCollectionConfig:
     """Bounds for one search-interest collection (D9B)."""
@@ -862,13 +970,21 @@ class CollectMediaAttention:
 def _source_registry() -> dict:
     """Bundled adapters, keyed by explicit source id.
 
-    Only the deterministic fixture adapter ships in this phase. Live
-    providers are deliberately absent — they require approved access and
-    configured credentials, so an unknown source is refused, never guessed.
+    Deterministic fixture and catalog seed adapters ship for development and testing.
+    Live providers (e.g. amazon_in, youtube_in) require configured credentials and will fail closed
+    with SourceAuthError when unconfigured.
     """
+    from app.infrastructure.external.amazon_source import AmazonProductAdapter
+    from app.infrastructure.external.fashion_catalog_seed import FashionCatalogSeedAdapter
     from app.infrastructure.external.fixture_source import FixtureSourceAdapter
+    from app.infrastructure.external.youtube_source import YouTubeSourceAdapter
 
-    return {"fixture_catalog": FixtureSourceAdapter}
+    return {
+        "fixture_catalog": FixtureSourceAdapter,
+        "fashion_seed": FashionCatalogSeedAdapter,
+        "amazon_in": AmazonProductAdapter,
+        "youtube_in": YouTubeSourceAdapter,
+    }
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -884,6 +1000,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--max-records", type=int, default=200, help="hard bound on records fetched"
     )
     parser.add_argument("--list-sources", action="store_true", help="list bundled sources")
+    parser.add_argument(
+        "--prune-expired",
+        action="store_true",
+        help="prune expired raw records for this source before collecting (YouTube retention)",
+    )
     args = parser.parse_args(argv)
 
     registry = _source_registry()
@@ -905,9 +1026,23 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     session = SessionLocal()
     try:
-        service = CollectSource(
-            adapter=factory(), repository=DiscoveryRepositorySQL(session)
-        )
+        repo = DiscoveryRepositorySQL(session)
+        if args.prune_expired and args.source == "youtube_in":
+            from app.application.youtube_retention import EnforceYouTubeRetention
+            retention_service = EnforceYouTubeRetention(repo)
+            ret_result = retention_service(source=args.source)
+            print(
+                f"[retention] pruned {ret_result.pruned_count} expired record(s) "
+                f"for {args.source}"
+            )
+        if args.source == "youtube_in":
+            service = CollectYouTubeVideos(
+                adapter=factory(), discovery=repo
+            )
+        else:
+            service = CollectSource(
+                adapter=factory(), repository=repo
+            )
         result = service(
             CollectionConfig(source=args.source, max_records=args.max_records)
         )

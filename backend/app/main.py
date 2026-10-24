@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 import logging
+from pathlib import Path
 import uuid
 from typing import Optional
 from uuid import UUID
@@ -17,6 +18,7 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -29,6 +31,7 @@ from app.api.routers import (
     analysis,
     assistant,
     auth,
+    discovery,
     events,
     feedback,
     knowledge,
@@ -152,6 +155,7 @@ errors.register_error_handlers(app)
 app.include_router(auth.router)
 app.include_router(analysis.router)
 app.include_router(assistant.router)
+app.include_router(discovery.router)
 app.include_router(events.router)
 app.include_router(feedback.router)
 app.include_router(knowledge.router)
@@ -164,6 +168,11 @@ app.include_router(trending.router)
 app.include_router(tryon.router)
 app.include_router(users.router)
 app.include_router(wardrobe.router)
+
+# Mount static asset directory for development fixtures and media assets
+_static_dir = Path(__file__).resolve().parent / "static"
+if _static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 @app.get("/health")

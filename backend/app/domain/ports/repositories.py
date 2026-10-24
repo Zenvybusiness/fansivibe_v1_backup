@@ -5,7 +5,7 @@ Implementations live in `app/infrastructure/db/repositories.py`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from typing import TYPE_CHECKING, Any, Optional, Protocol, Sequence, runtime_checkable
 from uuid import UUID
@@ -990,6 +990,196 @@ class DiscoveryRepository(Protocol):
         """Drop a failed unit of work so a poisoned session can finish the run."""
         ...
 
+    def prune_expired_source_records(
+        self,
+        *,
+        source: str,
+        older_than: datetime,
+        batch_limit: int = 1000,
+    ) -> int:
+        """Prune raw source records for a specific source older than a cutoff date.
+
+        Strictly scoped to rows matching ``source``.
+        Deletes at most ``batch_limit`` records per transaction for bounded, idempotent cleanup.
+        Returns the count of pruned records.
+        """
+        ...
+
+    def count_expired_source_records(
+        self,
+        *,
+        source: str,
+        older_than: datetime,
+    ) -> int:
+        """Count raw source records for a specific source older than a cutoff date."""
+        ...
+
+
+@dataclass(frozen=True)
+class ProductVariantRecord:
+    """Variant metadata (size, color, SKU, GTIN) for a product (DISCOVERY-10B-3)."""
+
+    id: UUID
+    sku: Optional[str] = None
+    gtin: Optional[str] = None
+    size: Optional[str] = None
+    color: Optional[str] = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ProductOfferRecord:
+    """One retailer's commercial offer for a canonical product (DISCOVERY-10B-2)."""
+
+    id: UUID
+    retailer_id: UUID
+    retailer_name: str
+    retailer_slug: str
+    price: float
+    product_url: str
+    currency: str = "INR"
+    availability: bool = True
+    in_stock: bool = True
+    original_price: Optional[float] = None
+    affiliate_url: Optional[str] = None
+    last_checked_at: Optional[datetime] = None
+    retailer_domain: str = ""
+    variant: Optional[ProductVariantRecord] = None
+    product_id: Optional[UUID] = None
+    is_active: bool = True
+
+
+@dataclass(frozen=True)
+class CatalogProductRecord:
+    """One normalized catalog product shaped for domain use cases (DISCOVERY-03).
+
+    Derived from the canonical ``products`` table. Unprovided fields stay
+    ``None`` (or empty) — never fabricated. ``price`` is exact numeric INR.
+    ``image_urls`` holds provider CDN URLs only (never binaries).
+    ``is_synthetic`` / ``is_fixture`` explicitly flag test fixtures.
+    ``offers`` contains all active multi-retailer commercial offers.
+    """
+
+    id: UUID
+    title: str
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+    price: Optional[float] = None
+    currency: Optional[str] = None
+    availability: Optional[bool] = None
+    product_url: Optional[str] = None
+    image_urls: tuple[str, ...] = ()
+    offers: tuple[ProductOfferRecord, ...] = ()
+    first_seen_at: Optional[datetime] = None
+    last_verified_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    @property
+    def is_synthetic(self) -> bool:
+        return bool(self.attributes.get("synthetic", False))
+
+    @property
+    def is_fixture(self) -> bool:
+        return bool(self.attributes.get("fixture", False))
+
+    @property
+    def material(self) -> Optional[str]:
+        val = self.attributes.get("material")
+        return str(val) if val is not None else None
+
+    @property
+    def color(self) -> Optional[str]:
+        val = self.attributes.get("color")
+        return str(val) if val is not None else None
+
+    @property
+    def fit(self) -> Optional[str]:
+        val = self.attributes.get("fit")
+        return str(val) if val is not None else None
+
+    @property
+    def silhouette(self) -> Optional[str]:
+        val = self.attributes.get("silhouette")
+        return str(val) if val is not None else None
+
+    @property
+    def season(self) -> Optional[str]:
+        val = self.attributes.get("season")
+        return str(val) if val is not None else None
+
+    @property
+    def style_tags(self) -> tuple[str, ...]:
+        val = self.attributes.get("style_tags")
+        if isinstance(val, (list, tuple)):
+            return tuple(str(x) for x in val)
+        return ()
+
+    @property
+    def gtin(self) -> Optional[str]:
+        identifiers = self.attributes.get("identifiers")
+        if isinstance(identifiers, dict):
+            val = identifiers.get("gtin")
+            return str(val) if val is not None else None
+        return None
+
+
+CatalogProduct = CatalogProductRecord
+
+
+@dataclass(frozen=True)
+class ProductFilterCriteria:
+    """Hard filter specifications for catalog product candidate retrieval (DISCOVERY-03)."""
+
+    categories: Optional[tuple[str, ...]] = None
+    exclude_categories: Optional[tuple[str, ...]] = None
+    subcategories: Optional[tuple[str, ...]] = None
+    exclude_subcategories: Optional[tuple[str, ...]] = None
+    brands: Optional[tuple[str, ...]] = None
+    exclude_brands: Optional[tuple[str, ...]] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    currency: Optional[str] = None
+    materials: Optional[tuple[str, ...]] = None
+    colors: Optional[tuple[str, ...]] = None
+    fits: Optional[tuple[str, ...]] = None
+    silhouettes: Optional[tuple[str, ...]] = None
+    in_stock_only: Optional[bool] = None
+    include_synthetic: bool = True
+    has_price: Optional[bool] = None
+    has_images: Optional[bool] = None
+    ffo_concepts: Optional[tuple[str, ...]] = None
+    q: Optional[str] = None
+
+
+class ProductCandidateRepository(Protocol):
+    """Persistence read boundary for catalog candidate retrieval (DISCOVERY-03)."""
+
+    def get_by_id(self, product_id: UUID) -> Optional[CatalogProductRecord]: ...
+
+    def count_candidates(self, criteria: ProductFilterCriteria) -> int: ...
+
+    def get_candidates(
+        self,
+        criteria: ProductFilterCriteria,
+        *,
+        sort_order: str = "newest",
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[CatalogProductRecord, ...]: ...
+
+    def get_product_offers(
+        self, product_id: UUID
+    ) -> tuple[ProductOfferRecord, ...]: ...
+
+    def get_offer_by_id(
+        self, offer_id: UUID
+    ) -> Optional[ProductOfferRecord]: ...
+
+
+
 
 class TrendRepository(Protocol):
     """Read boundary for the D6 trend engine.
@@ -1145,4 +1335,50 @@ class MediaAttentionRepository(Protocol):
         and returns the number of pruned raw records.
         """
         ...
+
+
+@dataclass(frozen=True)
+class DiscoveryEventRecord:
+    """Canonical domain representation of a persisted discovery interaction event."""
+
+    id: UUID
+    user_id: Optional[UUID]
+    guest_session_id: Optional[UUID]
+    event_type: str
+    target_type: str
+    target_id: str
+    product_id: Optional[UUID]
+    surface: str
+    position: Optional[int]
+    client_event_id: UUID
+    payload_hash: str
+    metadata: dict[str, Any]
+    client_occurred_at: datetime
+    received_at: datetime
+
+
+@runtime_checkable
+class DiscoveryEventRepository(Protocol):
+    """Discovery interaction events persistence seam (DISCOVERY-10A)."""
+
+    def persist_events_batch(
+        self,
+        *,
+        events: Sequence[dict[str, Any]],
+        user_id: Optional[UUID],
+        guest_session_id: Optional[UUID],
+    ) -> list[tuple[UUID, str, bool]]:
+        """Persist a batch of events atomically in a single database transaction.
+
+        Returns a list of (client_event_id, status, replayed).
+        - status: 'accepted' or 'acknowledged'
+        - replayed: True if already persisted with identical payload_hash
+        - If client_event_id already exists with conflicting payload_hash, raises ApiError(409)
+        """
+        ...
+
+    def get_existing_product_ids(self, product_ids: set[UUID]) -> set[UUID]:
+        """Validate which product UUIDs exist in the products table."""
+        ...
+
 

@@ -33,7 +33,7 @@ def _fixture_payload(
         "currency": "INR",
         "availability": True,
         "product_url": f"https://shop.fixture.test/p/{record_id}",
-        "image_urls": [f"https://cdn.fixture.test/{record_id}.jpg"],
+        "image_urls": ["/static/fixtures/fashion/default_fixture.png"],
         "attributes": {"fixture": True, "note": _FIXTURE_NOTE},
     }
 
