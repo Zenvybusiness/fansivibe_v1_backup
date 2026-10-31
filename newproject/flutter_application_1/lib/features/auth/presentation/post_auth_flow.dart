@@ -173,7 +173,7 @@ void _goWithGuidance(
 ) {
   if (intent != null) {
     final message = intent.action == 'save_progress'
-        ? 'Account ready — your local progress was kept.'
+        ? 'Account ready.'
         : 'Signed in — continue where you left off.';
     _snack(context, message);
   }

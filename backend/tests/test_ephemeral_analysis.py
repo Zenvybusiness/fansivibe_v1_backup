@@ -5,7 +5,7 @@ Covers the four unauthenticated synchronous endpoints
 guest result without sign-in, no Bearer, no `user_id` consumption, zero
 database rows (the `get_db` dependency raises if touched), validation
 before AI work, per-IP rate limiting, honest provider failures, and
-untouched authenticated endpoints + migration HEAD 0025.
+untouched authenticated endpoints + current migration source head.
 
 Vision adapters are stubbed at the router namespace (garment-test
 precedent); the knowledge source is the real frozen catalog.
@@ -173,8 +173,17 @@ def test_outfit_ephemeral_returns_snapshot_without_bearer(monkeypatch):
     body = resp.json()
     assert body["appearance"]["faceShape"] == "oval"
     assert body["recommendations"]["top"]["id"]
+    assert body["garment"]["category"] == "tops"
+    assert body["garment"]["sourceRunId"] == body["appearance"]["sourceRunId"]
+    assert "garment_error" not in body
+    assert "appearance_error" not in body
     assert "run_id" not in body
     uuid.UUID(body["appearance"]["sourceRunId"])
+    # Both branches receive the same bytes and the same transient identity.
+    appearance_call = StubAppearancePort.instances[0].calls[0]
+    garment_call = StubGarmentPort.instances[0].calls[0]
+    assert garment_call["user_id"] == appearance_call["user_id"]
+    assert garment_call["image_bytes"] == appearance_call["image_bytes"]
 
 
 def test_grooming_ephemeral_returns_snapshot_for_request_profile(monkeypatch):
@@ -332,9 +341,63 @@ def test_typed_analyzer_failure_keeps_reason(monkeypatch):
     assert "vision_unavailable" in resp.text
 
 
-def test_adapter_crash_is_503_never_fake(monkeypatch):
+def test_outfit_no_face_keeps_garment_result(monkeypatch):
+    client = _client(monkeypatch)
+    StubAppearancePort.mode = "no-face"
+    resp = _post_image(client, EPH_OUTFIT)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["garment"]["category"] == "tops"
+    assert body["appearance_error"] == {"reason": "no_face_detected"}
+    assert "appearance" not in body
+    assert "confidence" not in body
+    assert "recommendations" not in body
+
+
+def test_outfit_garment_failure_keeps_appearance_result(monkeypatch):
+    client = _client(monkeypatch)
+    StubGarmentPort.mode = "no-garment"
+    resp = _post_image(client, EPH_OUTFIT)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["appearance"]["faceShape"] == "oval"
+    assert body["garment_error"] == {"reason": "no_garment_detected"}
+    assert "garment" not in body
+
+
+def test_outfit_typed_appearance_failure_keeps_garment(monkeypatch):
+    client = _client(monkeypatch)
+    StubAppearancePort.mode = "typed-failure"
+    resp = _post_image(client, EPH_OUTFIT)
+    assert resp.status_code == 200
+    assert resp.json()["appearance_error"] == {"reason": "vision_unavailable"}
+
+
+def test_outfit_both_typed_failures_keep_both_reasons(monkeypatch):
+    client = _client(monkeypatch)
+    StubAppearancePort.mode = "typed-failure"
+    StubGarmentPort.mode = "no-garment"
+    resp = _post_image(client, EPH_OUTFIT)
+    assert resp.status_code == 422
+    body = resp.json()["error"]
+    assert body["code"] == "VALIDATION_ERROR"
+    reasons = {d["error"] for d in body["details"]["field_errors"]}
+    assert reasons == {"vision_unavailable", "no_garment_detected"}
+
+
+def test_outfit_both_crashes_are_503_never_fake(monkeypatch):
     client = _client(monkeypatch)
     StubAppearancePort.mode = "crash"
+    StubGarmentPort.mode = "crash"
+    resp = _post_image(client, EPH_OUTFIT)
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "AI_FAILURE"
+
+
+def test_outfit_one_typed_one_crash_is_503(monkeypatch):
+    client = _client(monkeypatch)
+    StubAppearancePort.mode = "no-face"
+    StubGarmentPort.mode = "crash"
     resp = _post_image(client, EPH_OUTFIT)
     assert resp.status_code == 503
     assert resp.json()["error"]["code"] == "AI_FAILURE"
@@ -439,7 +502,7 @@ def test_authenticated_endpoints_still_require_auth(monkeypatch):
     assert resp.json()["error"]["code"] == "AUTHENTICATION_ERROR"
 
 
-def test_migration_head_is_0028():
+def test_migration_head_is_current():
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
@@ -447,7 +510,8 @@ def test_migration_head_is_0028():
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
     # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
-    assert tuple(script.get_heads()) == ("0029",)
+    # Current source head is 0032.
+    assert tuple(script.get_heads()) == ("0032",)
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None

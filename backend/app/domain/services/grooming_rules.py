@@ -50,6 +50,7 @@ _GROOMING_BOOSTS: dict[str, dict[str, float]] = {
 # ---------------------------------------------------------------------------
 
 _DEFAULT_FACE_SHAPE: str = "oval"
+_FACE_SHAPE_ALIASES: dict[str, str] = {"rectangle": "rectangular"}
 
 _APPEARANCE_SIGNALS: tuple[str, ...] = ("faceShape", "skinTone", "bodyType", "styleType")
 
@@ -104,7 +105,9 @@ class Explanation:
 
 def _face_shape(appearance: AppearanceProfile) -> str:
     raw = (appearance.faceShape or "").strip().lower()
-    return raw or _DEFAULT_FACE_SHAPE
+    if not raw:
+        return _DEFAULT_FACE_SHAPE
+    return _FACE_SHAPE_ALIASES.get(raw, raw)
 
 
 def _completeness(appearance: AppearanceProfile) -> float:

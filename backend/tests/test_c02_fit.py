@@ -80,16 +80,17 @@ def _fit_term(cand, items, request):
 # --- migration / model (1-5) -------------------------------------------------
 
 def test_0023_revision_chain_and_static_contract():
-    """1-2. 0023 exists, child of 0022 (single linear head extension)."""
+    """1-2. 0023 exists, child of 0022 (historical linear chain)."""
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
-    # C-10 extended the head: 0025 (analysis_runs idempotency) on top of 0024.
-    # D2 extended it: 0026 (discovery foundation); D5 added 0027 (observations);
-    assert tuple(script.get_heads()) == ("0029",)
+    # C-10 added 0025 (analysis_runs idempotency) on top of 0024.
+    # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
+    # Current source head is 0032.
+    assert tuple(script.get_heads()) == ("0032",)
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None

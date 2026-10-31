@@ -15,6 +15,7 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
+import 'package:fansivibe/shared/utils/pending_auth_intent.dart';
 
 /// Minimal throwing backend: every operation fails. Merge must report
 /// failures honestly and never throw into the login flow.
@@ -350,6 +351,26 @@ void main() {
       // Seeded on-device catalog untouched; prefs ledger reset.
       expect(service.wardrobe, isNotEmpty);
       expect(LocalStorage.migratedGuestPrefs, isEmpty);
+    });
+
+    testWidgets('save_progress guidance makes no retention claim', (
+      WidgetTester tester,
+    ) async {
+      recordPendingAuthIntent(
+        PendingAuthIntent(
+          action: 'save_progress',
+          route: '/home',
+          createdAt: DateTime.now(),
+        ),
+      );
+      await tester.pumpWidget(harness());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('convert')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Account ready.'), findsOneWidget);
+      expect(find.textContaining('local progress was kept'), findsNothing);
     });
   });
 }

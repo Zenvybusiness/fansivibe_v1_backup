@@ -127,8 +127,6 @@ HAIRSTYLE_LOOKS: list[dict] = [
         "reasons": [
             "Oval face shapes benefit from volume on top, which the quiff provides naturally",
             "Textured finish softens the structured silhouette for a modern, approachable look",
-            "Works exceptionally well with warm medium skin tones and adds contrast",
-            "Aligns with your Modern Classic Style DNA for a cohesive appearance",
         ],
         "stylingTips": (
             "Apply a volumizing mousse to damp hair, blow-dry upward using a "

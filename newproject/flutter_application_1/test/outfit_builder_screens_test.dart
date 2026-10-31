@@ -508,7 +508,8 @@ void main() {
 
       expect(find.text('Analyzing wardrobe items'), findsOneWidget);
       expect(find.text('Matching occasion preferences'), findsOneWidget);
-      expect(find.text('Applying Style DNA'), findsOneWidget);
+      expect(find.text('Scoring outfit combinations'), findsOneWidget);
+      expect(find.text('Applying Style DNA'), findsNothing);
       expect(find.text('Selecting complementary pieces'), findsOneWidget);
       expect(find.text('Generating outfit recommendations'), findsOneWidget);
       // No fake completion state while the request is pending.

@@ -226,20 +226,24 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
             'Face Shape',
             result.faceShape,
           ),
-          const SizedBox(height: 10),
-          _buildProfileRow(
-            context,
-            Icons.palette_outlined,
-            'Skin Tone',
-            result.skinTone,
-          ),
-          const SizedBox(height: 10),
-          _buildProfileRow(
-            context,
-            Icons.auto_awesome_rounded,
-            'Style DNA',
-            result.styleDna,
-          ),
+          if (result.skinTone.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _buildProfileRow(
+              context,
+              Icons.palette_outlined,
+              'Skin Tone',
+              result.skinTone,
+            ),
+          ],
+          if (result.styleDna.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _buildProfileRow(
+              context,
+              Icons.auto_awesome_rounded,
+              'Style DNA',
+              result.styleDna,
+            ),
+          ],
         ],
       ),
     );

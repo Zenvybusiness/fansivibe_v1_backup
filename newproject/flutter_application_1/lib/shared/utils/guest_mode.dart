@@ -148,19 +148,20 @@ class EphemeralFeature {
 ///
 /// Written at guest analysis time (last analysis wins, mirroring the
 /// single-slot `PendingAuthIntent` design). The transient `sourceRunId`
-/// correlation id is stripped (top level + `appearance` sub-map) so a
-/// restored snapshot can never carry a nonexistent run id into an
-/// FK-backed save. Device-local only; failures never break analysis.
+/// correlation id is stripped (top level + `appearance` and `garment`
+/// sub-maps) so a restored snapshot can never carry a nonexistent run id
+/// into an FK-backed save. Device-local only; failures never break analysis.
 void stashPendingEphemeralResult({
   required String feature,
   required Map<String, dynamic> snapshot,
 }) {
   try {
     final clean = Map<String, dynamic>.from(snapshot)..remove('sourceRunId');
-    final appearance = clean['appearance'];
-    if (appearance is Map<String, dynamic>) {
-      clean['appearance'] = Map<String, dynamic>.from(appearance)
-        ..remove('sourceRunId');
+    for (final key in const ['appearance', 'garment']) {
+      final branch = clean[key];
+      if (branch is Map<String, dynamic>) {
+        clean[key] = Map<String, dynamic>.from(branch)..remove('sourceRunId');
+      }
     }
     LocalStorage.pendingEphemeralResult = jsonEncode({
       'feature': feature,
@@ -195,18 +196,43 @@ peekPendingEphemeralResult() {
       LocalStorage.pendingEphemeralResult = null;
       return null;
     }
-    return (
-      feature: feature,
-      snapshot: Map<String, dynamic>.from(snapshot),
-    );
+    return (feature: feature, snapshot: Map<String, dynamic>.from(snapshot));
   } catch (_) {
     return null;
   }
 }
 
-/// Drops the stashed guest result (after a completed save, an explicit
-/// dismiss, or a superseding analysis).
-void clearPendingEphemeralResult() {
+/// Whether an outfit snapshot contains a branch the guest preview can render.
+///
+/// Error-only or malformed snapshots are not cached analysis results, even
+/// though they may still be stashed for diagnostics.
+bool isRenderableOutfitSnapshot(Map<String, dynamic>? snapshot) {
+  if (snapshot == null || snapshot.isEmpty) return false;
+  bool hasBranch(String key) {
+    final value = snapshot[key];
+    return value is Map<String, dynamic> && value.isNotEmpty;
+  }
+
+  return hasBranch('appearance') ||
+      hasBranch('garment') ||
+      hasBranch('recommendations');
+}
+
+/// Whether the stashed guest result is a renderable outfit preview.
+bool hasCachedOutfitPreview() {
+  final pending = peekPendingEphemeralResult();
+  return pending != null &&
+      pending.feature == EphemeralFeature.outfit &&
+      isRenderableOutfitSnapshot(pending.snapshot);
+}
+
+/// Drops the stashed guest result. When [feature] is supplied, only a
+/// matching slot is cleared; omitting it clears unconditionally.
+void clearPendingEphemeralResult({String? feature}) {
+  if (feature != null) {
+    final pending = peekPendingEphemeralResult();
+    if (pending != null && pending.feature != feature) return;
+  }
   LocalStorage.pendingEphemeralResult = null;
 }
 

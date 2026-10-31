@@ -407,6 +407,25 @@ def test_create_outfit_run_success_db(db, monkeypatch):
         RecordingOutfitVisionPort,
     )
 
+    class RecordingOutfitGarmentPort:
+        adapter_id = "ollama-garment-v1"
+
+        def analyze(self, *, media_ref, user_id, image_bytes=None):
+            seen["garment_media_ref"] = media_ref
+            from app.domain.value_objects import GarmentProfile
+
+            return GarmentProfile(
+                category="tops", color="navy", confidence=0.8, needs_review=False
+            )
+
+        def validate_result(self, result) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.OllamaVisionGarmentAdapter",
+        RecordingOutfitGarmentPort,
+    )
+
     image_bytes = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 50
     files = {"image": ("outfit.jpg", image_bytes, "image/jpeg")}
     resp = client.post("/v1/analysis/outfit", files=files, headers=HEADERS)
@@ -467,6 +486,24 @@ def test_create_outfit_run_does_not_use_development_adapter(db, monkeypatch):
         "app.api.routers.analysis.OllamaVisionAppearanceAdapter",
         RecordingOutfitVisionPort,
     )
+
+    class RecordingOutfitGarmentPort:
+        adapter_id = "ollama-garment-v1"
+
+        def analyze(self, *, media_ref, user_id, image_bytes=None):
+            from app.domain.value_objects import GarmentProfile
+
+            return GarmentProfile(
+                category="tops", color="navy", confidence=0.8, needs_review=False
+            )
+
+        def validate_result(self, result) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.OllamaVisionGarmentAdapter",
+        RecordingOutfitGarmentPort,
+    )
     image_bytes = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 50
     resp = client.post(
         "/v1/analysis/outfit",
@@ -495,6 +532,22 @@ def test_create_outfit_failed_analyzer_marks_run_failed(db, monkeypatch):
         "app.api.routers.analysis.OllamaVisionAppearanceAdapter",
         FailingOutfitVisionPort,
     )
+
+    class FailingOutfitGarmentPort:
+        adapter_id = "ollama-garment-v1"
+
+        def analyze(self, *, media_ref, user_id, image_bytes=None):
+            from app.ai.vision_garment_adapter import GarmentAnalysisError
+
+            raise GarmentAnalysisError("no_garment_detected")
+
+        def validate_result(self, result) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "app.api.routers.analysis.OllamaVisionGarmentAdapter",
+        FailingOutfitGarmentPort,
+    )
     resp = client.post(
         "/v1/analysis/outfit",
         files={"image": ("outfit.jpg", b"outfit-no-face-bytes", "image/jpeg")},
@@ -511,6 +564,7 @@ def test_create_outfit_failed_analyzer_marks_run_failed(db, monkeypatch):
     assert body["error"]["code"] == "PROCESSING_FAILURE"
     assert body["error"]["details"]["run_id"] == run_id
     assert body["error"]["details"]["reason"] == "no_face_detected"
+    assert body["error"]["details"]["garment_reason"] == "no_garment_detected"
 
 
 def test_run_summary_to_schema_safely_handles_missing_knowledge_version():

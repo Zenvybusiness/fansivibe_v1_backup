@@ -169,14 +169,14 @@ def test_scoring_signatures_have_no_item_added_input():
 
 # F/G (PG). Seed present at head; downgrade removes only its own seed.
 def test_0024_revision_chain_and_static_contract():
-    """0024 exists, child of 0023 (single linear head extension)."""
+    """0024 exists, child of 0023 (historical linear chain)."""
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
-    assert tuple(script.get_heads()) == ("0029",)
+    assert tuple(script.get_heads()) == ("0032",)
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None

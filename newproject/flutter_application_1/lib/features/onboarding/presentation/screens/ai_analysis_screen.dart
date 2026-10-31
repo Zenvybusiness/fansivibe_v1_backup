@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/outfit_scan/data/outfit_scan_client.dart';
-import 'package:fansivibe/features/wardrobe/data/garment_client.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
@@ -15,27 +14,23 @@ import 'package:fansivibe/shared/utils/guest_mode.dart';
 ///
 /// With [imageBytes] (guest path from [PhotoCaptureScreen]), this screen is
 /// the "analysis in progress" state for one synchronous preview pass over
-/// the existing unauthenticated endpoints (`POST
-/// /v1/analysis/outfit/ephemeral` for the face observation + `POST
-/// /v1/analysis/garment/ephemeral` for the outfit observation, in parallel).
-/// No run row is created, nothing is persisted server-side, and no result is
-/// fabricated: whatever the backends return verbatim travels to
-/// [RouteNames.yourAnalysis] (snapshots and/or typed failure reasons).
+/// `POST /v1/analysis/outfit/ephemeral`, which returns the face observation
+/// and the single garment observation together. No run row is created,
+/// nothing is persisted server-side, and no result is fabricated: whatever
+/// the backend returns verbatim travels to [RouteNames.yourAnalysis].
 class AiAnalysisScreen extends StatefulWidget {
   const AiAnalysisScreen({
     super.key,
     this.imageBytes,
     this.outfitClient,
-    this.garmentClient,
   });
 
   /// Captured photo bytes (in-memory route extra, never persisted).
   final Uint8List? imageBytes;
 
-  /// Injectable transports (tests supply fakes via `http/testing`
-  /// MockClient-backed instances; production uses the defaults).
+  /// Injectable transport (tests supply a fake via an `http/testing`
+  /// MockClient-backed instance; production uses the default).
   final OutfitScanClient? outfitClient;
-  final GarmentClient? garmentClient;
 
   @override
   State<AiAnalysisScreen> createState() => _AiAnalysisScreenState();
@@ -94,24 +89,19 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen>
 
   bool _navigated = false;
 
-  /// One guest preview pass over the existing ephemeral endpoints.
+  /// One guest preview pass over the combined ephemeral endpoint.
   ///
-  /// Both calls run in parallel and never throw (the clients degrade to
-  /// typed failure reasons). The outfit snapshot is stashed in the existing
-  /// device-local slot for a later Save → sign-in replay; the garment
-  /// observation travels with the route extra only (garment saves persist
-  /// device-local via `LocalWardrobeRepository`, so like the Scan flow it
-  /// stashes nothing). A popped screen navigates nowhere (`mounted`).
+  /// The client never throws (it degrades to a typed failure reason). The
+  /// combined snapshot is stashed in the existing device-local slot for a
+  /// later Save-to-sign-in replay and travels with the route extra. A popped
+  /// screen navigates nowhere (`mounted`).
   Future<void> _runPreview(Uint8List bytes) async {
+    clearPendingEphemeralResult(feature: EphemeralFeature.outfit);
     final outfit = widget.outfitClient ?? OutfitScanClient();
-    final garment = widget.garmentClient ?? GarmentClient();
-    final results = await Future.wait([
-      outfit.submitOutfitEphemeralBytes(bytes, filename: 'style_capture.jpg'),
-      garment.submitGarmentEphemeralBytes(
-        bytes,
-        filename: 'style_capture.jpg',
-      ),
-    ]);
+    final result = await outfit.submitOutfitEphemeralBytes(
+      bytes,
+      filename: 'style_capture.jpg',
+    );
     if (!mounted || _navigated) return;
     _navigated = true;
     // Freeze the indeterminate animation before navigating: the pushed
@@ -119,22 +109,19 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen>
     // controller would schedule frames forever.
     _arcController.stop();
     _particleController.stop();
-    final outfitSnapshot = results[0].snapshot;
-    final garmentSnapshot = results[1].snapshot;
-    if (outfitSnapshot != null) {
+    final snapshot = result.snapshot;
+    if (snapshot != null) {
       stashPendingEphemeralResult(
         feature: EphemeralFeature.outfit,
-        snapshot: outfitSnapshot,
+        snapshot: snapshot,
       );
     }
     context.pushNamed(
       RouteNames.yourAnalysis,
       extra: <String, dynamic>{
         'imageBytes': bytes,
-        'outfitSnapshot': outfitSnapshot,
-        'garmentSnapshot': garmentSnapshot,
-        'outfitFailure': results[0].failureReason,
-        'garmentFailure': results[1].failureReason,
+        'outfitSnapshot': snapshot,
+        'outfitFailure': result.failureReason,
       },
     );
   }

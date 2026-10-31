@@ -9,6 +9,7 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 
 /// Screen A: New User / Create Account Screen.
@@ -60,10 +61,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen>
       vsync: this,
       duration: const Duration(milliseconds: 700),
     );
-    _fadeAnim = CurvedAnimation(
-      parent: _animController,
-      curve: Curves.easeOut,
-    );
+    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _animController.forward();
   }
 
@@ -221,12 +219,16 @@ class _CreateAccountScreenState extends State<CreateAccountScreen>
   }
 
   void _onMaybeLater() {
+    // Leaving account creation continues the guest journey, so persist the
+    // guest markers instead of only passing them as route extras.
+    LocalStorage.onboardingComplete = true;
+    LocalStorage.savedLocally = true;
     context.goNamed(
       RouteNames.home,
       extra: {
         'onboarding_complete': true,
         'saved_locally': true,
-        'analysis_cached': true,
+        'analysis_cached': hasCachedOutfitPreview(),
       },
     );
   }
@@ -263,7 +265,9 @@ class _CreateAccountScreenState extends State<CreateAccountScreen>
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: contentMaxWidth),
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: horizontalPadding,
+                    ),
                     child: FadeTransition(
                       opacity: _fadeAnim,
                       child: Column(
@@ -370,8 +374,12 @@ class _CreateAccountScreenState extends State<CreateAccountScreen>
           Row(
             children: [
               Icon(
-                _emailTaken ? Icons.info_outline_rounded : Icons.error_outline_rounded,
-                color: _emailTaken ? FansivibeColors.primary : FansivibeColors.error,
+                _emailTaken
+                    ? Icons.info_outline_rounded
+                    : Icons.error_outline_rounded,
+                color: _emailTaken
+                    ? FansivibeColors.primary
+                    : FansivibeColors.error,
                 size: 20,
               ),
               const SizedBox(width: 12),
@@ -396,7 +404,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen>
               child: TextButton(
                 onPressed: _onNavigateToSignIn,
                 style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
                   minimumSize: Size.zero,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
@@ -427,7 +438,11 @@ class _CreateAccountScreenState extends State<CreateAccountScreen>
         const SizedBox(height: 14),
         _SocialAuthButton(
           label: 'Continue with Apple',
-          icon: const Icon(Icons.apple, size: 22, color: FansivibeColors.onSurface),
+          icon: const Icon(
+            Icons.apple,
+            size: 22,
+            color: FansivibeColors.onSurface,
+          ),
           onPressed: _submitting ? null : () => _onSocialSignIn('apple'),
         ),
         const SizedBox(height: 14),
@@ -441,7 +456,9 @@ class _CreateAccountScreenState extends State<CreateAccountScreen>
           onPressed: _onToggleEmailForm,
           isHighlighted: _showEmailForm,
           trailing: Icon(
-            _showEmailForm ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+            _showEmailForm
+                ? Icons.keyboard_arrow_up_rounded
+                : Icons.keyboard_arrow_down_rounded,
             color: FansivibeColors.secondary,
             size: 20,
           ),
@@ -457,7 +474,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen>
       alignment: Alignment.center,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: FansivibeColors.onSurface.withValues(alpha: 0.5), width: 1.2),
+        border: Border.all(
+          color: FansivibeColors.onSurface.withValues(alpha: 0.5),
+          width: 1.2,
+        ),
       ),
       child: const Text(
         'G',
@@ -514,11 +534,14 @@ class _CreateAccountScreenState extends State<CreateAccountScreen>
               icon: Icons.lock_outline_rounded,
               suffixIcon: IconButton(
                 icon: Icon(
-                  _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                  _obscurePassword
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
                   size: 20,
                   color: FansivibeColors.secondary,
                 ),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               ),
             ),
           ),

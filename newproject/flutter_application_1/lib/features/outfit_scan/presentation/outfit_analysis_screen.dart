@@ -79,6 +79,9 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
     final recommendations =
         analysisResult?['recommendations'] as Map<String, dynamic>?;
     final topRecommendation = recommendations?['top'] as Map<String, dynamic>?;
+    final appearanceError =
+        (analysisResult?['appearance_error'] as Map<String, dynamic>?)?['reason']
+            as String?;
 
     final faceShape = appearance?['faceShape'] as String?;
 
@@ -113,6 +116,7 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
                           appearance,
                           confidence,
                           needsMoreData,
+                          appearanceError: appearanceError,
                         ),
 
                         const SizedBox(height: 24),
@@ -295,8 +299,9 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
     BuildContext context,
     Map<String, dynamic>? appearance,
     double? confidence,
-    bool needsMoreData,
-  ) {
+    bool needsMoreData, {
+    String? appearanceError,
+  }) {
     final rawFaceShape = appearance?['faceShape'] as String?;
     final rawSkinTone = appearance?['skinTone'] as String?;
     final rawBodyType = appearance?['bodyType'] as String?;
@@ -308,6 +313,8 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
     final faceShapeValue =
         (rawFaceShape != null && rawFaceShape.trim().isNotEmpty)
             ? rawFaceShape.trim()
+            : appearanceError == 'no_face_detected'
+            ? 'Not detected in this photo'
             : 'Unable to determine from this photo';
 
     // Rule: Skin tone: display only if explicitly supported and valid.
@@ -384,6 +391,11 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
                     ),
                 ],
               ),
+
+              if (appearanceError != null) ...[
+                const SizedBox(height: 12),
+                _buildBranchFailureNote(context, appearanceError),
+              ],
 
               const SizedBox(height: 16),
 
@@ -813,6 +825,9 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
 
   Widget _buildOutfitObservationsSection(BuildContext context) {
     final garment = analysisResult?['garment'] as Map<String, dynamic>?;
+    final garmentError =
+        (analysisResult?['garment_error'] as Map<String, dynamic>?)?['reason']
+            as String?;
     final detectedItems = (analysisResult?['detectedItems'] ??
         analysisResult?['detected_items'] ??
         analysisResult?['items']) as List<dynamic>?;
@@ -862,27 +877,31 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
               ] else if (hasDetectedItems) ...[
                 _buildDetectedItemsList(context, detectedItems),
               ] else ...[
-                // Honest state when no garment items were detected in the photo
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(
-                      Icons.info_outline_rounded,
-                      size: 16,
-                      color: FansivibeColors.textSecondary,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'No clothing items detected in this photo. For outfit analysis, ensure garments are clearly visible and well-framed.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: FansivibeColors.textSecondary,
-                          height: 1.4,
+                // Honest state when no garment branch result exists.
+                if (garmentError != null)
+                  _buildBranchFailureNote(context, garmentError)
+                else
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        size: 16,
+                        color: FansivibeColors.textSecondary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Outfit observations are unavailable in this result.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: FansivibeColors.textSecondary,
+                                height: 1.4,
+                              ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
                 const SizedBox(height: 8),
                 Text(
                   'Visual attributes like category, color, and fit are reported only when supported by returned analysis data.',
@@ -988,6 +1007,46 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
         );
       }).toList(),
     );
+  }
+
+  Widget _buildBranchFailureNote(BuildContext context, String reason) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(
+          Icons.info_outline_rounded,
+          size: 16,
+          color: FansivibeColors.textSecondary,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            _branchFailureText(reason),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: FansivibeColors.textSecondary,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _branchFailureText(String reason) {
+    switch (reason) {
+      case 'no_face_detected':
+        return 'No face was clearly visible in this photo, so the face branch could not be completed.';
+      case 'no_garment_detected':
+        return 'No clear outfit was visible in this photo, so the outfit branch could not be completed.';
+      case 'ambiguous_subject':
+        return 'That photo was hard to read, so this observation could not be completed.';
+      case 'low_confidence':
+        return "The analysis wasn't confident enough in this photo, so this observation could not be completed.";
+      case 'analysis_failed':
+        return 'This part of the analysis could not be completed. Please try again.';
+      default:
+        return 'This part of the analysis could not be completed.';
+    }
   }
 
   Widget _buildObservationItem(

@@ -268,7 +268,11 @@ void main() {
       expect(find.textContaining('Style Vibe'), findsNothing);
       expect(find.text('Confidence: 35%'), findsOneWidget);
       expect(find.text('Recommended for you'), findsNothing);
-      expect(find.textContaining('No clothing items detected in this photo'), findsOneWidget);
+      expect(
+        find.text('Outfit observations are unavailable in this result.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('No clothing items detected'), findsNothing);
     });
 
     testWidgets('backend errors show an error state and allow retry', (
@@ -577,6 +581,91 @@ void main() {
       expect(find.text('Maintenance: High • Trim every 3-4 weeks'), findsOneWidget);
       expect(find.text('Styling tip: Strong-hold pomade'), findsOneWidget);
       expect(find.text('Best for: Oval, Round, and Square face shapes'), findsOneWidget);
+    });
+
+    testWidgets('garment-only partial shows the typed appearance failure', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: const {
+              'garment': {
+                'category': 'tops',
+                'color': 'navy',
+                'material': 'cotton',
+              },
+              'appearance_error': {'reason': 'no_face_detected'},
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('Face Shape: Not detected in this photo'), findsOneWidget);
+      expect(
+        find.textContaining('No face was clearly visible'),
+        findsOneWidget,
+      );
+      expect(find.text('tops'), findsOneWidget);
+      expect(find.text('navy'), findsOneWidget);
+      expect(find.textContaining('round'), findsNothing);
+      expect(find.textContaining('oval'), findsNothing);
+    });
+
+    testWidgets(
+      'garment-only generic appearance failure is not a face detection claim',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: OutfitAnalysisScreen(
+              analysisResult: const {
+                'garment': {
+                  'category': 'tops',
+                  'color': 'navy',
+                  'material': 'cotton',
+                },
+                'appearance_error': {'reason': 'analysis_failed'},
+              },
+            ),
+          ),
+        );
+
+        expect(
+          find.text('Face Shape: Unable to determine from this photo'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('This part of the analysis could not be completed'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Face Shape: Not detected in this photo'),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('appearance-only partial shows the typed garment failure', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitAnalysisScreen(
+            analysisResult: const {
+              'appearance': {'faceShape': 'oval'},
+              'confidence': 0.6,
+              'garment_error': {'reason': 'no_garment_detected'},
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('Face Shape: oval'), findsOneWidget);
+      expect(
+        find.textContaining('No clear outfit was visible'),
+        findsOneWidget,
+      );
+      expect(find.text('Outfit observations are unavailable in this result.'), findsNothing);
     });
   });
 }

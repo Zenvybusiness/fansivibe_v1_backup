@@ -102,6 +102,14 @@ Map<String, dynamic> _outfitSnapshot() => {
     },
     'alternatives': <dynamic>[],
   },
+  'garment': {
+    'category': 'tops',
+    'color': 'navy',
+    'material': 'cotton',
+    'confidence': 0.84,
+    'needs_review': false,
+    'sourceRunId': 'ephemeral-test-id',
+  },
 };
 
 class _StubSaveGroomingService extends GroomingService {
@@ -484,17 +492,20 @@ void main() {
     test('stash strips the transient run id and peek restores the snapshot',
         () async {
       stashPendingEphemeralResult(
-        feature: EphemeralFeature.hairstyle,
-        snapshot: _hairstyleSnapshot(),
+        feature: EphemeralFeature.outfit,
+        snapshot: _outfitSnapshot(),
       );
       final pending = peekPendingEphemeralResult();
       expect(pending, isNotNull);
-      expect(pending!.feature, EphemeralFeature.hairstyle);
+      expect(pending!.feature, EphemeralFeature.outfit);
       expect(pending.snapshot.containsKey('sourceRunId'), isFalse);
       final appearance =
           pending.snapshot['appearance'] as Map<String, dynamic>;
       expect(appearance.containsKey('sourceRunId'), isFalse);
       expect(appearance['faceShape'], 'Oval');
+      final garment = pending.snapshot['garment'] as Map<String, dynamic>;
+      expect(garment.containsKey('sourceRunId'), isFalse);
+      expect(garment['category'], 'tops');
     });
 
     test('malformed slot fails closed to null', () async {

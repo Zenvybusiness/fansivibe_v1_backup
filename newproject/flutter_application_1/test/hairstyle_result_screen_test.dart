@@ -60,6 +60,25 @@ void main() {
       expect(find.text('Warm Medium'), findsOneWidget);
     });
 
+    testWidgets('hides unmeasured skin tone and style DNA rows', (
+      WidgetTester tester,
+    ) async {
+      final result = HairstyleAnalysisResult(
+        faceShape: 'Oval',
+        skinTone: '',
+        styleDna: '',
+        topRecommendation: HairstyleAnalysisResult.mock.topRecommendation,
+        alternatives: const [],
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: HairstyleResultScreen(result: result)),
+      );
+
+      expect(find.text('Oval'), findsOneWidget);
+      expect(find.textContaining('Skin Tone'), findsNothing);
+      expect(find.textContaining('Style DNA'), findsNothing);
+    });
+
     testWidgets('renders top recommendation section', (
       WidgetTester tester,
     ) async {

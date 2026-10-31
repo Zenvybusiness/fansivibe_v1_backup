@@ -11,6 +11,7 @@ import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/auth/data/auth_client.dart';
 import 'package:fansivibe/features/auth/data/guest_data_migration.dart';
 import 'package:fansivibe/features/auth/presentation/post_auth_flow.dart';
+import 'package:fansivibe/features/auth/presentation/screens/create_account_screen.dart';
 import 'package:fansivibe/features/grooming/data/grooming_client.dart';
 import 'package:fansivibe/features/grooming/data/grooming_models.dart';
 import 'package:fansivibe/features/grooming/data/grooming_service.dart';
@@ -107,8 +108,7 @@ class _FakeWardrobeRepo implements WardrobeRepository {
     required List<String> itemIds,
     DateTime? wornAt,
     String? idempotencyKey,
-  }) async =>
-      null;
+  }) async => null;
 }
 
 class _FakeLearning implements LearningRepository {
@@ -159,11 +159,7 @@ WardrobeEntry _local(String id, String name, {bool fav = false}) =>
     );
 
 PendingAuthIntent _intent(String route, {String action = 'save'}) =>
-    PendingAuthIntent(
-      action: action,
-      route: route,
-      createdAt: DateTime.now(),
-    );
+    PendingAuthIntent(action: action, route: route, createdAt: DateTime.now());
 
 void main() {
   setUp(() async {
@@ -250,10 +246,7 @@ void main() {
 
     test('safe roots pass through', () {
       expect(resolvePostAuthDestination(_intent('/stylist')), '/stylist');
-      expect(
-        resolvePostAuthDestination(_intent('/wardrobe')),
-        '/wardrobe',
-      );
+      expect(resolvePostAuthDestination(_intent('/wardrobe')), '/wardrobe');
     });
 
     test('extra-dependent routes walk up to the safe parent', () {
@@ -262,9 +255,7 @@ void main() {
         '/discover',
       );
       expect(
-        resolvePostAuthDestination(
-          _intent('/stylist/build-outfit/generation'),
-        ),
+        resolvePostAuthDestination(_intent('/stylist/build-outfit/generation')),
         '/stylist/build-outfit',
       );
       expect(
@@ -279,41 +270,37 @@ void main() {
 
     test('auth screens and garbage fall back to /home', () {
       expect(resolvePostAuthDestination(_intent('/sign-in')), '/home');
-      expect(
-        resolvePostAuthDestination(_intent('/create-account')),
-        '/home',
-      );
+      expect(resolvePostAuthDestination(_intent('/create-account')), '/home');
       expect(resolvePostAuthDestination(_intent('http://evil')), '/home');
       expect(resolvePostAuthDestination(_intent('nope')), '/home');
     });
   });
 
   group('GuestDataMigration', () {
-    test('uploads local-* items with server-minted ids, never local ids',
-        () async {
-      final repo = _FakeWardrobeRepo();
-      final learning = _FakeLearning(
-        wardrobe: [_local('local-1', 'Tee'), _local('local-2', 'Jeans')],
-      );
-      final migration = GuestDataMigration(
-        wardrobeRepo: repo,
-        syncPreference: ({required String code}) async =>
-            PreferenceSyncResult.synced,
-        learning: learning,
-      );
-      final result = await migration.migrate();
-      expect(result.failedItemNames, isEmpty);
-      expect(result.migratedLocalIds, ['local-1', 'local-2']);
-      expect(repo.createdNames, ['Tee', 'Jeans']);
-      // Server ids minted; local ids only in the ledger.
-      expect(
-        repo.server.every((e) => !e.id.startsWith('local-')),
-        isTrue,
-      );
-      expect(LocalStorage.migratedGuestIds, ['local-1', 'local-2']);
-      // Migration never mutates local state (caller removes on choice).
-      expect(learning.wardrobe, hasLength(2));
-    });
+    test(
+      'uploads local-* items with server-minted ids, never local ids',
+      () async {
+        final repo = _FakeWardrobeRepo();
+        final learning = _FakeLearning(
+          wardrobe: [_local('local-1', 'Tee'), _local('local-2', 'Jeans')],
+        );
+        final migration = GuestDataMigration(
+          wardrobeRepo: repo,
+          syncPreference: ({required String code}) async =>
+              PreferenceSyncResult.synced,
+          learning: learning,
+        );
+        final result = await migration.migrate();
+        expect(result.failedItemNames, isEmpty);
+        expect(result.migratedLocalIds, ['local-1', 'local-2']);
+        expect(repo.createdNames, ['Tee', 'Jeans']);
+        // Server ids minted; local ids only in the ledger.
+        expect(repo.server.every((e) => !e.id.startsWith('local-')), isTrue);
+        expect(LocalStorage.migratedGuestIds, ['local-1', 'local-2']);
+        // Migration never mutates local state (caller removes on choice).
+        expect(learning.wardrobe, hasLength(2));
+      },
+    );
 
     test('skips already-present content and backend-owned ids', () async {
       final repo = _FakeWardrobeRepo();
@@ -350,13 +337,16 @@ void main() {
     test('favorite rides updateItem; failure records honestly', () async {
       final repo = _FakeWardrobeRepo(failNames: {'Bad'});
       final learning = _FakeLearning(
-        wardrobe: [_local('local-1', 'Good', fav: true), _local('local-2', 'Bad')],
+        wardrobe: [
+          _local('local-1', 'Good', fav: true),
+          _local('local-2', 'Bad'),
+        ],
         prefs: ['casual', 'formal'],
       );
       Future<PreferenceSyncResult> sync({required String code}) async =>
           code == 'casual'
-              ? PreferenceSyncResult.alreadySynced
-              : PreferenceSyncResult.networkError;
+          ? PreferenceSyncResult.alreadySynced
+          : PreferenceSyncResult.networkError;
       final result = await GuestDataMigration(
         wardrobeRepo: repo,
         syncPreference: sync,
@@ -375,27 +365,24 @@ void main() {
         syncPreference: sync,
         learning: learning,
       ).migrate();
-      expect(
-        repo.createdNames.where((n) => n == 'Good'),
-        hasLength(1),
-      );
+      expect(repo.createdNames.where((n) => n == 'Good'), hasLength(1));
       expect(again.failedItemNames, ['Bad']);
     });
 
-    test('list failure still attempts creates (ledger guards retries)',
-        () async {
-      final repo = _FakeWardrobeRepo()..throwOnList = true;
-      final learning = _FakeLearning(
-        wardrobe: [_local('local-9', 'Hat')],
-      );
-      final result = await GuestDataMigration(
-        wardrobeRepo: repo,
-        syncPreference: ({required String code}) async =>
-            PreferenceSyncResult.synced,
-        learning: learning,
-      ).migrate();
-      expect(result.migratedItemNames, ['Hat']);
-    });
+    test(
+      'list failure still attempts creates (ledger guards retries)',
+      () async {
+        final repo = _FakeWardrobeRepo()..throwOnList = true;
+        final learning = _FakeLearning(wardrobe: [_local('local-9', 'Hat')]);
+        final result = await GuestDataMigration(
+          wardrobeRepo: repo,
+          syncPreference: ({required String code}) async =>
+              PreferenceSyncResult.synced,
+          learning: learning,
+        ).migrate();
+        expect(result.migratedItemNames, ['Hat']);
+      },
+    );
   });
 
   group('LearningService local cleanup', () {
@@ -404,10 +391,7 @@ void main() {
       await service.load();
       service.addItem(_local('local-x', 'Temp'));
       service.addPreferredOccasion('casual');
-      expect(
-        service.wardrobe.any((e) => e.id == 'local-x'),
-        isTrue,
-      );
+      expect(service.wardrobe.any((e) => e.id == 'local-x'), isTrue);
       service.removeLocalItems({'local-x', 'server-zzz'});
       expect(service.wardrobe.any((e) => e.id == 'local-x'), isFalse);
       service.clearPreferredOccasions();
@@ -601,7 +585,7 @@ void main() {
     });
   });
 
-  group('Save My Progress conversion', () {
+  group('Sign In to Continue conversion', () {
     testWidgets('records a save_progress intent before account creation', (
       WidgetTester tester,
     ) async {
@@ -634,7 +618,7 @@ void main() {
       );
       await tester.pumpWidget(MaterialApp.router(routerConfig: router));
       await tester.pumpAndSettle();
-      final finder = find.text('Save My Progress');
+      final finder = find.text('Sign In to Continue');
       await tester.scrollUntilVisible(finder, 300);
       await tester.pumpAndSettle();
       await tester.tap(finder);
@@ -644,6 +628,100 @@ void main() {
       expect(intent?.action, 'save_progress');
       expect(intent?.route, '/home');
     });
+  });
+
+  group('Explore as Guest fallback', () {
+    testWidgets(
+      'Maybe Later persists guest mode and ignores an error-only outfit stash',
+      (WidgetTester tester) async {
+        stashPendingEphemeralResult(
+          feature: EphemeralFeature.outfit,
+          snapshot: {
+            'appearance_error': {'reason': 'no_face_detected'},
+            'garment_error': {'reason': 'no_garment_detected'},
+          },
+        );
+        Map<String, dynamic>? seenExtra;
+        final router = GoRouter(
+          initialLocation: '/create-account',
+          routes: [
+            GoRoute(
+              path: '/create-account',
+              name: RouteNames.createAccount,
+              builder: (context, state) => const CreateAccountScreen(),
+            ),
+            GoRoute(
+              path: '/home',
+              name: RouteNames.home,
+              builder: (context, state) {
+                seenExtra = state.extra as Map<String, dynamic>?;
+                return const Scaffold(body: Text('home-marker'));
+              },
+            ),
+          ],
+        );
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.byType(CreateAccountScreen), findsOneWidget);
+        expect(find.byType(Scrollable), findsWidgets);
+        final finder = find.textContaining('Maybe Later');
+        await tester.scrollUntilVisible(finder, 300);
+        await tester.pumpAndSettle();
+        await tester.tap(finder);
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('home-marker'), findsOneWidget);
+        expect(seenExtra?['analysis_cached'], isFalse);
+        expect(seenExtra?['saved_locally'], isTrue);
+        expect(LocalStorage.savedLocally, isTrue);
+        expect(LocalStorage.onboardingComplete, isTrue);
+      },
+    );
+
+    testWidgets(
+      'Maybe Later reports a cache only for a stashed outfit preview',
+      (WidgetTester tester) async {
+        stashPendingEphemeralResult(
+          feature: EphemeralFeature.outfit,
+          snapshot: {
+            'appearance': {'faceShape': 'oval'},
+          },
+        );
+        Map<String, dynamic>? seenExtra;
+        final router = GoRouter(
+          initialLocation: '/create-account',
+          routes: [
+            GoRoute(
+              path: '/create-account',
+              name: RouteNames.createAccount,
+              builder: (context, state) => const CreateAccountScreen(),
+            ),
+            GoRoute(
+              path: '/home',
+              name: RouteNames.home,
+              builder: (context, state) {
+                seenExtra = state.extra as Map<String, dynamic>?;
+                return const Scaffold(body: Text('home-marker'));
+              },
+            ),
+          ],
+        );
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pumpAndSettle();
+
+        final finder = find.textContaining('Maybe Later');
+        await tester.scrollUntilVisible(finder, 300);
+        await tester.pumpAndSettle();
+        await tester.tap(finder);
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(seenExtra?['analysis_cached'], isTrue);
+        expect(peekPendingEphemeralResult(), isNotNull);
+      },
+    );
   });
 
   group('logout hygiene (unchanged)', () {

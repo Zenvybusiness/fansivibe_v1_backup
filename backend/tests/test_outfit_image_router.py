@@ -22,8 +22,9 @@ from fastapi.testclient import TestClient
 
 import app.api.routers.analysis as analysis_router
 from app.ai.vision_appearance_adapter import AppearanceAnalysisError
+from app.ai.vision_garment_adapter import GarmentAnalysisError
 from app.domain.ports.repositories import AnalysisRunRecord
-from app.domain.value_objects import AppearanceProfile
+from app.domain.value_objects import AppearanceProfile, GarmentProfile
 
 USER = uuid.uuid4()
 OTHER = uuid.uuid4()
@@ -153,6 +154,36 @@ class RecordingOutfitVisionPort:
         return True
 
 
+class RecordingGarmentPort:
+    """Production garment-adapter stand-in: records construction + calls."""
+
+    instances: list = []
+    mode: str = "ok"  # "ok" | "no_garment" | "boom"
+
+    adapter_id = "ollama-garment-v1"
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.calls: list = []
+        RecordingGarmentPort.instances.append(self)
+
+    def analyze(self, *, media_ref, user_id, image_bytes=None):
+        self.calls.append({"media_ref": media_ref, "user_id": user_id, "image_bytes": image_bytes})
+        if RecordingGarmentPort.mode == "no_garment":
+            raise GarmentAnalysisError("no_garment_detected")
+        if RecordingGarmentPort.mode == "boom":
+            raise RuntimeError("garment transport down")
+        return GarmentProfile(
+            category="tops",
+            subcategory="shirt",
+            color="navy",
+            confidence=0.82,
+            needs_review=False,
+        )
+
+    def validate_result(self, result) -> bool:
+        return True
+
+
 def _boom_dev(*args, **kwargs):
     raise AssertionError("DevelopmentAppearanceAnalysisAdapter must not be used for outfit production path")
 
@@ -180,12 +211,15 @@ def _client(monkeypatch, user: UUID = USER) -> TestClient:
     FakeActivityDays.calls = []
     RecordingOutfitVisionPort.instances = []
     RecordingOutfitVisionPort.mode = "ok"
+    RecordingGarmentPort.instances = []
+    RecordingGarmentPort.mode = "ok"
 
     monkeypatch.setattr(analysis_router, "AnalysisRunRepositorySQL", FakeRuns)
     monkeypatch.setattr(analysis_router, "UserStateRepositorySQL", FakeUserState)
     monkeypatch.setattr(analysis_router, "LearningSignalRepositorySQL", FakeLearningSignal)
     monkeypatch.setattr(analysis_router, "ActivityDayRepositorySQL", FakeActivityDays)
     monkeypatch.setattr(analysis_router, "OllamaVisionAppearanceAdapter", RecordingOutfitVisionPort)
+    monkeypatch.setattr(analysis_router, "OllamaVisionGarmentAdapter", RecordingGarmentPort)
     monkeypatch.setattr(
         analysis_router, "DevelopmentAppearanceAnalysisAdapter", _boom_dev
     )
@@ -221,13 +255,14 @@ def test_production_adapter_injected_not_development(monkeypatch):
     client = _client(monkeypatch)
     resp = _post_image(client)
     assert resp.status_code == 202
-    # Exactly one production adapter constructed for the outfit branch.
+    # Exactly one production adapter constructed for each branch.
     assert len(RecordingOutfitVisionPort.instances) == 1
+    assert len(RecordingGarmentPort.instances) == 1
     run_id = resp.json()["run_id"]
     row = FakeRuns.rows[UUID(run_id)]
     assert row["run_type"] == "outfit"
     assert row["input_media"]["analyzer"] == "ollama-vision-v1"
-    # Development adapter / hairstyle-image path would have raised via patches.
+    assert row["result"]["garment"]["category"] == "tops"
 
 
 def test_image_bytes_reach_analyzer(monkeypatch):
@@ -239,6 +274,10 @@ def test_image_bytes_reach_analyzer(monkeypatch):
     assert len(calls) == 1
     assert calls[0]["image_bytes"] == payload
     assert calls[0]["user_id"] == USER
+    garment_calls = RecordingGarmentPort.instances[0].calls
+    assert len(garment_calls) == 1
+    assert garment_calls[0]["image_bytes"] == payload
+    assert garment_calls[0]["user_id"] == USER
 
 
 def test_completed_run_persisted_with_result(monkeypatch):
@@ -256,6 +295,7 @@ def test_completed_run_persisted_with_result(monkeypatch):
 def test_failed_analyzer_produces_terminal_failed_run(monkeypatch):
     client = _client(monkeypatch)
     RecordingOutfitVisionPort.mode = "no_face"
+    RecordingGarmentPort.mode = "no_garment"
     payload = b"outfit-no-face-payload"
     run_id = _post_image(client, payload).json()["run_id"]
     got = client.get(f"/v1/analysis/runs/{run_id}")
@@ -266,13 +306,40 @@ def test_failed_analyzer_produces_terminal_failed_run(monkeypatch):
     assert body["error"]["code"] == "PROCESSING_FAILURE"
     assert body["error"]["details"]["run_id"] == run_id
     assert body["error"]["details"]["reason"] == "no_face_detected"
+    assert body["error"]["details"]["garment_reason"] == "no_garment_detected"
     # No image bytes leak into the persisted error payload.
     assert payload not in str(body["error"]).encode()
+
+
+def test_no_face_keeps_valid_garment_result(monkeypatch):
+    client = _client(monkeypatch)
+    RecordingOutfitVisionPort.mode = "no_face"
+    run_id = _post_image(client).json()["run_id"]
+    body = client.get(f"/v1/analysis/runs/{run_id}").json()
+    assert body["status"] == "completed"
+    result = body["result"]
+    assert result["garment"]["category"] == "tops"
+    assert result["appearance_error"] == {"reason": "no_face_detected"}
+    assert "appearance" not in result
+    assert "confidence" not in result
+
+
+def test_garment_failure_keeps_valid_appearance_result(monkeypatch):
+    client = _client(monkeypatch)
+    RecordingGarmentPort.mode = "no_garment"
+    run_id = _post_image(client).json()["run_id"]
+    body = client.get(f"/v1/analysis/runs/{run_id}").json()
+    assert body["status"] == "completed"
+    result = body["result"]
+    assert result["appearance"]["faceShape"] == "oval"
+    assert result["garment_error"] == {"reason": "no_garment_detected"}
+    assert "garment" not in result
 
 
 def test_unexpected_adapter_error_still_terminal_failed_run(monkeypatch):
     client = _client(monkeypatch)
     RecordingOutfitVisionPort.mode = "boom"
+    RecordingGarmentPort.mode = "boom"
     run_id = _post_image(client).json()["run_id"]
     got = client.get(f"/v1/analysis/runs/{run_id}")
     assert got.status_code == 200
@@ -281,6 +348,7 @@ def test_unexpected_adapter_error_still_terminal_failed_run(monkeypatch):
     assert body["result"] is None
     assert body["error"]["code"] == "PROCESSING_FAILURE"
     assert body["error"]["details"]["run_id"] == run_id
+    assert body["error"]["details"]["reason"] == "analysis_failed"
 
 
 def test_run_owner_isolation(monkeypatch):
@@ -302,6 +370,7 @@ def test_unsupported_media_type_rejected_before_adapter(monkeypatch):
     )
     assert resp.status_code == 422
     assert RecordingOutfitVisionPort.instances == []
+    assert RecordingGarmentPort.instances == []
     assert FakeRuns.rows == {}
 
 

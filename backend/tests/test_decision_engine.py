@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.ai import tools as assistant_tools
 from app.domain.ports.external import KnowledgeError
 from app.domain.services.analysis_rules import (
     build_context,
@@ -35,6 +36,7 @@ from app.domain.value_objects import (
     HairstylePreferences,
 )
 from app.infrastructure.external.knowledge import CatalogKnowledgeSource
+from app.models.schemas import FaceData, UserContext
 
 KNOWLEDGE = CatalogKnowledgeSource()
 
@@ -255,6 +257,28 @@ def test_insufficient_user_data_defaults_neutral_and_flags():
     assert result.confidence < 0.5
     assert result.appearance.faceShape == "Rectangle"
     assert result.top.id in {"textured_quiff", "classic_pompadour"}
+
+
+def test_rectangle_alias_matches_canonical_rectangular():
+    for recommend in (recommend_hairstyle, recommend_grooming):
+        alias = recommend(KNOWLEDGE, _profile(faceShape="Rectangle"))
+        canonical = recommend(KNOWLEDGE, _profile(faceShape="rectangular"))
+        alias_ranking = [alias.top, *alias.alternatives]
+        canonical_ranking = [canonical.top, *canonical.alternatives]
+        assert [(item.id, item.matchScore) for item in alias_ranking] == [
+            (item.id, item.matchScore) for item in canonical_ranking
+        ]
+
+
+def test_assistant_face_shape_switch_uses_canonical_rectangular():
+    for face in ("Rectangle", "rectangular"):
+        cards = assistant_tools.recommend_hairstyle(
+            UserContext(face=FaceData(faceShape=face))
+        )
+        assert [card.title for card in cards] == [
+            "Classic Pompadour",
+            "Textured Quiff",
+        ]
 
 
 def test_full_profile_does_not_need_more_data():

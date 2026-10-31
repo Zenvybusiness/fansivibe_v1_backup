@@ -499,6 +499,21 @@ class _FakeRuns:
         return row
 
 
+class _StubGarmentPort:
+    def analyze(self, *, media_ref, user_id, image_bytes=None):
+        from app.domain.value_objects import GarmentProfile
+
+        return GarmentProfile(
+            category="tops",
+            color="navy",
+            confidence=0.8,
+            needs_review=False,
+        )
+
+    def validate_result(self, result) -> bool:
+        return True
+
+
 class _MockImage:
     content_type = "image/jpeg"
     size = 1_000_000
@@ -523,6 +538,7 @@ def test_P_outfit_run_signals_share_one_activity_day(db):
             runs=_FakeRuns(),
             knowledge=CatalogKnowledgeSource(),
             appearance_port=DevelopmentAppearanceAnalysisAdapter(),
+            garment_port=_StubGarmentPort(),
             user_state=None,
             learning_signal=LearningSignalRepositorySQL(session),
             activity_days=ActivityDayRepositorySQL(session),

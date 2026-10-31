@@ -233,6 +233,7 @@ def create_outfit_run(
         runs=AnalysisRunRepositorySQL(db),
         knowledge=CatalogKnowledgeSource(),
         appearance_port=OllamaVisionAppearanceAdapter(),
+        garment_port=OllamaVisionGarmentAdapter(),
         user_state=UserStateRepositorySQL(db),
         learning_signal=LearningSignalRepositorySQL(db),
         activity_days=ActivityDayRepositorySQL(db),
@@ -344,6 +345,7 @@ def create_outfit_ephemeral(
     use_case = EphemeralOutfitAnalysis(
         knowledge=CatalogKnowledgeSource(),
         appearance_port=OllamaVisionAppearanceAdapter(),
+        garment_port=OllamaVisionGarmentAdapter(),
     )
     return use_case(image=image)
 

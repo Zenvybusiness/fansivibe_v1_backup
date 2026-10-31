@@ -118,12 +118,12 @@ def _seed_event(
 
 
 # ---------------------------------------------------------------------------
-# Chain: linear single head 0016 -> 0017 -> 0018 -> 0019 -> 0020 (DB-free)
+# Chain: current single head plus historical links from 0016 (DB-free)
 # ---------------------------------------------------------------------------
 
 
-def test_chain_linear_single_head_0016_to_0017():
-    """Migration chain stays linear with 0023 as the single head.
+def test_current_head_and_historical_chain_from_0016():
+    """Migration chain stays linear; historical links from 0016 remain intact.
 
     The M8-A link (0016 -> 0017) is preserved verbatim; the M9 save batch
     appends the linear 0017 -> 0018 CHECK-widen link (STEP 19.24); the
@@ -131,11 +131,13 @@ def test_chain_linear_single_head_0016_to_0017():
     link (STEP 19.27); D-AUTH-1 appends 0019 -> 0020 auth_sessions;
     0021 appends outfit_run_type seed; 0022 appends garment_run_type seed;
     0023 appends wardrobe_items fit/fit_confidence columns (C-02-F Option B,
-    STEP 2.9 — the locked contract requires this link).
+    STEP 2.9 — the locked contract requires this link). Current source head is
+    0032.
     """
     script = ScriptDirectory.from_config(_alembic_config())
     # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
-    assert tuple(script.get_heads()) == ("0029",)
+    # Current source head is 0032.
+    assert tuple(script.get_heads()) == ("0032",)
 
     revision = script.get_revision("0017")
     assert revision is not None
@@ -149,15 +151,15 @@ def test_chain_linear_single_head_0016_to_0017():
     rev20 = script.get_revision("0020")
     assert rev20 is not None
     assert rev20.down_revision == "0019"
-    head21 = script.get_revision("0021")
-    assert head21 is not None
-    assert head21.down_revision == "0020"
+    rev21 = script.get_revision("0021")
+    assert rev21 is not None
+    assert rev21.down_revision == "0020"
     rev22 = script.get_revision("0022")
     assert rev22 is not None
     assert rev22.down_revision == "0021"
-    head = script.get_revision("0023")
-    assert head is not None
-    assert head.down_revision == "0022"
+    rev23 = script.get_revision("0023")
+    assert rev23 is not None
+    assert rev23.down_revision == "0022"
     rev24 = script.get_revision("0024")
     assert rev24 is not None
     assert rev24.down_revision == "0023"

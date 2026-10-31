@@ -445,6 +445,7 @@ def test_outfit_run_creates_with_development_adapter():
         appearance_port=DevelopmentAppearanceAnalysisAdapter(),
         user_state=FakeUserState(None),
         learning_signal=None,
+        garment_port=StubGarmentPort(),
     )
 
     class MockImage:
@@ -464,6 +465,8 @@ def test_outfit_run_creates_with_development_adapter():
     assert "bodyType" in app
     assert "styleType" in app
     assert "sourceRunId" in app
+    assert record.result["garment"]["sourceRunId"] == str(run_id)
+    assert record.result["garment"]["category"] == "tops"
     # Verify result contains confidence and needs_more_data
     assert "confidence" in record.result
     assert isinstance(record.result["needs_more_data"], bool)
@@ -484,6 +487,7 @@ def test_outfit_run_profile_updated_with_image_attributes():
         appearance_port=DevelopmentAppearanceAnalysisAdapter(),
         user_state=user_state,
         learning_signal=None,
+        garment_port=StubGarmentPort(),
     )
 
     class MockImage:
@@ -532,6 +536,7 @@ def test_outfit_run_learning_signal_emitted():
         appearance_port=DevelopmentAppearanceAnalysisAdapter(),
         user_state=FakeUserState(None),
         learning_signal=learning_signal,
+        garment_port=StubGarmentPort(),
     )
 
     class MockImage:
@@ -543,6 +548,41 @@ def test_outfit_run_learning_signal_emitted():
     record = runs.get_for_user(user_id=USER, run_id=run_id)
     assert record is not None
     assert record.status == "completed"
+
+
+def test_outfit_recommendation_failure_writes_no_profile_or_signals():
+    """A partial garment result must not persist a face profile when the
+    hairstyle branch failed."""
+    from app.application.analysis import CreateOutfitRun
+
+    runs = FakeRuns()
+    user_state = FakeUserState(None)
+    learning_signal = FakeLearningSignal()
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(_measured_profile()),
+        garment_port=StubGarmentPort(),
+        user_state=user_state,
+        learning_signal=learning_signal,
+    )
+
+    with patch(
+        "app.application.analysis.recommend_hairstyle",
+        side_effect=RuntimeError("recommendation failed"),
+    ):
+        run_id = use_case(
+            user_id=USER, image=_image_with_bytes(b"outfit-recommendation-fail")
+        )
+
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    assert record.result["garment"]["sourceRunId"] == str(run_id)
+    assert record.result["appearance_error"] == {"reason": "analysis_failed"}
+    assert "appearance" not in record.result
+    assert user_state.get_style_profile(user_id=USER) is None
+    assert learning_signal.calls == []
 
 
 def test_outfit_run_with_development_adapter_full_structure():
@@ -557,6 +597,7 @@ def test_outfit_run_with_development_adapter_full_structure():
         appearance_port=DevelopmentAppearanceAnalysisAdapter(),
         user_state=FakeUserState(None),
         learning_signal=None,
+        garment_port=StubGarmentPort(),
     )
 
     class MockImage:
@@ -573,9 +614,17 @@ def test_outfit_run_with_development_adapter_full_structure():
     # Full result structure verification
     result = record.result
     # Top-level keys
-    assert set(result.keys()) == {"appearance", "confidence", "needs_more_data", "recommendations"}
+    assert set(result.keys()) == {
+        "appearance",
+        "confidence",
+        "needs_more_data",
+        "recommendations",
+        "garment",
+    }
+    assert result["garment"]["sourceRunId"] == str(run_id)
     # Appearance snapshot keys
     app = result["appearance"]
+    assert app["sourceRunId"] == str(run_id)
     assert set(app.keys()) == {"faceShape", "skinTone", "bodyType", "styleType", "sourceRunId"}
     # Confidence is a float in [0, 1]
     assert isinstance(result["confidence"], float)
@@ -595,6 +644,120 @@ def test_outfit_run_with_development_adapter_full_structure():
     assert "bestFor" in recs["top"]
 
 
+def test_outfit_run_keeps_appearance_when_garment_fails():
+    from app.application.analysis import CreateOutfitRun
+    from app.ai.vision_garment_adapter import GarmentAnalysisError
+
+    runs = FakeRuns()
+    appearance = StubAppearancePort(_measured_profile())
+    garment = StubGarmentPort(error=GarmentAnalysisError("no_garment_detected"))
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=appearance,
+        garment_port=garment,
+        user_state=FakeUserState(None),
+        learning_signal=None,
+    )
+
+    run_id = use_case(user_id=USER, image=_image_with_bytes(b"outfit-partial-garment"))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    result = record.result
+    assert result is not None
+    assert result["appearance"]["sourceRunId"] == str(run_id)
+    assert result["garment_error"] == {"reason": "no_garment_detected"}
+    assert "garment" not in result
+    assert "appearance_error" not in result
+    assert len(appearance.calls) == 1
+    assert len(garment.calls) == 1
+    assert appearance.calls[0]["image_bytes"] == garment.calls[0]["image_bytes"]
+
+
+def test_outfit_run_keeps_garment_when_appearance_fails():
+    from app.application.analysis import CreateOutfitRun
+
+    runs = FakeRuns()
+    user_state = FakeUserState(None)
+    learning_signal = FakeLearningSignal()
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(
+            _measured_profile(faceShape=""), error=None
+        ),
+        garment_port=StubGarmentPort(),
+        user_state=user_state,
+        learning_signal=learning_signal,
+    )
+
+    run_id = use_case(user_id=USER, image=_image_with_bytes(b"outfit-partial-face"))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    result = record.result
+    assert result is not None
+    assert set(result.keys()) == {"garment", "appearance_error"}
+    assert result["appearance_error"] == {"reason": "no_face_detected"}
+    assert result["garment"]["sourceRunId"] == str(run_id)
+    assert "appearance" not in result
+    assert "confidence" not in result
+    assert user_state.get_style_profile(user_id=USER) is None
+    assert learning_signal.calls == []
+
+
+def test_outfit_run_generic_appearance_failure_is_not_detection_negative():
+    from app.application.analysis import CreateOutfitRun
+
+    runs = FakeRuns()
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(
+            _measured_profile(), error=RuntimeError("provider down")
+        ),
+        garment_port=StubGarmentPort(),
+        user_state=FakeUserState(None),
+        learning_signal=None,
+    )
+
+    run_id = use_case(user_id=USER, image=_image_with_bytes(b"outfit-provider-down"))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    result = record.result
+    assert result is not None
+    assert result["appearance_error"] == {"reason": "analysis_failed"}
+    assert "garment" in result
+
+
+def test_outfit_run_both_branches_fail_is_terminal():
+    from app.application.analysis import CreateOutfitRun
+    from app.ai.vision_garment_adapter import GarmentAnalysisError
+
+    runs = FakeRuns()
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(_measured_profile(faceShape="")),
+        garment_port=StubGarmentPort(error=GarmentAnalysisError("no_garment_detected")),
+        user_state=FakeUserState(None),
+        learning_signal=None,
+    )
+
+    run_id = use_case(user_id=USER, image=_image_with_bytes(b"outfit-both-fail"))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "failed"
+    assert record.result is None
+    assert record.error["code"] == "PROCESSING_FAILURE"
+    details = record.error["details"]
+    assert details["run_id"] == str(run_id)
+    assert details["appearance_reason"] == "no_face_detected"
+    assert details["garment_reason"] == "no_garment_detected"
+
+
 def test_outfit_run_with_sparse_profile_sets_needs_more_data():
     """Verify CreateOutfitRun completes successfully and produces a valid
     result snapshot, with the development adapter producing a full profile."""
@@ -608,6 +771,7 @@ def test_outfit_run_with_sparse_profile_sets_needs_more_data():
         appearance_port=DevelopmentAppearanceAnalysisAdapter(),
         user_state=FakeUserState(None),
         learning_signal=None,
+        garment_port=StubGarmentPort(),
     )
 
     class MockImage:
@@ -644,6 +808,7 @@ def test_outfit_run_invalid_content_type_raises():
         appearance_port=None,
         user_state=FakeUserState(None),
         learning_signal=None,
+        garment_port=StubGarmentPort(),
     )
 
     class MockImage:
@@ -668,6 +833,7 @@ def test_outfit_run_image_too_large_raises():
         appearance_port=None,
         user_state=FakeUserState(None),
         learning_signal=None,
+        garment_port=StubGarmentPort(),
     )
 
     class MockImage:
@@ -790,6 +956,7 @@ def test_recommendation_deterministic_with_image_appearance_profile():
         appearance_port=adapter,
         user_state=FakeUserState(None),
         learning_signal=None,
+        garment_port=StubGarmentPort(),
     )
 
     class MockImage:
@@ -810,6 +977,7 @@ def test_recommendation_deterministic_with_image_appearance_profile():
         appearance_port=adapter,
         user_state=FakeUserState(None),
         learning_signal=None,
+        garment_port=StubGarmentPort(),
     )
     run_id_2 = use_case2(user_id=USER, image=MockImage())
     record_2 = runs.get_for_user(user_id=USER, run_id=run_id_2)
@@ -878,18 +1046,63 @@ class StubAppearancePort:
     """Explicit stub AppearanceAnalysisPort — records calls, returns a fixed
     measured profile. Never the development/hash adapter."""
 
-    def __init__(self, profile) -> None:
+    def __init__(self, profile, error=None) -> None:
         self._profile = profile
+        self._error = error
         self.calls: list = []
 
     def analyze(self, *, media_ref, user_id, image_bytes=None):
         self.calls.append(
             {"media_ref": media_ref, "user_id": user_id, "image_bytes": image_bytes}
         )
+        if self._error is not None:
+            raise self._error
         return self._profile
 
     def validate_result(self, result) -> bool:
         return True
+
+
+class StubGarmentPort:
+    """Explicit stub GarmentAnalysisPort - records calls, returns a fixed
+    observed profile or raises a supplied typed error."""
+
+    adapter_id = "stub-garment-v1"
+
+    def __init__(self, profile=None, error=None) -> None:
+        self._profile = profile if profile is not None else _measured_garment()
+        self._error = error
+        self.calls: list = []
+
+    def analyze(self, *, media_ref, user_id, image_bytes=None):
+        self.calls.append(
+            {"media_ref": media_ref, "user_id": user_id, "image_bytes": image_bytes}
+        )
+        if self._error is not None:
+            raise self._error
+        return self._profile
+
+    def validate_result(self, result) -> bool:
+        return True
+
+
+def _measured_garment(**overrides):
+    from app.domain.value_objects import GarmentProfile
+
+    base = {
+        "category": "tops",
+        "subcategory": "t-shirt",
+        "color": "navy",
+        "pattern": "solid",
+        "material": "cotton",
+        "style": "casual",
+        "fit": "regular",
+        "confidence": 0.87,
+        "needs_review": False,
+        "sourceRunId": "",
+    }
+    base.update(overrides)
+    return GarmentProfile(**base)
 
 
 def _measured_profile(**overrides):
@@ -945,6 +1158,7 @@ def test_same_bytes_same_hash_different_bytes_differ():
         appearance_port=DevelopmentAppearanceAnalysisAdapter(),
         user_state=FakeUserState(None),
         learning_signal=None,
+        garment_port=StubGarmentPort(),
     )
     run_a = use_case(user_id=USER, image=_image_with_bytes(b"same-bytes"))
     run_b = use_case(user_id=USER, image=_image_with_bytes(b"same-bytes"))
@@ -968,6 +1182,7 @@ def test_outfit_media_ref_content_hash_is_real_sha256():
         appearance_port=DevelopmentAppearanceAnalysisAdapter(),
         user_state=FakeUserState(None),
         learning_signal=None,
+        garment_port=StubGarmentPort(),
     )
     run_id = use_case(user_id=USER, image=_image_with_bytes(payload))
     media = runs.get_for_user(user_id=USER, run_id=run_id).input_media
@@ -1785,6 +2000,7 @@ def test_11_13_outfit_run_persists_typed_signals_db(_11_13_db):
             appearance_port=DevelopmentAppearanceAnalysisAdapter(),
             user_state=UserStateRepositorySQL(session),
             learning_signal=LearningSignalRepositorySQL(session),
+            garment_port=StubGarmentPort(),
         )
 
         class MockImage:

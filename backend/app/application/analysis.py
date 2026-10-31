@@ -214,6 +214,7 @@ class CreateOutfitRun:
         *,
         runs: AnalysisRunRepository,
         knowledge: KnowledgeSource,
+        garment_port: GarmentAnalysisPort,
         appearance_port: Optional[AppearanceAnalysisPort] = None,
         user_state: Optional[UserStateRepository] = None,
         learning_signal: Optional[LearningSignalRepository] = None,
@@ -221,6 +222,7 @@ class CreateOutfitRun:
     ) -> None:
         self._runs = runs
         self._knowledge = knowledge
+        self._garment_port = garment_port
         self._appearance_port = appearance_port or DevelopmentAppearanceAnalysisAdapter()
         self._user_state = user_state
         self._learning_signal = learning_signal
@@ -251,6 +253,12 @@ class CreateOutfitRun:
             content_type=content_type,
             content=content,
             analyzer=getattr(self._appearance_port, "adapter_id", "unknown"),
+        )
+        garment_media_ref = build_media_ref(
+            user_id=user_id,
+            content_type=content_type,
+            content=content,
+            analyzer=getattr(self._garment_port, "adapter_id", "unknown"),
         )
 
         if idempotency_key is not None:
@@ -293,63 +301,81 @@ class CreateOutfitRun:
                     return existing.id
             raise
 
-        # Step 2: Run appearance analysis adapter
+        # Step 2: Run the two independent observation branches sequentially.
+        appearance_profile = None
+        appearance_reason = None
+        hairstyle_result = None
         try:
-            appearance_profile = self._appearance_port.analyze(
+            profile = self._appearance_port.analyze(
                 media_ref=media_ref, user_id=user_id, image_bytes=content
             )
-        except AppearanceAnalysisError as exc:
-            self._runs.fail(
-                run_id=run_id,
-                user_id=user_id,
-                error={
-                    "code": "PROCESSING_FAILURE",
-                    "message": "We couldn't finish this request. Please try again.",
-                    "details": {"run_id": str(run_id), "reason": exc.reason},
-                },
-            )
-            return run_id
-        except Exception:
-            # Adapter failure → honest `failed` run (PROCESSING_FAILURE,
-            # details.run_id) per §5.1/§7 — never a stuck pending run.
-            self._runs.fail(
-                run_id=run_id,
-                user_id=user_id,
-                error={
-                    "code": "PROCESSING_FAILURE",
-                    "message": "We couldn't finish this request. Please try again.",
-                    "details": {"run_id": str(run_id)},
-                },
-            )
-            return run_id
-
-        # Step 3: Feed appearance profile into decision engine
-        try:
-            context = build_context(
+            if not (getattr(profile, "faceShape", "") or "").strip():
+                raise AppearanceAnalysisError("no_face_detected")
+            appearance_profile = replace(profile, sourceRunId=str(run_id))
+            build_context(
                 appearance=appearance_profile,
                 knowledge_version=getattr(self._knowledge, "knowledge_version", ""),
             )
             hairstyle_result = recommend_hairstyle(self._knowledge, appearance_profile)
+        except AppearanceAnalysisError as exc:
+            appearance_reason = exc.reason
         except Exception:
-            # Pipeline failure → honest `failed` run (PROCESSING_FAILURE,
-            # details.run_id) per §5.1/§7 — never a stuck pending run.
+            appearance_reason = "analysis_failed"
+
+        garment_profile = None
+        garment_reason = None
+        try:
+            garment_profile = replace(
+                self._garment_port.analyze(
+                    media_ref=garment_media_ref,
+                    user_id=user_id,
+                    image_bytes=content,
+                ),
+                sourceRunId=str(run_id),
+            )
+        except GarmentAnalysisError as exc:
+            garment_reason = exc.reason
+        except Exception:
+            garment_reason = "analysis_failed"
+
+        # A failed branch alone is a valid partial result; only an empty
+        # result is terminal for the run.
+        if hairstyle_result is None and garment_profile is None:
+            appearance_reason = appearance_reason or "analysis_failed"
+            garment_reason = garment_reason or "analysis_failed"
             self._runs.fail(
                 run_id=run_id,
                 user_id=user_id,
                 error={
                     "code": "PROCESSING_FAILURE",
                     "message": "We couldn't finish this request. Please try again.",
-                    "details": {"run_id": str(run_id)},
+                    "details": {
+                        "run_id": str(run_id),
+                        "reason": appearance_reason,
+                        "appearance_reason": appearance_reason,
+                        "garment_reason": garment_reason,
+                    },
                 },
             )
             return run_id
 
-        # Step 4: Complete the run with the structured result
+        # Step 3: Complete with every valid branch result. Branch failures
+        # are explicit keys, never a top-level "error".
+        snapshot: dict = (
+            hairstyle_result.to_snapshot() if hairstyle_result is not None else {}
+        )
+        if garment_profile is not None:
+            snapshot["garment"] = garment_profile.to_snapshot()
+        else:
+            snapshot["garment_error"] = {"reason": garment_reason}
+        if appearance_reason is not None:
+            snapshot["appearance_error"] = {"reason": appearance_reason}
+
         completed = self._runs.complete(
             run_id=run_id,
             user_id=user_id,
             status="completed",
-            result=hairstyle_result.to_snapshot(),
+            result=snapshot,
         )
         if not completed:
             raise ApiError(
@@ -358,42 +384,36 @@ class CreateOutfitRun:
                 message="Something went wrong while saving your data. Please try again.",
             )
 
-        # Step 5: TRX-6 — Update user_state.style_profile with image-derived attributes
-        # This makes the appearance profile reusable context for future runs
-        # (hairstyle, grooming) without needing re-capture.
-        if self._user_state is not None:
-            self._user_state.update_style_profile(
-                user_id=user_id,
-                face_shape=appearance_profile.faceShape,
-                skin_tone=appearance_profile.skinTone,
-                body_type=appearance_profile.bodyType,
-                style_type=appearance_profile.styleType,
-                source_run_id=str(run_id),
-            )
+        # Step 4: TRX-6 and signals require a completed appearance branch
+        # (a hairstyle snapshot), not merely a measured profile.
+        if hairstyle_result is not None and appearance_profile is not None:
+            if self._user_state is not None:
+                self._user_state.update_style_profile(
+                    user_id=user_id,
+                    face_shape=appearance_profile.faceShape,
+                    skin_tone=appearance_profile.skinTone,
+                    body_type=appearance_profile.bodyType,
+                    style_type=appearance_profile.styleType,
+                    source_run_id=str(run_id),
+                )
 
-        # Step 6+7 (STEP 11.13): the run's learning signals, typed verbatim.
-        # `outfit_selected` keeps its existing meaning here — completed outfit
-        # generation/run lifecycle, not an explicit UI selection. Both inserts
-        # are committed together below: one commit covers the run's signals
-        # (never one commit per insert). TRX-6 above is untouched.
-        if self._learning_signal is not None:
-            self._learning_signal.insert_look_saved(
-                user_id=user_id,
-                signal_type="analysis_updated",
-                label="analysis_updated",
-                context={"run_id": str(run_id), "run_type": "outfit"},
-            )
-            self._learning_signal.insert_look_saved(
-                user_id=user_id,
-                signal_type="outfit_selected",
-                label="outfit_selected",
-                context={"source_context": "outfit", "run_id": str(run_id), "run_type": "outfit"},
-            )
-            if self._activity_days is not None:
-                # M10-A: one styled-day upsert for the run's signals,
-                # riding this same commit (never one commit per insert).
-                mark_styled_today(activity_days=self._activity_days, user_id=user_id)
-            self._learning_signal.commit()
+            # One commit covers the run's signals (never one per insert).
+            if self._learning_signal is not None:
+                self._learning_signal.insert_look_saved(
+                    user_id=user_id,
+                    signal_type="analysis_updated",
+                    label="analysis_updated",
+                    context={"run_id": str(run_id), "run_type": "outfit"},
+                )
+                self._learning_signal.insert_look_saved(
+                    user_id=user_id,
+                    signal_type="outfit_selected",
+                    label="outfit_selected",
+                    context={"source_context": "outfit", "run_id": str(run_id), "run_type": "outfit"},
+                )
+                if self._activity_days is not None:
+                    mark_styled_today(activity_days=self._activity_days, user_id=user_id)
+                self._learning_signal.commit()
 
         return run_id
 
@@ -1013,45 +1033,90 @@ class EphemeralOutfitAnalysis:
         *,
         knowledge: KnowledgeSource,
         appearance_port: AppearanceAnalysisPort,
+        garment_port: GarmentAnalysisPort,
     ) -> None:
         self._knowledge = knowledge
         self._appearance_port = appearance_port
+        self._garment_port = garment_port
 
     def __call__(self, *, image: any) -> dict:
         _validate_ephemeral_image(image)
         content = read_image_bytes(image)
         ephemeral_id = _ephemeral_correlation_id()
+        user_id = UUID(ephemeral_id)
         media_ref = build_media_ref(
-            user_id=UUID(ephemeral_id),
+            user_id=user_id,
             content_type=getattr(image, "content_type"),
             content=content,
             analyzer=getattr(self._appearance_port, "adapter_id", "unknown"),
         )
-        try:
-            appearance_profile = self._appearance_port.analyze(
-                media_ref=media_ref,
-                user_id=UUID(ephemeral_id),
-                image_bytes=content,
-            )
-        except AppearanceAnalysisError as exc:
-            raise _ephemeral_analyzer_failure(exc.reason)
-        except Exception:
-            raise ai_failure()
-        appearance_profile = replace(
-            appearance_profile, sourceRunId=ephemeral_id
+        garment_media_ref = build_media_ref(
+            user_id=user_id,
+            content_type=getattr(image, "content_type"),
+            content=content,
+            analyzer=getattr(self._garment_port, "adapter_id", "unknown"),
         )
+
+        appearance_profile = None
+        appearance_reason = None
+        hairstyle_result = None
         try:
-            context = build_context(
+            appearance_profile = replace(
+                self._appearance_port.analyze(
+                    media_ref=media_ref,
+                    user_id=user_id,
+                    image_bytes=content,
+                ),
+                sourceRunId=ephemeral_id,
+            )
+            if not (getattr(appearance_profile, "faceShape", "") or "").strip():
+                raise AppearanceAnalysisError("no_face_detected")
+            build_context(
                 appearance=appearance_profile,
                 knowledge_version=getattr(self._knowledge, "knowledge_version", ""),
             )
-            hairstyle_result = recommend_hairstyle(
-                self._knowledge, appearance_profile
-            )
+            hairstyle_result = recommend_hairstyle(self._knowledge, appearance_profile)
+        except AppearanceAnalysisError as exc:
+            appearance_reason = exc.reason
         except Exception:
-            raise ai_failure()
-        return hairstyle_result.to_snapshot()
+            appearance_reason = "analysis_failed"
 
+        garment_profile = None
+        garment_reason = None
+        try:
+            garment_profile = replace(
+                self._garment_port.analyze(
+                    media_ref=garment_media_ref,
+                    user_id=user_id,
+                    image_bytes=content,
+                ),
+                sourceRunId=ephemeral_id,
+            )
+        except GarmentAnalysisError as exc:
+            garment_reason = exc.reason
+        except Exception:
+            garment_reason = "analysis_failed"
+
+        if hairstyle_result is None and garment_profile is None:
+            if "analysis_failed" in (appearance_reason, garment_reason):
+                raise ai_failure()
+            errors = []
+            if appearance_reason:
+                errors.append({"field": "image", "error": appearance_reason})
+            if garment_reason:
+                errors.append({"field": "image", "error": garment_reason})
+            raise validation(errors)
+
+        snapshot = (
+            hairstyle_result.to_snapshot() if hairstyle_result is not None else {}
+        )
+        if garment_profile is not None:
+            snapshot["garment"] = garment_profile.to_snapshot()
+        else:
+            snapshot["garment_error"] = {"reason": garment_reason}
+        if appearance_reason is not None:
+            snapshot["appearance_error"] = {"reason": appearance_reason}
+        return snapshot
 
 class EphemeralGroomingAnalysis:
     """D-01 STEP 1 — stateless guest grooming analysis (request profile).

@@ -124,9 +124,7 @@ final List<RouteBase> appRoutes = [
       return YourAnalysisScreen(
         imageBytes: extra?['imageBytes'] as Uint8List?,
         outfitSnapshot: extra?['outfitSnapshot'] as Map<String, dynamic>?,
-        garmentSnapshot: extra?['garmentSnapshot'] as Map<String, dynamic>?,
         outfitFailure: extra?['outfitFailure'] as String?,
-        garmentFailure: extra?['garmentFailure'] as String?,
       );
     },
   ),

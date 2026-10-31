@@ -14,37 +14,31 @@ import 'package:fansivibe/shared/utils/pending_auth_intent.dart';
 
 /// Guest handoff after the Analyze My Style photo step (unauthenticated).
 ///
-/// Shows the limited guest preview when the ephemeral pass returned real
-/// observations ([outfitSnapshot] and/or [garmentSnapshot] verbatim from
-/// `POST /v1/analysis/{outfit,garment}/ephemeral`), or an honest failure
-/// state when it did not. Attributes the backends did not return are
-/// omitted — never defaulted or sampled. Full personalized analysis
-/// (saved style profile, history, learning recommendations) stays
-/// account-only and runs after sign-in. Buttons below preserve their
-/// established semantics; camera flow is otherwise untouched.
+/// Shows the limited guest preview when the combined ephemeral pass returned
+/// real observations ([outfitSnapshot] verbatim from
+/// `POST /v1/analysis/outfit/ephemeral`), or an honest failure state when it
+/// did not. Attributes the backend did not return are omitted - never
+/// defaulted or sampled. Full personalized analysis (saved style profile,
+/// history, learning recommendations) stays account-only and runs after
+/// sign-in. Buttons below preserve their established semantics; camera flow
+/// is otherwise untouched.
 class YourAnalysisScreen extends StatefulWidget {
   const YourAnalysisScreen({
     super.key,
     this.imageBytes,
     this.outfitSnapshot,
-    this.garmentSnapshot,
     this.outfitFailure,
-    this.garmentFailure,
   });
 
   /// In-memory photo bytes for the thumbnail + Try Again replay.
   final Uint8List? imageBytes;
 
-  /// Verbatim `outfit/ephemeral` engine snapshot (face observation), if any.
+  /// Verbatim combined `outfit/ephemeral` snapshot, if any.
   final Map<String, dynamic>? outfitSnapshot;
 
-  /// Verbatim `garment/ephemeral` observation snapshot, if any.
-  final Map<String, dynamic>? garmentSnapshot;
-
-  /// Typed failure reasons (e.g. `no_face_detected`, `rate_limited`),
-  /// surfaced only when the matching snapshot is absent.
+  /// Typed failure reason (e.g. `no_face_detected`, `rate_limited`) when the
+  /// endpoint returned no snapshot.
   final String? outfitFailure;
-  final String? garmentFailure;
 
   @override
   State<YourAnalysisScreen> createState() => _YourAnalysisScreenState();
@@ -59,6 +53,9 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   @override
   void initState() {
     super.initState();
+    if (!isRenderableOutfitSnapshot(widget.outfitSnapshot)) {
+      clearPendingEphemeralResult(feature: EphemeralFeature.outfit);
+    }
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
@@ -84,10 +81,9 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   }
 
   void _onSave() {
-    // Onboarding conversion: remember that a real account should resume
-    // the product journey (default /home) with local progress kept.
-    // No analysis payload exists to resume (guest analyses never run),
-    // so this stores origin context only — never fabricated results.
+    // Onboarding conversion: record only the intent to save after sign-in.
+    // No analysis payload is persisted or replayed automatically, so the
+    // button copy must not claim the preview/progress is already saved.
     recordPendingAuthIntent(
       PendingAuthIntent(
         action: 'save_progress',
@@ -107,14 +103,20 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
     // are untouched; account conversion buttons below are unchanged.
     LocalStorage.onboardingComplete = true;
     LocalStorage.savedLocally = true;
+    // Onboarding completion is a persisted milestone (C-08), not proof of
+    // a cached analysis. The route extra below reports whether an outfit
+    // preview is actually stashed on this device.
     LocalStorage.onboardingPhotoCaptured = true;
-    context.goNamed(RouteNames.home, extra: {
-      'onboarding_complete': true,
-      'display_name': null,
-      'vibe': LocalStorage.vibe,
-      'saved_locally': true,
-      'analysis_cached': true,
-    });
+    context.goNamed(
+      RouteNames.home,
+      extra: {
+        'onboarding_complete': true,
+        'display_name': null,
+        'vibe': LocalStorage.vibe,
+        'saved_locally': true,
+        'analysis_cached': hasCachedOutfitPreview(),
+      },
+    );
   }
 
   void _onRetake() {
@@ -129,10 +131,10 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   }
 
   void _onCreateAccount() {
-    // Preview conversion: same resume path as Save My Progress (default
-    // /home with local progress kept via the post-auth merge dialog).
-    // The stashed outfit snapshot (if any) travels device-locally for a
-    // later Save → sign-in replay; nothing auto-POSTs after login.
+    // Preview conversion: same pending-intent path as the tertiary
+    // conversion action (default /home). The stashed outfit snapshot
+    // (if any) stays device-local for an explicit later replay; nothing
+    // auto-POSTs after login and no progress is claimed as saved.
     recordPendingAuthIntent(
       PendingAuthIntent(
         action: 'save_progress',
@@ -159,8 +161,19 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
     );
   }
 
-  bool get _hasPreview =>
-      widget.outfitSnapshot != null || widget.garmentSnapshot != null;
+  static Map<String, dynamic>? _asMap(Object? value) =>
+      value is Map<String, dynamic> ? value : null;
+
+  static String? _asString(Object? value) => value is String ? value : null;
+
+  static num? _asNum(Object? value) => value is num ? value : null;
+
+  static bool? _asBool(Object? value) => value is bool ? value : null;
+
+  static List<dynamic>? _asList(Object? value) =>
+      value is List<dynamic> ? value : null;
+
+  bool get _hasPreview => isRenderableOutfitSnapshot(widget.outfitSnapshot);
 
   @override
   Widget build(BuildContext context) {
@@ -215,7 +228,8 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                                   _hasPreview
                                       ? 'Guest preview ready — this first look ran on your photo. Create an account for the full personalized analysis.'
                                       : 'Photo step complete — your personal analysis runs after you create an account. Nothing has been analyzed yet.',
-                                  style: FansivibeTypography.bodyMediumWithFamily
+                                  style: FansivibeTypography
+                                      .bodyMediumWithFamily
                                       .copyWith(
                                         color: FansivibeColors.secondary,
                                       ),
@@ -231,18 +245,14 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                             _buildPreviewCard(),
                           ),
                           SizedBox(height: FansivibeSpacing.lg),
-                        ] else if (widget.outfitFailure != null ||
-                            widget.garmentFailure != null) ...[
+                        ] else if (widget.outfitFailure != null) ...[
                           _buildAnimatedSection(
                             _statusAnim,
                             _buildFailureCard(),
                           ),
                           SizedBox(height: FansivibeSpacing.lg),
                         ],
-                        _buildAnimatedSection(
-                          _statusAnim,
-                          _buildStatusCard(),
-                        ),
+                        _buildAnimatedSection(_statusAnim, _buildStatusCard()),
                         SizedBox(height: FansivibeSpacing.xl),
                         _buildAnimatedSection(
                           _ctaAnim,
@@ -261,7 +271,7 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                               ),
                               SizedBox(height: FansivibeSpacing.sm + 4),
                               FansiButton.tertiary(
-                                label: 'Save My Progress',
+                                label: 'Sign In to Continue',
                                 onPressed: _onSave,
                               ),
                               SizedBox(height: FansivibeSpacing.sm + 4),
@@ -306,17 +316,21 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   /// omitted (never defaulted), with a plain note where a section found
   /// nothing measurable.
   Widget _buildPreviewCard() {
-    final garment =
-        widget.garmentSnapshot?.cast<String, dynamic>();
-    final outfit = widget.outfitSnapshot?.cast<String, dynamic>();
-    final appearance =
-        outfit?['appearance'] as Map<String, dynamic>?;
-    final faceShape = appearance?['faceShape'] as String?;
-    final recommendations =
-        outfit?['recommendations'] as Map<String, dynamic>?;
-    final top = recommendations?['top'] as Map<String, dynamic>?;
-    final confidence = (outfit?['confidence'] as num?)?.toDouble();
-    final needsMoreData = outfit?['needs_more_data'] as bool? ?? false;
+    final outfit = widget.outfitSnapshot;
+    final garment = _asMap(outfit?['garment']);
+    final appearance = _asMap(outfit?['appearance']);
+    final faceShape = _asString(appearance?['faceShape']);
+    final appearanceError = _asString(
+      _asMap(outfit?['appearance_error'])?['reason'],
+    );
+    final garmentError = _asString(_asMap(outfit?['garment_error'])?['reason']);
+    final recommendations = _asMap(outfit?['recommendations']);
+    final top = _asMap(recommendations?['top']);
+    final rawConfidence = _asNum(outfit?['confidence']);
+    final confidence = rawConfidence != null && rawConfidence.isFinite
+        ? rawConfidence.toDouble()
+        : null;
+    final needsMoreData = _asBool(outfit?['needs_more_data']) ?? false;
 
     final facts = <MapEntry<String, IconData>>[];
     void addFact(String? value, String label, IconData icon) {
@@ -326,32 +340,27 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
     }
 
     addFact(
-      garment?['category'] as String?,
+      _asString(garment?['category']),
       'Garment',
       Icons.checkroom_outlined,
     );
-    addFact(garment?['color'] as String?, 'Color', Icons.palette_outlined);
+    addFact(_asString(garment?['color']), 'Color', Icons.palette_outlined);
+    addFact(_asString(garment?['pattern']), 'Pattern', Icons.layers_outlined);
     addFact(
-      garment?['pattern'] as String?,
-      'Pattern',
-      Icons.layers_outlined,
-    );
-    addFact(
-      garment?['material'] as String?,
+      _asString(garment?['material']),
       'Material',
       Icons.texture_outlined,
     );
-    addFact(garment?['style'] as String?, 'Style', Icons.style_outlined);
-    addFact(garment?['fit'] as String?, 'Fit', Icons.straighten_outlined);
+    addFact(_asString(garment?['style']), 'Style', Icons.style_outlined);
+    addFact(_asString(garment?['fit']), 'Fit', Icons.straighten_outlined);
     final hasGarmentFacts = facts.isNotEmpty;
     addFact(faceShape, 'Face shape', Icons.face_outlined);
 
-    final topName = top?['name'] as String?;
-    final topReasons = top?['reasons'] as List?;
-    final topReason =
-        topReasons != null && topReasons.isNotEmpty
-            ? topReasons.first.toString()
-            : null;
+    final topName = _asString(top?['name']);
+    final topReasons = _asList(top?['reasons']);
+    final topReason = topReasons != null && topReasons.isNotEmpty
+        ? topReasons.first.toString()
+        : null;
 
     return Container(
       width: double.infinity,
@@ -399,13 +408,17 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
           for (final fact in facts) _buildFactRow(fact.key, fact.value),
           if (garment == null || !hasGarmentFacts)
             _buildFactRow(
-              'No clear outfit details in this photo.',
+              garmentError != null
+                  ? _previewFailureMessage(garmentError)
+                  : 'No clear outfit details in this photo.',
               Icons.info_outline_rounded,
               muted: true,
             ),
           if (faceShape == null || faceShape.trim().isEmpty)
             _buildFactRow(
-              "Face shape wasn't measurable in this photo.",
+              appearanceError != null
+                  ? _previewFailureMessage(appearanceError)
+                  : "Face shape wasn't measurable in this photo.",
               Icons.info_outline_rounded,
               muted: true,
             ),
@@ -452,16 +465,14 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
   /// Honest failure: names the typed reason, offers retry with the same
   /// bytes (a fresh analysis) or a retake. Never a success state.
   Widget _buildFailureCard() {
-    final reason = widget.outfitFailure ?? widget.garmentFailure;
+    final reason = widget.outfitFailure;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(FansivibeSpacing.md),
       decoration: BoxDecoration(
         color: FansivibeColors.error.withValues(alpha: 0.08),
         borderRadius: FansivibeRadius.mdBorder,
-        border: Border.all(
-          color: FansivibeColors.error.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: FansivibeColors.error.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -522,10 +533,10 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
         return 'The analysis service is unavailable. Check your connection and try again.';
       case 'empty_image':
         return "That photo couldn't be read. Please try another.";
+      case 'analysis_failed':
+        return "We couldn't finish this part of the analysis. Please try again.";
       default:
-        if (reason != null &&
-            reason.isNotEmpty &&
-            reason != 'request_failed') {
+        if (reason != null && reason.isNotEmpty && reason != 'request_failed') {
           return 'Analysis failed ($reason). Please try again.';
         }
         return 'Analysis failed. Please try again.';
@@ -548,9 +559,7 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
           Icon(
             icon,
             size: 16,
-            color: muted
-                ? FansivibeColors.secondary
-                : FansivibeColors.primary,
+            color: muted ? FansivibeColors.secondary : FansivibeColors.primary,
           ),
           SizedBox(width: FansivibeSpacing.sm),
           Expanded(

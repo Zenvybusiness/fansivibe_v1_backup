@@ -284,7 +284,7 @@ class MockImage:
 # ---------------------------------------------------------------------------
 
 def test_0025_revision_chain_and_static_contract():
-    """N. Migration 0025 is linear head off 0024 with clean downgrade."""
+    """N. Migration 0025 is linear off 0024; current source head is asserted below."""
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
@@ -293,7 +293,8 @@ def test_0025_revision_chain_and_static_contract():
     script = ScriptDirectory.from_config(config)
 
     # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
-    assert tuple(script.get_heads()) == ("0029",)
+    # Current source head is 0032.
+    assert tuple(script.get_heads()) == ("0032",)
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None
@@ -450,6 +451,7 @@ def test_outfit_image_idempotency_flow():
     runs = FakeRunsRepo()
     user_state = FakeUserStateRepo(None)
     port = SpyAppearancePort()
+    garment_port = SpyGarmentPort()
     signals = FakeLearningSignalRepo()
     knowledge = CatalogKnowledgeSource()
 
@@ -457,6 +459,7 @@ def test_outfit_image_idempotency_flow():
         runs=runs,
         knowledge=knowledge,
         appearance_port=port,
+        garment_port=garment_port,
         user_state=user_state,
         learning_signal=signals,
     )
@@ -465,6 +468,7 @@ def test_outfit_image_idempotency_flow():
     run_id = use_case(user_id=USER_1, image=image, idempotency_key="key-outfit-1")
     assert run_id is not None
     assert port.call_count == 1
+    assert garment_port.call_count == 1
     assert user_state.update_count == 1
     assert len(signals.signals) == 2
 
@@ -472,6 +476,7 @@ def test_outfit_image_idempotency_flow():
     replay_id = use_case(user_id=USER_1, image=image, idempotency_key="key-outfit-1")
     assert replay_id == run_id
     assert port.call_count == 1
+    assert garment_port.call_count == 1
     assert user_state.update_count == 1
     # F. Replay does NOT emit duplicate learning signals (still exactly 2)
     assert len(signals.signals) == 2

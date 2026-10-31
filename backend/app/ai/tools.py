@@ -34,7 +34,9 @@ def recommend_outfit(
 
 def recommend_hairstyle(user: Optional[UserContext]) -> List[SuggestionCard]:
     face = (user.face.faceShape.lower() if user and user.face and user.face.faceShape else "oval")
-    if face in ("round", "square", "rectangle"):
+    if face == "rectangle":
+        face = "rectangular"
+    if face in ("round", "square", "rectangular"):
         return [catalog.CLASSIC_POMPADOUR, catalog.TEXTURED_QUIFF]
     return [catalog.TEXTURED_QUIFF, catalog.CLASSIC_POMPADOUR]
 

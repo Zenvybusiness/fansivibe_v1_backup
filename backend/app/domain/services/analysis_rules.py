@@ -150,8 +150,8 @@ def personalization_context_to_decision_context(
 
 # Deterministic per-look face-shape boosts. Scores = seed + boost, capped at 1.0.
 _BOOSTS: dict[str, dict[str, float]] = {
-    "textured_quiff": {"oval": 0.06, "heart": 0.03, "rectangle": 0.03},
-    "classic_pompadour": {"round": 0.12, "square": 0.10, "rectangle": 0.06},
+    "textured_quiff": {"oval": 0.06, "heart": 0.03, "rectangular": 0.03},
+    "classic_pompadour": {"round": 0.12, "square": 0.10, "rectangular": 0.06},
     "side_part": {"oval": 0.05, "square": 0.06, "diamond": 0.06, "round": 0.02},
     "brushed_up_undercut": {"oval": 0.04, "heart": 0.04, "diamond": 0.05, "square": 0.02},
 }
@@ -166,6 +166,7 @@ _APPEARANCE_SIGNALS = ("faceShape", "skinTone", "bodyType", "styleType")
 _DECISIVE_GAP = 0.1
 
 _DEFAULT_FACE_SHAPE = "oval"
+_FACE_SHAPE_ALIASES = {"rectangle": "rectangular"}
 
 
 # --- Grooming boosts --------------------------------------------------------
@@ -220,7 +221,9 @@ class Explanation:
 
 def _face_shape(appearance: AppearanceProfile) -> str:
     raw = (appearance.faceShape or "").strip().lower()
-    return raw or _DEFAULT_FACE_SHAPE
+    if not raw:
+        return _DEFAULT_FACE_SHAPE
+    return _FACE_SHAPE_ALIASES.get(raw, raw)
 
 
 def _completeness(appearance: AppearanceProfile) -> float:
@@ -428,7 +431,7 @@ def recommend_hairstyle(
     The orchestrator knows the stage order and implements no stage logic —
     each stage is a small pure function above. Rules-first: the top pick
     matches the assistant's face-shape switch (`app/ai/tools.py:
-    recommend_hairstyle`) — pompadour-first for round/square/rectangle,
+    recommend_hairstyle`) — pompadour-first for round/square/rectangular,
     quiff-first otherwise.
 
     If ``personalization_context`` is provided, the decision engine incorporates

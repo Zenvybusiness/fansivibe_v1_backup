@@ -1061,8 +1061,8 @@ def test_partial_pruning_retains_accurate_link_count(
         assert obs_after.value == 3.0
 
 
-def test_migration_head_is_0029_linear_off_0028() -> None:
-    """Ensure fully migrated repository requires head 0029 off 0028."""
+def test_current_head_and_0029_linear_chain() -> None:
+    """Ensure current source head is single and 0029 remains linear off 0028."""
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
@@ -1070,7 +1070,7 @@ def test_migration_head_is_0029_linear_off_0028() -> None:
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
 
-    assert tuple(script.get_heads()) == ("0029",)
+    assert tuple(script.get_heads()) == ("0032",)
     rev29 = script.get_revision("0029")
     assert rev29 is not None
     assert rev29.down_revision == "0028"

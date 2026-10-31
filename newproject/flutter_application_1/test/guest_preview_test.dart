@@ -15,7 +15,6 @@ import 'package:fansivibe/features/onboarding/presentation/screens/ai_analysis_s
 import 'package:fansivibe/features/onboarding/presentation/screens/photo_capture_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/your_analysis_screen.dart';
 import 'package:fansivibe/features/outfit_scan/data/outfit_scan_client.dart';
-import 'package:fansivibe/features/wardrobe/data/garment_client.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
@@ -23,10 +22,10 @@ import 'package:fansivibe/shared/utils/pending_auth_intent.dart';
 
 /// Guest AI Preview for Analyze My Outfit.
 ///
-/// The onboarding guest photo now runs one real pass over the existing
-/// unauthenticated ephemeral endpoints (outfit + garment, in parallel) and
-/// the result screen renders only the fields those backends returned.
-/// Nothing is fabricated, and the account-conversion journey is preserved.
+/// The onboarding guest photo now runs one real pass over the combined
+/// unauthenticated outfit ephemeral endpoint (face + one garment) and the
+/// result screen renders only the fields the backend returned. Nothing is
+/// fabricated, and the account-conversion journey is preserved.
 ///
 /// 1. A valid guest photo reaches the preview with genuine response fields.
 /// 2. Missing/empty attributes are omitted, never defaulted or sampled.
@@ -62,19 +61,18 @@ Map<String, dynamic> _outfitSnapshot() => {
     },
     'alternatives': <dynamic>[],
   },
-};
-
-Map<String, dynamic> _garmentSnapshot() => {
-  'category': 'tops',
-  'subcategory': null,
-  'color': 'light blue',
-  'pattern': null,
-  'material': 'cotton',
-  'style': null,
-  'fit': null,
-  'confidence': 0.84,
-  'needs_review': false,
-  'sourceRunId': 'ephemeral-test-id',
+  'garment': {
+    'category': 'tops',
+    'subcategory': null,
+    'color': 'light blue',
+    'pattern': null,
+    'material': 'cotton',
+    'style': null,
+    'fit': null,
+    'confidence': 0.84,
+    'needs_review': false,
+    'sourceRunId': 'ephemeral-test-id',
+  },
 };
 
 http.Response _ok(Map<String, dynamic> body) =>
@@ -95,18 +93,12 @@ http.Response _unprocessable(String reason) => http.Response(
   422,
 );
 
-/// Mock transport answering the two ephemeral endpoints independently.
-MockClient _ephemeralTransport({
-  http.Response Function()? outfit,
-  http.Response Function()? garment,
-}) {
+/// Mock transport for the combined outfit ephemeral endpoint.
+MockClient _ephemeralTransport({http.Response Function()? outfit}) {
   return MockClient((request) async {
     final path = request.url.path;
     if (path.endsWith('/v1/analysis/outfit/ephemeral')) {
       return (outfit ?? () => _ok(_outfitSnapshot()))();
-    }
-    if (path.endsWith('/v1/analysis/garment/ephemeral')) {
-      return (garment ?? () => _ok(_garmentSnapshot()))();
     }
     return http.Response('not found', 404);
   });
@@ -114,7 +106,6 @@ MockClient _ephemeralTransport({
 
 GoRouter _router({required MockClient transport}) {
   OutfitScanClient outfit() => OutfitScanClient(client: transport);
-  GarmentClient garm() => GarmentClient(client: transport);
   return GoRouter(
     initialLocation: '/capture',
     routes: [
@@ -133,7 +124,6 @@ GoRouter _router({required MockClient transport}) {
           return AiAnalysisScreen(
             imageBytes: extra?['imageBytes'] as Uint8List?,
             outfitClient: outfit(),
-            garmentClient: garm(),
           );
         },
       ),
@@ -145,9 +135,7 @@ GoRouter _router({required MockClient transport}) {
           return YourAnalysisScreen(
             imageBytes: extra?['imageBytes'] as Uint8List?,
             outfitSnapshot: extra?['outfitSnapshot'] as Map<String, dynamic>?,
-            garmentSnapshot: extra?['garmentSnapshot'] as Map<String, dynamic>?,
             outfitFailure: extra?['outfitFailure'] as String?,
-            garmentFailure: extra?['garmentFailure'] as String?,
           );
         },
       ),
@@ -227,7 +215,7 @@ void main() {
       // Conversion CTA is present; legacy actions keep working.
       expect(find.text('Create Account'), findsOneWidget);
       expect(find.text('Continue Without Account'), findsOneWidget);
-      expect(find.text('Save My Progress'), findsOneWidget);
+      expect(find.text('Sign In to Continue'), findsOneWidget);
       expect(find.text('Retake Photo'), findsOneWidget);
     });
 
@@ -246,18 +234,18 @@ void main() {
           'confidence': 0.4,
           'needs_more_data': true,
           'recommendations': <String, dynamic>{},
-        }),
-        garment: () => _ok({
-          'category': null,
-          'subcategory': null,
-          'color': null,
-          'pattern': null,
-          'material': null,
-          'style': null,
-          'fit': null,
-          'confidence': 0.5,
-          'needs_review': true,
-          'sourceRunId': 'ephemeral-test-id',
+          'garment': {
+            'category': null,
+            'subcategory': null,
+            'color': null,
+            'pattern': null,
+            'material': null,
+            'style': null,
+            'fit': null,
+            'confidence': 0.5,
+            'needs_review': true,
+            'sourceRunId': 'ephemeral-test-id',
+          },
         }),
       );
       await tester.pumpWidget(
@@ -294,7 +282,6 @@ void main() {
     ) async {
       final transport = _ephemeralTransport(
         outfit: () => _unprocessable('no_face_detected'),
-        garment: () => _unprocessable('no_garment_detected'),
       );
       await tester.pumpWidget(
         MaterialApp.router(routerConfig: _router(transport: transport)),
@@ -308,19 +295,86 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('Your Style Preview'), findsNothing);
       expect(find.text('Preview unavailable'), findsOneWidget);
-      expect(find.textContaining('No face was clearly visible'), findsOneWidget);
+      expect(
+        find.textContaining('No face was clearly visible'),
+        findsOneWidget,
+      );
       expect(find.text('Try Again'), findsOneWidget);
       expect(find.text('Retake Photo'), findsOneWidget);
       expect(peekPendingEphemeralResult(), isNull);
     });
 
+    testWidgets('failed new preview clears an older outfit stash', (
+      WidgetTester tester,
+    ) async {
+      stashPendingEphemeralResult(
+        feature: EphemeralFeature.outfit,
+        snapshot: const {
+          'appearance': {'faceShape': 'oval'},
+        },
+      );
+      expect(peekPendingEphemeralResult(), isNotNull);
+
+      final transport = _ephemeralTransport(
+        outfit: () => _unprocessable('no_face_detected'),
+      );
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _router(transport: transport)),
+      );
+      await tester.pumpAndSettle();
+
+      await _tapVisible(tester, 'Choose from Gallery');
+      await _tapVisible(tester, 'Continue');
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Preview unavailable'), findsOneWidget);
+      expect(peekPendingEphemeralResult(), isNull);
+    });
+
+    testWidgets('failed new preview preserves another feature stash', (
+      WidgetTester tester,
+    ) async {
+      stashPendingEphemeralResult(
+        feature: EphemeralFeature.hairstyle,
+        snapshot: const {
+          'appearance': {'faceShape': 'oval'},
+        },
+      );
+      final transport = _ephemeralTransport(
+        outfit: () => _unprocessable('no_face_detected'),
+      );
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _router(transport: transport)),
+      );
+      await tester.pumpAndSettle();
+
+      await _tapVisible(tester, 'Choose from Gallery');
+      await _tapVisible(tester, 'Continue');
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Preview unavailable'), findsOneWidget);
+      expect(peekPendingEphemeralResult()?.feature, EphemeralFeature.hairstyle);
+    });
+
     testWidgets('partial preview renders what succeeded', (
       WidgetTester tester,
     ) async {
-      // Face pass rejected, garment pass genuine: the preview shows the
-      // garment facts with an honest face-unavailable note.
+      // Face branch rejected, garment branch genuine: the combined
+      // response shows garment facts with an honest face-unavailable note.
       final transport = _ephemeralTransport(
-        outfit: () => _unprocessable('no_face_detected'),
+        outfit: () => _ok({
+          'appearance_error': {'reason': 'no_face_detected'},
+          'garment': {
+            'category': 'tops',
+            'color': 'light blue',
+            'material': 'cotton',
+            'confidence': 0.84,
+            'needs_review': false,
+            'sourceRunId': 'ephemeral-test-id',
+          },
+        }),
       );
       await tester.pumpWidget(
         MaterialApp.router(routerConfig: _router(transport: transport)),
@@ -335,7 +389,39 @@ void main() {
       expect(find.text('Your Style Preview'), findsOneWidget);
       expect(find.text('Garment: Tops'), findsOneWidget);
       expect(
-        find.text("Face shape wasn't measurable in this photo."),
+        find.textContaining('No face was clearly visible'),
+        findsOneWidget,
+      );
+      expect(find.text('Preview unavailable'), findsNothing);
+    });
+
+    testWidgets('partial preview shows the typed garment failure', (
+      WidgetTester tester,
+    ) async {
+      // Face branch genuine, garment branch rejected: the preview keeps
+      // the face observation and names the garment failure verbatim.
+      final transport = _ephemeralTransport(
+        outfit: () => _ok(
+          {
+            ..._outfitSnapshot(),
+            'garment_error': {'reason': 'no_garment_detected'},
+          }..remove('garment'),
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp.router(routerConfig: _router(transport: transport)),
+      );
+      await tester.pumpAndSettle();
+
+      await _tapVisible(tester, 'Choose from Gallery');
+      await _tapVisible(tester, 'Continue');
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Your Style Preview'), findsOneWidget);
+      expect(find.text('Face shape: Oval'), findsOneWidget);
+      expect(
+        find.textContaining('No clear outfit was visible'),
         findsOneWidget,
       );
       expect(find.text('Preview unavailable'), findsNothing);
@@ -347,11 +433,7 @@ void main() {
       var failing = true;
       final transport = MockClient((request) async {
         if (failing) return http.Response('down', 503);
-        final path = request.url.path;
-        if (path.endsWith('/v1/analysis/outfit/ephemeral')) {
-          return _ok(_outfitSnapshot());
-        }
-        return _ok(_garmentSnapshot());
+        return _ok(_outfitSnapshot());
       });
       await tester.pumpWidget(
         MaterialApp.router(routerConfig: _router(transport: transport)),
@@ -400,13 +482,12 @@ void main() {
       expect(find.text('Analyzing your style…'), findsOneWidget);
       expect(find.text('Your Style Preview'), findsNothing);
 
-      // Completing the pass forwards to the result (both mock calls
-      // share this gate; the outfit-shaped body yields face facts with a
-      // garment-unavailable note — still a genuine preview).
+      // Completing the combined pass forwards to the result.
       gate.complete(_ok(_outfitSnapshot()));
       await tester.pumpAndSettle();
       expect(find.text('Your Style Preview'), findsOneWidget);
       expect(find.text('Face shape: Oval'), findsOneWidget);
+      expect(find.text('Garment: Tops'), findsOneWidget);
     });
 
     testWidgets('Create Account records the resume intent', (
@@ -474,7 +555,7 @@ void main() {
       expect(find.text('Photo ready'), findsOneWidget);
       expect(find.text('Create Account'), findsOneWidget);
       expect(find.text('Continue Without Account'), findsOneWidget);
-      expect(find.text('Save My Progress'), findsOneWidget);
+      expect(find.text('Sign In to Continue'), findsOneWidget);
       expect(find.text('Retake Photo'), findsOneWidget);
     });
   });

@@ -29,8 +29,7 @@ class LocalStorage {
     _prefs?.setBool('onboarding_complete', value);
   }
 
-  static String? get displayName =>
-      _prefs?.getString('display_name');
+  static String? get displayName => _prefs?.getString('display_name');
   static set displayName(String? value) {
     if (_prefs == null) return;
     if (value != null) {
@@ -40,8 +39,7 @@ class LocalStorage {
     }
   }
 
-  static String? get vibe =>
-      _prefs?.getString('vibe');
+  static String? get vibe => _prefs?.getString('vibe');
   static set vibe(String? value) {
     if (_prefs == null) return;
     if (value != null) {
@@ -51,16 +49,16 @@ class LocalStorage {
     }
   }
 
-  static bool get savedLocally =>
-      _prefs?.getBool('saved_locally') ?? false;
+  static bool get savedLocally => _prefs?.getBool('saved_locally') ?? false;
   static set savedLocally(bool value) {
     _prefs?.setBool('saved_locally', value);
   }
 
   /// Onboarding milestone flag: true once the guest photo-capture path was
-  /// taken (set on "Continue without account" — no analysis actually ran).
-  /// Renamed from analysisCached (C-08 cleanup). Persisted key remains
-  /// 'analysis_cached' for compatibility with existing stored user state.
+  /// taken (set on "Continue without account"). This is not proof of a
+  /// cached analysis; the pending ephemeral slot is. Renamed from
+  /// analysisCached (C-08 cleanup). Persisted key remains 'analysis_cached'
+  /// for compatibility with existing stored user state.
   static bool get onboardingPhotoCaptured =>
       _prefs?.getBool('analysis_cached') ?? false;
   static set onboardingPhotoCaptured(bool value) {
@@ -151,6 +149,7 @@ class LocalStorage {
     if (raw == null || raw.isEmpty) return {};
     return _decodeCapabilityState(raw);
   }
+
   static set capabilityState(Map<String, bool> value) {
     if (_prefs == null) return;
     _prefs!.setStringList('capability_state', _encodeCapabilityState(value));
@@ -164,6 +163,7 @@ class LocalStorage {
     if (raw == null || raw.isEmpty) return {};
     return _decodeStringList(raw);
   }
+
   static set userProfile(Map<String, dynamic> value) {
     if (_prefs == null) return;
     _prefs!.setStringList('user_profile', _encodeMap(value));
@@ -172,9 +172,7 @@ class LocalStorage {
   /// ----- Helper methods -----
 
   static List<String> _encodeMap(Map<String, dynamic> map) {
-    return map.entries
-        .map((e) => '${e.key}:${_encodeValue(e.value)}')
-        .toList();
+    return map.entries.map((e) => '${e.key}:${_encodeValue(e.value)}').toList();
   }
 
   static String _encodeValue(dynamic value) {
@@ -227,9 +225,7 @@ class LocalStorage {
   }
 
   static List<String> _encodeCapabilityState(Map<String, bool> state) {
-    return state.entries
-        .map((e) => '${e.key}:${e.value.toString()}')
-        .toList();
+    return state.entries.map((e) => '${e.key}:${e.value.toString()}').toList();
   }
 
   /// ----- Auth Session (D-AUTH-1) -----

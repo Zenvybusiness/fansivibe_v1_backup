@@ -59,6 +59,10 @@ void main() {
       );
 
       expect(find.text('Detecting face features'), findsOneWidget);
+      expect(find.text('Preparing image for analysis'), findsOneWidget);
+      expect(find.text('Ranking hairstyle options'), findsOneWidget);
+      expect(find.text('Analyzing skin tone'), findsNothing);
+      expect(find.text('Applying Style DNA'), findsNothing);
       expect(find.byType(HairstyleStageIndicator), findsNWidgets(5));
     });
 

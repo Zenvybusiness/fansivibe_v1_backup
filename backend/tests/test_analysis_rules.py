@@ -5,6 +5,7 @@ These never touch a database — they use the in-code catalog knowledge source.
 
 import pytest
 
+from app.data import catalog
 from app.domain.services.analysis_rules import recommend_hairstyle
 from app.domain.value_objects import AppearanceProfile
 from app.infrastructure.external.knowledge import CatalogKnowledgeSource
@@ -69,6 +70,14 @@ def test_reasons_are_grounded_in_catalog():
     result = _result("Oval")
     assert result.top.reasons  # never empty
     assert any("quiff" in r.lower() or "volume" in r.lower() for r in result.top.reasons)
+
+
+def test_catalog_reasons_do_not_claim_unmeasured_attributes():
+    for look in catalog.HAIRSTYLE_LOOKS:
+        for reason in look["reasons"]:
+            lowered = reason.lower()
+            assert "skin tone" not in lowered
+            assert "style dna" not in lowered
 
 
 def test_snapshot_shape_matches_wire():

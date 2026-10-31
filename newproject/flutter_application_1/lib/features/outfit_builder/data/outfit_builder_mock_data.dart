@@ -138,7 +138,7 @@ class GenerationStage {
     ),
     GenerationStage(
       id: 'style_dna',
-      label: 'Applying Style DNA',
+      label: 'Scoring outfit combinations',
       duration: Duration(milliseconds: 900),
     ),
     GenerationStage(

@@ -89,11 +89,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _todayLookRepository =
         widget.todayLookRepository ?? TodayLookRepositoryImpl();
     _todayLookFuture = _todayLookRepository.getTodayLook();
-    _wardrobeRepository =
-        widget.wardrobeRepository ?? WardrobeRepositoryImpl();
+    _wardrobeRepository = widget.wardrobeRepository ?? WardrobeRepositoryImpl();
     _insightFuture = _wardrobeRepository.getInsight();
-    _eventsRepository =
-        widget.eventsRepository ?? EventsRepositoryImpl();
+    _eventsRepository = widget.eventsRepository ?? EventsRepositoryImpl();
     if (AuthSession.isAuthenticated && !isGuestUser) {
       _eventsFuture = _eventsRepository.listEvents(page: 1, pageSize: 5);
     }
@@ -278,7 +276,7 @@ class _HomeScreenState extends State<HomeScreen> {
         'onboarding_complete': hasCompleted,
         'display_name': storedDisplayName,
         'vibe': storedVibe,
-        'analysis_cached': LocalStorage.onboardingPhotoCaptured,
+        'analysis_cached': hasCachedOutfitPreview(),
         'saved_locally': LocalStorage.savedLocally,
       };
     }
@@ -301,9 +299,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// summary then confirms). Sync-New Homes (signed out, fresh onboarding
   /// handoff) fetch nothing.
   bool get _needsBackendFutures =>
-      AuthSession.isAuthenticated &&
-      !isGuestUser &&
-      _syncIsNew != true;
+      AuthSession.isAuthenticated && !isGuestUser && _syncIsNew != true;
 
   /// Synchronous fast path. Null means ambiguous: no explicit handoff, so
   /// device-local history must NOT decide (it may belong to a previous
@@ -335,7 +331,8 @@ class _HomeScreenState extends State<HomeScreen> {
     // Display names are account identity: never resolve one while signed
     // out, no matter what local leftovers exist.
     if (!AuthSession.isAuthenticated) return null;
-    final raw = widget.onboardingData?['display_name'] as String? ??
+    final raw =
+        widget.onboardingData?['display_name'] as String? ??
         _onboardingDataFromLocalStorage()?['display_name'] as String? ??
         LocalStorage.displayName;
     if (raw == null || raw.trim().isEmpty) return null;
@@ -377,9 +374,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildResolving() {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: const SafeArea(
-        child: Center(child: CircularProgressIndicator()),
-      ),
+      body: const SafeArea(child: Center(child: CircularProgressIndicator())),
     );
   }
 
@@ -395,8 +390,7 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(20),
             child: SummaryErrorCard(
               title: 'Home',
-              message:
-                  "Couldn't load your Home. Please check your connection.",
+              message: "Couldn't load your Home. Please check your connection.",
               onRetry: _retryClassification,
             ),
           ),
@@ -416,8 +410,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final resolved = _resolvedIsNew;
     final String chosenWidget;
     if (resolved == null) {
-      chosenWidget =
-          _classificationBlocked ? 'HomeClassificationError' : 'HomeResolving';
+      chosenWidget = _classificationBlocked
+          ? 'HomeClassificationError'
+          : 'HomeResolving';
     } else if (resolved) {
       chosenWidget = 'FirstTimeHomeScreen';
     } else {
@@ -480,7 +475,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             );
                           },
-                          onAvatarTap: () => context.goNamed(RouteNames.profile),
+                          onAvatarTap: () =>
+                              context.goNamed(RouteNames.profile),
                         ),
                         const SizedBox(height: 24),
 
