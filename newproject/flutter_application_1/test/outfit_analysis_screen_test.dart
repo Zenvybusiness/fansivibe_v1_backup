@@ -413,7 +413,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Save Profile'), findsOneWidget);
+      expect(find.text('Save Appearance Profile'), findsOneWidget);
       expect(find.text('See Recommendations'), findsOneWidget);
     });
 

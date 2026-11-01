@@ -1,5 +1,3 @@
-
-
 class AnalysisRun {
   const AnalysisRun({
     required this.runId,
@@ -171,29 +169,48 @@ class GroomingAnalysisResult {
     required this.alternatives,
   });
 
-  factory GroomingAnalysisResult.fromRunResult(GroomingRun? run) => run == null
-      ? GroomingAnalysisResult.mock
-      : GroomingAnalysisResult(
-          faceShape: run.result?['appearance']?['faceShape'] as String? ?? '',
-          beardStyle: _beardStyleFromRun(run.result),
-          beardDensity: '',
-          beardColor: '',
-          topRecommendation: GroomingRecommendation.fromBackend(
-            run.result?['recommendations']?['top'] as Map<String, dynamic>,
-          ),
-          // The engine returns `recommendations` as a map
-          // `{top, alternatives}` — never a bare list.
-          alternatives:
-              (run.result?['recommendations']?['alternatives']
-                          as List<dynamic>? ??
-                      const [])
-                  .map(
-                    (e) => GroomingRecommendation.fromBackend(
-                      e as Map<String, dynamic>,
-                    ),
-                  )
-                  .toList(),
-        );
+  factory GroomingAnalysisResult.fromRunResult(
+    GroomingRun? run, {
+    String? requestFaceShape,
+    String? requestBeardStyle,
+    String? requestBeardDensity,
+    String? requestBeardColor,
+  }) {
+    if (run == null) return GroomingAnalysisResult.mock;
+    final res = run.result;
+    final appearance = res?['appearance'] as Map<String, dynamic>?;
+    final faceShape =
+        appearance?['faceShape'] as String? ?? requestFaceShape ?? '';
+    final recommendations = res?['recommendations'] as Map<String, dynamic>?;
+    final fromRun = _beardStyleFromRun(recommendations);
+    final beardStyle = (fromRun != null && fromRun.isNotEmpty)
+        ? fromRun
+        : (requestBeardStyle ?? '');
+    final beardDensity = requestBeardDensity ?? '';
+    final beardColor = requestBeardColor ?? '';
+    return GroomingAnalysisResult(
+      faceShape: faceShape.isNotEmpty ? faceShape : (requestFaceShape ?? ''),
+      beardStyle: beardStyle.isNotEmpty
+          ? beardStyle
+          : (requestBeardStyle ?? ''),
+      beardDensity: beardDensity,
+      beardColor: beardColor,
+      topRecommendation: GroomingRecommendation.fromBackend(
+        run.result?['recommendations']?['top'] as Map<String, dynamic>,
+      ),
+      // The engine returns `recommendations` as a map
+      // `{top, alternatives}` — never a bare list.
+      alternatives:
+          (run.result?['recommendations']?['alternatives'] as List<dynamic>? ??
+                  const [])
+              .map(
+                (e) => GroomingRecommendation.fromBackend(
+                  e as Map<String, dynamic>,
+                ),
+              )
+              .toList(),
+    );
+  }
 
   factory GroomingAnalysisResult.fromBackend(Map<String, dynamic> json) =>
       GroomingAnalysisResult(
@@ -230,7 +247,12 @@ class GroomingAnalysisResult {
   /// envelope: the snapshot IS the `result` map. Throws on a malformed
   /// shape so callers fail closed (mirroring the run path) instead of
   /// rendering partial content as a result.
-  factory GroomingAnalysisResult.fromSnapshot(Map<String, dynamic> snapshot) {
+  factory GroomingAnalysisResult.fromSnapshot(
+    Map<String, dynamic> snapshot, {
+    String? requestBeardStyle,
+    String? requestBeardDensity,
+    String? requestBeardColor,
+  }) {
     final appearance =
         snapshot['appearance'] as Map<String, dynamic>? ?? const {};
     final recommendations =
@@ -238,15 +260,20 @@ class GroomingAnalysisResult {
     final top = recommendations['top'] as Map<String, dynamic>? ?? const {};
     final alternatives =
         recommendations['alternatives'] as List<dynamic>? ?? const [];
+    final fromSnapshot = _beardStyleFromRun(recommendations);
+    final beardStyle = (fromSnapshot != null && fromSnapshot.isNotEmpty)
+        ? fromSnapshot
+        : (requestBeardStyle ?? '');
     return GroomingAnalysisResult(
       faceShape: appearance['faceShape'] as String? ?? '',
-      beardStyle: _beardStyleFromRun(recommendations),
-      beardDensity: '',
-      beardColor: '',
+      beardStyle: beardStyle,
+      beardDensity: requestBeardDensity ?? '',
+      beardColor: requestBeardColor ?? '',
       topRecommendation: GroomingRecommendation.fromBackend(top),
       alternatives: alternatives
           .map(
-            (e) => GroomingRecommendation.fromBackend(e as Map<String, dynamic>),
+            (e) =>
+                GroomingRecommendation.fromBackend(e as Map<String, dynamic>),
           )
           .toList(),
     );
@@ -360,12 +387,13 @@ class GroomingAnalysisResult {
   final GroomingRecommendation topRecommendation;
   final List<GroomingRecommendation> alternatives;
 
-  static String _beardStyleFromRun(Map<String, dynamic>? recommendations) {
+  static String? _beardStyleFromRun(Map<String, dynamic>? recommendations) {
     if (recommendations == null) {
-      return '';
+      return null;
     }
     final top = recommendations['top'];
-    if (top == null) return '';
-    return top['id'] as String? ?? '';
+    if (top is! Map<String, dynamic>) return null;
+    final id = top['id'] as String?;
+    return (id != null && id.isNotEmpty) ? id : null;
   }
 }

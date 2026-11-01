@@ -74,6 +74,50 @@ void main() {
       expect(result.topRecommendation.matchScore, 0.91);
       expect(result.alternatives.single.name, 'Side Part');
     });
+
+    test('parses confidence and needs_more_data from run result wire format', () {
+      final wire = {
+        'confidence': 0.75,
+        'needs_more_data': true,
+        'appearance': {'faceShape': 'Oval'},
+        'recommendations': {
+          'top': {
+            'id': 'textured_quiff',
+            'name': 'Textured Quiff',
+            'matchScore': 0.92,
+            'reasons': ['Fits face'],
+          },
+        },
+      };
+
+      final result = HairstyleAnalysisResult.fromRunResult(wire);
+
+      expect(result.confidence, 0.75);
+      expect(result.needsMoreData, isTrue);
+      expect(result.toJson()['confidence'], 0.75);
+      expect(result.toJson()['needs_more_data'], isTrue);
+    });
+
+    test('handles null confidence and default needs_more_data safely', () {
+      final wire = {
+        'appearance': {'faceShape': 'Square'},
+        'recommendations': {
+          'top': {
+            'id': 'buzz',
+            'name': 'Buzz Cut',
+            'matchScore': 0.85,
+            'reasons': <String>[],
+          },
+        },
+      };
+
+      final result = HairstyleAnalysisResult.fromRunResult(wire);
+
+      expect(result.confidence, isNull);
+      expect(result.needsMoreData, isFalse);
+      expect(result.toJson()['confidence'], isNull);
+      expect(result.toJson()['needs_more_data'], isFalse);
+    });
   });
 
   group('AnalysisRun', () {

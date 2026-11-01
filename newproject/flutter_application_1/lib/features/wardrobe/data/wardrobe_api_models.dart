@@ -5,6 +5,10 @@ class MediaRef {
   const MediaRef({
     required this.objectKey,
     required this.mediaType,
+    this.uploadId,
+    this.downloadUrl,
+    this.url,
+    this.expiresAt,
     this.width,
     this.height,
     this.sizeBytes,
@@ -16,6 +20,10 @@ class MediaRef {
 
   final String objectKey;
   final String mediaType;
+  final String? uploadId;
+  final String? downloadUrl;
+  final String? url;
+  final DateTime? expiresAt;
   final int? width;
   final int? height;
   final int? sizeBytes;
@@ -31,6 +39,10 @@ class MediaRef {
   MediaRef copyWith({
     String? objectKey,
     String? mediaType,
+    String? uploadId,
+    String? downloadUrl,
+    String? url,
+    DateTime? expiresAt,
     int? width,
     int? height,
     int? sizeBytes,
@@ -42,6 +54,10 @@ class MediaRef {
       MediaRef(
         objectKey: objectKey ?? this.objectKey,
         mediaType: mediaType ?? this.mediaType,
+        uploadId: uploadId ?? this.uploadId,
+        downloadUrl: downloadUrl ?? this.downloadUrl,
+        url: url ?? this.url,
+        expiresAt: expiresAt ?? this.expiresAt,
         width: width ?? this.width,
         height: height ?? this.height,
         sizeBytes: sizeBytes ?? this.sizeBytes,
@@ -52,12 +68,18 @@ class MediaRef {
       );
 
   factory MediaRef.fromJson(Map<String, dynamic> json) => MediaRef(
-        objectKey: json['objectKey'] as String,
-        mediaType: json['mediaType'] as String,
-        width: json['width'] as int?,
-        height: json['height'] as int?,
-        sizeBytes: json['sizeBytes'] as int?,
-        contentHash: json['contentHash'] as String?,
+        objectKey: (json['objectKey'] ?? json['canonicalKey'] ?? json['canonical_key'] ?? '') as String,
+        mediaType: (json['mediaType'] ?? json['media_type'] ?? 'image/webp') as String,
+        uploadId: (json['uploadId'] ?? json['upload_id']) as String?,
+        downloadUrl: (json['downloadUrl'] ?? json['download_url'] ?? json['url']) as String?,
+        url: (json['url'] ?? json['downloadUrl'] ?? json['download_url']) as String?,
+        expiresAt: json['expiresAt'] != null
+            ? DateTime.tryParse(json['expiresAt'] as String)
+            : null,
+        width: (json['width'] as num?)?.toInt(),
+        height: (json['height'] as num?)?.toInt(),
+        sizeBytes: ((json['sizeBytes'] ?? json['size_bytes']) as num?)?.toInt(),
+        contentHash: (json['contentHash'] ?? json['sha256']) as String?,
         isGenerated: json['isGenerated'] as bool?,
         uploadedAt: json['uploadedAt'] != null
             ? DateTime.tryParse(json['uploadedAt'] as String)
@@ -65,16 +87,20 @@ class MediaRef {
         sourceRunId: json['sourceRunId'] as String?,
       );
 
-Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson() => {
+        if (uploadId != null) 'uploadId': uploadId,
         'objectKey': objectKey,
         'mediaType': mediaType,
-        'width': width,
-        'height': height,
-        'sizeBytes': sizeBytes,
-        'contentHash': contentHash,
-        'isGenerated': isGenerated,
+        if (width != null) 'width': width,
+        if (height != null) 'height': height,
+        if (sizeBytes != null) 'sizeBytes': sizeBytes,
+        if (contentHash != null) 'contentHash': contentHash,
+        if (isGenerated != null) 'isGenerated': isGenerated,
         if (uploadedAt != null) 'uploadedAt': uploadedAt!.toIso8601String(),
         if (sourceRunId != null) 'sourceRunId': sourceRunId,
+        if (downloadUrl != null) 'downloadUrl': downloadUrl,
+        if (url != null) 'url': url,
+        if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
       };
 }
 
@@ -120,6 +146,7 @@ class WardrobeItem {
     this.fit,
     this.fitConfidence,
     this.imageRef,
+    this.imageUrl,
     this.createdAt,
     this.updatedAt,
   });
@@ -135,6 +162,7 @@ class WardrobeItem {
   final String? fit;
   final double? fitConfidence;
   final MediaRef? imageRef;
+  final String? imageUrl;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -148,6 +176,7 @@ class WardrobeItem {
     String? fit,
     double? fitConfidence,
     MediaRef? imageRef,
+    String? imageUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) =>
@@ -161,6 +190,7 @@ class WardrobeItem {
         fit: fit ?? this.fit,
         fitConfidence: fitConfidence ?? this.fitConfidence,
         imageRef: imageRef ?? this.imageRef,
+        imageUrl: imageUrl ?? this.imageUrl,
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
       );
@@ -177,6 +207,11 @@ class WardrobeItem {
         imageRef: json['imageRef'] != null
             ? MediaRef.fromJson(json['imageRef'] as Map<String, dynamic>)
             : null,
+        imageUrl: json['imageUrl'] as String? ??
+            (json['imageRef'] != null
+                ? ((json['imageRef'] as Map<String, dynamic>)['downloadUrl'] ??
+                    (json['imageRef'] as Map<String, dynamic>)['url']) as String?
+                : null),
         createdAt: json['createdAt'] != null
             ? DateTime.tryParse(json['createdAt'] as String)
             : null,
@@ -185,7 +220,7 @@ class WardrobeItem {
             : null,
       );
 
-Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'category': category,
@@ -195,6 +230,7 @@ Map<String, dynamic> toJson() => {
         'fit': fit,
         'fitConfidence': fitConfidence,
         'imageRef': imageRef?.toJson(),
+        if (imageUrl != null) 'imageUrl': imageUrl,
         if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
         if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
       };
@@ -274,6 +310,8 @@ class WardrobeItemPatch {
     this.isFavorite,
     this.fit,
     this.fitConfidence,
+    this.imageRef,
+    this.clearImageRef = false,
   });
 
   final String? name;
@@ -283,6 +321,8 @@ class WardrobeItemPatch {
   final bool? isFavorite;
   final String? fit;
   final double? fitConfidence;
+  final MediaRef? imageRef;
+  final bool clearImageRef;
 
   WardrobeItemPatch copyWith({
     String? name,
@@ -292,6 +332,8 @@ class WardrobeItemPatch {
     bool? isFavorite,
     String? fit,
     double? fitConfidence,
+    MediaRef? imageRef,
+    bool? clearImageRef,
   }) => WardrobeItemPatch(
         name: name ?? this.name,
         category: category ?? this.category,
@@ -300,6 +342,8 @@ class WardrobeItemPatch {
         isFavorite: isFavorite ?? this.isFavorite,
         fit: fit ?? this.fit,
         fitConfidence: fitConfidence ?? this.fitConfidence,
+        imageRef: imageRef ?? this.imageRef,
+        clearImageRef: clearImageRef ?? this.clearImageRef,
       );
 
   factory WardrobeItemPatch.fromJson(Map<String, dynamic> json) => WardrobeItemPatch(
@@ -310,6 +354,10 @@ class WardrobeItemPatch {
         isFavorite: json['isFavorite'] as bool?,
         fit: json['fit'] as String?,
         fitConfidence: (json['fitConfidence'] as num?)?.toDouble(),
+        imageRef: json['imageRef'] != null
+            ? MediaRef.fromJson(json['imageRef'] as Map<String, dynamic>)
+            : null,
+        clearImageRef: json['clearImageRef'] as bool? ?? false,
       );
 
   Map<String, dynamic> toJson() => {
@@ -320,6 +368,10 @@ class WardrobeItemPatch {
         if (isFavorite != null) 'isFavorite': isFavorite!,
         if (fit != null) 'fit': fit!,
         if (fitConfidence != null) 'fitConfidence': fitConfidence!,
+        if (clearImageRef)
+          'imageRef': null
+        else if (imageRef != null)
+          'imageRef': imageRef!.toJson(),
       };
 }
 

@@ -701,12 +701,12 @@ void main() {
       expect(find.text('Occasion Match'), findsOneWidget);
     });
 
-    testWidgets('renders Style Score impact', (WidgetTester tester) async {
+    testWidgets('renders Ensemble Match impact card', (WidgetTester tester) async {
       final repo = ScriptedOutfitRepository();
       await tester.pumpWidget(_recommendationWith(repo, _rec(_wire())));
       await tester.pumpAndSettle();
 
-      expect(find.text('Style Score Impact'), findsOneWidget);
+      expect(find.text('Ensemble Match'), findsOneWidget);
       expect(find.textContaining('87% ensemble match'), findsOneWidget);
     });
 

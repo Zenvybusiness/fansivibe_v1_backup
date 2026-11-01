@@ -15,12 +15,81 @@ import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fansivibe/features/profile/data/user_profile_models.dart';
+import 'package:fansivibe/features/profile/data/user_profile_repository.dart';
+
 class _TestSummaryRepo implements LearningSummaryRepository {
   final LearningSummary? _summary;
   _TestSummaryRepo({LearningSummary? summary}) : _summary = summary;
 
   @override
   Future<LearningSummary?> getSummary() async => _summary;
+}
+
+class _FakeUserProfileRepository implements UserProfileRepository {
+  UserProfile? profile;
+  bool shouldFail;
+  int fetchCalls = 0;
+
+  _FakeUserProfileRepository({this.profile, this.shouldFail = false});
+
+  @override
+  UserProfile? get cachedProfile => profile;
+
+  @override
+  final Map<String, dynamic> pendingEdits = {};
+
+  @override
+  void recordPendingEdit({required String field, required dynamic value}) {
+    pendingEdits[field] = value;
+  }
+
+  @override
+  void clearPendingEdits() => pendingEdits.clear();
+
+  @override
+  void clearCache() => profile = null;
+
+  @override
+  Future<UserProfile?> fetchProfile({bool forceRefresh = false}) async {
+    fetchCalls++;
+    if (shouldFail) {
+      throw Exception('Network error');
+    }
+    return profile;
+  }
+
+  @override
+  Future<UserProfile?> updateStyleType(String styleType) async {
+    if (shouldFail) return null;
+    if (profile != null) {
+      profile = profile!.copyWith(
+        styleProfile: profile!.styleProfile.copyWith(styleType: styleType),
+      );
+    }
+    return profile;
+  }
+
+  @override
+  Future<UserProfile?> updateSettings(Map<String, dynamic> settingsPatch) async {
+    if (shouldFail) return null;
+    if (profile != null) {
+      final merged = Map<String, dynamic>.from(profile!.settings)..addAll(settingsPatch);
+      profile = profile!.copyWith(settings: merged);
+    }
+    return profile;
+  }
+
+  @override
+  Future<UserProfile?> updatePreferredOccasions(List<String> occasions) async {
+    if (shouldFail) return null;
+    if (profile != null) {
+      final merged = Map<String, dynamic>.from(profile!.preferences);
+      merged['preferredOccasions'] = occasions;
+      profile = profile!.copyWith(preferences: merged);
+    }
+    return profile;
+  }
 }
 
 Widget _freshApp() {
@@ -610,5 +679,128 @@ void main() {
       final icon = tester.widget<Icon>(find.byIcon(Icons.logout_rounded));
       expect(icon.color, FansivibeColors.error);
     });
+  });
+
+  group('ProfileScreen Backend Hydration Tests', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      LocalStorage.init(prefs: await SharedPreferences.getInstance());
+      AuthSession.resetForTest();
+      LocalStorage.pendingEphemeralResult = null;
+      await AuthSession.saveSession('profile-test-token');
+      UserSession.displayName = null;
+      LearningService.instance.resetForTest();
+    });
+
+    tearDown(() async {
+      AuthSession.resetForTest();
+      await AuthSession.clearSession();
+    });
+
+    testWidgets(
+      '17. ProfileScreen hydrates authoritative backend profile into Style DNA and Header',
+      (WidgetTester tester) async {
+        final fakeRepo = _FakeUserProfileRepository(
+          profile: const UserProfile(
+            displayName: 'Beatrice Portinari',
+            styleProfile: UserStyleProfile(
+              faceShape: 'Oval',
+              skinTone: 'Olive',
+              bodyType: 'Inverted Triangle',
+              styleType: 'Avant-Garde',
+            ),
+            version: 2,
+          ),
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData.dark(),
+            home: ProfileScreen(
+              userProfileRepository: fakeRepo,
+              summaryRepository: _TestSummaryRepo(),
+            ),
+          ),
+        );
+
+        await tester.pumpAndSettle();
+
+        expect(find.text('Beatrice Portinari'), findsOneWidget);
+        expect(find.textContaining('@BEATRICEPORTINARI'), findsOneWidget);
+        expect(find.text('Oval'), findsOneWidget);
+        expect(find.text('Olive'), findsOneWidget);
+        expect(find.text('Inverted Triangle'), findsOneWidget);
+        expect(find.text('Avant-Garde'), findsOneWidget);
+        expect(find.text('ASSESSED'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '18. ProfileScreen shows retry banner on network failure and falls back to cache',
+      (WidgetTester tester) async {
+        LocalStorage.displayName = 'Cached Persona';
+        LocalStorage.userProfile = {
+          'faceShape': 'Heart',
+          'skinTone': 'Porcelain',
+        };
+
+        final fakeRepo = _FakeUserProfileRepository(shouldFail: true);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData.dark(),
+            home: ProfileScreen(
+              userProfileRepository: fakeRepo,
+              summaryRepository: _TestSummaryRepo(),
+            ),
+          ),
+        );
+
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining(
+            'Could not sync profile from server. Showing local cache.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Heart'), findsOneWidget);
+        expect(find.text('Porcelain'), findsOneWidget);
+        expect(find.text('Cached Persona'), findsOneWidget);
+
+        expect(fakeRepo.fetchCalls, 1);
+        await tester.ensureVisible(find.text('Retry'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Retry'));
+        await tester.pumpAndSettle();
+        expect(fakeRepo.fetchCalls, 2);
+      },
+    );
+
+    testWidgets(
+      '19. ProfileScreen handles empty profile honestly with PENDING ASSESSMENT without mock fabrication',
+      (WidgetTester tester) async {
+        final fakeRepo = _FakeUserProfileRepository(
+          profile: UserProfile.empty,
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData.dark(),
+            home: ProfileScreen(
+              userProfileRepository: fakeRepo,
+              summaryRepository: _TestSummaryRepo(),
+            ),
+          ),
+        );
+
+        await tester.pumpAndSettle();
+
+        expect(find.text('PENDING ASSESSMENT'), findsOneWidget);
+        expect(find.text('Not analyzed yet'), findsNWidgets(2));
+        expect(find.text('Pending setup'), findsOneWidget);
+        expect(find.text('In progress'), findsOneWidget);
+      },
+    );
   });
 }

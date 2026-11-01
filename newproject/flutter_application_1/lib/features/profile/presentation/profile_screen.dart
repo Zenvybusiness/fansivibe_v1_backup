@@ -6,6 +6,8 @@ import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_repository.dart';
+import 'package:fansivibe/features/profile/data/user_profile_models.dart';
+import 'package:fansivibe/features/profile/data/user_profile_repository.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/existing_user_profile_widgets.dart';
 import 'package:fansivibe/features/profile/presentation/widgets/style_summary_section.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
@@ -40,6 +42,9 @@ class ProfileScreen extends StatefulWidget {
   /// Wardrobe repository. Defaults to live backend implementation.
   final WardrobeRepository? wardrobeRepository;
 
+  /// Backend user profile repository for canonical profile hydration.
+  final UserProfileRepository? userProfileRepository;
+
   /// Optional display name override for testing / direct injection.
   final String? displayName;
 
@@ -52,6 +57,7 @@ class ProfileScreen extends StatefulWidget {
     this.authRepository,
     this.savedLooksRepository,
     this.wardrobeRepository,
+    this.userProfileRepository,
     this.displayName,
     this.isEstablishedUser,
   });
@@ -65,8 +71,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late final AuthRepository _authRepository;
   late final SavedLooksRepository _savedLooksRepository;
   late final WardrobeRepository _wardrobeRepository;
+  late final UserProfileRepository _userProfileRepository;
 
   late Future<LearningSummary?> _summaryFuture;
+  UserProfile? _authoritativeProfile;
+  bool _loadingProfile = false;
+  bool _profileHydrationFailed = false;
   List<SavedLookItem> _backendSavedLooks = [];
   List<WardrobeItemData> _wardrobeItems = [];
   WardrobeInsightData? _wardrobeInsight;
@@ -82,6 +92,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         widget.savedLooksRepository ?? SavedLooksRepositoryImpl();
     _wardrobeRepository =
         widget.wardrobeRepository ?? WardrobeRepositoryImpl();
+    _userProfileRepository =
+        widget.userProfileRepository ?? UserProfileRepositoryImpl();
 
     _summaryFuture = AuthSession.isAuthenticated
         ? _summaryRepository.getSummary()
@@ -99,6 +111,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (mounted) setState(() {});
       });
     } else {
+      _loadProfile();
       _loadSavedLooks();
       _loadWardrobeData();
     }
@@ -113,6 +126,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  /// Hydrates the authoritative user profile from backend endpoint
+  /// `GET /v1/users/me` with local cache fallback and retry capability.
+  Future<void> _loadProfile({bool refresh = false}) async {
+    if (!AuthSession.isAuthenticated || isGuestUser) return;
+    if (mounted) {
+      setState(() {
+        _loadingProfile = true;
+        _profileHydrationFailed = false;
+      });
+    }
+    try {
+      final profile =
+          await _userProfileRepository.fetchProfile(forceRefresh: refresh);
+      if (mounted) {
+        setState(() {
+          _authoritativeProfile = profile;
+          _loadingProfile = false;
+          _profileHydrationFailed =
+              profile == null && _authoritativeProfile == null;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loadingProfile = false;
+          _profileHydrationFailed = _authoritativeProfile == null;
+        });
+      }
+    }
+  }
+
   /// Drops stale authenticated data on sign-out and loads the account
   /// on sign-in, so a mounted Profile can never show the previous
   /// session's rows/identity.
@@ -121,6 +165,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (isGuestUser) {
       setState(() {
         _summaryFuture = Future.value(null);
+        _authoritativeProfile = null;
         _backendSavedLooks = [];
         _wardrobeItems = [];
         _wardrobeInsight = null;
@@ -131,6 +176,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _summaryFuture = _summaryRepository.getSummary();
       });
+      _loadProfile();
       _loadSavedLooks();
       _loadWardrobeData();
       return;
@@ -138,6 +184,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // Signed out without a guest flag: no session fetches; the build
     // renders the unauthenticated design from local state only.
     setState(() {
+      _authoritativeProfile = null;
       _backendSavedLooks = [];
       _wardrobeItems = [];
       _wardrobeInsight = null;
@@ -278,6 +325,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (widget.displayName != null && widget.displayName!.trim().isNotEmpty) {
       return widget.displayName!.trim();
     }
+    final authoritativeName = _authoritativeProfile?.displayName;
+    if (authoritativeName != null && authoritativeName.trim().isNotEmpty) {
+      return authoritativeName.trim();
+    }
     final sessionName = UserSession.displayName;
     if (sessionName != null && sessionName.trim().isNotEmpty) {
       return sessionName.trim();
@@ -354,22 +405,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return count;
   }
 
-  // Style DNA evaluation
+  // Style DNA evaluation: authoritative backend profile takes precedence,
+  // falling back to local cache when backend is offline.
   String? get _skinTone {
-    return LocalStorage.userProfile['skinTone'] as String?;
+    return _authoritativeProfile?.styleProfile.skinTone ??
+        (LocalStorage.userProfile['skinTone'] as String?);
   }
 
   String? get _faceShape {
-    return LearningService.instance.face?.faceShape ??
+    return _authoritativeProfile?.styleProfile.faceShape ??
+        LearningService.instance.face?.faceShape ??
         (LocalStorage.userProfile['faceShape'] as String?);
   }
 
   String? get _bodyType {
-    return LocalStorage.userProfile['bodyType'] as String?;
+    return _authoritativeProfile?.styleProfile.bodyType ??
+        (LocalStorage.userProfile['bodyType'] as String?);
   }
 
   String? get _styleType {
-    return LearningService.instance.styleType ??
+    return _authoritativeProfile?.styleProfile.styleType ??
+        LearningService.instance.styleType ??
         LocalStorage.vibe ??
         (LocalStorage.userProfile['styleType'] as String?);
   }
@@ -392,7 +448,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
             final horizontalPadding = maxWidth > 600 ? 32.0 : 20.0;
             final contentMaxWidth = maxWidth > 600 ? 520.0 : double.infinity;
 
-            return SingleChildScrollView(
+            return RefreshIndicator(
+              color: FansivibeColors.primary,
+              backgroundColor: FansivibeColors.surfaceContainerHigh,
+              onRefresh: () async {
+                await _loadProfile(refresh: true);
+                if (!isGuestUser) {
+                  _loadSavedLooks();
+                  _loadWardrobeData();
+                }
+              },
+              child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
               child: Center(
                 child: ConstrainedBox(
@@ -425,12 +491,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
               ),
-            );
-          },
-        ),
+            ),
+          );
+        },
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildNewUserProfile(
     BuildContext context,
@@ -1656,6 +1723,63 @@ class _ProfileScreenState extends State<ProfileScreen> {
             color: Color(0xFF6E6E6E),
           ),
         ),
+
+        if (_loadingProfile && _authoritativeProfile == null) ...[
+          const SizedBox(height: 8),
+          const ClipRRect(
+            borderRadius: BorderRadius.all(Radius.circular(2)),
+            child: LinearProgressIndicator(
+              minHeight: 2,
+              color: FansivibeColors.primary,
+              backgroundColor: Colors.transparent,
+            ),
+          ),
+        ],
+
+        if (_profileHydrationFailed) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C1B1B),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: FansivibeColors.warning.withValues(alpha: 0.35),
+                width: 1.0,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.wifi_off_rounded,
+                  size: 16,
+                  color: FansivibeColors.warning,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Could not sync profile from server. Showing local cache.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: FansivibeColors.textSecondary,
+                    ),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => _loadProfile(refresh: true),
+                  child: const Text(
+                    'Retry',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: FansivibeColors.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
 
         const SizedBox(height: 12),
 

@@ -19,6 +19,7 @@ WardrobeItemData mapItemDtoToUi(WardrobeItem item) => WardrobeItemData(
   material: item.material,
   isFavorite: item.isFavorite,
   imageRef: item.imageRef,
+  imageUrl: item.imageUrl ?? item.imageRef?.downloadUrl ?? item.imageRef?.url,
 );
 
 /// Maps a backend [WardrobeInsight] DTO to the UI-facing [WardrobeInsightData].
@@ -210,7 +211,61 @@ abstract class WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   });
+
+  /// Logs an ensemble wear event for multiple genuine backend wardrobe items.
+  ///
+  /// Maps to `POST /v1/wardrobe/wears` (STEP 15.4B). All items share one
+  /// durable ledger group (`wardrobe_wear_groups`) and individual event rows.
+  /// Replay with the same idempotency key and same items returns the original
+  /// group with `created == false` (HTTP 201). Returns null on validation,
+  /// ownership, conflict, network, or server failure.
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) =>
+      logWear(
+        itemIds: itemIds,
+        wornAt: wornAt,
+        idempotencyKey: idempotencyKey,
+      );
 }
+
+/// Extension on [WardrobeRepository] to update item media without breaking test mocks.
+extension WardrobeRepositoryMediaExtension on WardrobeRepository {
+  Future<WardrobeItemData?> updateItemMedia({
+    required String itemId,
+    MediaRef? imageRef,
+    bool clearImageRef = false,
+  }) async {
+    final self = this;
+    if (self is WardrobeRepositoryImpl) {
+      return self.updateItemMediaDirect(
+        itemId: itemId,
+        imageRef: imageRef,
+        clearImageRef: clearImageRef,
+      );
+    }
+    try {
+      final dynamic dyn = self;
+      final res = await dyn.updateItemMediaDirect(
+        itemId: itemId,
+        imageRef: imageRef,
+        clearImageRef: clearImageRef,
+      );
+      if (res is WardrobeItemData?) {
+        return res;
+      }
+    } catch (_) {}
+    return updateItem(itemId: itemId);
+  }
+}
+
+/// UUID v4 regex pattern for backend wardrobe ID verification.
+final RegExp _backendUuidPattern = RegExp(
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+  r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+);
 
 /// Concrete implementation of [WardrobeRepository] that uses the [WardrobeClient]
 /// as the primary and authoritative data source with zero mock fallback.
@@ -321,19 +376,24 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
     );
 
     if (apiItem != null) {
-      // Success: sync with mock data by replacing the matching item
-      // so the fallback path stays consistent without accidental data loss.
-      // We locate the mock item by ID and replace its fields.
-      final updated = mapItemDtoToUi(apiItem);
-      // The mock data is managed externally; the repo simply returns the
-      // API-sourced model. Callers requiring local sync can call
-      // [WardrobeMockData] directly, but the repository itself does not
-      // mutate mock state on success to avoid surprising callers.
-      return updated;
+      return mapItemDtoToUi(apiItem);
     }
+    return null;
+  }
 
-    // Failure: do not modify mock data; return null so the caller can
-    // handle the fallback independently without losing existing items.
+  Future<WardrobeItemData?> updateItemMediaDirect({
+    required String itemId,
+    MediaRef? imageRef,
+    bool clearImageRef = false,
+  }) async {
+    final apiItem = await _client.updateItem(
+      itemId: itemId,
+      imageRef: imageRef,
+      clearImageRef: clearImageRef,
+    );
+    if (apiItem != null) {
+      return mapItemDtoToUi(apiItem);
+    }
     return null;
   }
 
@@ -385,6 +445,40 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
     // history. Null means unlogged — safe to retry with the same key.
     return _client.logWear(
       itemIds: itemIds,
+      wornAt: wornAt,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  @override
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) async {
+    // 1. Guard against empty item list
+    if (itemIds.isEmpty) return null;
+
+    // 2. Validate every item ID against backend UUID format (zero fabrication)
+    final canonicalIds = <String>[];
+    for (final id in itemIds) {
+      final trimmed = id.trim();
+      if (!_backendUuidPattern.hasMatch(trimmed)) {
+        return null;
+      }
+      if (!canonicalIds.contains(trimmed)) {
+        canonicalIds.add(trimmed);
+      }
+    }
+
+    // 3. Backend enforces at most 10 canonical items per wear action
+    if (canonicalIds.isEmpty || canonicalIds.length > 10) {
+      return null;
+    }
+
+    // 4. Delegate to authenticated client
+    return _client.logWear(
+      itemIds: canonicalIds,
       wornAt: wornAt,
       idempotencyKey: idempotencyKey,
     );

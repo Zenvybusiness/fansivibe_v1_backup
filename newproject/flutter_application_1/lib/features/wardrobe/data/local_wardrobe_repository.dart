@@ -142,4 +142,11 @@ class LocalWardrobeRepository implements WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) async => null;
+
+  @override
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) async => null;
 }

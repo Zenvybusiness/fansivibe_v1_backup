@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +6,8 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/home/data/today_look_client.dart';
 import 'package:fansivibe/features/home/data/today_look_models.dart';
 import 'package:fansivibe/features/home/data/today_look_repository.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/presentation/ensemble_wear_confirmation_sheet.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
@@ -27,14 +30,22 @@ import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 /// (`look-1`, `look-2`, … — same seed repeats the backend result, no
 /// randomness introduced). Save uses `POST /v1/looks/today/save` with
 /// `sourceContext: "daily"`, the response snapshot verbatim, and one fresh
-/// `Idempotency-Key` per attempt. Saving never logs a wear event — there
-/// is no wear call anywhere in this file.
+/// `Idempotency-Key` per attempt. Wear logging uses `POST /v1/wardrobe/wears`
+/// via [WardrobeRepository.logEnsembleWear] with explicit review before confirmation.
 class DailyOutfitScreen extends StatefulWidget {
   /// Backend Today's Look source. Defaults to the live repository; tests
   /// inject a fake.
   final TodayLookRepository? todayLookRepository;
 
-  const DailyOutfitScreen({super.key, this.todayLookRepository});
+  /// Backend Wardrobe repository for wear logging. Defaults to live repo;
+  /// tests inject a fake.
+  final WardrobeRepository? wardrobeRepository;
+
+  const DailyOutfitScreen({
+    super.key,
+    this.todayLookRepository,
+    this.wardrobeRepository,
+  });
 
   @override
   State<DailyOutfitScreen> createState() => _DailyOutfitScreenState();
@@ -43,6 +54,7 @@ class DailyOutfitScreen extends StatefulWidget {
 class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     with SingleTickerProviderStateMixin {
   late final TodayLookRepository _repository;
+  late final WardrobeRepository _wardrobeRepository;
   late AnimationController _controller;
   late Animation<double> _heroAnim;
   late Animation<double> _editorialAnim;
@@ -61,6 +73,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
 
   bool _saving = false;
   bool _saved = false;
+  bool _worn = false;
 
   /// Phase 2 guests: no session, so no fetch/regenerate/save — the
   /// screen renders the sign-in prompt instead of 401-backed states.
@@ -70,6 +83,8 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
   void initState() {
     super.initState();
     _repository = widget.todayLookRepository ?? TodayLookRepositoryImpl();
+    _wardrobeRepository =
+        widget.wardrobeRepository ?? WardrobeRepositoryImpl();
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2400),
@@ -180,6 +195,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         _noneAvailable = false;
         _regenerating = false;
         _saved = false;
+        _worn = false;
       });
     } else {
       setState(() => _regenerating = false);
@@ -237,6 +253,58 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     } else {
       _showSnackBar('Couldn\'t save this look. Please try again.');
     }
+  }
+
+  /// Opens the ensemble wear confirmation sheet to review and persist
+  /// this look as worn (Phase 3 of Stage 2 P0-1).
+  Future<void> _handleWearThisLook(TodayLook look) async {
+    if (_guestBlocked || isGuestUser) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to log wears. Browsing stays free.',
+      );
+      return;
+    }
+    if (_loading || _regenerating || _saving || _worn) return;
+
+    final garments = look.components
+        .map(
+          (c) => EnsembleWearGarment(
+            id: c.id,
+            name: c.name,
+            category: c.category,
+            color: c.color,
+            material: c.material,
+          ),
+        )
+        .toList();
+
+    if (garments.isEmpty) {
+      _showSnackBar('Cannot log wear: outfit contains no garments.');
+      return;
+    }
+
+    final response = await showEnsembleWearConfirmationSheet(
+      context: context,
+      outfitTitle: look.title,
+      garments: garments,
+      wardrobeRepository: _wardrobeRepository,
+    );
+
+    if (!mounted || response == null) return;
+
+    setState(() {
+      _worn = true;
+    });
+
+    // Refresh wear summary in background
+    unawaited(_wardrobeRepository.getWearSummary());
+
+    _showSnackBar(
+      response.created
+          ? 'Ensemble recorded in wear history'
+          : 'Ensemble already recorded for today',
+    );
   }
 
   /// Opens the Stage F0 mock try-on preview for this look (Path A).
@@ -1239,6 +1307,12 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     final busy = _loading || _regenerating || _saving;
     return Column(
       children: [
+        FansiButton.primary(
+          label: _worn ? 'Worn Today' : 'Wear This Look',
+          icon: _worn ? Icons.check_circle_rounded : Icons.checkroom_rounded,
+          onPressed: busy || _worn ? null : () => _handleWearThisLook(look),
+        ),
+        SizedBox(height: FansivibeSpacing.sm + 4),
         FansiButton.secondary(
           label: _regenerating ? 'Generating…' : 'Generate Another Look',
           icon: Icons.refresh_rounded,

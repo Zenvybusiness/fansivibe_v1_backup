@@ -11,7 +11,13 @@ class _FakeGroomingClient extends GroomingClient {
   int submitCalls = 0;
 
   @override
-  Future<String?> submitGroomingAnalysis({String? idempotencyKey}) async {
+  Future<String?> submitGroomingAnalysis({
+    String? faceShape,
+    String? beardStyle,
+    String? beardDensity,
+    String? beardColor,
+    String? idempotencyKey,
+  }) async {
     submitCalls++;
     return submitResult;
   }
@@ -76,56 +82,65 @@ class _FakeLearningRepository implements LearningRepository {
 }
 
 void main() {
-  group('GroomingService.runAnalysis (Phase 28: no face-profile reference)', () {
-    test('falls back to mock without a stored face shape (no submit)', () async {
-      final client = _FakeGroomingClient();
-      final service = GroomingService(client: client);
-      addTearDown(service.dispose);
+  group(
+    'GroomingService.runAnalysis (Phase 28: no face-profile reference)',
+    () {
+      test(
+        'falls back to mock without a stored face shape (no submit)',
+        () async {
+          final client = _FakeGroomingClient();
+          final service = GroomingService(client: client);
+          addTearDown(service.dispose);
 
-      final result = await service.runAnalysis();
+          final result = await service.runAnalysis();
 
-      expect(client.submitCalls, 0);
-      expect(result, GroomingAnalysisResult.mock);
-      expect(service.completedStageCount, GroomingService.totalStages);
-    });
+          expect(client.submitCalls, 0);
+          expect(result, GroomingAnalysisResult.mock);
+          expect(service.completedStageCount, GroomingService.totalStages);
+        },
+      );
 
-    test('submits with no reference field when style_profile exists', () async {
-      final client = _FakeGroomingClient()
-        ..submitResult = 'run-1'
-        ..pollResult = const GroomingRun(
-          runId: 'run-1',
-          runType: 'grooming',
-          status: 'failed',
-          error: {'code': 'PROCESSING_FAILURE'},
+      test(
+        'submits with no reference field when style_profile exists',
+        () async {
+          final client = _FakeGroomingClient()
+            ..submitResult = 'run-1'
+            ..pollResult = const GroomingRun(
+              runId: 'run-1',
+              runType: 'grooming',
+              status: 'failed',
+              error: {'code': 'PROCESSING_FAILURE'},
+            );
+          final learning = _FakeLearningRepository(
+            faceProfile: const FaceProfile(faceShape: 'Oval'),
+          );
+          final service = GroomingService(client: client, learning: learning);
+          addTearDown(service.dispose);
+
+          final result = await service.runAnalysis();
+
+          // No fake ID exists on the wire — submit takes no arguments.
+          expect(client.submitCalls, 1);
+          // Failed run surfaces honest error and falls back to mock.
+          expect(result, GroomingAnalysisResult.mock);
+          expect(service.analysisError, isNotNull);
+          expect(service.completedStageCount, GroomingService.totalStages);
+        },
+      );
+
+      test('falls back to mock when submit fails', () async {
+        final client = _FakeGroomingClient()..submitResult = null;
+        final learning = _FakeLearningRepository(
+          faceProfile: const FaceProfile(faceShape: 'Oval'),
         );
-      final learning = _FakeLearningRepository(
-        faceProfile: const FaceProfile(faceShape: 'Oval'),
-      );
-      final service = GroomingService(client: client, learning: learning);
-      addTearDown(service.dispose);
+        final service = GroomingService(client: client, learning: learning);
+        addTearDown(service.dispose);
 
-      final result = await service.runAnalysis();
+        final result = await service.runAnalysis();
 
-      // No fake ID exists on the wire — submit takes no arguments.
-      expect(client.submitCalls, 1);
-      // Failed run surfaces honest error and falls back to mock.
-      expect(result, GroomingAnalysisResult.mock);
-      expect(service.analysisError, isNotNull);
-      expect(service.completedStageCount, GroomingService.totalStages);
-    });
-
-    test('falls back to mock when submit fails', () async {
-      final client = _FakeGroomingClient()..submitResult = null;
-      final learning = _FakeLearningRepository(
-        faceProfile: const FaceProfile(faceShape: 'Oval'),
-      );
-      final service = GroomingService(client: client, learning: learning);
-      addTearDown(service.dispose);
-
-      final result = await service.runAnalysis();
-
-      expect(client.submitCalls, 1);
-      expect(result, GroomingAnalysisResult.mock);
-    });
-  });
+        expect(client.submitCalls, 1);
+        expect(result, GroomingAnalysisResult.mock);
+      });
+    },
+  );
 }

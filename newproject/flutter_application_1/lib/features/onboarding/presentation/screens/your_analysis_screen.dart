@@ -7,6 +7,7 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
@@ -226,7 +227,7 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                               Expanded(
                                 child: Text(
                                   _hasPreview
-                                      ? 'Guest preview ready — this first look ran on your photo. Create an account for the full personalized analysis.'
+                                      ? 'Guest preview ready — your style preview is temporary. Complete an authenticated scan after signing in to personalize your profile.'
                                       : 'Photo step complete — your personal analysis runs after you create an account. Nothing has been analyzed yet.',
                                   style: FansivibeTypography
                                       .bodyMediumWithFamily
@@ -258,6 +259,10 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
                           _ctaAnim,
                           Column(
                             children: [
+                              if (!AuthSession.isAuthenticated) ...[
+                                _buildGuestPreviewDisclosure(),
+                                SizedBox(height: FansivibeSpacing.lg),
+                              ],
                               FansiButton.primary(
                                 label: 'Create Account',
                                 icon: Icons.person_add_rounded,
@@ -451,7 +456,7 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
           ],
           SizedBox(height: FansivibeSpacing.sm),
           Text(
-            'Create an account to unlock the full personalized analysis: a saved style profile, analysis history, and recommendations that learn from your saves.',
+            'Create an account and complete an authenticated scan to unlock your full personalized profile, history, and recommendations.',
             style: FansivibeTypography.bodyMediumWithFamily.copyWith(
               color: FansivibeColors.secondary,
               fontSize: 13,
@@ -619,7 +624,7 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
           SizedBox(height: FansivibeSpacing.sm),
           _buildStepRow(
             '2',
-            'We analyze your photo for face shape and style matches.',
+            'Complete an authenticated scan for face shape and style matches.',
           ),
           SizedBox(height: FansivibeSpacing.sm),
           _buildStepRow(
@@ -667,6 +672,58 @@ class _YourAnalysisScreenState extends State<YourAnalysisScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildGuestPreviewDisclosure() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(FansivibeSpacing.md),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.mdBorder,
+        border: Border.all(
+          color: FansivibeColors.primary.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.info_outline_rounded,
+                size: 20,
+                color: FansivibeColors.primary,
+              ),
+              SizedBox(width: FansivibeSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Your style preview is temporary',
+                  style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: FansivibeColors.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: FansivibeSpacing.sm),
+          Text(
+            'Your guest scan gives you a preview of your style analysis. '
+            'It is not saved as your personal profile.\n\n'
+            'Create an account or sign in, then complete an authenticated scan '
+            'to personalize your Fansivibe profile.\n\n'
+            'You can also continue exploring without an account.',
+            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+              color: FansivibeColors.secondary,
+              fontSize: 13,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

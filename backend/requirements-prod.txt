@@ -20,3 +20,7 @@ PyJWT==2.14.0
 # deeper-checks consumer `app/data/ffo/corpus.py` anticipated). Runtime dep:
 # `GET /v1/trends/analysis` validates each published projection in-process.
 jsonschema==4.26.0
+# Stage 2 P0-4 / M16: S3-compatible client for Cloudflare R2 object storage.
+boto3==1.43.123
+# Stage 2 P0-4 Phase 3: Isolated image transcoding and canonicalization pipeline.
+Pillow==10.4.0

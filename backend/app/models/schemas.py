@@ -85,6 +85,8 @@ class OutfitIntelligence(BaseModel):
     confidence: float = 0.0
     explanation: str = ''
     dataAvailability: str = 'full'
+    matchScore: Optional[int] = None
+    status: Optional[str] = None
 
 
 class AssistantReply(BaseModel):

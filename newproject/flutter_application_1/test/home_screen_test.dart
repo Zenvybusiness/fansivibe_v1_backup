@@ -158,6 +158,19 @@ class _FakeInsightRepository implements WardrobeRepository {
       throw UnimplementedError();
 
   @override
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) =>
+      logWear(
+        itemIds: itemIds,
+        wornAt: wornAt,
+        idempotencyKey: idempotencyKey,
+      );
+
+
+  @override
   Future<WearSummary?> getWearSummary() => throw UnimplementedError();
 }
 

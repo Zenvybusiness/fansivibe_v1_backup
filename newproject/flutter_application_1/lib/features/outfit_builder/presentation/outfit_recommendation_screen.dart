@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
@@ -5,12 +6,16 @@ import 'package:fansivibe/features/outfit_builder/data/outfit_client.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_models.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_repository.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/presentation/ensemble_wear_confirmation_sheet.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_hero_card.dart';
 import 'package:fansivibe/shared/components/fansi_image_well.dart';
 import 'package:fansivibe/shared/components/fansi_insight_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// Step 3 of the builder flow: renders one backend-derived outfit
 /// verbatim (M13, UC-28/29/30).
@@ -21,13 +26,14 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 /// … — same seed repeats the backend result, no randomness introduced).
 /// Save uses `POST /v1/outfits/saved` with `sourceContext: "outfit"`,
 /// the response snapshot verbatim, and one fresh `Idempotency-Key` per
-/// attempt. Saving never logs a wear event — there is no wear call
-/// anywhere in this file.
+/// attempt. Wear logging uses `POST /v1/wardrobe/wears` via
+/// [WardrobeRepository.logEnsembleWear] with explicit review before confirmation.
 class OutfitRecommendationScreen extends StatefulWidget {
   const OutfitRecommendationScreen({
     required this.recommendation,
     required this.request,
     this.outfitRepository,
+    this.wardrobeRepository,
     super.key,
   });
 
@@ -41,6 +47,10 @@ class OutfitRecommendationScreen extends StatefulWidget {
   /// inject a fake.
   final OutfitBuilderRepository? outfitRepository;
 
+  /// Backend wardrobe source for wear logging. Defaults to the live repository;
+  /// tests inject a fake.
+  final WardrobeRepository? wardrobeRepository;
+
   @override
   State<OutfitRecommendationScreen> createState() =>
       _OutfitRecommendationScreenState();
@@ -49,6 +59,7 @@ class OutfitRecommendationScreen extends StatefulWidget {
 class _OutfitRecommendationScreenState
     extends State<OutfitRecommendationScreen> {
   late final OutfitBuilderRepository _repository;
+  late final WardrobeRepository _wardrobeRepository;
   late OutfitRecommendation _rec;
 
   bool _regenerating = false;
@@ -56,11 +67,14 @@ class _OutfitRecommendationScreenState
 
   bool _saving = false;
   bool _saved = false;
+  bool _worn = false;
 
   @override
   void initState() {
     super.initState();
     _repository = widget.outfitRepository ?? OutfitBuilderRepositoryImpl();
+    _wardrobeRepository =
+        widget.wardrobeRepository ?? WardrobeRepositoryImpl();
     _rec = widget.recommendation;
   }
 
@@ -87,6 +101,7 @@ class _OutfitRecommendationScreenState
         _rec = result.outfit!;
         _regenerating = false;
         _saved = false;
+        _worn = false;
       });
     } else {
       setState(() => _regenerating = false);
@@ -136,6 +151,57 @@ class _OutfitRecommendationScreenState
     } else {
       _showSnackBar('Couldn\'t save this outfit. Please try again.');
     }
+  }
+
+  /// Opens the ensemble wear confirmation sheet to review and persist
+  /// this recommended outfit as worn (Phase 4 of Stage 2 P0-1).
+  Future<void> _handleLogWear() async {
+    if (isGuestUser || !AuthSession.isAuthenticated) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to log wears. Browsing stays free.',
+      );
+      return;
+    }
+    if (_saving || _regenerating || _worn) return;
+
+    final garments = _rec.components
+        .map(
+          (c) => EnsembleWearGarment(
+            id: c.id,
+            name: c.name,
+            category: c.category,
+            color: c.color,
+            material: c.material,
+          ),
+        )
+        .toList();
+
+    if (garments.isEmpty) {
+      _showSnackBar('Cannot log wear: outfit contains no garments.');
+      return;
+    }
+
+    final response = await showEnsembleWearConfirmationSheet(
+      context: context,
+      outfitTitle: _rec.title,
+      garments: garments,
+      wardrobeRepository: _wardrobeRepository,
+    );
+
+    if (!mounted || response == null) return;
+
+    setState(() {
+      _worn = true;
+    });
+
+    unawaited(_wardrobeRepository.getWearSummary());
+
+    _showSnackBar(
+      response.created
+          ? 'Ensemble recorded in wear history'
+          : 'Ensemble already recorded for today',
+    );
   }
 
   void _showSnackBar(String message) {
@@ -222,7 +288,7 @@ class _OutfitRecommendationScreenState
                         _buildMetricsSection(context, rec),
                         const SizedBox(height: 24),
 
-                        // Style Score impact
+                        // Ensemble Match impact
                         _buildImpactCard(context, rec),
                         const SizedBox(height: 12),
 
@@ -247,8 +313,8 @@ class _OutfitRecommendationScreenState
 
   Widget _buildImpactCard(BuildContext context, OutfitRecommendation rec) {
     return FansiInsightCard(
-      icon: Icons.trending_up_rounded,
-      title: 'Style Score Impact',
+      icon: Icons.check_circle_outline_rounded,
+      title: 'Ensemble Match',
       body: rec.styleScoreImpact,
       accentColor: FansivibeColors.accentGold,
     );
@@ -396,6 +462,12 @@ class _OutfitRecommendationScreenState
           label: _saved ? 'Saved' : (_saving ? 'Saving…' : 'Save Outfit'),
           icon: Icons.favorite_rounded,
           onPressed: busy || _saved ? null : _handleSave,
+        ),
+        const SizedBox(height: 12),
+        FansiButton.secondary(
+          label: _worn ? 'Worn Today' : 'Log Wear Today',
+          icon: _worn ? Icons.check_circle_rounded : Icons.checkroom_rounded,
+          onPressed: busy || _worn ? null : _handleLogWear,
         ),
         const SizedBox(height: 12),
         FansiButton.secondary(

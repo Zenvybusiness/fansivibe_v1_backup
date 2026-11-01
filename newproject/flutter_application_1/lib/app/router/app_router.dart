@@ -54,11 +54,24 @@ import 'package:fansivibe/features/profile/presentation/settings_screen.dart';
 import 'package:fansivibe/features/profile/presentation/subscription_screen.dart';
 import 'package:fansivibe/features/profile/presentation/support_screen.dart';
 import 'package:fansivibe/features/stylist/presentation/stylist_screen.dart';
+import 'package:fansivibe/features/wardrobe/data/garment_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_category_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_item_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_item_details_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_screen.dart';
+
+/// Arguments for navigating to [AddWardrobeItemScreen] with optional
+/// prefilled garment observations from Outfit Scan.
+class AddWardrobeItemArgs {
+  const AddWardrobeItemArgs({
+    required this.category,
+    this.initialGarmentResult,
+  });
+
+  final AddItemCategoryConfig category;
+  final GarmentAnalysisResult? initialGarmentResult;
+}
 
 Widget _missingDataScreen() {
   return Scaffold(
@@ -111,9 +124,7 @@ final List<RouteBase> appRoutes = [
     name: RouteNames.aiAnalysis,
     builder: (context, state) {
       final extra = state.extra as Map<String, dynamic>?;
-      return AiAnalysisScreen(
-        imageBytes: extra?['imageBytes'] as Uint8List?,
-      );
+      return AiAnalysisScreen(imageBytes: extra?['imageBytes'] as Uint8List?);
     },
   ),
   GoRoute(
@@ -234,36 +245,34 @@ final List<RouteBase> appRoutes = [
             name: RouteNames.stylist,
             builder: (context, state) => const StylistScreen(),
             routes: [
-GoRoute(
-                    path: 'scan-outfit',
-                    name: RouteNames.scanOutfit,
-                    builder: (context, state) => const OutfitScanScreen(),
+              GoRoute(
+                path: 'scan-outfit',
+                name: RouteNames.scanOutfit,
+                builder: (context, state) => const OutfitScanScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'processing',
+                    name: RouteNames.scanProcessing,
+                    builder: (context, state) {
+                      final runId = state.extra as String?;
+                      return OutfitProcessingScreen(runId: runId);
+                    },
                     routes: [
                       GoRoute(
-                        path: 'processing',
-                        name: RouteNames.scanProcessing,
+                        path: 'analysis',
+                        name: RouteNames.scanAnalysis,
                         builder: (context, state) {
-                          final runId = state.extra as String?;
-                          return OutfitProcessingScreen(
-                            runId: runId,
+                          final analysisResult =
+                              state.extra as Map<String, dynamic>?;
+                          return OutfitAnalysisScreen(
+                            analysisResult: analysisResult,
                           );
                         },
-                        routes: [
-                          GoRoute(
-                            path: 'analysis',
-                            name: RouteNames.scanAnalysis,
-                            builder: (context, state) {
-                              final analysisResult =
-                                  state.extra as Map<String, dynamic>?;
-                              return OutfitAnalysisScreen(
-                                analysisResult: analysisResult,
-                              );
-                            },
-                          ),
-                        ],
                       ),
                     ],
                   ),
+                ],
+              ),
               GoRoute(
                 path: 'build-outfit',
                 name: RouteNames.buildOutfit,
@@ -335,34 +344,35 @@ GoRoute(
                 name: RouteNames.hairstyle,
                 builder: (context, state) => const FaceScanScreen(),
                 routes: [
-              GoRoute(
-                path: 'processing',
-                name: RouteNames.hairstyleProcessing,
-                builder: (context, state) {
-                  // Optional real-scan image handoff from FaceScanScreen
-                  // (in-memory bytes only; absent on skip/profile-only path).
-                  // Guided multi-angle captures travel as angleFront/Left/
-                  // Right triples; the legacy single imageBytes is kept for
-                  // the profile-only/test path.
-                  final extra = state.extra as Map<String, dynamic>?;
-                  return FaceProcessingScreen(
-                    imageBytes: extra?['imageBytes'] as Uint8List?,
-                    imageFilename: extra?['imageFilename'] as String?,
-                    imageContentType: extra?['imageContentType'] as String?,
-                    angleFront: extra?['angleFront'] as Uint8List?,
-                    angleFrontName: extra?['angleFrontName'] as String?,
-                    angleLeft: extra?['angleLeft'] as Uint8List?,
-                    angleLeftName: extra?['angleLeftName'] as String?,
-                    angleRight: extra?['angleRight'] as Uint8List?,
-                    angleRightName: extra?['angleRightName'] as String?,
-                  );
-                },
+                  GoRoute(
+                    path: 'processing',
+                    name: RouteNames.hairstyleProcessing,
+                    builder: (context, state) {
+                      // Optional real-scan image handoff from FaceScanScreen
+                      // (in-memory bytes only; absent on skip/profile-only path).
+                      // Guided multi-angle captures travel as angleFront/Left/
+                      // Right triples; the legacy single imageBytes is kept for
+                      // the profile-only/test path.
+                      final extra = state.extra as Map<String, dynamic>?;
+                      return FaceProcessingScreen(
+                        imageBytes: extra?['imageBytes'] as Uint8List?,
+                        imageFilename: extra?['imageFilename'] as String?,
+                        imageContentType: extra?['imageContentType'] as String?,
+                        angleFront: extra?['angleFront'] as Uint8List?,
+                        angleFrontName: extra?['angleFrontName'] as String?,
+                        angleLeft: extra?['angleLeft'] as Uint8List?,
+                        angleLeftName: extra?['angleLeftName'] as String?,
+                        angleRight: extra?['angleRight'] as Uint8List?,
+                        angleRightName: extra?['angleRightName'] as String?,
+                      );
+                    },
                     routes: [
                       GoRoute(
                         path: 'result',
                         name: RouteNames.hairstyleResult,
                         builder: (context, state) {
-                          final result = state.extra as HairstyleAnalysisResult?;
+                          final result =
+                              state.extra as HairstyleAnalysisResult?;
                           return HairstyleResultScreen(result: result);
                         },
                         routes: [
@@ -392,8 +402,16 @@ GoRoute(
                     path: 'processing',
                     name: RouteNames.groomingProcessing,
                     builder: (context, state) {
-                      final data = state.extra as Map<String, String>?;
-                      if (data == null) {
+                      final extra = state.extra;
+                      final data = extra is Map
+                          ? extra.map(
+                              (k, v) =>
+                                  MapEntry(k.toString(), v?.toString() ?? ''),
+                            )
+                          : null;
+                      if (data == null ||
+                          data['faceShape'] == null ||
+                          data['beardStyle'] == null) {
                         return _missingDataScreenWithText(
                           'Missing grooming data.',
                         );
@@ -401,8 +419,8 @@ GoRoute(
                       return GroomingProcessingScreen(
                         faceShape: data['faceShape']!,
                         beardStyle: data['beardStyle']!,
-                        beardDensity: data['beardDensity']!,
-                        beardColor: data['beardColor']!,
+                        beardDensity: data['beardDensity'] ?? '',
+                        beardColor: data['beardColor'] ?? '',
                       );
                     },
                     routes: [
@@ -506,6 +524,13 @@ GoRoute(
                 path: 'add-item',
                 name: RouteNames.wardrobeAddItem,
                 builder: (context, state) {
+                  if (state.extra is AddWardrobeItemArgs) {
+                    final args = state.extra as AddWardrobeItemArgs;
+                    return AddWardrobeItemScreen(
+                      category: args.category,
+                      initialGarmentResult: args.initialGarmentResult,
+                    );
+                  }
                   final category = state.extra as AddItemCategoryConfig?;
                   return category != null
                       ? AddWardrobeItemScreen(category: category)
@@ -535,9 +560,7 @@ GoRoute(
               final isEstablished = state.extra is Map
                   ? (state.extra as Map)['isEstablished'] as bool?
                   : null;
-              return ProfileScreen(
-                isEstablishedUser: isEstablished,
-              );
+              return ProfileScreen(isEstablishedUser: isEstablished);
             },
             routes: [
               GoRoute(
@@ -592,7 +615,6 @@ final GoRouter appRouter = GoRouter(
   redirect: (context, state) => authRedirect(
     state.uri.path,
     isAuthenticated: AuthSession.isAuthenticated,
-    isGuest:
-        !AuthSession.isAuthenticated && LocalStorage.savedLocally,
+    isGuest: !AuthSession.isAuthenticated && LocalStorage.savedLocally,
   ),
 );

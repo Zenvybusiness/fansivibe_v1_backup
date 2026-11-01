@@ -289,6 +289,19 @@ class _FakeCaptureRepository implements WardrobeRepository {
   }
 
   @override
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) =>
+      logWear(
+        itemIds: itemIds,
+        wornAt: wornAt,
+        idempotencyKey: idempotencyKey,
+      );
+
+
+  @override
   Future<List<WardrobeItemData>> listItems({
     String? category,
     String? color,

@@ -166,6 +166,8 @@ class WardrobeClient {
     bool? isFavorite,
     String? fit,
     double? fitConfidence,
+    MediaRef? imageRef,
+    bool clearImageRef = false,
   }) async {
     try {
       final payload = <String, dynamic>{};
@@ -176,6 +178,11 @@ class WardrobeClient {
       if (isFavorite != null) payload['isFavorite'] = isFavorite;
       if (fit != null) payload['fit'] = fit;
       if (fitConfidence != null) payload['fitConfidence'] = fitConfidence;
+      if (clearImageRef) {
+        payload['imageRef'] = null;
+      } else if (imageRef != null) {
+        payload['imageRef'] = imageRef.toJson();
+      }
 
       final response = await _client
           .patch(
@@ -334,6 +341,20 @@ class WardrobeClient {
     }
     return null;
   }
+
+  /// Logs an ensemble wear event for multiple genuine backend wardrobe items.
+  ///
+  /// Conforms to `POST /v1/wardrobe/wears` (STEP 15.4B).
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) =>
+      logWear(
+        itemIds: itemIds,
+        wornAt: wornAt,
+        idempotencyKey: idempotencyKey,
+      );
 
   void dispose() => _client.close();
 }

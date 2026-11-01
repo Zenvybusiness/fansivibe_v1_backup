@@ -82,7 +82,7 @@ CASUAL_LOOK = SuggestionCard(
 TEXTURED_QUIFF = SuggestionCard(
     kind="hairstyle",
     title="Textured Quiff",
-    subtitle="Modern volume on top that suits oval faces. Medium maintenance, trim every 4-5 weeks.",
+    subtitle="Modern volume on top with natural movement. Medium maintenance, trim every 4-5 weeks.",
     score=94,
     items=[
         "Volumizing mousse on damp hair",
@@ -313,7 +313,7 @@ GROOMING_VOCAB: dict[str, str] = {
 STRUCTURED_GOATEE = SuggestionCard(
     kind="grooming",
     title="Structured Goatee",
-    subtitle="Frames the chin for oval faces. Keep edges clean, oil daily, trim every 3-4 days.",
+    subtitle="Defined chin framing with clean edges. Keep edges clean, oil daily, trim every 3-4 days.",
     score=92,
     items=[
         "Medium-long length (10-15mm)",

@@ -34,6 +34,9 @@ class WardrobeItemData {
     this.isFavorite = false,
     this.imageBytes,
     this.imageRef,
+    this.imageUrl,
+    this.localOriginalPath,
+    this.cloudBackupStatus,
   });
 
   final String id;
@@ -49,6 +52,15 @@ class WardrobeItemData {
   /// Backend photo reference verbatim, or null when absent.
   final MediaRef? imageRef;
 
+  /// Temporary retrieval URL or cached cloud download URL.
+  final String? imageUrl;
+
+  /// Path to on-device preserved original image (Option B).
+  final String? localOriginalPath;
+
+  /// Cloud backup status: 'local_only', 'uploading', 'backed_up', 'failed'.
+  final String? cloudBackupStatus;
+
   WardrobeItemData copyWith({
     String? id,
     String? name,
@@ -58,6 +70,9 @@ class WardrobeItemData {
     bool? isFavorite,
     Uint8List? imageBytes,
     MediaRef? imageRef,
+    String? imageUrl,
+    String? localOriginalPath,
+    String? cloudBackupStatus,
   }) => WardrobeItemData(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -67,6 +82,9 @@ class WardrobeItemData {
     isFavorite: isFavorite ?? this.isFavorite,
     imageBytes: imageBytes ?? this.imageBytes,
     imageRef: imageRef ?? this.imageRef,
+    imageUrl: imageUrl ?? this.imageUrl,
+    localOriginalPath: localOriginalPath ?? this.localOriginalPath,
+    cloudBackupStatus: cloudBackupStatus ?? this.cloudBackupStatus,
   );
 }
 
@@ -492,4 +510,41 @@ abstract final class AddItemConfig {
     TextureOption(name: 'Corduroy'),
     TextureOption(name: 'Fleece'),
   ];
+
+  static const List<String> fitOptions = [
+    'Slim',
+    'Regular',
+    'Relaxed',
+    'Oversized',
+    'Tailored',
+    'Loose',
+  ];
+
+  /// Resolves an [AddItemCategoryConfig] matching the provided canonical
+  /// or free-form category code, defaulting safely to Tops if unmapped.
+  static AddItemCategoryConfig categoryConfigFor(String? categoryCode) {
+    if (categoryCode == null) return categories.first;
+    final code = categoryCode.toLowerCase().trim();
+    for (final config in categories) {
+      if (config.id == code || config.wardrobeCategoryId == code) {
+        return config;
+      }
+    }
+    if (code.contains('shoe') || code.contains('boot') || code.contains('foot')) {
+      return categories.firstWhere((c) => c.id == 'shoes');
+    }
+    if (code.contains('layer') ||
+        code.contains('jacket') ||
+        code.contains('outer') ||
+        code.contains('coat')) {
+      return categories.firstWhere((c) => c.id == 'layers');
+    }
+    if (code.contains('bottom') ||
+        code.contains('pant') ||
+        code.contains('jean') ||
+        code.contains('trouser')) {
+      return categories.firstWhere((c) => c.id == 'bottoms');
+    }
+    return categories.first;
+  }
 }

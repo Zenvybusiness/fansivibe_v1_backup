@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from typing import Any, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import (
     Boolean,
@@ -42,6 +42,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    String,
     Text,
     Time,
     UniqueConstraint,
@@ -420,7 +421,7 @@ class WardrobeItems(Base):
     __tablename__ = "wardrobe_items"
 
     id: Mapped[UUID] = mapped_column(
-        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+        Uuid, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()")
     )
     user_id: Mapped[UUID] = mapped_column(
         Uuid,
@@ -1650,6 +1651,77 @@ class OfferPriceHistory(Base):
     )
     raw_source_record_id: Mapped[Optional[UUID]] = mapped_column(
         Uuid, ForeignKey("raw_source_records.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class MediaUploadAuthorization(Base):
+    """Durable media upload authorization ledger (Stage 2 P0-4 / M16, Migration 0033)."""
+
+    __tablename__ = "media_upload_authorizations"
+    __table_args__ = (
+        UniqueConstraint("upload_id", name="uq_media_upload_authorizations_upload_id"),
+        Index(
+            "ix_media_upload_authorizations_user_rate",
+            "user_id",
+            "created_at",
+        ),
+        Index("ix_media_upload_authorizations_expires_at", "expires_at"),
+        Index("ix_media_upload_authorizations_status", "status"),
+        Index(
+            "ix_media_upload_authorizations_lease",
+            "status",
+            "processing_lease_expires_at",
+        ),
+    )
+
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_media_upload_authorizations_user_id"),
+        primary_key=True,
+        nullable=False,
+    )
+    idempotency_key: Mapped[str] = mapped_column(
+        Text, primary_key=True, nullable=False
+    )
+    upload_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    key_version: Mapped[str] = mapped_column(Text, nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    staging_key: Mapped[str] = mapped_column(Text, nullable=False)
+    content_type: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    # Stage 2 P0-4 Phase 3: Media upload completion lifecycle and canonical metadata
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="authorized"
+    )
+    canonical_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    canonical_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    canonical_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    canonical_width: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    canonical_height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    failure_reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    processing_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+
+    # Stage 2 P0-4 Phase 3.1 & 3.2: Durable processing lease and fencing token coordination
+    processing_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    processing_lease_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    processing_lease_token: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, nullable=True
     )
 
 

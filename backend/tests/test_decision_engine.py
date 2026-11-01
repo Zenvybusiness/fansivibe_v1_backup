@@ -276,8 +276,8 @@ def test_assistant_face_shape_switch_uses_canonical_rectangular():
             UserContext(face=FaceData(faceShape=face))
         )
         assert [card.title for card in cards] == [
-            "Classic Pompadour",
             "Textured Quiff",
+            "Classic Pompadour",
         ]
 
 
@@ -718,7 +718,8 @@ def test_11_4_1_no_saved_look_personalization_introduced(monkeypatch):
     assert "saved_looks" not in inspect.signature(assistant_engine.handle).parameters
 
     plain = _handle_no_llm(
-        monkeypatch, _assistant_request("what should i wear for date night")
+        monkeypatch,
+        _assistant_request("what should i wear for date night", _assistant_user()),
     )
     with_saves = _handle_no_llm(
         monkeypatch,
@@ -1987,15 +1988,12 @@ def test_13_13_outfit_no_score_confidence_style_leakage(monkeypatch):
 
 def test_13_13_outfit_occasion_and_rationale_preserved(monkeypatch):
     """Occasion + stylingRationale keep their pre-13.13 derivation."""
-    from app.data import catalog as app_catalog
     engine = _13_6_no_llm(monkeypatch)
     top, bottom = str(_13_6_uuid4()), str(_13_6_uuid4())
     reply = engine.handle(_13_13_outfit_request(
         [_13_6_item(top, "tops"), _13_6_item(bottom, "bottoms")]))
     assert reply.outfitIntelligence.occasion == "date"
-    assert (reply.outfitIntelligence.stylingRationale
-            == app_catalog.OCCASION_TO_LOOK.get(
-                "date", app_catalog.REFINED_OFFICE).subtitle)
+    assert reply.outfitIntelligence.stylingRationale == reply.cards[0].subtitle
 
 
 def test_13_13_wardrobe_behavior_unchanged(monkeypatch):

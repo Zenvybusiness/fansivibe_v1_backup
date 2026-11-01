@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:fansivibe/features/media/presentation/wardrobe_cache_manager.dart';
 import 'package:fansivibe/shared/auth/secure_token_storage.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 
@@ -68,6 +69,7 @@ class AuthSession {
   static Future<void> clearSession() async {
     _expiryNotified = false;
     await SecureTokenStorage.deleteToken();
+    WardrobeCacheManager.instance.clear();
     _bump();
   }
 

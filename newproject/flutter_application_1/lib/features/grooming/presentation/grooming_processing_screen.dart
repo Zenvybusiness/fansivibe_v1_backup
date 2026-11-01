@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
@@ -48,12 +47,30 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
     } else {
       _service = GroomingService()..attachLearning(LearningService.instance);
     }
+    if (widget.faceShape.isEmpty &&
+        widget.beardStyle.isEmpty &&
+        widget.beardDensity.isEmpty &&
+        widget.beardColor.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please select your grooming preferences to continue.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        _leaveProcessing(context);
+      });
+      return;
+    }
     // Guests run the synchronous ephemeral analysis (D-01) over the
     // request profile from the input screen. Signed-in users run the
-    // account analysis against their stored face profile and the live
-    // backend run — never a dead end, never a mock result. Without a
-    // session there is no account analysis to run, so the screen reports
-    // that honestly instead of firing an unauthenticated request.
+    // account analysis against their manual inputs and stored face profile
+    // via the live backend run — never a dead end, never a mock result.
+    // Without a session there is no account analysis to run, so the screen
+    // reports that honestly instead of firing an unauthenticated request.
     if (isGuestUser) {
       _runEphemeral();
     } else if (AuthSession.isAuthenticated) {
@@ -72,11 +89,16 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
     }
   }
 
-  /// Authenticated pass: live backend analysis over the stored face
-  /// profile, then result navigation. Failures surface honestly and
+  /// Authenticated pass: live backend analysis over manual inputs and stored
+  /// face profile, then result navigation. Failures surface honestly and
   /// return to the input screen — never a fake result.
   Future<void> _runAuthenticated() async {
-    final result = await _service.runAnalysis();
+    final result = await _service.runAnalysis(
+      faceShape: widget.faceShape,
+      beardStyle: widget.beardStyle,
+      beardDensity: widget.beardDensity,
+      beardColor: widget.beardColor,
+    );
     if (!mounted) return;
     if (_service.analysisError != null || _service.isMockResult) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -92,6 +114,15 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
       return;
     }
     context.replaceNamed(RouteNames.groomingResult, extra: result);
+  }
+
+  /// Retries the analysis preserving the original request context.
+  Future<void> retry() async {
+    if (isGuestUser) {
+      await _runEphemeral();
+    } else if (AuthSession.isAuthenticated) {
+      await _runAuthenticated();
+    }
   }
 
   /// Leaves the processing screen for the grooming input. Pops when this
@@ -113,9 +144,9 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
   Future<void> _runEphemeral() async {
     final result = await _service.runEphemeralAnalysis(
       faceShape: widget.faceShape,
-      // The engine grounds only on the face profile; beard selections
-      // stay local display context (the authenticated contract likewise
-      // posts no body). Nothing is invented here.
+      beardStyle: widget.beardStyle,
+      beardDensity: widget.beardDensity,
+      beardColor: widget.beardColor,
     );
     if (!mounted) return;
     if (_service.analysisError != null || _service.isMockResult) {
@@ -128,7 +159,7 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
-      Navigator.of(context).pop();
+      _leaveProcessing(context);
       return;
     }
     final snapshot = _service.lastEphemeralSnapshot;
@@ -236,7 +267,7 @@ class _GroomingProcessingScreenState extends State<GroomingProcessingScreen> {
                                 isActive: index == 0,
                                 isComplete: false,
                               );
-                        }),
+                            }),
 
                         const SizedBox(height: 40),
 

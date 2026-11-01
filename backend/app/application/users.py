@@ -7,6 +7,7 @@ routers (BA-7).
 
 from __future__ import annotations
 
+from typing import Any, Optional
 from uuid import UUID
 
 from app.api.errors import not_found, validation
@@ -31,35 +32,85 @@ class GetProfile:
         return record
 
 
-class UpdatePreferences:
-    """PATCH /v1/users/me — persist `preferred_occasions` (STEP 11.6).
+_UNSET = object()
 
-    Validates the existing `list[str]` contract (`[]` clears), merges via
-    `update_preferences()` (sibling keys preserved, owner-scoped), and
-    returns the fresh profile projection — the same established pattern as
-    `GetProfile` (the router renders the `ProfileView`). A missing profile
+
+class UpdatePreferences:
+    """PATCH /v1/users/me — persist preferred occasions, style archetype, and settings.
+
+    Validates provided fields, merges via repository ports (sibling keys preserved,
+    owner-scoped), and returns the fresh profile projection — the same established
+    pattern as `GetProfile` (the router renders the `ProfileView`). A missing profile
     projection resolves to `404`, mirroring `GET /me`.
     """
 
     def __init__(self, *, user_state: UserStateRepository) -> None:
         self._user_state = user_state
 
-    def __call__(self, *, user_id: UUID, preferred_occasions: list) -> UserProfileRecord:
-        if not isinstance(preferred_occasions, list) or any(
-            not isinstance(item, str) for item in preferred_occasions
-        ):
-            raise validation(
-                [
+    def __call__(
+        self,
+        *,
+        user_id: UUID,
+        preferred_occasions: Any = _UNSET,
+        style_type: Optional[str] = None,
+        settings: Optional[dict] = None,
+    ) -> UserProfileRecord:
+        errors = []
+        if preferred_occasions is not _UNSET:
+            if not isinstance(preferred_occasions, list) or any(
+                not isinstance(item, str) for item in preferred_occasions
+            ):
+                errors.append(
                     {
                         "field": "preferredOccasions",
                         "error": "must be a list of strings",
                     }
-                ]
+                )
+
+        if style_type is not None:
+            if not isinstance(style_type, str):
+                errors.append(
+                    {
+                        "field": "styleType",
+                        "error": "must be a string",
+                    }
+                )
+
+        if settings is not None:
+            if not isinstance(settings, dict):
+                errors.append(
+                    {
+                        "field": "settings",
+                        "error": "must be a dictionary",
+                    }
+                )
+
+        if errors:
+            raise validation(errors)
+
+        if preferred_occasions is not _UNSET:
+            self._user_state.update_preferences(
+                user_id=user_id,
+                preferences={"preferred_occasions": list(preferred_occasions)},
             )
-        self._user_state.update_preferences(
-            user_id=user_id,
-            preferences={"preferred_occasions": list(preferred_occasions)},
-        )
+
+        if style_type is not None:
+            clean_style = style_type.strip()
+            if clean_style:
+                self._user_state.update_style_profile(
+                    user_id=user_id,
+                    style_type=clean_style,
+                    confirmed_by_user=True,
+                    source="user",
+                    confidence=1.0,
+                )
+
+        if settings is not None:
+            self._user_state.update_settings(
+                user_id=user_id,
+                settings=settings,
+            )
+
         record = self._user_state.get_profile(user_id=user_id)
         if record is None:
             raise not_found()

@@ -9,9 +9,10 @@ Mounts the hairstyle analysis surface per `HAIRSTYLE_RECOMMENDATION_API.md`:
 
 from __future__ import annotations
 
+from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Header, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id
@@ -22,6 +23,7 @@ from app.api.schemas.analysis import (
     AnalysisRunList,
     AnalysisRunSummary,
     AsyncAccepted,
+    CreateGroomingRunRequest,
     EphemeralGroomingProfile,
 )
 from app.application.analysis import (
@@ -181,6 +183,7 @@ def list_analysis_runs(
     responses={422: {"model": dict}, 401: {"model": dict}, 409: {"model": dict}},
 )
 def create_grooming_run(
+    payload: Optional[CreateGroomingRunRequest] = Body(default=None),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -188,9 +191,7 @@ def create_grooming_run(
     """Submit a grooming analysis (profile-only pass). Returns `run_id`.
 
     Uses the authenticated user's stored `style_profile` (resolved by
-    `user_id`); no face-profile reference exists (Phase 28). Transport
-    remains JSON: clients POST empty JSON `{}` with
-    `Content-Type: application/json`.
+    `user_id`) or user-entered manual grooming preferences from `payload`.
     """
     use_case = CreateGroomingRun(
         runs=AnalysisRunRepositorySQL(db),
@@ -198,7 +199,11 @@ def create_grooming_run(
         knowledge=CatalogKnowledgeSource(),
         saved_looks=SavedLookRepositorySQL(db),
     )
-    run_id = use_case(user_id=user_id, idempotency_key=idempotency_key)
+    run_id = use_case(
+        user_id=user_id,
+        idempotency_key=idempotency_key,
+        manual_inputs=payload,
+    )
     return AsyncAccepted(run_id=run_id)
 
 

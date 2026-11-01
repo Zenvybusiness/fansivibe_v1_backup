@@ -137,7 +137,9 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
                         const SizedBox(height: 8),
 
                         _buildHeader(context, resolved),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 16),
+
+                        _buildUncertaintySection(context, resolved),
 
                         _buildStyleProfile(context, resolved),
                         const SizedBox(height: 24),
@@ -194,6 +196,114 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
     final reasons = result.topRecommendation.reasons;
     if (reasons.isEmpty) return 'No grounded explanation available.';
     return reasons.join('. ');
+  }
+
+  /// Explains uncertainty, incomplete evidence, or missing required profile
+  /// information truthfully rather than fabricating confidence or attributes.
+  Widget _buildUncertaintySection(
+    BuildContext context,
+    HairstyleAnalysisResult result,
+  ) {
+    final isMissingFaceShape = result.faceShape.isEmpty ||
+        result.faceShape.toLowerCase() == 'unknown' ||
+        result.faceShape.toLowerCase() == 'pending assessment';
+    final hasLowConfidence =
+        result.confidence != null && result.confidence! < 0.60;
+    final needsMoreData = result.needsMoreData;
+
+    if (!isMissingFaceShape && !needsMoreData && !hasLowConfidence) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (isMissingFaceShape) ...[
+          _buildAdvisoryCard(
+            context: context,
+            icon: Icons.help_outline_rounded,
+            iconColor: FansivibeColors.warning,
+            title: 'Missing Required Information',
+            message:
+                'Face shape has not been measured yet. Complete a face scan to receive personalized recommendations matched to your facial geometry.',
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (needsMoreData && !isMissingFaceShape) ...[
+          _buildAdvisoryCard(
+            context: context,
+            icon: Icons.info_outline_rounded,
+            iconColor: FansivibeColors.warning,
+            title: 'Provisional Recommendation',
+            message:
+                'Recommendation is provisional based on limited profile details. Complete an authenticated face scan to personalize further.',
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (hasLowConfidence) ...[
+          _buildAdvisoryCard(
+            context: context,
+            icon: Icons.shield_outlined,
+            iconColor: FansivibeColors.textSecondary,
+            title: 'Limited Confidence',
+            message:
+                'Multiple styles scored similarly or evidence was sparse. Results may vary until your profile is refined.',
+          ),
+          const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildAdvisoryCard({
+    required BuildContext context,
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String message,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.baseBorder,
+        border: Border.all(
+          color: iconColor.withValues(alpha: 0.35),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: iconColor, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: FansivibeColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  message,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: FansivibeColors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildStyleProfile(
@@ -314,6 +424,27 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
                 fontWeight: FontWeight.w500,
               ),
             ),
+            if (result.confidence != null) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: FansivibeColors.surfaceContainerHigh,
+                  borderRadius: FansivibeRadius.smdBorder,
+                ),
+                child: Text(
+                  _confidenceSemanticLabel(result.confidence!),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: FansivibeColors.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -339,6 +470,12 @@ class _HairstyleResultScreenState extends State<HairstyleResultScreen> {
         ),
       ],
     );
+  }
+
+  String _confidenceSemanticLabel(double confidence) {
+    if (confidence >= 0.85) return 'High Confidence';
+    if (confidence >= 0.65) return 'Moderate Confidence';
+    return 'Limited Confidence';
   }
 
   Widget _buildAlternativesSection(

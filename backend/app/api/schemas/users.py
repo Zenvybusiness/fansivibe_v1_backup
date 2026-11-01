@@ -33,7 +33,11 @@ class ProfileView(BaseModel):
 
 
 class UpdatePreferencesRequest(BaseModel):
-    """Body for `PATCH /v1/users/me` (STEP 11.6) — the existing persisted
-    preference only. `[]` clears `preferred_occasions`."""
+    """Body for `PATCH /v1/users/me` — supports partial updates of
+    preferred occasions, style archetype/type, and application settings.
+    All fields optional; unspecified fields remain untouched."""
 
-    preferredOccasions: list[str]
+    preferredOccasions: Optional[list[str]] = None
+    styleType: Optional[str] = None
+    styleProfile: Optional[dict[str, Any]] = None
+    settings: Optional[dict[str, Any]] = None

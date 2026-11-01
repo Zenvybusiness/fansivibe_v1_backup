@@ -1,22 +1,127 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/profile/data/profile_mocks.dart';
+import 'package:fansivibe/features/profile/data/user_profile_repository.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
+
+const Map<String, String> _settingLabelToKey = {
+  'Notifications': 'notifications',
+  'Sound Effects': 'soundEffects',
+  'Haptic Feedback': 'hapticFeedback',
+  'Data Saver': 'dataSaver',
+};
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({
+    super.key,
+    this.userProfileRepository,
+  });
+
+  final UserProfileRepository? userProfileRepository;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  late UserProfileRepository _userProfileRepo;
   late List<SettingsItem> _items;
 
   @override
   void initState() {
     super.initState();
-    _items = ProfileMockData.settingsGroups.map((s) => s).toList();
+    _userProfileRepo = widget.userProfileRepository ?? UserProfileRepositoryImpl();
+    _items = _buildItems(LocalStorage.settings);
+
+    _userProfileRepo.fetchProfile().then((profile) {
+      if (!mounted || profile == null) return;
+      setState(() {
+        _items = _buildItems(profile.settings);
+      });
+    });
+  }
+
+  List<SettingsItem> _buildItems(Map<String, dynamic> settings) {
+    return ProfileMockData.settingsGroups.map((s) {
+      if (!s.isSwitch) return s;
+      final key = _settingLabelToKey[s.label];
+      final val = (key != null && settings.containsKey(key))
+          ? (settings[key] as bool? ?? s.switchValue)
+          : s.switchValue;
+      return SettingsItem(
+        label: s.label,
+        description: s.description,
+        value: s.value,
+        isSwitch: s.isSwitch,
+        switchValue: val,
+      );
+    }).toList();
+  }
+
+  Future<void> _onToggle(int index, bool val) async {
+    final item = _items[index];
+    final key = _settingLabelToKey[item.label];
+    if (key == null) return;
+
+    final oldVal = item.switchValue;
+    setState(() {
+      _items[index] = SettingsItem(
+        label: item.label,
+        description: item.description,
+        value: item.value,
+        isSwitch: item.isSwitch,
+        switchValue: val,
+      );
+    });
+
+    if (!AuthSession.isAuthenticated || isGuestUser) {
+      final updated = Map<String, dynamic>.from(LocalStorage.settings);
+      updated[key] = val;
+      LocalStorage.settings = updated;
+      return;
+    }
+
+    try {
+      final res = await _userProfileRepo.updateSettings({key: val});
+      if (!mounted) return;
+      if (res == null) {
+        setState(() {
+          _items[index] = SettingsItem(
+            label: item.label,
+            description: item.description,
+            value: item.value,
+            isSwitch: item.isSwitch,
+            switchValue: oldVal,
+          );
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to update setting. Please try again.'),
+            backgroundColor: FansivibeColors.error,
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _items[index] = SettingsItem(
+          label: item.label,
+          description: item.description,
+          value: item.value,
+          isSwitch: item.isSwitch,
+          switchValue: oldVal,
+        );
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to update setting. Please try again.'),
+          backgroundColor: FansivibeColors.error,
+        ),
+      );
+    }
   }
 
   @override
@@ -76,17 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   _SettingsTile(
                                     item: item,
                                     onToggle: item.isSwitch
-                                        ? (val) {
-                                            setState(() {
-                                              _items[i] = SettingsItem(
-                                                label: item.label,
-                                                description: item.description,
-                                                value: item.value,
-                                                isSwitch: item.isSwitch,
-                                                switchValue: val,
-                                              );
-                                            });
-                                          }
+                                        ? (val) => _onToggle(i, val)
                                         : null,
                                   ),
                                   if (i < _items.length - 1)

@@ -165,7 +165,6 @@ _APPEARANCE_SIGNALS = ("faceShape", "skinTone", "bodyType", "styleType")
 # Score gap (0.0..0.1) that is treated as a fully decisive top pick.
 _DECISIVE_GAP = 0.1
 
-_DEFAULT_FACE_SHAPE = "oval"
 _FACE_SHAPE_ALIASES = {"rectangle": "rectangular"}
 
 
@@ -219,10 +218,10 @@ class Explanation:
     reasons: list[str] = field(default_factory=list)
 
 
-def _face_shape(appearance: AppearanceProfile) -> str:
+def _face_shape(appearance: AppearanceProfile) -> Optional[str]:
     raw = (appearance.faceShape or "").strip().lower()
     if not raw:
-        return _DEFAULT_FACE_SHAPE
+        return None
     return _FACE_SHAPE_ALIASES.get(raw, raw)
 
 
@@ -304,7 +303,7 @@ def score_candidates(
 
     scored: list[ScoredCandidate] = []
     for look in candidates:
-        face_boost = _BOOSTS.get(look.id, {}).get(face, 0.0)
+        face_boost = _BOOSTS.get(look.id, {}).get(face, 0.0) if face else 0.0
         preference_boost = _PREFERENCE_BOOST if look.id in preferred else 0.0
         saved_look_boost = 0.03 if look.id in saved_look_ids else 0.0
         score = min(1.0, look.matchScore + face_boost + preference_boost + saved_look_boost)
@@ -365,9 +364,9 @@ def build_explanations(
     return explanations
 
 
-def _face_match_reason(candidate: ScoredCandidate, face_shape: str) -> Optional[str]:
+def _face_match_reason(candidate: ScoredCandidate, face_shape: Optional[str]) -> Optional[str]:
     boost = candidate.signals.get("face_shape", 0.0)
-    if boost <= 0.0:
+    if boost <= 0.0 or not face_shape:
         return None
     return (
         f"Strongest match for your {face_shape} face shape "
@@ -547,7 +546,7 @@ def score_grooming_candidates(
 
     scored: list[ScoredCandidate] = []
     for look in candidates:
-        face_boost = _GROOMING_BOOSTS.get(look.id, {}).get(face, 0.0)
+        face_boost = _GROOMING_BOOSTS.get(look.id, {}).get(face, 0.0) if face else 0.0
         preference_boost = _PREFERENCE_BOOST if look.id in preferred else 0.0
         saved_look_boost = 0.03 if look.id in saved_look_ids else 0.0
         score = min(1.0, look.matchScore + face_boost + preference_boost + saved_look_boost)
@@ -602,9 +601,9 @@ def build_grooming_explanations(
     return explanations
 
 
-def _face_match_reason(candidate: ScoredCandidate, face_shape: str) -> Optional[str]:
+def _face_match_reason(candidate: ScoredCandidate, face_shape: Optional[str]) -> Optional[str]:
     boost = candidate.signals.get("face_shape", 0.0)
-    if boost <= 0.0:
+    if boost <= 0.0 or not face_shape:
         return None
     return (
         f"Strongest match for your {face_shape} face shape "

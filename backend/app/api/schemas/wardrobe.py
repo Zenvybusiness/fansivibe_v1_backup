@@ -9,7 +9,24 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+
+
+class WardrobeMediaRefInput(BaseModel):
+    """Client input reference for associating a published media upload with a wardrobe item (Stage 2 P0-4 Phase 4)."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    uploadId: UUID = Field(
+        ...,
+        validation_alias=AliasChoices("uploadId", "upload_id"),
+        description="Unique upload identifier of the published media",
+    )
+    objectKey: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("objectKey", "object_key"),
+        description="Optional canonical storage key assertion",
+    )
 
 
 class WardrobeItem(BaseModel):
@@ -22,6 +39,7 @@ class WardrobeItem(BaseModel):
     fit: Optional[str] = None
     fitConfidence: Optional[float] = None
     imageRef: Optional[dict[str, Any]] = None
+    imageUrl: Optional[str] = None
     createdAt: datetime
     updatedAt: datetime
 
@@ -38,7 +56,7 @@ class WardrobeItemCreate(BaseModel):
     # (0-1). Optional; absent → NULL (missing evidence, never fabricated).
     fit: Optional[str] = Field(default=None, min_length=1, max_length=200)
     fitConfidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    imageRef: Optional[dict[str, Any]] = None
+    imageRef: Optional[WardrobeMediaRefInput | dict[str, Any]] = None
 
 
 class WardrobeItemPatch(BaseModel):
@@ -55,7 +73,9 @@ class WardrobeItemPatch(BaseModel):
     isFavorite: Optional[bool] = None
     fit: Optional[str] = Field(default=None, min_length=1, max_length=200)
     fitConfidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    imageRef: Optional[dict[str, Any]] = None
+    imageRef: Optional[WardrobeMediaRefInput | dict[str, Any]] = None
+    clearImageRef: Optional[bool] = None
+
 
 
 class ListEnvelope(BaseModel):

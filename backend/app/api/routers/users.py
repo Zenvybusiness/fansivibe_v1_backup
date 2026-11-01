@@ -50,6 +50,7 @@ def _to_preferences(preferences: dict[str, Any]) -> dict[str, Any]:
     return {
         "preferredOccasions" if key == "preferred_occasions" else key: value
         for key, value in preferences.items()
+        if key != "settings"
     }
 
 
@@ -118,11 +119,26 @@ def update_me(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> ProfileView:
-    """Persist the caller's `preferred_occasions` (JSONB merge) and return the
-    updated profile (same `ProfileView` contract as `GET /me`)."""
+    """Persist caller preferences (preferred occasions, style archetype, settings)
+    and return the updated profile (same `ProfileView` contract as `GET /me`)."""
     use_case = UpdatePreferences(user_state=UserStateRepositorySQL(db))
+    style_type = request.styleType
+    if style_type is None and request.styleProfile:
+        style_type = (
+            request.styleProfile.get("styleType")
+            or request.styleProfile.get("style_type")
+        )
+    kwargs: dict[str, Any] = {}
+    if request.preferredOccasions is not None:
+        kwargs["preferred_occasions"] = request.preferredOccasions
+    if style_type is not None:
+        kwargs["style_type"] = style_type
+    if request.settings is not None:
+        kwargs["settings"] = request.settings
+
     record = use_case(
-        user_id=user_id, preferred_occasions=request.preferredOccasions
+        user_id=user_id,
+        **kwargs,
     )
     return build_profile_view(db, record)
 

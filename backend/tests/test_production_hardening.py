@@ -25,9 +25,15 @@ class TestProductionSettingsInvariants:
             database_url="postgresql+psycopg://prod_user:StrongProdPass123!@db.internal:5432/prod_fansivibe",
             auth_secret="a" * 32,
             allow_dev_token=False,
+            media_storage_provider="r2",
+            r2_bucket_name="prod-wardrobe-bucket",
+            r2_account_id="cf-acc-prod-123456",
+            r2_access_key_id="cf-key-prod-123456",
+            r2_secret_access_key="cf-secret-prod-123456",
         )
         assert settings.is_production is True
         assert settings.is_docs_enabled is False
+        assert settings.media_storage_provider == "r2"
 
     def test_production_rejects_default_dev_database_url(self):
         with pytest.raises(ValidationError, match="development credentials"):
@@ -155,6 +161,11 @@ class TestApiDocsGating:
             database_url="postgresql+psycopg://prod:prod@prod-db:5432/fansivibe",
             auth_secret="a" * 32,
             allow_dev_token=False,
+            media_storage_provider="r2",
+            r2_bucket_name="prod-wardrobe-bucket",
+            r2_account_id="cf-acc-prod-123456",
+            r2_access_key_id="cf-key-prod-123456",
+            r2_secret_access_key="cf-secret-prod-123456",
         )
         assert settings.is_docs_enabled is False
 
@@ -165,6 +176,11 @@ class TestApiDocsGating:
             auth_secret="a" * 32,
             enable_docs=True,
             allow_dev_token=False,
+            media_storage_provider="r2",
+            r2_bucket_name="prod-wardrobe-bucket",
+            r2_account_id="cf-acc-prod-123456",
+            r2_access_key_id="cf-key-prod-123456",
+            r2_secret_access_key="cf-secret-prod-123456",
         )
         assert settings.is_docs_enabled is True
 

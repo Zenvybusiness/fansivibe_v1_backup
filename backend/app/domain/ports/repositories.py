@@ -445,6 +445,8 @@ class UserStateRepository(Protocol):
 
     def update_preferences(self, *, user_id: UUID, preferences: dict) -> None: ...
 
+    def update_settings(self, *, user_id: UUID, settings: dict) -> None: ...
+
     def update_style_profile(
         self,
         *,
@@ -454,7 +456,16 @@ class UserStateRepository(Protocol):
         body_type: Optional[str] = None,
         style_type: Optional[str] = None,
         source_run_id: Optional[str] = None,
-    ) -> None: ...
+        confidence: Optional[float] = None,
+        confirmed_by_user: bool = False,
+        source: Optional[str] = None,
+        expected_version: Optional[int] = None,
+        max_retries: int = 0,
+    ) -> bool: ...
+
+    def get_attribute_provenance(
+        self, style_profile: dict[str, Any], attribute: str
+    ) -> Optional[dict[str, Any]]: ...
 
 
 class SavedLookRepository(Protocol):

@@ -24,8 +24,13 @@ class _FakeGroomingClient extends GroomingClient {
   GroomingRun? pollResult;
 
   @override
-  Future<String?> submitGroomingAnalysis({String? idempotencyKey}) async =>
-      submitResult;
+  Future<String?> submitGroomingAnalysis({
+    String? faceShape,
+    String? beardStyle,
+    String? beardDensity,
+    String? beardColor,
+    String? idempotencyKey,
+  }) async => submitResult;
 
   @override
   Future<GroomingRun?> pollGroomingRun({required String runId}) async =>
@@ -114,8 +119,8 @@ void main() {
   });
 
   testWidgets('renders app bar with analyzing title', (
-      WidgetTester tester,
-      ) async {
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: GroomingProcessingScreen(
@@ -197,10 +202,7 @@ void main() {
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
     await tester.pumpAndSettle();
 
-    expect(
-      find.text('Sign in to run grooming analysis.'),
-      findsOneWidget,
-    );
+    expect(find.text('Sign in to run grooming analysis.'), findsOneWidget);
     expect(find.text('Analyzing Features'), findsNothing);
     expect(find.text('Grooming Input'), findsOneWidget);
   });

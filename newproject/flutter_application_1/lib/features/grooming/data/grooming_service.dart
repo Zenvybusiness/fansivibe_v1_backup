@@ -73,9 +73,16 @@ class GroomingService extends ChangeNotifier {
   /// run ends in `failed`, [analysisError] is set so callers can surface the
   /// typed failure; the offline fallback still resolves so the flow never
   /// breaks (documented Stage 6-7 design decision).
-  Future<GroomingAnalysisResult> runAnalysis({String? idempotencyKey}) async {
+  Future<GroomingAnalysisResult> runAnalysis({
+    String? faceShape,
+    String? beardStyle,
+    String? beardDensity,
+    String? beardColor,
+    String? idempotencyKey,
+  }) async {
     final effectiveKey =
-        idempotencyKey ?? (_activeIdempotencyKey ??= newGroomingIdempotencyKey());
+        idempotencyKey ??
+        (_activeIdempotencyKey ??= newGroomingIdempotencyKey());
     _isProcessing = true;
     _completedStageCount = 0;
     _analysisError = null;
@@ -89,22 +96,43 @@ class GroomingService extends ChangeNotifier {
     // pin the type), but every mock path now sets _usedMockResult and
     // _analysisError so UI can fail closed instead of posing success.
     GroomingAnalysisResult resolved = GroomingAnalysisResult.mock;
-    final faceShape = _learning?.face?.faceShape;
+    final storedFaceShape = _learning?.face?.faceShape;
+    final effectiveFaceShape =
+        (storedFaceShape != null && storedFaceShape.isNotEmpty)
+        ? storedFaceShape
+        : (faceShape != null && faceShape.isNotEmpty ? faceShape : null);
 
-    if (faceShape == null || faceShape.isEmpty) {
+    final hasFaceShape =
+        effectiveFaceShape != null && effectiveFaceShape.isNotEmpty;
+    final hasManualInputs =
+        (beardStyle != null && beardStyle.isNotEmpty) ||
+        (beardDensity != null && beardDensity.isNotEmpty) ||
+        (beardColor != null && beardColor.isNotEmpty);
+
+    if (!hasFaceShape && !hasManualInputs) {
       _usedMockResult = true;
       _analysisError = 'No face profile yet. Complete a face scan first.';
       resolved = GroomingAnalysisResult.mock;
     } else {
-      final runId = await _client.submitGroomingAnalysis(idempotencyKey: effectiveKey);
+      final runId = await _client.submitGroomingAnalysis(
+        faceShape: effectiveFaceShape,
+        beardStyle: beardStyle,
+        beardDensity: beardDensity,
+        beardColor: beardColor,
+        idempotencyKey: effectiveKey,
+      );
       if (runId == null) {
         _usedMockResult = true;
-        _analysisError = 'Grooming service unreachable. Please try again.';
+        _analysisError =
+            _client.lastSubmitError ??
+            'Grooming service unreachable. Please try again.';
         resolved = GroomingAnalysisResult.mock;
       } else {
         final run = await _client.pollGroomingRun(runId: runId);
         if (run != null && run.isFailed) {
-          _analysisError = 'Grooming analysis failed. Please try again.';
+          _analysisError =
+              run.error?['message'] as String? ??
+              'Grooming analysis failed. Please try again.';
           _isFailed = true;
           _usedMockResult = true;
           resolved = GroomingAnalysisResult.mock;
@@ -120,7 +148,13 @@ class GroomingService extends ChangeNotifier {
         } else {
           try {
             _usedMockResult = false;
-            resolved = GroomingAnalysisResult.fromRunResult(run);
+            resolved = GroomingAnalysisResult.fromRunResult(
+              run,
+              requestFaceShape: effectiveFaceShape,
+              requestBeardStyle: beardStyle,
+              requestBeardDensity: beardDensity,
+              requestBeardColor: beardColor,
+            );
           } catch (_) {
             _analysisError = 'Grooming analysis failed. Please try again.';
             _usedMockResult = true;
@@ -154,6 +188,9 @@ class GroomingService extends ChangeNotifier {
   /// [runAnalysis] so callers keep one contract.
   Future<GroomingAnalysisResult> runEphemeralAnalysis({
     required String faceShape,
+    String? beardStyle,
+    String? beardDensity,
+    String? beardColor,
     String skinTone = '',
     String bodyType = '',
     String styleType = '',
@@ -182,7 +219,12 @@ class GroomingService extends ChangeNotifier {
       _lastEphemeralSnapshot = null;
     } else {
       try {
-        resolved = GroomingAnalysisResult.fromSnapshot(snapshot);
+        resolved = GroomingAnalysisResult.fromSnapshot(
+          snapshot,
+          requestBeardStyle: beardStyle,
+          requestBeardDensity: beardDensity,
+          requestBeardColor: beardColor,
+        );
         _usedMockResult = false;
         _lastEphemeralSnapshot = snapshot;
       } catch (_) {
@@ -227,9 +269,17 @@ class GroomingService extends ChangeNotifier {
     return runs
         .map(
           (e) => e != null
-              ? GroomingRecommendation.fromBackend(
-                  {'id': e['run_id'] as String?, 'name': e['run_type'] as String? ?? '', 'description': '', 'matchScore': 0.0, 'reasons': <dynamic>[], 'stylingTips': '', 'maintenance': '', 'bestFor': '', 'icon': null},
-                )
+              ? GroomingRecommendation.fromBackend({
+                  'id': e['run_id'] as String?,
+                  'name': e['run_type'] as String? ?? '',
+                  'description': '',
+                  'matchScore': 0.0,
+                  'reasons': <dynamic>[],
+                  'stylingTips': '',
+                  'maintenance': '',
+                  'bestFor': '',
+                  'icon': null,
+                })
               : const GroomingRecommendation(
                   id: '',
                   name: '',

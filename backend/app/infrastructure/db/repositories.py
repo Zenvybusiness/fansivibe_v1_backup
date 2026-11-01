@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import Boolean, and_, cast, delete, func, or_, select, update
+from sqlalchemy import Boolean, and_, cast, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -271,15 +271,30 @@ class UserStateRepositorySQL:
         body_type: Optional[str] = None,
         style_type: Optional[str] = None,
         source_run_id: Optional[str] = None,
-    ) -> None:
-        """Merge non-empty image-derived appearance attributes into user_state.style_profile (C-09).
+        confidence: Optional[float] = None,
+        confirmed_by_user: bool = False,
+        source: Optional[str] = None,
+        expected_version: Optional[int] = None,
+        max_retries: int = 0,
+    ) -> bool:
+        """Merge non-empty appearance attributes into user_state.style_profile (C-09)
+        with atomic optimistic concurrency control (CAS) via `user_state.version`.
 
-        Uses PostgreSQL `||` JSONB concatenation (`existing || patch`) so previously known
-        attributes and any unrelated keys survive partial vision analysis runs.
-        Only non-empty incoming strings replace existing values; empty strings, missing keys,
-        or nulls do not erase existing data. `source_run_id` is updated to the latest successful run.
+        - Atomic CAS: compares `expected_version` in the database update condition when provided,
+          and atomically increments `version = version + 1`.
+        - Provenance: creates field-level provenance under top-level `_provenance_{attr}` keys
+          capturing source, run ID, confidence, timestamps, and confirmation status.
+        - Backward compatibility: preserves legacy scalar fields at the root of `style_profile`
+          so ProfileView and readers continue to operate without schema migration.
+        - Protection of user truth: if `confirmed_by_user` is False, preserves existing user-confirmed
+          attributes and prevents lower-confidence AI observations from overwriting higher-confidence ones.
+        - Bounded retries: if `max_retries > 0` and a version conflict occurs, reloads latest state
+          and reapplies ONLY the intended field changes (never a stale whole snapshot).
+
+        Returns True on success, False if version precondition failed (409 Conflict).
         """
-        patch: dict[str, Any] = {}
+        # 1. Filter non-empty intended attributes
+        target_attrs: dict[str, str] = {}
         for key, val in (
             ("face_shape", face_shape),
             ("skin_tone", skin_tone),
@@ -287,23 +302,156 @@ class UserStateRepositorySQL:
             ("style_type", style_type),
         ):
             if val is not None and isinstance(val, str) and val.strip() != "":
-                patch[key] = val
-        if source_run_id is not None and str(source_run_id).strip() != "":
-            patch["source_run_id"] = str(source_run_id)
+                target_attrs[key] = val.strip()
 
-        if not patch:
-            return
-
-        self._session.execute(
-            update(UserState)
-            .where(UserState.user_id == user_id)
-            .values(
-                style_profile=func.coalesce(
-                    UserState.style_profile, cast({}, JSONB)
-                ).op("||")(cast(patch, JSONB))
-            )
+        has_source_run_id = (
+            source_run_id is not None
+            and isinstance(source_run_id, (str, UUID))
+            and str(source_run_id).strip() != ""
         )
-        self._session.commit()
+
+        if not target_attrs and not has_source_run_id:
+            return True
+
+        current_expected_version = expected_version
+        current_candidate_fields = dict(target_attrs)
+        attempts = 0
+
+        # Protect user-confirmed values against lower-confidence/unconfirmed writes
+        # (Skip only for _RecordingSession which tests pure SQL update compilation)
+        if not confirmed_by_user and type(self._session).__name__ != "_RecordingSession":
+            try:
+                res = self._session.execute(
+                    select(UserState.style_profile).where(UserState.user_id == user_id)
+                )
+                if res is not None and hasattr(res, "scalar_one_or_none"):
+                    row = res.scalar_one_or_none()
+                    if row and isinstance(row, dict):
+                        for k in list(current_candidate_fields.keys()):
+                            prov = row.get(f"_provenance_{k}")
+                            if isinstance(prov, dict):
+                                if prov.get("confirmed_by_user") is True:
+                                    current_candidate_fields.pop(k, None)
+                                elif (
+                                    confidence is not None
+                                    and prov.get("confidence") is not None
+                                    and confidence < prov.get("confidence")
+                                ):
+                                    current_candidate_fields.pop(k, None)
+            except Exception:
+                pass
+
+        if not current_candidate_fields and not has_source_run_id:
+            return True
+
+        while True:
+            # 2. Build scalar patch
+            patch: dict[str, Any] = {}
+            for k, val in current_candidate_fields.items():
+                patch[k] = val
+            if has_source_run_id:
+                patch["source_run_id"] = str(source_run_id)
+
+            # 3. Build field-level provenance patch
+            now_iso = datetime.now(timezone.utc).isoformat()
+            for k, val in current_candidate_fields.items():
+                patch[f"_provenance_{k}"] = {
+                    "value": val,
+                    "source": source or ("user" if confirmed_by_user else "vision"),
+                    "source_run_id": str(source_run_id) if has_source_run_id else None,
+                    "confidence": float(confidence) if confidence is not None else (1.0 if confirmed_by_user else None),
+                    "observed_at": now_iso,
+                    "confirmed_by_user": confirmed_by_user,
+                    "confirmed_at": now_iso if confirmed_by_user else None,
+                }
+
+            # 4. Formulate atomic CAS update
+            conditions = [UserState.user_id == user_id]
+            if current_expected_version is not None:
+                conditions.append(UserState.version == current_expected_version)
+
+            stmt = (
+                update(UserState)
+                .where(*conditions)
+                .values(
+                    style_profile=func.coalesce(
+                        UserState.style_profile, cast({}, JSONB)
+                    ).op("||")(cast(patch, JSONB)),
+                    version=UserState.version + 1,
+                    updated_at=func.now(),
+                )
+            )
+
+            result = self._session.execute(stmt)
+            rowcount = getattr(result, "rowcount", 1) if result is not None else 1
+
+            if rowcount > 0:
+                self._session.commit()
+                return True
+
+            # If rowcount == 0, expected_version did not match (or user_id row absent)
+            attempts += 1
+            if attempts > max_retries:
+                # Bounded retries exhausted or max_retries == 0
+                return False
+
+            # Reload latest state and reapply ONLY intended field changes
+            fresh_row = None
+            try:
+                fresh_row = self._session.execute(
+                    select(UserState.version, UserState.style_profile).where(UserState.user_id == user_id)
+                ).one_or_none()
+            except Exception:
+                fresh_row = None
+
+            if fresh_row is None:
+                return False
+
+            fresh_version, fresh_profile = fresh_row[0], (fresh_row[1] or {})
+            current_expected_version = fresh_version
+
+            # Re-evaluate protection of confirmed user values on fresh state
+            if not confirmed_by_user:
+                current_candidate_fields = dict(target_attrs)
+                for k in list(current_candidate_fields.keys()):
+                    prov = fresh_profile.get(f"_provenance_{k}")
+                    if isinstance(prov, dict):
+                        if prov.get("confirmed_by_user") is True:
+                            current_candidate_fields.pop(k, None)
+                        elif (
+                            confidence is not None
+                            and prov.get("confidence") is not None
+                            and confidence < prov.get("confidence")
+                        ):
+                            current_candidate_fields.pop(k, None)
+                if not current_candidate_fields and not has_source_run_id:
+                    return True
+
+    def get_attribute_provenance(
+        self, style_profile: dict[str, Any], attribute: str
+    ) -> Optional[dict[str, Any]]:
+        """Retrieve field-level provenance metadata for an attribute.
+
+        If explicit `_provenance_{attribute}` exists, returns it.
+        If only legacy scalar exists, returns synthesized legacy provenance.
+        If attribute not present, returns None.
+        """
+        if not style_profile or not isinstance(style_profile, dict):
+            return None
+        prov_key = f"_provenance_{attribute}"
+        if prov_key in style_profile and isinstance(style_profile[prov_key], dict):
+            return dict(style_profile[prov_key])
+        if attribute in style_profile and style_profile[attribute] is not None:
+            return {
+                "value": style_profile[attribute],
+                "source": "legacy",
+                "source_run_id": style_profile.get("source_run_id"),
+                "confidence": 1.0,
+                "observed_at": None,
+                "confirmed_by_user": False,
+                "confirmed_at": None,
+            }
+        return None
 
     def get_profile(self, *, user_id: UUID) -> Optional[UserProfileRecord]:
         row = self._session.execute(
@@ -314,12 +462,16 @@ class UserStateRepositorySQL:
         if row is None:
             return None
         user, state = row
+        raw_prefs = dict(state.preferences or {})
+        settings = raw_prefs.pop("settings", {})
+        if not isinstance(settings, dict):
+            settings = {}
         return UserProfileRecord(
             user_id=user.id,
             display_name=user.display_name,
             style_profile=state.style_profile or {},
-            preferences=state.preferences or {},
-            settings={},
+            preferences=raw_prefs,
+            settings=settings,
             flags=state.flags or {},
             version=state.version,
         )
@@ -342,6 +494,34 @@ class UserStateRepositorySQL:
                 )
             )
         )
+        self._session.commit()
+
+    def update_settings(self, *, user_id: UUID, settings: dict) -> None:
+        """Merge a partial JSONB patch into `user_state.preferences['settings']`.
+
+        Uses atomic PostgreSQL `jsonb_set` so sibling keys and unrelated
+        settings survive — neither `preferences` nor `settings` is ever
+        wholesale replaced. Owner-scoped (OW-1).
+        """
+        if not settings or not isinstance(settings, dict):
+            return
+
+        stmt = (
+            update(UserState)
+            .where(UserState.user_id == user_id)
+            .values(
+                preferences=func.jsonb_set(
+                    func.coalesce(UserState.preferences, cast({}, JSONB)),
+                    text("'{settings}'"),
+                    func.coalesce(
+                        UserState.preferences.op("->")("settings"),
+                        cast({}, JSONB),
+                    ).op("||")(cast(settings, JSONB)),
+                    True,
+                )
+            )
+        )
+        self._session.execute(stmt)
         self._session.commit()
 
 

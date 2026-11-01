@@ -512,6 +512,60 @@ def test_outfit_run_profile_updated_with_image_attributes():
     # The development adapter produces deterministic values from the media key hash
 
 
+def test_outfit_run_person_profile_never_populated_with_garment_observations():
+    """Person-profile (user_state.style_profile) must strictly contain only
+    appearance attributes (faceShape, skinTone, bodyType, styleType).
+    Garment-level observations (category, color, fit, material, pattern, etc.)
+    must NEVER be written to the person profile."""
+    from app.application.analysis import CreateOutfitRun
+    from app.ai.appearance_adapter import DevelopmentAppearanceAnalysisAdapter
+    from app.domain.value_objects import GarmentProfile
+
+    runs = FakeRuns()
+    user_state = FakeUserState(None)
+
+    class StubDetailedGarmentPort:
+        adapter_id = "stub-garment"
+        def analyze(self, *, media_ref, user_id, image_bytes):
+            return GarmentProfile(
+                category="tops",
+                subcategory="Crewneck",
+                color="navy",
+                material="cotton",
+                fit="regular",
+                pattern="solid",
+                style="casual",
+                confidence=0.88,
+                needs_review=False,
+            )
+
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=DevelopmentAppearanceAnalysisAdapter(),
+        user_state=user_state,
+        learning_signal=None,
+        garment_port=StubDetailedGarmentPort(),
+    )
+
+    class MockImage:
+        content_type = "image/jpeg"
+        size = 1_000_000
+        file = io.BytesIO(b"fake-image-bytes-for-outfit-scan")
+
+    run_id = use_case(user_id=USER, image=MockImage())
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+
+    profile = user_state.get_style_profile(user_id=USER)
+    assert profile is not None
+    allowed_keys = {"face_shape", "skin_tone", "body_type", "style_type", "source_run_id"}
+    assert set(profile.keys()).issubset(allowed_keys)
+    for garment_field in ("category", "subcategory", "color", "material", "fit", "pattern", "garment", "needs_review"):
+        assert garment_field not in profile
+
+
 def test_outfit_run_learning_signal_emitted():
     """CreateOutfitRun emits a learning signal analysis_updated after TRX-6."""
     from app.application.analysis import CreateOutfitRun
@@ -620,7 +674,9 @@ def test_outfit_run_with_development_adapter_full_structure():
         "needs_more_data",
         "recommendations",
         "garment",
+        "profile_persistence",
     }
+    assert result["profile_persistence"] == "saved"
     assert result["garment"]["sourceRunId"] == str(run_id)
     # Appearance snapshot keys
     app = result["appearance"]
@@ -698,7 +754,8 @@ def test_outfit_run_keeps_garment_when_appearance_fails():
     assert record.status == "completed"
     result = record.result
     assert result is not None
-    assert set(result.keys()) == {"garment", "appearance_error"}
+    assert set(result.keys()) == {"garment", "appearance_error", "profile_persistence"}
+    assert result["profile_persistence"] == "not_applicable"
     assert result["appearance_error"] == {"reason": "no_face_detected"}
     assert result["garment"]["sourceRunId"] == str(run_id)
     assert "appearance" not in result
@@ -2282,3 +2339,177 @@ def test_12_3_engine_version_remains_separate():
     assert record.knowledge_version == "1.1+1.0"
     assert record.engine_version != record.knowledge_version
     assert "rules-v1" not in (record.knowledge_version or "")
+
+
+# ==============================================================================
+# STAGE 1D BATCH 3A.1: Appearance Profile Persistence Outcome Integrity (D-B3A-01)
+# ==============================================================================
+
+class CASConflictFailingUserState:
+    """Simulates a user_state repository where CAS version precondition failed."""
+
+    def __init__(self) -> None:
+        self.attempts = 0
+
+    def get_style_profile(self, *, user_id: UUID) -> dict | None:
+        return None
+
+    def update_style_profile(self, *args, **kwargs) -> bool:
+        self.attempts += 1
+        return False  # CAS version conflict exhausted
+
+
+class ErrorThrowingUserState:
+    """Simulates a database failure during style_profile persistence."""
+
+    def get_style_profile(self, *, user_id: UUID) -> dict | None:
+        return None
+
+    def update_style_profile(self, *args, **kwargs) -> bool:
+        raise RuntimeError("database lock timeout during CAS update")
+
+
+def test_b3a1_outfit_run_persistence_outcome_saved():
+    """1. Successful appearance profile persistence reports 'saved' and commits signals."""
+    runs = FakeRuns()
+    user_state = FakeUserState(None)
+    learning_signal = FakeLearningSignal()
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(_measured_profile()),
+        garment_port=StubGarmentPort(),
+        user_state=user_state,
+        learning_signal=learning_signal,
+    )
+
+    run_id = use_case(user_id=USER, image=_image_with_bytes(b"valid-outfit-image"))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    assert record.result is not None
+    assert record.result["profile_persistence"] == "saved"
+    assert user_state.get_style_profile(user_id=USER) is not None
+    assert len(learning_signal.calls) == 2
+    assert [c["signal_type"] for c in learning_signal.calls] == [
+        "analysis_updated",
+        "outfit_selected",
+    ]
+
+
+def test_b3a1_outfit_run_persistence_outcome_cas_failure():
+    """2. CAS persistence failure reports 'not_saved', preserves analysis, and suppresses signals."""
+    runs = FakeRuns()
+    user_state = CASConflictFailingUserState()
+    learning_signal = FakeLearningSignal()
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(_measured_profile()),
+        garment_port=StubGarmentPort(),
+        user_state=user_state,
+        learning_signal=learning_signal,
+    )
+
+    run_id = use_case(user_id=USER, image=_image_with_bytes(b"cas-conflict-image"))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    assert record.result is not None
+    # Persistence outcome is honestly 'not_saved'
+    assert record.result["profile_persistence"] == "not_saved"
+    # Valid analysis result is preserved (not thrown away)
+    assert "appearance" in record.result
+    assert "garment" in record.result
+    assert record.result["appearance"]["faceShape"] == "oval"
+    # Signals are suppressed
+    assert learning_signal.calls == []
+    assert user_state.attempts >= 1
+
+
+def test_b3a1_outfit_run_persistence_outcome_db_exception():
+    """3. Appearance analysis success with persistence exception reports 'not_saved' and preserves result."""
+    runs = FakeRuns()
+    user_state = ErrorThrowingUserState()
+    learning_signal = FakeLearningSignal()
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(_measured_profile()),
+        garment_port=StubGarmentPort(),
+        user_state=user_state,
+        learning_signal=learning_signal,
+    )
+
+    run_id = use_case(user_id=USER, image=_image_with_bytes(b"db-error-image"))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    assert record.result is not None
+    assert record.result["profile_persistence"] == "not_saved"
+    assert "appearance" in record.result
+    assert "garment" in record.result
+    assert learning_signal.calls == []
+
+
+def test_b3a1_outfit_run_persistence_outcome_missing_appearance():
+    """4. Missing appearance result reports 'not_applicable'."""
+    runs = FakeRuns()
+    user_state = FakeUserState(None)
+    learning_signal = FakeLearningSignal()
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(_measured_profile(faceShape="")),
+        garment_port=StubGarmentPort(),
+        user_state=user_state,
+        learning_signal=learning_signal,
+    )
+
+    run_id = use_case(user_id=USER, image=_image_with_bytes(b"no-face-image"))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    assert record.result is not None
+    assert record.result["profile_persistence"] == "not_applicable"
+    assert record.result["appearance_error"] == {"reason": "no_face_detected"}
+    assert "appearance" not in record.result
+    assert user_state.get_style_profile(user_id=USER) is None
+    assert learning_signal.calls == []
+
+
+def test_b3a1_ephemeral_outfit_analysis_persistence_outcome_not_applicable():
+    """5. Guest ephemeral analysis reports 'not_applicable'."""
+    from app.application.analysis import EphemeralOutfitAnalysis
+
+    use_case = EphemeralOutfitAnalysis(
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(_measured_profile()),
+        garment_port=StubGarmentPort(),
+    )
+
+    snapshot = use_case(image=_image_with_bytes(b"guest-ephemeral-image"))
+    assert snapshot is not None
+    assert snapshot["profile_persistence"] == "not_applicable"
+    assert "appearance" in snapshot
+    assert "garment" in snapshot
+
+
+def test_b3a1_outfit_run_persistence_outcome_unknown_when_no_user_state():
+    """6. Unknown persistence outcome when user_state repository is unavailable."""
+    runs = FakeRuns()
+    use_case = CreateOutfitRun(
+        runs=runs,
+        knowledge=_knowledge_with_catalog(),
+        appearance_port=StubAppearancePort(_measured_profile()),
+        garment_port=StubGarmentPort(),
+        user_state=None,
+        learning_signal=None,
+    )
+
+    run_id = use_case(user_id=USER, image=_image_with_bytes(b"no-user-state-image"))
+    record = runs.get_for_user(user_id=USER, run_id=run_id)
+    assert record is not None
+    assert record.status == "completed"
+    assert record.result is not None
+    assert record.result["profile_persistence"] == "unknown"

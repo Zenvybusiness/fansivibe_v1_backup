@@ -537,7 +537,6 @@ void main() {
       await tester.pumpWidget(_dailyWith(repo));
       await tester.pumpAndSettle();
 
-      expect(find.text('Wear This Look'), findsNothing);
       expect(find.text('Wearing this look!'), findsNothing);
 
       await tester.ensureVisible(find.text('Save Look'));

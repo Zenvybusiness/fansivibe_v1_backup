@@ -225,5 +225,105 @@ void main() {
       expect(find.text('Textured Quiff'), findsNothing);
       expect(find.text('Oval'), findsNothing);
     });
+
+    testWidgets(
+      'renders sufficient evidence with high confidence badge and no advisories',
+      (WidgetTester tester) async {
+        final result = HairstyleAnalysisResult(
+          faceShape: 'Oval',
+          skinTone: 'Warm Medium',
+          styleDna: 'Classic',
+          topRecommendation: HairstyleAnalysisResult.mock.topRecommendation,
+          alternatives: const [],
+          confidence: 0.90,
+          needsMoreData: false,
+        );
+        await tester.pumpWidget(
+          MaterialApp(home: HairstyleResultScreen(result: result)),
+        );
+
+        expect(find.text('High Confidence'), findsOneWidget);
+        expect(find.text('Missing Required Information'), findsNothing);
+        expect(find.text('Provisional Recommendation'), findsNothing);
+        expect(find.text('Limited Confidence'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'renders provisional recommendation advisory on incomplete evidence',
+      (WidgetTester tester) async {
+        final result = HairstyleAnalysisResult(
+          faceShape: 'Oval',
+          skinTone: '',
+          styleDna: '',
+          topRecommendation: HairstyleAnalysisResult.mock.topRecommendation,
+          alternatives: const [],
+          confidence: 0.70,
+          needsMoreData: true,
+        );
+        await tester.pumpWidget(
+          MaterialApp(home: HairstyleResultScreen(result: result)),
+        );
+
+        expect(find.text('Provisional Recommendation'), findsOneWidget);
+        expect(
+          find.textContaining(
+            'Recommendation is provisional based on limited profile details',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'renders missing required information advisory when face shape is not measured',
+      (WidgetTester tester) async {
+        final result = HairstyleAnalysisResult(
+          faceShape: 'Pending Assessment',
+          skinTone: '',
+          styleDna: '',
+          topRecommendation: HairstyleAnalysisResult.mock.topRecommendation,
+          alternatives: const [],
+          confidence: 0.50,
+          needsMoreData: true,
+        );
+        await tester.pumpWidget(
+          MaterialApp(home: HairstyleResultScreen(result: result)),
+        );
+
+        expect(find.text('Missing Required Information'), findsOneWidget);
+        expect(
+          find.textContaining('Face shape has not been measured yet'),
+          findsOneWidget,
+        );
+        expect(find.text('Pending Assessment'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'renders limited confidence advisory and badge when confidence is low',
+      (WidgetTester tester) async {
+        final result = HairstyleAnalysisResult(
+          faceShape: 'Oval',
+          skinTone: 'Warm',
+          styleDna: 'Casual',
+          topRecommendation: HairstyleAnalysisResult.mock.topRecommendation,
+          alternatives: const [],
+          confidence: 0.55,
+          needsMoreData: false,
+        );
+        await tester.pumpWidget(
+          MaterialApp(home: HairstyleResultScreen(result: result)),
+        );
+
+        expect(find.text('Limited Confidence'), findsNWidgets(2));
+        expect(
+          find.textContaining(
+            'Multiple styles scored similarly or evidence was sparse',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
   });
 }

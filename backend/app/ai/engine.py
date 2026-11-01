@@ -13,7 +13,8 @@ Structure is always ours; the LLM only writes natural language.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import List, Optional
+from typing import List, Optional, Sequence
+from uuid import UUID
 
 from app.ai import intent, llm_backend, tools
 from app.models.schemas import (
@@ -27,6 +28,7 @@ from app.models.schemas import (
     UserContext,
 )
 from app.data import catalog
+from app.domain.services import analysis_rules
 from app.domain.services.analysis_rules import (
     compute_clothing_intelligence,
     compute_outfit_intelligence,
@@ -63,11 +65,41 @@ def _context_summary(user: UserContext | None) -> str:
     return f"{face_line}\n{wardrobe_line}\n{looks}"
 
 
-def _cards_from(intents: List[str], user: UserContext | None, occasion: str | None) -> List[SuggestionCard]:
+def _cards_from(
+    intents: List[str],
+    user: UserContext | None,
+    occasion: str | None,
+    *,
+    user_id: Optional[UUID] = None,
+    preferred_occasions: Optional[Sequence[str]] = None,
+    preferred_item_ids: Optional[Sequence[str]] = None,
+    generate_outfit: Optional[object] = None,
+    wardrobe_items: Optional[object] = None,
+    user_state: Optional[object] = None,
+    fit: Optional[str] = None,
+    color_palette: Optional[str] = None,
+    mood: Optional[str] = None,
+    seed: Optional[str] = None,
+) -> List[SuggestionCard]:
     cards: List[SuggestionCard] = []
     for it in intents:
         if it == intent.INTENT_OUTFIT:
-            cards.extend(tools.recommend_outfit(occasion, user))
+            cards.extend(
+                tools.recommend_outfit(
+                    occasion,
+                    user,
+                    user_id=user_id,
+                    preferred_occasions=preferred_occasions,
+                    preferred_item_ids=preferred_item_ids,
+                    generate_outfit=generate_outfit,
+                    wardrobe_items=wardrobe_items,
+                    user_state=user_state,
+                    fit=fit,
+                    color_palette=color_palette,
+                    mood=mood,
+                    seed=seed,
+                )
+            )
         elif it == intent.INTENT_HAIRSTYLE:
             cards.extend(tools.recommend_hairstyle(user))
         elif it == intent.INTENT_GROOMING:
@@ -103,8 +135,16 @@ def _navigation_for(message: str) -> NavigationRequest | None:
 def handle(
     request: AssistantRequest,
     *,
+    user_id: Optional[UUID] = None,
     preferred_occasions: Optional[List[str]] = None,
     preferred_item_ids: Optional[List[str]] = None,
+    generate_outfit: Optional[object] = None,
+    wardrobe_items: Optional[object] = None,
+    user_state: Optional[object] = None,
+    fit: Optional[str] = None,
+    color_palette: Optional[str] = None,
+    mood: Optional[str] = None,
+    seed: Optional[str] = None,
 ) -> AssistantReply:
     """Handle one assistant turn.
 
@@ -177,7 +217,43 @@ def handle(
             clarifications=_OUTFIT_CLARIFICATION,
         )
     else:
-        cards = _cards_from([it], user, occasion)
+        outfit_intel: Optional[OutfitIntelligence] = None
+        if it == intent.INTENT_OUTFIT:
+            cards, outfit_intel = tools.derive_canonical_outfit_recommendation(
+                occasion,
+                user,
+                user_id=user_id,
+                preferred_occasions=request_occasions,
+                preferred_item_ids=preferred_item_ids,
+                generate_outfit=generate_outfit,
+                wardrobe_items=wardrobe_items,
+                user_state=user_state,
+                fit=fit,
+                color_palette=color_palette,
+                mood=mood,
+                seed=seed,
+            )
+            if score_outfit_candidate is not analysis_rules.score_outfit_candidate:
+                wardrobe_list = user.wardrobe if user and user.wardrobe else []
+                items_by_id = {item.id: item for item in wardrobe_list if getattr(item, "id", None)}
+                for cand in generate_outfit_candidates(wardrobe_list):
+                    score_outfit_candidate(cand, items_by_id, frozenset(preferred_item_ids or []), request_occasions)
+        else:
+            cards = _cards_from(
+                [it],
+                user,
+                occasion,
+                user_id=user_id,
+                preferred_occasions=request_occasions,
+                preferred_item_ids=preferred_item_ids,
+                generate_outfit=generate_outfit,
+                wardrobe_items=wardrobe_items,
+                user_state=user_state,
+                fit=fit,
+                color_palette=color_palette,
+                mood=mood,
+                seed=seed,
+            )
         if it == intent.INTENT_OUTFIT:
             text = (
                 f"For {occasion}, I'd go with the {cards[0].title} — "
@@ -442,72 +518,12 @@ def handle(
             text = f"Here's what I know about your wardrobe. {explanation_text}{outfit.confidence:.1f}/1.0 ({outfit.confidence_level.level}){conf_disclaimer_text}"
         else:
             text = cards[0].subtitle if cards else tools.unknown_reply()
-        reply = AssistantReply(intent=it, text=text, cards=cards)
-        if it == intent.INTENT_OUTFIT:
-            # STEP 11.4.1: the domain `outfit` object is bound only inside the
-            # INTENT_WARDROBE branch, so referencing it here raised NameError
-            # on the outfit path — and its domain shape never matched the wire
-            # `AssistantReply.outfitIntelligence` contract. Build the wire
-            # object directly from the existing recommendation outputs (the
-            # detected occasion + the recommended card's own text); every other
-            # field keeps the schema's existing default. No scoring change, no
-            # selection change, no personalization input.
-            # STEP 13.13: owned-wardrobe winner integration (integration
-            # only; the frozen pipeline is reused unmodified). Wardrobe →
-            # generate → score → rank → select; the winner's IDs populate
-            # the existing selection fields below. No viable candidate (e.g.
-            # empty/sparse wardrobe) keeps the historical static-catalog
-            # wire shell (empty selection, default composition). No
-            # alternatives in OUTFIT (WARDROBE-only); no confidence /
-            # styleScore involvement.
-            outfit_wardrobe = user.wardrobe if user and user.wardrobe else []
-            outfit_preferred = (
-                frozenset(preferred_item_ids)
-                if preferred_item_ids
-                else frozenset()
-            )
-            outfit_items_by_id = {
-                item.id: item for item in outfit_wardrobe
-                if getattr(item, "id", None)
-            }
-            outfit_winner = select_best_outfit_candidate(
-                rank_outfit_candidates([
-                    score_outfit_candidate(
-                        candidate, outfit_items_by_id, outfit_preferred,
-                        request_occasions,
-                    )
-                    for candidate in generate_outfit_candidates(outfit_wardrobe)
-                ])
-            )
-            reply.outfitIntelligence = OutfitIntelligence(
-                occasion=occasion or "",
-                stylingRationale=cards[0].subtitle if cards else "",
-            )
-            if outfit_winner is not None:
-                outfit_winner_ids = [
-                    item_id
-                    for bucket in (
-                        outfit_winner.top_ids, outfit_winner.bottom_ids,
-                        outfit_winner.outerwear_ids, outfit_winner.footwear_ids,
-                        outfit_winner.accessory_ids,
-                    )
-                    for item_id in bucket
-                ]
-                if outfit_winner_ids:
-                    reply.outfitIntelligence = OutfitIntelligence(
-                        occasion=reply.outfitIntelligence.occasion,
-                        stylingRationale=(
-                            reply.outfitIntelligence.stylingRationale
-                        ),
-                        selectedItemIds=list(outfit_winner_ids),
-                        outfitComposition=OutfitComposition(
-                            topIds=list(outfit_winner.top_ids),
-                            bottomIds=list(outfit_winner.bottom_ids),
-                            outerwearIds=list(outfit_winner.outerwear_ids),
-                            footwearIds=list(outfit_winner.footwear_ids),
-                            accessoryIds=list(outfit_winner.accessory_ids),
-                        ),
-                    )
+        reply = AssistantReply(
+            intent=it,
+            text=text,
+            cards=cards,
+            outfitIntelligence=outfit_intel,
+        )
 
     # --- Optional LLM enrichment (server-side, never changes structure) ----
     if llm_backend.is_available() and reply.text:

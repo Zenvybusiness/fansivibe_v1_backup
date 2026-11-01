@@ -823,7 +823,7 @@ void main() {
       await tester.pumpWidget(MaterialApp.router(routerConfig: router));
       await tester.pumpAndSettle();
 
-      await _tapVisible(tester, find.text('Save Profile'));
+      await _tapVisible(tester, find.text('Save Appearance Profile'));
       await tester.pumpAndSettle();
 
       expect(find.text('sign-in-marker'), findsOneWidget);

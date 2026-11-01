@@ -1,4 +1,6 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:fansivibe/features/media/presentation/wardrobe_cache_manager.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/shared/components/fansi_image_well.dart';
 import 'package:fansivibe/shared/components/fansi_insight_card.dart';
@@ -337,39 +339,80 @@ class ClothingItemCard extends StatelessWidget {
 
 /// Image slot for wardrobe cards and detail views.
 ///
-/// Renders the exact photo the user took/selected ([WardrobeItemData.imageBytes])
-/// with `BoxFit.cover`. States: missing/empty bytes → the existing tonal
-/// [FansiImageWell] (manual entries unchanged); undecodable bytes → the well
-/// via [errorBuilder] (never a crash, never a placeholder photo). No loading
-/// spinner: bytes are local, so decode is immediate.
+/// Image slot for wardrobe cards and detail views (Stage 2 P0-4 Gate 6.3).
+///
+/// Supports:
+/// 1. Local user photo bytes ([WardrobeItemData.imageBytes]).
+/// 2. Preserved local original photograph ([WardrobeItemData.localOriginalPath]).
+/// 3. Cached cloud WebP derivatives and temporary presigned GET URLs ([WardrobeItemData.imageUrl]).
+/// 4. Fallback to tonal [FansiImageWell] on missing, undecodable, or failed images.
 class WardrobeItemImage extends StatelessWidget {
   const WardrobeItemImage({required this.item, this.iconSize = 36, super.key});
 
   final WardrobeItemData item;
   final double iconSize;
 
-  @override
-  Widget build(BuildContext context) {
-    final bytes = item.imageBytes;
-    if (bytes == null || bytes.isEmpty) {
-      return FansiImageWell(
+  Widget _buildWell() => FansiImageWell(
         icon: wardrobeIconFor(item.category),
         color: wardrobeSwatchFor(item.color),
         iconSize: iconSize,
         showLabel: false,
       );
+
+  @override
+  Widget build(BuildContext context) {
+    // 1. Synchronous exact memory bytes if available (local capture / test)
+    final bytes = item.imageBytes;
+    if (bytes != null && bytes.isNotEmpty) {
+      return Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (context, _, __) => _buildWell(),
+      );
     }
-    return Image.memory(
-      bytes,
-      fit: BoxFit.cover,
-      gaplessPlayback: true,
-      errorBuilder: (context, _, __) => FansiImageWell(
-        icon: wardrobeIconFor(item.category),
-        color: wardrobeSwatchFor(item.color),
-        iconSize: iconSize,
-        showLabel: false,
-      ),
-    );
+
+    // 2. Cloud retrieval or local original path via cache manager
+    final hasRemote = (item.imageUrl != null && item.imageUrl!.isNotEmpty) ||
+        (item.imageRef != null);
+    final hasLocalOriginal = item.localOriginalPath != null &&
+        item.localOriginalPath!.isNotEmpty;
+
+    if (hasRemote || hasLocalOriginal) {
+      final cacheKey = item.imageRef?.contentHash ??
+          item.imageRef?.objectKey ??
+          item.id;
+      final downloadUrl = item.imageUrl ??
+          item.imageRef?.downloadUrl ??
+          item.imageRef?.url;
+      final uploadId = item.imageRef?.uploadId;
+
+      return FutureBuilder<Uint8List?>(
+        future: WardrobeCacheManager.instance.getImage(
+          key: cacheKey,
+          downloadUrl: downloadUrl,
+          uploadId: uploadId,
+          localOriginalPath: item.localOriginalPath,
+        ),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done &&
+              snapshot.hasData &&
+              snapshot.data != null &&
+              snapshot.data!.isNotEmpty) {
+            return Image.memory(
+              snapshot.data!,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (context, _, __) => _buildWell(),
+            );
+          }
+          return _buildWell();
+        },
+      );
+    }
+
+    // 3. Fallback well for manual entries without images
+    return _buildWell();
   }
 }
 

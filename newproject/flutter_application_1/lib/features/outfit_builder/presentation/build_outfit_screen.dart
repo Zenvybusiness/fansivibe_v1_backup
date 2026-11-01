@@ -5,6 +5,7 @@ import 'package:fansivibe/features/outfit_builder/data/outfit_builder_mock_data.
 import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
+import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 class BuildOutfitScreen extends StatefulWidget {
@@ -120,6 +121,48 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
     );
   }
 
+  Widget _buildOccasionTransparencyNotice(BuildContext context) {
+    const copy =
+        'Your outfit recommendations are tailored to the occasion you select. '
+        'Date and location are not automatically considered.';
+    return Semantics(
+      container: true,
+      label: copy,
+      child: Container(
+        key: const Key('occasion_context_transparency_notice'),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: FansivibeColors.surfaceContainerLow,
+          borderRadius: FansivibeRadius.smdBorder,
+          border: Border.all(
+            color: FansivibeColors.accentGold.withValues(alpha: 0.25),
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.info_outline_rounded,
+              size: 18,
+              color: FansivibeColors.accentGold,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                copy,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: FansivibeColors.textSecondary,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -183,6 +226,7 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
                         OptionSection(
                           title: 'Occasion',
                           subtitle: 'What\'s the event?',
+                          helper: _buildOccasionTransparencyNotice(context),
                           options: BuilderOption.occasionOptions,
                           selectedId: _selectedOccasion,
                           onSelected: (id) =>

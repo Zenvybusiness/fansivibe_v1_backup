@@ -14,7 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Path, Query, Response
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user_id
+from app.api.deps import get_current_user_id, get_storage_adapter
 from app.api.errors import validation
 from app.api.schemas.wardrobe import (
     WardrobeItem,
@@ -39,6 +39,7 @@ from app.application.wardrobe import (
     UpdateWardrobeItem,
     DeleteWardrobeItem,
 )
+from app.domain.ports.storage import ObjectStoragePort
 from app.infrastructure.db.repositories import (
     LearningSignalRepositorySQL,
     SavedLookRepositorySQL,
@@ -51,8 +52,24 @@ from app.infrastructure.db.session import get_db
 router = APIRouter(prefix="/v1/wardrobe", tags=["wardrobe"])
 
 
-def _to_wire(record) -> WardrobeItem:
-    """Map a `WardrobeItemRecord` (domain `snake_case`) to the wire schema."""
+async def _to_wire(record, storage: ObjectStoragePort | None = None) -> WardrobeItem:
+    """Map a `WardrobeItemRecord` (domain `snake_case`) to the wire schema and enrich with presigned GET URL."""
+    image_url: str | None = None
+    image_ref = record.image_ref
+    if image_ref and isinstance(image_ref, dict):
+        key = (
+            image_ref.get("objectKey")
+            or image_ref.get("object_key")
+            or image_ref.get("canonical_key")
+            or image_ref.get("canonicalKey")
+            or image_ref.get("key")
+        )
+        if key and storage is not None:
+            try:
+                image_url = await storage.generate_presigned_get_url(key=key, expires_in_s=900)
+                image_ref = {**image_ref, "downloadUrl": image_url, "url": image_url}
+            except Exception:
+                pass
     return WardrobeItem(
         id=record.id,
         name=record.name,
@@ -62,7 +79,8 @@ def _to_wire(record) -> WardrobeItem:
         isFavorite=record.is_favorite,
         fit=record.fit,
         fitConfidence=record.fit_confidence,
-        imageRef=record.image_ref,
+        imageRef=image_ref,
+        imageUrl=image_url,
         createdAt=record.created_at,
         updatedAt=record.updated_at,
     )
@@ -107,7 +125,7 @@ def _wear_summary_to_wire(summary) -> WearSummary:
         429: {"model": dict},
     },
 )
-def list_wardrobe_items(
+async def list_wardrobe_items(
     category: str | None = Query(
         default=None,
         description="Vocab code filter (wardrobe_categories.code). Validated server-side.",
@@ -128,6 +146,7 @@ def list_wardrobe_items(
     page_size: int = Query(default=20, ge=1, le=100, description="Items per page, max 100"),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
 ) -> ListEnvelope:
     """List the authenticated user's wardrobe items with filtering, sorting, and pagination."""
     use_case = ListWardrobeItems(wardrobe=WardrobeItemRepositorySQL(db))
@@ -140,8 +159,9 @@ def list_wardrobe_items(
         page=page,
         page_size=page_size,
     )
+    wire_items = [await _to_wire(item, storage=storage) for item in items]
     return ListEnvelope(
-        items=[_to_wire(item) for item in items],
+        items=wire_items,
         page=page,
         page_size=page_size,
         total=total,
@@ -160,22 +180,24 @@ def list_wardrobe_items(
         429: {"model": dict},
     },
 )
-def add_wardrobe_item(
+async def add_wardrobe_item(
     request: WardrobeItemCreate,
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
 ) -> WardrobeItem:
     """Create a new wardrobe item.
 
     Category and color are validated against the controlled vocabulary server-side.
     Material is optional and validated if provided. An optional `imageRef`
-    photo reference (M11 garment-analysis media ref) is stored verbatim.
+    photo reference (M11 garment-analysis media ref) is validated for ownership and publication.
     Optional vision-observed `fit` + `fitConfidence` (0-1) persist as
     structured evidence (C-02-F); absent → NULL.
     """
     use_case = AddWardrobeItem(
         wardrobe=WardrobeItemRepositorySQL(db),
         signals=LearningSignalRepositorySQL(db),
+        db=db,
     )
     record = use_case(
         user_id=user_id,
@@ -188,7 +210,7 @@ def add_wardrobe_item(
         fit=request.fit,
         fit_confidence=request.fitConfidence,
     )
-    return _to_wire(record)
+    return await _to_wire(record, storage=storage)
 
 
 @router.get(
@@ -200,10 +222,11 @@ def add_wardrobe_item(
         422: {"model": dict},
     },
 )
-def get_wardrobe_item(
+async def get_wardrobe_item(
     item_id: UUID = Path(..., description="UUID of the wardrobe item to retrieve"),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
 ) -> WardrobeItem:
     """Retrieve a single wardrobe item.
 
@@ -211,7 +234,7 @@ def get_wardrobe_item(
     """
     use_case = GetWardrobeItem(wardrobe=WardrobeItemRepositorySQL(db))
     record = use_case(user_id=user_id, item_id=item_id)
-    return _to_wire(record)
+    return await _to_wire(record, storage=storage)
 
 
 @router.patch(
@@ -223,11 +246,12 @@ def get_wardrobe_item(
         422: {"model": dict},
     },
 )
-def update_wardrobe_item(
+async def update_wardrobe_item(
     request: WardrobeItemPatch,
     item_id: UUID = Path(..., description="UUID of the wardrobe item to update"),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
 ) -> WardrobeItem:
     """Update a wardrobe item (partial merge).
 
@@ -241,7 +265,7 @@ def update_wardrobe_item(
     server updates updatedAt.
     Foreign/non-existent item → 404.
     """
-    use_case = UpdateWardrobeItem(wardrobe=WardrobeItemRepositorySQL(db))
+    use_case = UpdateWardrobeItem(wardrobe=WardrobeItemRepositorySQL(db), db=db)
     record = use_case(
         user_id=user_id,
         item_id=item_id,
@@ -251,14 +275,14 @@ def update_wardrobe_item(
         material=request.material,
         material_set="material" in request.model_fields_set,
         isFavorite=request.isFavorite,
-        image_ref=request.imageRef,
-        image_ref_set="imageRef" in request.model_fields_set,
+        image_ref=None if request.clearImageRef else request.imageRef,
+        image_ref_set="imageRef" in request.model_fields_set or bool(request.clearImageRef),
         fit=request.fit,
         fit_set="fit" in request.model_fields_set,
         fit_confidence=request.fitConfidence,
         fit_confidence_set="fitConfidence" in request.model_fields_set,
     )
-    return _to_wire(record)
+    return await _to_wire(record, storage=storage)
 
 
 @router.delete(

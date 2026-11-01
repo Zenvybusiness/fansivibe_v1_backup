@@ -147,6 +147,19 @@ class _RecordingRepo implements WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) async => null;
+
+  @override
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) =>
+      logWear(
+        itemIds: itemIds,
+        wornAt: wornAt,
+        idempotencyKey: idempotencyKey,
+      );
+
 }
 
 void main() {

@@ -142,8 +142,8 @@ def test_config_source_must_match_adapter():
 def test_cli_lists_sources_and_refuses_unknown(capsys):
     assert main(["--list-sources"]) == 0
     assert "fixture_catalog" in capsys.readouterr().out
-    # Unknown (live) source is refused before any database work.
-    assert main(["--source", "amazon_in"]) == 2
+    # Unknown (unconfigured) source is refused before any database work.
+    assert main(["--source", "unconfigured_source"]) == 2
     assert "not configured" in capsys.readouterr().err
 
 

@@ -167,3 +167,15 @@ def get_discovery_event_repository(db: Session = Depends(get_db)):
     return DiscoveryEventRepositorySQL(db)
 
 
+def get_storage_adapter():
+    """Dependency provider for object storage port (Stage 2 P0-4 / M16).
+
+    Instantiates the configured storage adapter based on Settings.
+    Tests override this via app.dependency_overrides[get_storage_adapter].
+    """
+    from app.config.settings import get_settings
+    from app.infrastructure.external.storage import get_default_storage_adapter
+
+    return get_default_storage_adapter(get_settings())
+
+

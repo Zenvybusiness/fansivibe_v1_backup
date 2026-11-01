@@ -84,6 +84,8 @@ class OutfitIntelligence {
     required this.confidence,
     required this.explanation,
     required this.dataAvailability,
+    this.matchScore,
+    this.status,
   });
 
   /// Machine-readable selected wardrobe item IDs.
@@ -110,6 +112,12 @@ class OutfitIntelligence {
   /// Data availability: 'full', 'partial', or 'sparse'.
   final String dataAvailability;
 
+  /// Canonical ensemble match score (0-100).
+  final int? matchScore;
+
+  /// Typed status (success, empty_wardrobe, missing_required_category, no_legal_candidate, unavailable).
+  final String? status;
+
   factory OutfitIntelligence.fromJson(Map<String, dynamic> json) => OutfitIntelligence(
     selectedItemIds: (json['selectedItemIds'] as List<dynamic>? ?? [])
         .map((e) => e as String)
@@ -121,6 +129,8 @@ class OutfitIntelligence {
     confidence: (json['confidence'] as num? ?? 0.0).toDouble(),
     explanation: json['explanation'] as String? ?? '',
     dataAvailability: json['dataAvailability'] as String? ?? 'full',
+    matchScore: json['matchScore'] as int?,
+    status: json['status'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -132,6 +142,8 @@ class OutfitIntelligence {
     'confidence': confidence,
     'explanation': explanation,
     'dataAvailability': dataAvailability,
+    if (matchScore != null) 'matchScore': matchScore,
+    if (status != null) 'status': status,
   };
 }
 
@@ -222,6 +234,8 @@ class OutfitSaveRequest {
         'confidence': intelligence.confidence,
         'explanation': intelligence.explanation,
         'dataAvailability': intelligence.dataAvailability,
+        if (intelligence.matchScore != null) 'matchScore': intelligence.matchScore,
+        if (intelligence.status != null) 'status': intelligence.status,
       },
       sourceContext: 'outfit',
     );

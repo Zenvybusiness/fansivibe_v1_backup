@@ -384,6 +384,19 @@ class _MockAddRepo implements WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) async => null;
+
+  @override
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) =>
+      logWear(
+        itemIds: itemIds,
+        wornAt: wornAt,
+        idempotencyKey: idempotencyKey,
+      );
+
 }
 
 class _CompleterAddRepo implements WardrobeRepository {
@@ -435,4 +448,17 @@ class _CompleterAddRepo implements WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) async => null;
+
+  @override
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) =>
+      logWear(
+        itemIds: itemIds,
+        wornAt: wornAt,
+        idempotencyKey: idempotencyKey,
+      );
+
 }

@@ -61,9 +61,55 @@ def test_appearance_profile_is_carried_with_source_run():
     assert result.appearance.sourceRunId == "abc-123"
 
 
-def test_defaults_to_oval_when_shape_missing():
+def test_zero_fabrication_when_shape_missing():
+    """Missing or empty faceShape receives 0.0 face-shape boost and never claims an oval face."""
     result = recommend_hairstyle(KNOWLEDGE, AppearanceProfile(faceShape=""))
     assert result.top.id == "textured_quiff"
+    assert result.top.matchScore == 0.94  # Base seed score only (0.94), zero face boost
+    assert not any("strongest match for your" in r.lower() for r in result.top.reasons)
+    assert not any("face-shape fit" in r.lower() for r in result.top.reasons)
+    assert result.appearance.faceShape == ""
+
+
+def test_zero_fabrication_when_shape_whitespace_or_none():
+    """Whitespace face shape receives 0.0 face-shape boost without claiming oval."""
+    result = recommend_hairstyle(KNOWLEDGE, AppearanceProfile(faceShape="   "))
+    assert result.top.matchScore == 0.94
+    assert not any("strongest match for your" in r.lower() for r in result.top.reasons)
+    assert not any("face-shape fit" in r.lower() for r in result.top.reasons)
+
+
+def test_face_boost_and_reason_granted_only_when_explicitly_oval():
+    """When oval face shape is explicitly provided, face-shape boost and reason are granted."""
+    result = recommend_hairstyle(KNOWLEDGE, AppearanceProfile(faceShape="oval"))
+    assert result.top.id == "textured_quiff"
+    assert result.top.matchScore == 1.0  # 0.94 seed + 0.06 face boost = 1.0 (min capped)
+    assert any("Strongest match for your oval face shape" in r for r in result.top.reasons)
+
+
+def test_ai_tools_recommend_hairstyle_zero_fabrication():
+    """ai/tools.py recommend_hairstyle does not fabricate oval when user context has no face shape."""
+    from app.ai.tools import recommend_hairstyle as ai_recommend_hairstyle
+    from app.models.schemas import UserContext, FaceData
+
+    # Case 1: user is None
+    cards_none = ai_recommend_hairstyle(None)
+    assert len(cards_none) == 2
+    assert cards_none[0].title == "Textured Quiff"
+
+    # Case 2: user has no face
+    cards_no_face = ai_recommend_hairstyle(UserContext())
+    assert len(cards_no_face) == 2
+    assert cards_no_face[0].title == "Textured Quiff"
+
+    # Case 3: user has empty faceShape
+    cards_empty_face = ai_recommend_hairstyle(UserContext(face=FaceData(faceShape="")))
+    assert len(cards_empty_face) == 2
+    assert cards_empty_face[0].title == "Textured Quiff"
+
+    # Case 4: user has explicit round face shape -> returns Pompadour top
+    cards_round = ai_recommend_hairstyle(UserContext(face=FaceData(faceShape="round")))
+    assert cards_round[0].title == "Classic Pompadour"
 
 
 def test_reasons_are_grounded_in_catalog():
@@ -119,6 +165,58 @@ def test_empty_knowledge_raises():
 
     with pytest.raises(ValueError):
         recommend_hairstyle(EmptySource(), AppearanceProfile(faceShape="Oval"))
+
+
+# --- Stage 1D Batch 2: Hairstyle Uncertainty Tests -------------------------
+
+
+def test_hairstyle_sparse_profile_sets_needs_more_data_and_provisional_confidence():
+    """Sparse profile (face shape only, others empty) sets needs_more_data=True and bounded confidence."""
+    result = recommend_hairstyle(
+        KNOWLEDGE,
+        AppearanceProfile(faceShape="Oval", skinTone="", bodyType="", styleType=""),
+    )
+    assert result.needs_more_data is True
+    # Completeness is 0.25 (1/4 attributes). Confidence is 0.5 * 0.25 + 0.5 * decisiveness <= 0.63
+    assert 0.12 <= result.confidence <= 0.65
+    snapshot = result.to_snapshot()
+    assert snapshot["needs_more_data"] is True
+    assert snapshot["confidence"] == result.confidence
+
+
+def test_hairstyle_complete_profile_clears_needs_more_data():
+    """Full profile with all 4 attributes sets needs_more_data=False and high confidence."""
+    result = recommend_hairstyle(
+        KNOWLEDGE,
+        AppearanceProfile(
+            faceShape="Oval",
+            skinTone="Warm Medium",
+            bodyType="Athletic",
+            styleType="Modern Classic",
+        ),
+    )
+    assert result.needs_more_data is False
+    assert result.confidence >= 0.5
+    snapshot = result.to_snapshot()
+    assert snapshot["needs_more_data"] is False
+    assert snapshot["confidence"] == result.confidence
+
+
+def test_hairstyle_missing_face_shape_flags_needs_more_data_with_zero_completeness():
+    """Missing face shape results in 0.0 completeness, needs_more_data=True, and zero face boost."""
+    result = recommend_hairstyle(
+        KNOWLEDGE,
+        AppearanceProfile(faceShape=None, skinTone="", bodyType="", styleType=""),
+    )
+    assert result.needs_more_data is True
+    # Completeness is 0.0, so confidence is strictly driven by top pick decisiveness (<= 0.50)
+    assert result.confidence <= 0.50
+    # Zero face-shape boost applied
+    assert not any("face-shape fit" in r.lower() for r in result.top.reasons)
+    snapshot = result.to_snapshot()
+    assert snapshot["needs_more_data"] is True
+    assert snapshot["appearance"]["faceShape"] is None
+
 
 
 # ============================================================================

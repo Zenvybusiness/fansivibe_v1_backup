@@ -91,3 +91,55 @@ class EphemeralGroomingProfile(BaseModel):
     skin_tone: str = ""
     body_type: str = ""
     style_type: str = ""
+
+
+class CreateGroomingRunRequest(BaseModel):
+    """Request payload for authenticated grooming analysis (endpoint #38).
+
+    Allows users to provide manual grooming preferences (face shape, beard style,
+    density, color) which are used for grounding the recommendation.
+    Backward-compatible: all fields optional; empty `{}` accepted.
+    """
+
+    face_shape: Optional[str] = None
+    faceShape: Optional[str] = None
+    beard_style: Optional[str] = None
+    beardStyle: Optional[str] = None
+    beard_density: Optional[str] = None
+    beardDensity: Optional[str] = None
+    beard_color: Optional[str] = None
+    beardColor: Optional[str] = None
+    skin_tone: Optional[str] = None
+    skinTone: Optional[str] = None
+    body_type: Optional[str] = None
+    bodyType: Optional[str] = None
+    style_type: Optional[str] = None
+    styleType: Optional[str] = None
+
+    @property
+    def resolved_face_shape(self) -> str:
+        return (self.face_shape or self.faceShape or "").strip()
+
+    @property
+    def resolved_beard_style(self) -> str:
+        return (self.beard_style or self.beardStyle or "").strip()
+
+    @property
+    def resolved_beard_density(self) -> str:
+        return (self.beard_density or self.beardDensity or "").strip()
+
+    @property
+    def resolved_beard_color(self) -> str:
+        return (self.beard_color or self.beardColor or "").strip()
+
+    @property
+    def resolved_skin_tone(self) -> str:
+        return (self.skin_tone or self.skinTone or "").strip()
+
+    @property
+    def resolved_body_type(self) -> str:
+        return (self.body_type or self.bodyType or "").strip()
+
+    @property
+    def resolved_style_type(self) -> str:
+        return (self.style_type or self.styleType or "").strip()

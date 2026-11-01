@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/wardrobe/data/garment_models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_item_screen.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -923,15 +926,25 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
     Map<String, dynamic> garment,
   ) {
     final category = garment['category'] as String?;
+    final subcategory = (garment['subcategory'] ?? garment['name']) as String?;
     final color = garment['color'] as String?;
     final pattern = garment['pattern'] as String?;
     final material = garment['material'] as String?;
     final fit = garment['fit'] as String?;
     final style = garment['style'] as String?;
 
+    final rawConfidence = garment['confidence'];
+    final double? confidence =
+        (rawConfidence is num) ? rawConfidence.toDouble() : null;
+    final bool needsReview =
+        garment['needs_review'] as bool? ?? garment['needsReview'] as bool? ?? true;
+
     final observations = <Widget>[];
     if (category != null && category.trim().isNotEmpty) {
       observations.add(_buildObservationItem(context, 'Category', category.trim(), Icons.category_outlined));
+    }
+    if (subcategory != null && subcategory.trim().isNotEmpty) {
+      observations.add(_buildObservationItem(context, 'Subcategory', subcategory.trim(), Icons.label_outline_rounded));
     }
     if (color != null && color.trim().isNotEmpty) {
       observations.add(_buildObservationItem(context, 'Color', color.trim(), Icons.palette_outlined));
@@ -958,7 +971,104 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
       );
     }
 
-    return Column(children: observations);
+    // Status chips: review state and confidence
+    final hasConfidence = confidence != null && confidence >= 0.0 && confidence <= 1.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: (needsReview ? FansivibeColors.warning : FansivibeColors.success)
+                    .withValues(alpha: 0.12),
+                borderRadius: FansivibeRadius.smBorder,
+                border: Border.all(
+                  color: (needsReview ? FansivibeColors.warning : FansivibeColors.success)
+                      .withValues(alpha: 0.35),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    needsReview
+                        ? Icons.rate_review_outlined
+                        : Icons.check_circle_outline_rounded,
+                    size: 14,
+                    color: needsReview ? FansivibeColors.warning : FansivibeColors.success,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    needsReview ? 'Needs Review' : 'Confirmed',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: needsReview ? FansivibeColors.warning : FansivibeColors.success,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: (hasConfidence ? FansivibeColors.accentGold : FansivibeColors.textSecondary)
+                    .withValues(alpha: 0.1),
+                borderRadius: FansivibeRadius.smBorder,
+                border: Border.all(
+                  color: (hasConfidence ? FansivibeColors.accentGold : FansivibeColors.textSecondary)
+                      .withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    hasConfidence
+                        ? Icons.auto_awesome_rounded
+                        : Icons.help_outline_rounded,
+                    size: 14,
+                    color: hasConfidence
+                        ? FansivibeColors.accentGold
+                        : FansivibeColors.textSecondary,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      hasConfidence
+                          ? 'Confidence: ${(confidence * 100).round()}% (AI estimate)'
+                          : 'Confidence unavailable',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: hasConfidence
+                            ? FansivibeColors.accentGold
+                            : FansivibeColors.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...observations,
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FansiButton.primary(
+            label: 'Add to Wardrobe',
+            icon: Icons.checkroom_rounded,
+            onPressed: () => _handleAddToWardrobe(garment),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildDetectedItemsList(
@@ -974,25 +1084,47 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
           final fit = item['fit'] as String? ?? '';
 
           return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.checkroom_outlined,
-                  size: 16,
-                  color: FansivibeColors.accentGold,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '$name${category.isNotEmpty ? ' ($category)' : ''}${color.isNotEmpty ? ' • $color' : ''}${fit.isNotEmpty ? ' • $fit' : ''}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: FansivibeColors.textPrimary,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: FansivibeColors.surfaceContainerHigh.withValues(alpha: 0.3),
+                borderRadius: FansivibeRadius.smBorder,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.checkroom_outlined,
+                        size: 16,
+                        color: FansivibeColors.accentGold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '$name${category.isNotEmpty ? ' ($category)' : ''}${color.isNotEmpty ? ' • $color' : ''}${fit.isNotEmpty ? ' • $fit' : ''}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: FansivibeColors.textPrimary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
+                      label: const Text('Add to Wardrobe'),
+                      onPressed: () => _handleAddToWardrobe(item),
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         }
@@ -1007,6 +1139,61 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
         );
       }).toList(),
     );
+  }
+
+  Future<void> _handleAddToWardrobe(
+    Map<String, dynamic> garment,
+  ) async {
+    final rawCategory = garment['category'] as String?;
+    final rawSubcategory = (garment['subcategory'] ?? garment['name']) as String?;
+    final rawColor = garment['color'] as String?;
+    final rawPattern = garment['pattern'] as String?;
+    final rawMaterial = garment['material'] as String?;
+    final rawStyle = garment['style'] as String?;
+    final rawFit = garment['fit'] as String?;
+    final rawConfidence = garment['confidence'];
+    final double? confidence =
+        (rawConfidence is num) ? rawConfidence.toDouble() : null;
+    final bool needsReview =
+        garment['needs_review'] as bool? ?? garment['needsReview'] as bool? ?? true;
+    final sourceRunId = garment['sourceRunId'] as String?;
+
+    final garmentResult = GarmentAnalysisResult(
+      category: rawCategory,
+      subcategory: rawSubcategory,
+      color: rawColor,
+      pattern: rawPattern,
+      material: rawMaterial,
+      style: rawStyle,
+      fit: rawFit,
+      confidence: confidence,
+      needsReview: needsReview,
+      sourceRunId: sourceRunId,
+    );
+
+    final categoryConfig = AddItemConfig.categoryConfigFor(rawCategory);
+
+    final savedItem = await Navigator.of(context).push<WardrobeItemData>(
+      MaterialPageRoute(
+        builder: (_) => AddWardrobeItemScreen(
+          category: categoryConfig,
+          initialGarmentResult: garmentResult,
+        ),
+      ),
+    );
+
+    if (savedItem != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added ${savedItem.name} to your wardrobe.'),
+          backgroundColor: FansivibeColors.success,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: FansivibeRadius.smdBorder,
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildBranchFailureNote(BuildContext context, String reason) {
@@ -1087,22 +1274,87 @@ class _OutfitAnalysisScreenState extends State<OutfitAnalysisScreen> {
       builder: (context, constraints) {
         final isNarrow = constraints.maxWidth < 360;
 
+        final rawPersistence = (analysisResult?['profile_persistence'] ??
+                analysisResult?['profilePersistence']) as String?;
+        final String persistenceOutcome;
+        if (rawPersistence == 'saved') {
+          persistenceOutcome = 'saved';
+        } else if (rawPersistence == 'not_saved') {
+          persistenceOutcome = 'not_saved';
+        } else if (rawPersistence == 'not_applicable') {
+          persistenceOutcome = 'not_applicable';
+        } else {
+          persistenceOutcome = 'unknown';
+        }
+
+        final appearance =
+            analysisResult?['appearance'] as Map<String, dynamic>?;
+        final hasAppearance = appearance != null && appearance.isNotEmpty;
+
+        final IconData saveIcon;
+        if (persistenceOutcome == 'saved') {
+          saveIcon = Icons.check_circle_outline;
+        } else if (persistenceOutcome == 'not_saved') {
+          saveIcon = Icons.error_outline;
+        } else {
+          saveIcon = Icons.bookmark_border;
+        }
+
         final saveButton = FansiButton.secondary(
-          label: 'Save Profile',
-          icon: Icons.bookmark_border,
+          label: 'Save Appearance Profile',
+          icon: saveIcon,
           onPressed: () {
             if (isGuestUser) {
               promptGuestSignIn(
                 context,
-                action: 'Sign in to save your profile. Browsing stays free.',
+                action:
+                    'Guest preview does not save a personal appearance profile. Sign in to save your appearance profile.',
               );
               return;
             }
             clearPendingEphemeralResult();
+
+            if (!hasAppearance) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text(
+                    'No appearance profile was detected in this photo. Garments can be added to your wardrobe above.',
+                  ),
+                  backgroundColor: FansivibeColors.accentGold,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: FansivibeRadius.smdBorder,
+                  ),
+                ),
+              );
+              return;
+            }
+
+            final String message;
+            final Color bgColor;
+
+            if (persistenceOutcome == 'saved') {
+              message =
+                  'Appearance profile saved to your account. Garments can be added to your wardrobe above.';
+              bgColor = FansivibeColors.accentGold;
+            } else if (persistenceOutcome == 'not_saved') {
+              message =
+                  'Appearance profile could not be saved to your account. Garments can be added to your wardrobe above.';
+              bgColor = FansivibeColors.error;
+            } else if (persistenceOutcome == 'not_applicable') {
+              message =
+                  'Guest preview does not save a personal appearance profile. Garments can be added to your wardrobe above.';
+              bgColor = FansivibeColors.surfaceContainerHigh;
+            } else {
+              message =
+                  'Appearance profile persistence could not be verified. Garments can be added to your wardrobe above.';
+              bgColor = FansivibeColors.surfaceContainerHigh;
+            }
+
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Text('Appearance profile saved'),
-                backgroundColor: FansivibeColors.accentGold,
+                content: Text(message),
+                backgroundColor: bgColor,
                 behavior: SnackBarBehavior.floating,
                 shape: RoundedRectangleBorder(
                   borderRadius: FansivibeRadius.smdBorder,

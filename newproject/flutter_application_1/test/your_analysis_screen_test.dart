@@ -5,6 +5,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/photo_capture_screen.dart';
 import 'package:fansivibe/features/onboarding/presentation/screens/your_analysis_screen.dart';
+import 'package:fansivibe/features/assistant/data/models.dart';
+import 'package:fansivibe/features/auth/data/guest_data_migration.dart';
+import 'package:fansivibe/features/learning/data/models.dart';
+import 'package:fansivibe/features/learning/learning_repository.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
@@ -424,4 +431,338 @@ void main() {
       );
     });
   });
+
+  group('D10 Guest Preview Disclosure', () {
+    testWidgets('1 & 2 & 3. guest preview disclosure is visible with required temporary preview copy', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: _router(
+            resultScreen: YourAnalysisScreen(
+              outfitSnapshot: <String, dynamic>{
+                'appearance': <String, dynamic>{'faceShape': 'oval'},
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final disclosureFinder = find.text('Your style preview is temporary');
+      await tester.scrollUntilVisible(disclosureFinder, 300.0);
+      await tester.pumpAndSettle();
+
+      // 1. Guest preview disclosure is visible
+      expect(disclosureFinder, findsOneWidget);
+
+      // 2. Temporary-preview meaning is displayed
+      expect(
+        find.textContaining(
+          'Your guest scan gives you a preview of your style analysis. '
+          'It is not saved as your personal profile.',
+        ),
+        findsOneWidget,
+      );
+
+      // 3. User is told to complete an authenticated scan for profile personalization
+      expect(
+        find.textContaining(
+          'complete an authenticated scan to personalize your Fansivibe profile',
+        ),
+        findsOneWidget,
+      );
+
+      // Option to continue without an account is preserved
+      expect(
+        find.textContaining('You can also continue exploring without an account'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('4. Create Account navigation still works', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: _router(
+            resultScreen: YourAnalysisScreen(
+              outfitSnapshot: <String, dynamic>{
+                'appearance': <String, dynamic>{'faceShape': 'oval'},
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _tapVisible(tester, 'Create Account');
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('create-account-marker'), findsOneWidget);
+    });
+
+    testWidgets('5. Sign In navigation still works from disclosure screen', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: _router(
+            resultScreen: YourAnalysisScreen(
+              outfitSnapshot: <String, dynamic>{
+                'appearance': <String, dynamic>{'faceShape': 'oval'},
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _tapVisible(tester, 'Sign In to Continue');
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('create-account-marker'), findsOneWidget);
+    });
+
+    testWidgets('6. Continue Without Account still works from disclosure screen', (
+      WidgetTester tester,
+    ) async {
+      _seenExtra = null;
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: _router(
+            resultScreen: YourAnalysisScreen(
+              outfitSnapshot: <String, dynamic>{
+                'appearance': <String, dynamic>{'faceShape': 'oval'},
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _tapVisible(tester, 'Continue Without Account');
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('home-marker'), findsOneWidget);
+      expect(LocalStorage.savedLocally, isTrue);
+      expect(LocalStorage.onboardingComplete, isTrue);
+    });
+
+    testWidgets('7. disclosure is not incorrectly shown to authenticated users', (
+      WidgetTester tester,
+    ) async {
+      await AuthSession.saveSession('auth-jwt-token-xyz');
+
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: _router(
+            resultScreen: YourAnalysisScreen(
+              outfitSnapshot: <String, dynamic>{
+                'appearance': <String, dynamic>{'faceShape': 'oval'},
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Your style preview is temporary'), findsNothing);
+      expect(
+        find.textContaining('Your guest scan gives you a preview'),
+        findsNothing,
+      );
+    });
+
+    testWidgets(
+      '8. guest-to-authenticated transition does not imply appearance data migration',
+      (WidgetTester tester) async {
+        // Stash an ephemeral outfit appearance snapshot
+        stashPendingEphemeralResult(
+          feature: EphemeralFeature.outfit,
+          snapshot: <String, dynamic>{
+            'appearance': <String, dynamic>{'faceShape': 'square'},
+          },
+        );
+
+        // Verify that stashed result is in local storage only
+        final stashed = peekPendingEphemeralResult();
+        expect(stashed, isNotNull);
+        expect(stashed?.snapshot['appearance']?['faceShape'], 'square');
+
+        // Migrate guest data (wardrobe and prefs only)
+        final repo = _FakeWardrobeRepo();
+        final learning = _FakeLearning(
+          wardrobe: [
+            const WardrobeEntry(
+              id: 'local-1',
+              name: 'Jacket',
+              category: 'outerwear',
+              color: 'navy',
+            ),
+          ],
+          prefs: ['smart_casual'],
+        );
+
+        final migration = GuestDataMigration(
+          wardrobeRepo: repo,
+          syncPreference: ({required String code}) async =>
+              PreferenceSyncResult.synced,
+          learning: learning,
+        );
+        final result = await migration.migrate();
+
+        // Wardrobe and prefs migrated cleanly
+        expect(result.migratedItemNames, ['Jacket']);
+        expect(result.prefsSynced, ['smart_casual']);
+
+        // Verify appearance data was NOT migrated into server wardrobe or preferences
+        expect(repo.createdNames, ['Jacket']);
+        expect(repo.server.any((i) => i.name.contains('square')), isFalse);
+        expect(result.migratedLocalIds, ['local-1']);
+
+        // Ephemeral result remains untransferred and device-local
+        final afterMigration = peekPendingEphemeralResult();
+        expect(afterMigration?.snapshot['appearance']?['faceShape'], 'square');
+      },
+    );
+  });
+}
+
+class _FakeWardrobeRepo implements WardrobeRepository {
+  final List<WardrobeItemData> server = [];
+  final List<String> createdNames = [];
+  bool throwOnList = false;
+
+  _FakeWardrobeRepo();
+
+  @override
+  Future<List<WardrobeItemData>> listItems({
+    String? category,
+    String? color,
+    String? sortBy,
+    String? order,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    if (throwOnList) throw Exception('offline');
+    return List.of(server);
+  }
+
+  @override
+  Future<WardrobeItemData?> getItem({required String itemId}) async => null;
+
+  @override
+  Future<WardrobeItemData?> createItem({
+    required String name,
+    required String category,
+    required String color,
+    String? material,
+    MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
+  }) async {
+    createdNames.add(name);
+    final item = WardrobeItemData(
+      id: 'server-${createdNames.length}',
+      name: name,
+      category: category,
+      color: color,
+      material: material,
+    );
+    server.add(item);
+    return item;
+  }
+
+  @override
+  Future<WardrobeItemData?> updateItem({
+    required String itemId,
+    String? name,
+    String? category,
+    String? color,
+    String? material,
+    bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
+  }) async => null;
+
+  @override
+  Future<bool?> deleteItem({required String itemId}) async => null;
+
+  @override
+  Future<WardrobeInsightData?> getInsight() async => null;
+
+  @override
+  Future<WearSummary?> getWearSummary() async => null;
+
+  @override
+  Future<WearEventLogResponse?> logWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) async => null;
+
+  @override
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) =>
+      logWear(
+        itemIds: itemIds,
+        wornAt: wornAt,
+        idempotencyKey: idempotencyKey,
+      );
+
+}
+
+class _FakeLearning implements LearningRepository {
+  _FakeLearning({List<WardrobeEntry>? wardrobe, List<String>? prefs})
+      : wardrobe = wardrobe ?? const [],
+        preferredOccasions = prefs ?? const [];
+
+  @override
+  List<WardrobeEntry> wardrobe;
+
+  @override
+  List<String> preferredOccasions;
+
+  @override
+  FaceProfile? get face => null;
+
+  @override
+  String? get styleType => null;
+
+  @override
+  List<String> get savedLooks => const [];
+
+  @override
+  List<LearningSignal> get signals => const [];
+
+  @override
+  int get styleScore => 60;
+
+  @override
+  Future<void> load() async {}
+
+  @override
+  void addItem(WardrobeEntry item) {}
+
+  @override
+  void setFace(FaceProfile face) {}
+
+  @override
+  void setStyleType(String styleType) {}
+
+  @override
+  void addSavedLook(String title) {}
+
+  @override
+  void addPreferredOccasion(String occasion) {}
+
+  @override
+  void recordSignal(String type, String label) {}
+
+  @override
+  void updateItem(String itemId, WardrobeEntry item) {}
 }

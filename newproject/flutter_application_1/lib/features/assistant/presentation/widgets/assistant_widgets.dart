@@ -127,6 +127,21 @@ class MessageBubble extends StatelessWidget {
       );
     }
 
+    final bool hasSuccessfulOutfitIntelligence = message.outfitIntelligence != null &&
+        message.outfitIntelligence!.status != 'empty_wardrobe' &&
+        message.outfitIntelligence!.status != 'missing_required_category' &&
+        message.outfitIntelligence!.status != 'no_legal_candidate' &&
+        message.outfitIntelligence!.status != 'unavailable';
+
+    final outfitCard = message.cards.cast<SuggestionCard?>().firstWhere(
+      (c) => c?.kind == 'outfit',
+      orElse: () => null,
+    );
+
+    final displayCards = hasSuccessfulOutfitIntelligence
+        ? message.cards.where((c) => c.kind != 'outfit').toList()
+        : message.cards;
+
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -189,9 +204,9 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
             ],
-            if (message.cards.isNotEmpty) ...[
+            if (displayCards.isNotEmpty) ...[
               const SizedBox(height: FansivibeSpacing.sm + 4),
-              for (final card in message.cards) ...[
+              for (final card in displayCards) ...[
                 SuggestionCardView(
                   card: card,
                   onAction: () => onCardAction?.call(card),
@@ -248,7 +263,7 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
             ],
-            if (message.outfitIntelligence != null) ...[
+            if (hasSuccessfulOutfitIntelligence) ...[
               const SizedBox(height: FansivibeSpacing.md),
               OutfitRecommendationCard(
                 outfitIntelligence: message.outfitIntelligence!,
@@ -259,6 +274,11 @@ class MessageBubble extends StatelessWidget {
                 onSave: onOutfitSave == null
                     ? null
                     : () => onOutfitSave!(message.outfitIntelligence!),
+                onOpen: outfitCard != null &&
+                        outfitCard.action != null &&
+                        onCardAction != null
+                    ? () => onCardAction!(outfitCard)
+                    : null,
               ),
             ],
           ],

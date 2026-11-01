@@ -74,6 +74,19 @@ class _ThrowingWardrobeRepo implements WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) async => throw Exception('offline');
+
+  @override
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) =>
+      logWear(
+        itemIds: itemIds,
+        wornAt: wornAt,
+        idempotencyKey: idempotencyKey,
+      );
+
 }
 
 class _BoxLearning implements LearningRepository {

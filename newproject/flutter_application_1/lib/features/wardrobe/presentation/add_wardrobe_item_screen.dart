@@ -5,6 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/media/data/media_client.dart';
+import 'package:fansivibe/features/media/domain/image_pipeline.dart';
+import 'package:fansivibe/features/media/domain/original_file_manager.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/features/wardrobe/data/garment_client.dart';
 import 'package:fansivibe/features/wardrobe/data/garment_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
@@ -29,19 +33,27 @@ import 'package:fansivibe/shared/utils/guest_mode.dart';
 class AddWardrobeItemScreen extends StatefulWidget {
   const AddWardrobeItemScreen({
     required this.category,
+    this.initialGarmentResult,
     this.repository,
     this.garmentClient,
+    this.mediaClient,
     this.photoGalleryPick,
     super.key,
   });
 
   final AddItemCategoryConfig category;
 
+  /// Prefilled garment observation from Outfit Scan (Stage 1D Batch 3A).
+  final GarmentAnalysisResult? initialGarmentResult;
+
   /// Repository override (tests only). Defaults to the live backend.
   final WardrobeRepository? repository;
 
   /// Garment client override (tests only). Defaults to the live backend.
   final GarmentClient? garmentClient;
+
+  /// Media client override (tests only). Defaults to the live backend.
+  final MediaClient? mediaClient;
 
   /// Gallery picker override for the photo screen (tests only).
   final Future<XFile?> Function(ImageSource source)? photoGalleryPick;
@@ -57,11 +69,13 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
   String? _selectedType;
   ColorOption? _selectedColor;
   String? _selectedTextureName;
+  String? _selectedFit;
   String? _errorMessage;
   bool _isSubmitting = false;
   WardrobeItemData? _savedItem;
   late final WardrobeRepository _repository;
   late final GarmentClient _garmentClient;
+  late final MediaClient _mediaClient;
 
   Uint8List? _photoBytes;
   String? _photoFilename;
@@ -81,12 +95,19 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
     super.initState();
     _repository = widget.repository ?? WardrobeRepositoryImpl();
     _garmentClient = widget.garmentClient ?? GarmentClient();
+    _mediaClient = widget.mediaClient ?? MediaClient();
+    if (widget.initialGarmentResult != null) {
+      _garmentResult = widget.initialGarmentResult;
+      _photoStage = _PhotoStage.result;
+      _prefillFromGarment(widget.initialGarmentResult!);
+    }
   }
 
   @override
   void dispose() {
     _stillAnalyzingTimer?.cancel();
     _garmentClient.dispose();
+    _mediaClient.dispose();
     super.dispose();
   }
 
@@ -102,7 +123,6 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       _isSubmitting = true;
       _errorMessage = null;
     });
-
     final newItem = WardrobeItemData(
       id: '',
       name: _buildItemName(),
@@ -111,11 +131,64 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       material: _selectedTextureName,
     );
 
-    // Bound the selected/taken photo once: the exact photo (analyzed or
-    // not — analysis only preselects chips) travels with the saved item
-    // below. Null for manual entries, which stay imageless as before.
     final photoBytes = await prepareWardrobePhoto(_photoBytes);
     if (!mounted) return;
+
+    // Option B: Preserved local original in app storage
+    String? localOriginalPath;
+    if (photoBytes != null && photoBytes.isNotEmpty) {
+      localOriginalPath = await OriginalFileManager.instance.saveOriginal(
+        idOrHash: '',
+        bytes: photoBytes,
+      );
+    }
+
+    MediaRef? cloudMediaRef = _buildImageRef();
+
+    // Authenticated upload pipeline (Gate 6.1 / Gate 8.1: only authenticated sessions upload)
+    if (AuthSession.isAuthenticated && !isGuestUser && photoBytes != null && photoBytes.isNotEmpty && cloudMediaRef?.uploadId == null) {
+      try {
+        final clientSha = sha256Hex(photoBytes);
+        final dims = await getImageDimensions(photoBytes);
+        final idempotencyKey = 'add_${clientSha.substring(0, 16)}_${DateTime.now().millisecondsSinceEpoch}';
+
+        final authRes = await _mediaClient.authorizeUpload(
+          clientSizeBytes: photoBytes.length,
+          clientSha256: clientSha,
+          idempotencyKey: idempotencyKey,
+          mimeType: 'image/webp',
+          clientDeclaredWidth: dims?.$1,
+          clientDeclaredHeight: dims?.$2,
+        );
+
+        if (authRes != null) {
+          final uploaded = await _mediaClient.uploadBytesDirect(
+            presignedPutUrl: authRes.presignedPutUrl,
+            bytes: photoBytes,
+            contentType: 'image/webp',
+          );
+
+          if (uploaded) {
+            final pubRes = await _mediaClient.completeUpload(
+              uploadId: authRes.uploadId,
+            );
+            if (pubRes != null && pubRes.status == 'published') {
+              cloudMediaRef = MediaRef(
+                objectKey: pubRes.canonicalKey,
+                mediaType: pubRes.mediaType,
+                uploadId: pubRes.uploadId,
+                width: pubRes.width,
+                height: pubRes.height,
+                sizeBytes: pubRes.sizeBytes,
+                contentHash: pubRes.sha256,
+              );
+            }
+          }
+        }
+      } catch (_) {
+        // Upload failure does not crash the save; local original is preserved
+      }
+    }
 
     try {
       // Phase 2.1 guests persist on-device through the local repository.
@@ -127,23 +200,20 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
         category: newItem.category,
         color: newItem.color,
         material: newItem.material,
-        imageRef: _buildImageRef(),
+        imageRef: cloudMediaRef,
         // C-02-F: persist the analyzer's own fit observation + confidence
-        // verbatim (null unless this save follows a garment analysis).
-        fit: _garmentResult?.fit,
+        // verbatim, allowing user override via fit selection.
+        fit: _selectedFit ?? _garmentResult?.fit,
         fitConfidence: _garmentResult?.confidence,
       );
 
       if (!mounted) return;
 
       if (createdItem != null) {
-        // Success: keep the created item as source of truth and show the
-        // post-save actions (C-04). The caller still receives it on Done.
-        // The photo binds to the saved id: guest entries were just created
-        // on-device (the update sticks and survives restart); account ids
-        // are absent from the mirror (no-op — the caller's existing
-        // mirror add persists the bytes below).
-        final savedItem = createdItem.copyWith(imageBytes: photoBytes);
+        final savedItem = createdItem.copyWith(
+          imageBytes: photoBytes,
+          localOriginalPath: localOriginalPath,
+        );
         if (photoBytes != null) {
           LearningService.instance.updateItem(
             savedItem.id,
@@ -162,7 +232,6 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
         });
       }
     } catch (e) {
-      // Network/error failure
       if (!mounted) return;
       setState(() {
         _errorMessage = 'Failed to add item. Please try again.';
@@ -509,9 +578,10 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
   void _prefillFromGarment(GarmentAnalysisResult result) {
     final subcategory = result.subcategory;
     if (_selectedType == null && subcategory != null) {
-      final lowered = subcategory.toLowerCase();
+      final lowered = subcategory.toLowerCase().replaceAll('_', '-').replaceAll(' ', '-');
       for (final type in widget.category.types) {
-        if (type.toLowerCase() == lowered) {
+        final typeLowered = type.toLowerCase().replaceAll('_', '-').replaceAll(' ', '-');
+        if (typeLowered == lowered || typeLowered.replaceAll('-', '') == lowered.replaceAll('-', '')) {
           _selectedType = type;
           break;
         }
@@ -535,12 +605,22 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
         }
       }
     }
+    if (_selectedFit == null && result.fit != null) {
+      final lowered = result.fit!.toLowerCase().trim();
+      for (final fitOption in AddItemConfig.fitOptions) {
+        if (fitOption.toLowerCase() == lowered) {
+          _selectedFit = fitOption;
+          break;
+        }
+      }
+      _selectedFit ??= result.fit;
+    }
     _errorMessage = null;
   }
 
   String _buildItemName() {
     final texture = _selectedTextureName != null
-        ? ' $_selectedTextureName'
+        ? '$_selectedTextureName '
         : '';
     final type = _selectedType ?? 'Item';
     return '$texture$type'.trim();
@@ -628,6 +708,24 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                             });
                           },
                         ),
+                        const SizedBox(height: 28),
+
+                        // Fit selection (optional)
+                        _SectionLabel(label: 'Fit (optional)'),
+                        const SizedBox(height: 12),
+                        _buildChipRow(
+                          items: {
+                            ...AddItemConfig.fitOptions,
+                            if (_selectedFit != null) _selectedFit!,
+                          }.toList(),
+                          selectedItem: _selectedFit,
+                          onSelected: (value) {
+                            setState(() {
+                              _selectedFit = _selectedFit == value ? null : value;
+                              _errorMessage = null;
+                            });
+                          },
+                        ),
                         const SizedBox(height: 32),
 
                         // Error message (shared error treatment)
@@ -710,7 +808,12 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
     final bytes = _photoBytes;
     if (bytes == null) {
       return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_photoStage == _PhotoStage.result && _garmentResult != null) ...[
+            _buildGarmentSummary(theme, _garmentResult!),
+            const SizedBox(height: 16),
+          ],
           SizedBox(
             width: double.infinity,
             child: FansiButton.primary(

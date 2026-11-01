@@ -196,16 +196,16 @@ void main() {
       expect(find.text('88%'), findsOneWidget);
     });
 
-    testWidgets('renders backend quick actions without any wear CTA', (
+    testWidgets('renders backend quick actions including Wear This Look CTA', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(_buildTestApp());
       await tester.pumpAndSettle();
 
+      expect(find.text('Wear This Look'), findsOneWidget);
       expect(find.text('Generate Another Look'), findsOneWidget);
       expect(find.text('Save Look'), findsOneWidget);
       expect(find.text('Share'), findsOneWidget);
-      expect(find.text('Wear This Look'), findsNothing);
     });
 
     testWidgets('Generate Another Look swaps in the regenerated look', (

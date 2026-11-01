@@ -29,8 +29,23 @@ def test_outfit_asks_clarification_when_ambiguous():
     assert not reply.cards
 
 
+def _sample_wardrobe_user() -> UserContext:
+    from app.models.schemas import WardrobeItem
+
+    return UserContext(
+        wardrobe=[
+            WardrobeItem(id="1", name="Merino Crew Neck", category="tops", color="Charcoal", material="Wool", isFavorite=True),
+            WardrobeItem(id="4", name="Charcoal Trousers", category="bottoms", color="Charcoal", material="Wool", isFavorite=True),
+        ],
+        savedLooks=["Modern Minimalist"],
+        preferredOccasions=["casual", "date", "work"],
+    )
+
+
 def test_outfit_with_occasion_returns_card():
-    reply = _chat("what should I wear to a date?")
+    # Canonical contract (Batch 4B): When wardrobe items are present, asking for an occasion
+    # delegates to GenerateOutfit and produces an occasion-matched outfit recommendation card.
+    reply = _chat("what should I wear to a date?", user=_sample_wardrobe_user())
     assert reply.intent == "outfit"
     assert reply.cards
     assert reply.cards[0].kind == "outfit"
@@ -38,11 +53,25 @@ def test_outfit_with_occasion_returns_card():
 
 
 def test_bare_occasion_reply_returns_card():
-    reply = _chat("date")
+    # Canonical contract (Batch 4B): A bare occasion reply like "date" produces an occasion-matched
+    # outfit recommendation card when wardrobe items are present.
+    reply = _chat("date", user=_sample_wardrobe_user())
     assert reply.intent == "outfit"
     assert reply.cards
     assert reply.cards[0].kind == "outfit"
     assert "Date" in reply.cards[0].title
+
+
+def test_outfit_with_empty_wardrobe_returns_truthful_empty_card():
+    # Canonical contract (Batch 4B): Empty wardrobe (or user=None) returns truthful Empty Wardrobe card
+    # with action="open_wardrobe", score=None, and never fabricates outfits.
+    reply = _chat("what should I wear to a date?")
+    assert reply.intent == "outfit"
+    assert reply.cards
+    assert reply.cards[0].kind == "outfit"
+    assert reply.cards[0].title == "Empty Wardrobe"
+    assert reply.cards[0].action == "open_wardrobe"
+    assert reply.cards[0].score is None
 
 
 def test_hairstyle_returns_cards():
@@ -78,7 +107,8 @@ def test_unknown_offers_help_options():
 
 
 def test_suggestion_card_has_action_for_navigation():
-    reply = _chat("suggest an outfit for work")
+    # Canonical contract (Batch 4B): A successful outfit recommendation routes to "open_outfit".
+    reply = _chat("suggest an outfit for work", user=_sample_wardrobe_user())
     assert reply.cards
     assert reply.cards[0].action == "open_outfit"
 

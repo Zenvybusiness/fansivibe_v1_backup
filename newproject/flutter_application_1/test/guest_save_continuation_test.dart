@@ -434,7 +434,7 @@ void main() {
       await tester.pumpWidget(MaterialApp.router(routerConfig: router));
       await tester.pumpAndSettle();
 
-      await _tapSave(tester, 'Save Profile');
+      await _tapSave(tester, 'Save Appearance Profile');
 
       expect(find.text('sign-in-marker'), findsOneWidget);
       expect(takePendingAuthIntent(), isNotNull);

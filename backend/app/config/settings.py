@@ -164,6 +164,55 @@ class Settings(BaseSettings):
         default=None, alias="RAINFOREST_API_KEY", repr=False
     )
 
+    # Media Object Storage Configuration (Stage 2 P0-4 / M16)
+    media_storage_provider: str = Field(
+        default="fake", alias="MEDIA_STORAGE_PROVIDER"
+    )
+    r2_account_id: str | None = Field(
+        default=None, alias="R2_ACCOUNT_ID", repr=False
+    )
+    r2_access_key_id: str | None = Field(
+        default=None, alias="R2_ACCESS_KEY_ID", repr=False
+    )
+    r2_secret_access_key: str | None = Field(
+        default=None, alias="R2_SECRET_ACCESS_KEY", repr=False
+    )
+    r2_bucket_name: str | None = Field(
+        default=None, alias="R2_BUCKET_NAME"
+    )
+    r2_endpoint_url: str | None = Field(
+        default=None, alias="R2_ENDPOINT_URL"
+    )
+    r2_region: str = Field(
+        default="auto", alias="R2_REGION"
+    )
+    r2_connect_timeout_s: float = Field(
+        default=5.0, alias="R2_CONNECT_TIMEOUT_S"
+    )
+    r2_read_timeout_s: float = Field(
+        default=15.0, alias="R2_READ_TIMEOUT_S"
+    )
+    r2_max_retries: int = Field(
+        default=2, alias="R2_MAX_RETRIES"
+    )
+
+    # Media Upload Authorization & Idempotency Key Ring (Stage 2 P0-4 / M16)
+    media_upload_active_key_id: str = Field(
+        default="kver_dev", alias="MEDIA_UPLOAD_ACTIVE_KEY_ID"
+    )
+    media_upload_previous_key_id: str | None = Field(
+        default=None, alias="MEDIA_UPLOAD_PREVIOUS_KEY_ID"
+    )
+    media_upload_hmac_secret: str | None = Field(
+        default=None, alias="MEDIA_UPLOAD_HMAC_SECRET", repr=False
+    )
+    media_upload_hmac_secret_previous: str | None = Field(
+        default=None, alias="MEDIA_UPLOAD_HMAC_SECRET_PREVIOUS", repr=False
+    )
+    media_upload_key_ring: dict[str, str] = Field(
+        default_factory=dict, alias="MEDIA_UPLOAD_KEY_RING", repr=False
+    )
+
     # CORS configuration (P2-9): explicit origins list, never wildcard in prod.
     cors_origins: list[str] = Field(
         default_factory=list, alias="FANSIVIBE_CORS_ORIGINS"
@@ -215,6 +264,39 @@ class Settings(BaseSettings):
         return not (self.is_production or self.is_staging)
 
     @property
+    def effective_r2_endpoint_url(self) -> str | None:
+        """Return the configured R2 endpoint URL or derive it from account ID."""
+        if self.r2_endpoint_url:
+            return self.r2_endpoint_url.rstrip("/")
+        if self.r2_account_id:
+            return f"https://{self.r2_account_id}.r2.cloudflarestorage.com"
+        return None
+
+    @property
+    def effective_media_upload_key_ring(self) -> dict[str, str]:
+        """Structured key ring mapping key_version -> HMAC secret."""
+        ring = dict(self.media_upload_key_ring)
+        active_id = self.media_upload_active_key_id
+        if self.media_upload_hmac_secret:
+            ring[active_id] = self.media_upload_hmac_secret
+        if self.media_upload_hmac_secret_previous:
+            prev_id = self.media_upload_previous_key_id or "kver_previous"
+            if prev_id not in ring:
+                ring[prev_id] = self.media_upload_hmac_secret_previous
+        if not ring:
+            ring[active_id] = self.auth_secret
+        return ring
+
+    @property
+    def active_media_upload_hmac_secret(self) -> str:
+        """Return the secret corresponding to media_upload_active_key_id."""
+        ring = self.effective_media_upload_key_ring
+        secret = ring.get(self.media_upload_active_key_id)
+        if not secret:
+            return self.auth_secret
+        return secret
+
+    @property
     def effective_cors_origin_regex(self) -> str | None:
         """Regex allowing local Flutter Web dev servers (any port).
 
@@ -229,6 +311,27 @@ class Settings(BaseSettings):
         if not (self.is_production or self.is_staging):
             return r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
         return None
+
+    @field_validator("media_upload_key_ring", mode="before")
+    @classmethod
+    def _parse_media_upload_key_ring(cls, v: Any) -> dict[str, str]:
+        if v is None:
+            return {}
+        if isinstance(v, str):
+            val = v.strip()
+            if not val:
+                return {}
+            try:
+                import json
+
+                parsed = json.loads(val)
+                if isinstance(parsed, dict):
+                    return {str(k).strip(): str(item).strip() for k, item in parsed.items()}
+            except Exception:
+                return {}
+        if isinstance(v, dict):
+            return {str(k).strip(): str(item).strip() for k, item in v.items()}
+        return {}
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -281,6 +384,35 @@ class Settings(BaseSettings):
             return val if val else None
         return v
 
+    @field_validator(
+        "r2_account_id",
+        "r2_access_key_id",
+        "r2_secret_access_key",
+        "r2_bucket_name",
+        "r2_endpoint_url",
+        mode="before",
+    )
+    @classmethod
+    def _sanitize_storage_credentials(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            val = v.strip()
+            return val if val else None
+        return v
+
+    @field_validator("media_storage_provider", mode="before")
+    @classmethod
+    def _normalize_media_storage_provider(cls, v: Any) -> str:
+        if v is None:
+            return "fake"
+        val = str(v).strip().lower()
+        if val in ("cloudflare_r2", "cloudflare", "r2_s3"):
+            return "r2"
+        if val in ("in_memory", "memory", "mock", "test"):
+            return "fake"
+        return val if val else "fake"
+
     @model_validator(mode="before")
     @classmethod
     def _resolve_aliases(cls, data: Any) -> Any:
@@ -301,6 +433,82 @@ class Settings(BaseSettings):
                 timeout = data.get("FANSIVIBE_OLLAMA_TIMEOUT") or os.environ.get("FANSIVIBE_OLLAMA_TIMEOUT")
                 if timeout:
                     data["reasoning_timeout_s"] = float(timeout)
+            # Storage provider aliases
+            if "media_storage_provider" not in data and "MEDIA_STORAGE_PROVIDER" not in data:
+                provider = (
+                    data.get("FANSIVIBE_MEDIA_STORAGE_PROVIDER")
+                    or os.environ.get("FANSIVIBE_MEDIA_STORAGE_PROVIDER")
+                )
+                if provider:
+                    data["media_storage_provider"] = provider
+            # R2 account id aliases
+            if "r2_account_id" not in data and "R2_ACCOUNT_ID" not in data:
+                acct = (
+                    data.get("CLOUDFLARE_R2_ACCOUNT_ID")
+                    or os.environ.get("CLOUDFLARE_R2_ACCOUNT_ID")
+                    or data.get("FANSIVIBE_R2_ACCOUNT_ID")
+                    or os.environ.get("FANSIVIBE_R2_ACCOUNT_ID")
+                )
+                if acct:
+                    data["r2_account_id"] = acct
+            # R2 access key id aliases
+            if "r2_access_key_id" not in data and "R2_ACCESS_KEY_ID" not in data:
+                key_id = (
+                    data.get("CLOUDFLARE_R2_ACCESS_KEY_ID")
+                    or os.environ.get("CLOUDFLARE_R2_ACCESS_KEY_ID")
+                    or data.get("FANSIVIBE_R2_ACCESS_KEY_ID")
+                    or os.environ.get("FANSIVIBE_R2_ACCESS_KEY_ID")
+                )
+                if key_id:
+                    data["r2_access_key_id"] = key_id
+            # R2 secret access key aliases
+            if "r2_secret_access_key" not in data and "R2_SECRET_ACCESS_KEY" not in data:
+                secret_key = (
+                    data.get("CLOUDFLARE_R2_SECRET_ACCESS_KEY")
+                    or os.environ.get("CLOUDFLARE_R2_SECRET_ACCESS_KEY")
+                    or data.get("FANSIVIBE_R2_SECRET_ACCESS_KEY")
+                    or os.environ.get("FANSIVIBE_R2_SECRET_ACCESS_KEY")
+                )
+                if secret_key:
+                    data["r2_secret_access_key"] = secret_key
+            # R2 bucket name aliases
+            if "r2_bucket_name" not in data and "R2_BUCKET_NAME" not in data:
+                bucket = (
+                    data.get("CLOUDFLARE_R2_BUCKET_NAME")
+                    or os.environ.get("CLOUDFLARE_R2_BUCKET_NAME")
+                    or data.get("FANSIVIBE_R2_BUCKET_NAME")
+                    or os.environ.get("FANSIVIBE_R2_BUCKET_NAME")
+                )
+                if bucket:
+                    data["r2_bucket_name"] = bucket
+            # R2 endpoint URL aliases
+            if "r2_endpoint_url" not in data and "R2_ENDPOINT_URL" not in data:
+                endpoint = (
+                    data.get("CLOUDFLARE_R2_ENDPOINT_URL")
+                    or os.environ.get("CLOUDFLARE_R2_ENDPOINT_URL")
+                    or data.get("FANSIVIBE_R2_ENDPOINT_URL")
+                    or os.environ.get("FANSIVIBE_R2_ENDPOINT_URL")
+                )
+                if endpoint:
+                    data["r2_endpoint_url"] = endpoint
+            # R2 region aliases
+            if "r2_region" not in data and "R2_REGION" not in data:
+                region = (
+                    data.get("CLOUDFLARE_R2_REGION")
+                    or os.environ.get("CLOUDFLARE_R2_REGION")
+                    or data.get("FANSIVIBE_R2_REGION")
+                    or os.environ.get("FANSIVIBE_R2_REGION")
+                )
+                if region:
+                    data["r2_region"] = region
+            # Previous key ID aliases
+            if "media_upload_previous_key_id" not in data and "MEDIA_UPLOAD_PREVIOUS_KEY_ID" not in data:
+                prev_kid = (
+                    data.get("FANSIVIBE_MEDIA_UPLOAD_PREVIOUS_KEY_ID")
+                    or os.environ.get("FANSIVIBE_MEDIA_UPLOAD_PREVIOUS_KEY_ID")
+                )
+                if prev_kid:
+                    data["media_upload_previous_key_id"] = prev_kid
         return data
 
     @model_validator(mode="after")
@@ -335,6 +543,27 @@ class Settings(BaseSettings):
             raise ValueError(
                 "FANSIVIBE_RATE_LIMIT_EPHEMERAL_PER_MINUTE must be at least 1."
             )
+        if self.media_storage_provider not in ("r2", "fake"):
+            raise ValueError(
+                f"MEDIA_STORAGE_PROVIDER must be 'r2' or 'fake', got '{self.media_storage_provider}'."
+            )
+        if self.media_storage_provider == "r2":
+            if not self.r2_bucket_name:
+                raise ValueError("R2 storage provider requires R2_BUCKET_NAME.")
+            if not self.r2_access_key_id:
+                raise ValueError("R2 storage provider requires R2_ACCESS_KEY_ID.")
+            if not self.r2_secret_access_key:
+                raise ValueError("R2 storage provider requires R2_SECRET_ACCESS_KEY.")
+            if not self.effective_r2_endpoint_url:
+                raise ValueError(
+                    "R2 storage provider requires R2_ENDPOINT_URL or R2_ACCOUNT_ID."
+                )
+            if self.r2_connect_timeout_s <= 0:
+                raise ValueError("R2_CONNECT_TIMEOUT_S must be greater than 0.")
+            if self.r2_read_timeout_s <= 0:
+                raise ValueError("R2_READ_TIMEOUT_S must be greater than 0.")
+            if self.r2_max_retries < 0:
+                raise ValueError("R2_MAX_RETRIES must be non-negative.")
         if self.is_production or self.is_staging:
             # Staging and production both forbid wildcard origins with credentials
             if self.cors_allow_credentials and any(
@@ -367,6 +596,52 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "FANSIVIBE_ALLOW_DEV_TOKEN cannot be enabled in production."
                 )
+            # 4. Production cannot silently use fake storage; requires explicit R2 configuration
+            if self.media_storage_provider != "r2":
+                raise ValueError(
+                    "Production requires MEDIA_STORAGE_PROVIDER to be explicitly set to 'r2'."
+                )
+            # 5. Production media upload HMAC secret must be secure and >= 32 chars
+            if self.media_upload_hmac_secret:
+                if (
+                    len(self.media_upload_hmac_secret) < 32
+                    or "dev" in self.media_upload_hmac_secret.lower()
+                    or "insecure" in self.media_upload_hmac_secret.lower()
+                ):
+                    raise ValueError(
+                        "Production requires a secure MEDIA_UPLOAD_HMAC_SECRET (at least 32 characters)."
+                    )
+            if self.media_upload_hmac_secret_previous:
+                if (
+                    len(self.media_upload_hmac_secret_previous) < 32
+                    or "dev" in self.media_upload_hmac_secret_previous.lower()
+                    or "insecure" in self.media_upload_hmac_secret_previous.lower()
+                ):
+                    raise ValueError(
+                        "Production requires a secure MEDIA_UPLOAD_HMAC_SECRET_PREVIOUS (at least 32 characters)."
+                    )
+            active_secret = self.effective_media_upload_key_ring.get(self.media_upload_active_key_id)
+            if (
+                not active_secret
+                or active_secret == _DEV_AUTH_SECRET
+                or len(active_secret) < 32
+                or "dev" in active_secret.lower()
+                or "insecure" in active_secret.lower()
+            ):
+                raise ValueError(
+                    "Production requires a secure MEDIA_UPLOAD_HMAC_SECRET (at least 32 characters)."
+                )
+            for kid, sec in self.effective_media_upload_key_ring.items():
+                if (
+                    not sec
+                    or sec == _DEV_AUTH_SECRET
+                    or len(sec) < 32
+                    or "dev" in sec.lower()
+                    or "insecure" in sec.lower()
+                ):
+                    raise ValueError(
+                        f"Production requires a secure media upload HMAC secret for key '{kid}' (at least 32 characters)."
+                    )
         return self
 
 

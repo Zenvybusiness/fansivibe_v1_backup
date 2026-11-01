@@ -117,6 +117,8 @@ class HairstyleAnalysisResult {
     required this.styleDna,
     required this.topRecommendation,
     required this.alternatives,
+    this.confidence,
+    this.needsMoreData = false,
   });
 
   final String faceShape;
@@ -124,6 +126,12 @@ class HairstyleAnalysisResult {
   final String styleDna;
   final HairstyleRecommendation topRecommendation;
   final List<HairstyleRecommendation> alternatives;
+
+  /// Run-level confidence derived from profile completeness and top-pick decisiveness.
+  final double? confidence;
+
+  /// True when input profile attributes are sparse/unmeasured.
+  final bool needsMoreData;
 
   factory HairstyleAnalysisResult.fromRunResult(Map<String, dynamic> result) {
     final appearance =
@@ -133,6 +141,8 @@ class HairstyleAnalysisResult {
     final top = recommendations['top'] as Map<String, dynamic>? ?? const {};
     final alternatives =
         recommendations['alternatives'] as List<dynamic>? ?? const [];
+    final confidence = (result['confidence'] as num?)?.toDouble();
+    final needsMoreData = result['needs_more_data'] as bool? ?? false;
 
     return HairstyleAnalysisResult(
       faceShape: appearance['faceShape'] as String? ?? '',
@@ -144,6 +154,8 @@ class HairstyleAnalysisResult {
             (e) => HairstyleRecommendation.fromJson(e as Map<String, dynamic>),
           )
           .toList(),
+      confidence: confidence,
+      needsMoreData: needsMoreData,
     );
   }
 
@@ -153,6 +165,8 @@ class HairstyleAnalysisResult {
       'skinTone': skinTone,
       'styleType': styleDna,
     },
+    if (confidence != null) 'confidence': confidence,
+    'needs_more_data': needsMoreData,
     'recommendations': {
       'top': topRecommendation.toJson(),
       'alternatives': alternatives.map((e) => e.toJson()).toList(),
@@ -163,6 +177,8 @@ class HairstyleAnalysisResult {
     faceShape: 'Oval',
     skinTone: 'Warm Medium',
     styleDna: 'Modern Classic \u2022 Minimalist \u2022 Structured',
+    confidence: 0.90,
+    needsMoreData: false,
     topRecommendation: HairstyleRecommendation(
       id: 'textured_quiff',
       name: 'Textured Quiff',

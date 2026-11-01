@@ -8,12 +8,16 @@ routers (BA-7).
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.api.errors import ApiError, conflict, database_failure, not_found, validation
 from app.api.schemas.wardrobe import WardrobeInsight
+from app.application.media import validate_media_association
+
 from app.domain.ports.repositories import (
     LearningSignalRepository,
     SavedLookRepository,
@@ -137,9 +141,11 @@ class AddWardrobeItem:
         *,
         wardrobe: WardrobeItemRepository,
         signals: LearningSignalRepository | None = None,
+        db: Session | None = None,
     ) -> None:
         self._wardrobe = wardrobe
         self._signals = signals
+        self._db = db
 
     def __call__(
         self,
@@ -150,13 +156,21 @@ class AddWardrobeItem:
         color: str,
         material: str | None,
         isFavorite: bool,
-        image_ref: dict | None = None,
+        image_ref: Any | None = None,
         fit: str | None = None,
         fit_confidence: float | None = None,
     ) -> WardrobeItemRecord:
         if len(name) < 1 or len(name) > 100:
             raise validation(
                 [{"field": "name", "error": "name must be between 1 and 100 characters"}]
+            )
+
+        trusted_image_ref = image_ref
+        if self._db is not None and image_ref is not None:
+            trusted_image_ref = validate_media_association(
+                db=self._db,
+                user_id=user_id,
+                image_ref=image_ref,
             )
 
         try:
@@ -167,7 +181,7 @@ class AddWardrobeItem:
                 color=color,
                 material=material,
                 isFavorite=isFavorite,
-                image_ref=image_ref,
+                image_ref=trusted_image_ref,
                 fit=fit,
                 fit_confidence=fit_confidence,
             )
@@ -232,8 +246,14 @@ class UpdateWardrobeItem:
     Foreign/non-existent item → 404.
     """
 
-    def __init__(self, *, wardrobe: WardrobeItemRepository) -> None:
+    def __init__(
+        self,
+        *,
+        wardrobe: WardrobeItemRepository,
+        db: Session | None = None,
+    ) -> None:
         self._wardrobe = wardrobe
+        self._db = db
 
     def __call__(
         self,
@@ -246,7 +266,7 @@ class UpdateWardrobeItem:
         material: str | None,
         material_set: bool = False,
         isFavorite: bool | None,
-        image_ref: dict | None = None,
+        image_ref: Any | None = None,
         image_ref_set: bool = False,
         fit: str | None = None,
         fit_set: bool = False,
@@ -262,6 +282,14 @@ class UpdateWardrobeItem:
                 [{"field": "name", "error": "name must be between 1 and 100 characters"}]
             )
 
+        trusted_image_ref = image_ref
+        if image_ref_set and image_ref is not None and self._db is not None:
+            trusted_image_ref = validate_media_association(
+                db=self._db,
+                user_id=user_id,
+                image_ref=image_ref,
+            )
+
         try:
             updated = self._wardrobe.update(
                 user_id=user_id,
@@ -272,7 +300,7 @@ class UpdateWardrobeItem:
                 material=material,
                 material_set=material_set,
                 isFavorite=isFavorite,
-                image_ref=image_ref,
+                image_ref=trusted_image_ref,
                 image_ref_set=image_ref_set,
                 fit=fit,
                 fit_set=fit_set,
@@ -280,6 +308,7 @@ class UpdateWardrobeItem:
                 fit_confidence_set=fit_confidence_set,
             )
             self._wardrobe.commit()
+
         except IntegrityError as exc:
             self._wardrobe.rollback()
             mapped = _vocab_validation_error(

@@ -28,14 +28,18 @@ class WardrobeEntry {
   /// Base64 photo bytes for the item, or null when it has no photo.
   final String? imageBase64;
 
-  WardrobeEntry copyWith({bool? isFavorite, String? imageBase64}) => WardrobeEntry(
+  WardrobeEntry copyWith({
+    bool? isFavorite,
+    String? imageBase64,
+    bool clearImageBase64 = false,
+  }) => WardrobeEntry(
     id: id,
     name: name,
     category: category,
     color: color,
     material: material,
     isFavorite: isFavorite ?? this.isFavorite,
-    imageBase64: imageBase64 ?? this.imageBase64,
+    imageBase64: clearImageBase64 ? null : (imageBase64 ?? this.imageBase64),
   );
 
   Map<String, dynamic> toJson() => {

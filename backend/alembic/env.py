@@ -12,8 +12,11 @@ from app.infrastructure.db import models  # noqa
 # access to the values within the .ini file in use.
 config = context.config
 
-# Override the URL with the runtime value from the environment.
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+import os
+
+# Override the URL with the runtime value from the environment if provided.
+runtime_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url") or DATABASE_URL
+config.set_main_option("sqlalchemy.url", runtime_url)
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None and config.attributes.get("configure_logger", True):

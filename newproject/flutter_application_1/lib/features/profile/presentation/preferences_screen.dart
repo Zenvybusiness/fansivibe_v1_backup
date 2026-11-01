@@ -8,6 +8,11 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 
+import 'package:fansivibe/features/profile/data/user_profile_models.dart';
+import 'package:fansivibe/features/profile/data/user_profile_repository.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
+
 /// UI label → backend occasion code (P1-2).
 ///
 /// Exact matches against the frozen knowledge occasion vocabulary only
@@ -29,10 +34,15 @@ const Map<String, String> occasionCodeToLabel = {
 };
 
 class PreferencesScreen extends StatefulWidget {
-  const PreferencesScreen({super.key, this.preferencesClient});
+  const PreferencesScreen({
+    super.key,
+    this.preferencesClient,
+    this.userProfileRepository,
+  });
 
   /// Injectable for tests; when null the screen owns its own client.
   final AssistantClient? preferencesClient;
+  final UserProfileRepository? userProfileRepository;
 
   @override
   State<PreferencesScreen> createState() => _PreferencesScreenState();
@@ -41,11 +51,22 @@ class PreferencesScreen extends StatefulWidget {
 class _PreferencesScreenState extends State<PreferencesScreen> {
   late LearningService _learningService;
   late final AssistantClient _client;
+  late final UserProfileRepository _userProfileRepo;
   List<PreferenceOption> _preferences = [];
   String? _selectedOccasion;
+  String? _selectedArchetype;
   String? _statusMessage;
   bool _syncing = false;
   bool _isError = false;
+
+  static const List<String> _allArchetypes = [
+    'Minimalist',
+    'Classic',
+    'Street Style',
+    'Bold',
+    'Bohemian',
+    'Athleisure',
+  ];
 
   static const List<String> _allOccasions = [
     'Casual',
@@ -60,13 +81,64 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     super.initState();
     _learningService = LearningService.instance;
     _client = widget.preferencesClient ?? AssistantClient();
-    _learningService.load().then((_) {
-      if (!mounted) return;
-      setState(() {
-        _selectedOccasion = _initialOccasion();
-        _preferences = _buildPreferences();
-      });
+    _userProfileRepo = widget.userProfileRepository ?? UserProfileRepositoryImpl();
+    _selectedOccasion = _initialOccasion();
+    _selectedArchetype = _initialArchetype();
+    _preferences = _buildPreferences();
+
+    _learningService.load().then((_) async {
+      if (AuthSession.isAuthenticated || widget.userProfileRepository != null) {
+        UserProfile? profile;
+        try {
+          profile = await _userProfileRepo.fetchProfile();
+        } catch (_) {
+          // Fallback gracefully
+        }
+        if (!mounted) return;
+        setState(() {
+          if (profile?.styleProfile.styleType != null &&
+              profile!.styleProfile.styleType!.isNotEmpty) {
+            _selectedArchetype = _normalizeArchetype(profile.styleProfile.styleType!);
+          } else {
+            _selectedArchetype = _initialArchetype();
+          }
+          _selectedOccasion = _initialOccasion();
+          _preferences = _buildPreferences();
+        });
+      }
     });
+  }
+
+  static String _normalizeArchetype(String val) {
+    final lower = val.trim().toLowerCase();
+    if (lower.contains('minimal')) return 'Minimalist';
+    if (lower.contains('classic')) return 'Classic';
+    if (lower.contains('street')) return 'Street Style';
+    if (lower.contains('bold')) return 'Bold';
+    if (lower.contains('bohem')) return 'Bohemian';
+    if (lower.contains('athleis') || lower.contains('sport')) return 'Athleisure';
+    if (lower.contains('trend')) return 'Bold';
+    for (final arch in _allArchetypes) {
+      if (arch.toLowerCase() == lower) return arch;
+    }
+    return val;
+  }
+
+  String _initialArchetype([UserProfile? profile]) {
+    final fromProfile = profile?.styleProfile.styleType ??
+        _userProfileRepo.cachedProfile?.styleProfile.styleType;
+    if (fromProfile != null && fromProfile.isNotEmpty) {
+      return _normalizeArchetype(fromProfile);
+    }
+    final fromLearning = _learningService.styleType;
+    if (fromLearning != null && fromLearning.isNotEmpty) {
+      return _normalizeArchetype(fromLearning);
+    }
+    final fromStorage = LocalStorage.vibe;
+    if (fromStorage != null && fromStorage.isNotEmpty) {
+      return _normalizeArchetype(fromStorage);
+    }
+    return _allArchetypes.first;
   }
 
   String _initialOccasion() {
@@ -84,34 +156,79 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
   }
 
   List<PreferenceOption> _buildPreferences() {
-    final current = _selectedOccasion ?? _initialOccasion();
-    final idx = _allOccasions.indexOf(current);
-    final selectedIndex = idx >= 0 ? idx : 1;
+    final currentArchetype = _selectedArchetype ?? _initialArchetype();
+    final archetypeIdx = _allArchetypes.indexOf(currentArchetype);
+    final selectedArchetypeIndex = archetypeIdx >= 0 ? archetypeIdx : 0;
 
-    final occasionOptions = <PreferenceOption>[];
-    for (var option in ProfileMockData.stylePreferences
-        .where((p) => p.label == 'Occasion Focus')
-        .toList()) {
-      occasionOptions.add(
-        PreferenceOption(
-          label: option.label,
-          value: current,
-          options: option.options,
-          selectedIndex: selectedIndex,
-        ),
-      );
-    }
+    final currentOccasion = _selectedOccasion ?? _initialOccasion();
+    final occasionIdx = _allOccasions.indexOf(currentOccasion);
+    final selectedOccasionIndex = occasionIdx >= 0 ? occasionIdx : 1;
+
     return [
-      occasionOptions.isNotEmpty
-          ? occasionOptions.first
-          : PreferenceOption(
-              label: 'Occasion Focus',
-              value: current,
-              options: _allOccasions,
-              selectedIndex: selectedIndex,
-            ),
+      PreferenceOption(
+        label: 'Style Archetype',
+        value: currentArchetype,
+        options: _allArchetypes,
+        selectedIndex: selectedArchetypeIndex,
+      ),
+      PreferenceOption(
+        label: 'Occasion Focus',
+        value: currentOccasion,
+        options: _allOccasions,
+        selectedIndex: selectedOccasionIndex,
+      ),
     ];
   }
+
+  Future<void> _onArchetypeSelected(String value) async {
+    if (_syncing) return;
+
+    final normalized = _normalizeArchetype(value);
+    final previousArchetype = _selectedArchetype;
+
+    if (isGuestUser || !AuthSession.isAuthenticated) {
+      _learningService.setStyleType(normalized);
+      LocalStorage.vibe = normalized;
+      setState(() {
+        _selectedArchetype = normalized;
+        _preferences = _buildPreferences();
+        _isError = false;
+        _statusMessage = 'Saved: $normalized (this device only)';
+      });
+      return;
+    }
+
+    setState(() {
+      _syncing = true;
+      _selectedArchetype = normalized;
+      _preferences = _buildPreferences();
+      _isError = false;
+      _statusMessage = 'Syncing $normalized…';
+    });
+
+    final updated = await _userProfileRepo.updateStyleType(normalized);
+    if (!mounted) return;
+
+    if (updated != null) {
+      _learningService.setStyleType(normalized);
+      LocalStorage.vibe = normalized;
+      setState(() {
+        _syncing = false;
+        _isError = false;
+        _statusMessage = 'Synced: $normalized';
+      });
+    } else {
+      setState(() {
+        _syncing = false;
+        _selectedArchetype = previousArchetype;
+        _preferences = _buildPreferences();
+        _isError = true;
+        _statusMessage = 'Sync failed — could not update style archetype.';
+      });
+    }
+  }
+
+  Future<void> _onOccasionSelected(String value) => _onOptionSelected(value);
 
   Future<void> _onOptionSelected(String value) async {
     // While a preference mutation is pending, ignore taps to prevent conflicting
@@ -267,16 +384,27 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                         const SizedBox(height: 24),
                         FansivibeCard(
                           child: Column(
-                            children: _preferences
-                                .whereType<PreferenceOption>()
-                                .expand((pref) => [
-                              _PreferenceTile(
-                                preference: pref,
-                                onOptionSelected: _onOptionSelected,
-                                isSyncing: _syncing,
-                              ),
-                            ])
-                                .toList(),
+                            children: [
+                              for (int i = 0; i < _preferences.length; i++) ...[
+                                _PreferenceTile(
+                                  preference: _preferences[i],
+                                  onOptionSelected: (val) {
+                                    if (_preferences[i].label == 'Occasion Focus') {
+                                      _onOccasionSelected(val);
+                                    } else {
+                                      _onArchetypeSelected(val);
+                                    }
+                                  },
+                                  isSyncing: _syncing,
+                                ),
+                                if (i < _preferences.length - 1)
+                                  Divider(
+                                    height: 1,
+                                    color: FansivibeColors.accentGold
+                                        .withValues(alpha: 0.1),
+                                  ),
+                              ],
+                            ],
                           ),
                         ),
                         const SizedBox(height: 32),

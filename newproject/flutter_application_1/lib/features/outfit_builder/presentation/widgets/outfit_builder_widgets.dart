@@ -101,6 +101,7 @@ class OptionSection extends StatelessWidget {
     required this.options,
     required this.selectedId,
     required this.onSelected,
+    this.helper,
     super.key,
   });
 
@@ -109,6 +110,7 @@ class OptionSection extends StatelessWidget {
   final List<BuilderOption> options;
   final String? selectedId;
   final ValueChanged<String> onSelected;
+  final Widget? helper;
 
   @override
   Widget build(BuildContext context) {
@@ -132,6 +134,10 @@ class OptionSection extends StatelessWidget {
             color: FansivibeColors.textSecondary,
           ),
         ),
+        if (helper != null) ...[
+          const SizedBox(height: 12),
+          helper!,
+        ],
         const SizedBox(height: 12),
         ...options.map(
           (option) => Padding(

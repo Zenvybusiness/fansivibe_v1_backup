@@ -52,6 +52,7 @@ class OutfitRecommendationCard extends StatelessWidget {
     required this.outfitIntelligence,
     required this.wardrobeItems,
     this.onSave,
+    this.onOpen,
     this.initialSaved = false,
     super.key,
   });
@@ -64,6 +65,10 @@ class OutfitRecommendationCard extends StatelessWidget {
   /// success, false on failure so the card can show retry.
   final Future<bool> Function()? onSave;
 
+  /// Optional open/action callback wired by the parent when an outfit action
+  /// (e.g. open_outfit) is present on the canonical recommendation.
+  final VoidCallback? onOpen;
+
   /// Optional initial saved state (e.g. restored from profile).
   final bool initialSaved;
 
@@ -73,6 +78,7 @@ class OutfitRecommendationCard extends StatelessWidget {
       outfitIntelligence: outfitIntelligence,
       wardrobeItems: wardrobeItems,
       onSave: onSave,
+      onOpen: onOpen,
       initialSaved: initialSaved,
     );
   }
@@ -83,12 +89,14 @@ class _OutfitRecommendationCardView extends StatefulWidget {
     required this.outfitIntelligence,
     required this.wardrobeItems,
     this.onSave,
+    this.onOpen,
     this.initialSaved = false,
   });
 
   final OutfitIntelligence outfitIntelligence;
   final List<WardrobeItemData> wardrobeItems;
   final Future<bool> Function()? onSave;
+  final VoidCallback? onOpen;
   final bool initialSaved;
 
   @override
@@ -103,6 +111,16 @@ class _OutfitRecommendationCardViewState
   bool _isSaving = false;
   late bool _isSaved;
   bool _saveFailed = false;
+
+  int? get _resolvedScore {
+    if (widget.outfitIntelligence.matchScore != null) {
+      return widget.outfitIntelligence.matchScore;
+    }
+    if (widget.outfitIntelligence.confidence > 0) {
+      return (widget.outfitIntelligence.confidence * 100).round();
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -211,23 +229,24 @@ class _OutfitRecommendationCardViewState
             ],
           ),
         ),
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: FansivibeSpacing.sm,
-            vertical: FansivibeSpacing.xs,
-          ),
-          decoration: BoxDecoration(
-            color: FansivibeColors.primary.withValues(alpha: 0.12),
-            borderRadius: FansivibeRadius.fullBorder,
-          ),
-          child: Text(
-            '${(widget.outfitIntelligence.confidence * 100).round()}% confident',
-            style: FansivibeTypography.labelSmallWithFamily.copyWith(
-              color: FansivibeColors.primary,
-              fontWeight: FontWeight.w600,
+        if (_resolvedScore != null)
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: FansivibeSpacing.sm,
+              vertical: FansivibeSpacing.xs,
+            ),
+            decoration: BoxDecoration(
+              color: FansivibeColors.primary.withValues(alpha: 0.12),
+              borderRadius: FansivibeRadius.fullBorder,
+            ),
+            child: Text(
+              '$_resolvedScore% Ensemble Match',
+              style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                color: FansivibeColors.primary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -359,16 +378,21 @@ class _OutfitRecommendationCardViewState
   }
 
   Widget _buildStyleScore(BuildContext context) {
+    final score = _resolvedScore ??
+        (widget.outfitIntelligence.outfitComposition.styleScore > 0
+            ? widget.outfitIntelligence.outfitComposition.styleScore
+            : null);
+    if (score == null) return const SizedBox.shrink();
     return Row(
       children: [
         const Icon(
-          Icons.star_rounded,
+          Icons.check_circle_outline_rounded,
           size: 16,
           color: FansivibeColors.primary,
         ),
         const SizedBox(width: FansivibeSpacing.xs),
         Text(
-          'Style Score: ${widget.outfitIntelligence.outfitComposition.styleScore}',
+          'Ensemble Match: $score%',
           style: FansivibeTypography.bodyMediumWithFamily.copyWith(
             color: FansivibeColors.onSurface,
             height: 1.3,
@@ -456,6 +480,30 @@ class _OutfitRecommendationCardViewState
               : Icon(_isSaved ? Icons.check_rounded : Icons.bookmark_border),
           label: Text(_isSaved ? 'Saved' : _isSaving ? 'Saving...' : 'Save'),
         ),
+        if (widget.onOpen != null) ...[
+          const SizedBox(height: FansivibeSpacing.xs),
+          FilledButton.tonalIcon(
+            onPressed: widget.onOpen,
+            icon: const Icon(Icons.open_in_new_rounded, size: 16),
+            label: const Text('Open Outfit'),
+            style: FilledButton.styleFrom(
+              backgroundColor: FansivibeColors.primary.withValues(
+                alpha: 0.15,
+              ),
+              foregroundColor: FansivibeColors.primary,
+              padding: const EdgeInsets.symmetric(
+                horizontal: FansivibeSpacing.md,
+                vertical: FansivibeSpacing.sm,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: FansivibeRadius.fullBorder,
+              ),
+              textStyle: FansivibeTypography.labelMediumWithFamily.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
         if (_saveFailed && !_isSaved && !_isSaving)
           Padding(
             padding: const EdgeInsets.only(top: FansivibeSpacing.xs),

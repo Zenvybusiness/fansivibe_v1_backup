@@ -359,46 +359,57 @@ class CreateOutfitRun:
             )
             return run_id
 
-        # Step 3: Complete with every valid branch result. Branch failures
-        # are explicit keys, never a top-level "error".
-        snapshot: dict = (
-            hairstyle_result.to_snapshot() if hairstyle_result is not None else {}
-        )
-        if garment_profile is not None:
-            snapshot["garment"] = garment_profile.to_snapshot()
-        else:
-            snapshot["garment_error"] = {"reason": garment_reason}
-        if appearance_reason is not None:
-            snapshot["appearance_error"] = {"reason": appearance_reason}
-
-        completed = self._runs.complete(
-            run_id=run_id,
-            user_id=user_id,
-            status="completed",
-            result=snapshot,
-        )
-        if not completed:
-            raise ApiError(
-                status_code=500,
-                code="DATABASE_FAILURE",
-                message="Something went wrong while saving your data. Please try again.",
-            )
-
-        # Step 4: TRX-6 and signals require a completed appearance branch
+        # Step 3: TRX-6 and signals require a completed appearance branch
         # (a hairstyle snapshot), not merely a measured profile.
+        # Determine explicit persistence outcome:
+        # - "saved": persistence succeeded
+        # - "not_saved": persistence attempted but failed (e.g. CAS conflict exhausted or DB failure)
+        # - "not_applicable": no appearance profile to persist (e.g. branch failed or missing)
+        # - "unknown": outcome cannot be reliably established (e.g. user_state repo missing)
+        profile_persistence: str = "unknown"
         if hairstyle_result is not None and appearance_profile is not None:
             if self._user_state is not None:
-                self._user_state.update_style_profile(
-                    user_id=user_id,
-                    face_shape=appearance_profile.faceShape,
-                    skin_tone=appearance_profile.skinTone,
-                    body_type=appearance_profile.bodyType,
-                    style_type=appearance_profile.styleType,
-                    source_run_id=str(run_id),
-                )
+                try:
+                    persisted = self._user_state.update_style_profile(
+                        user_id=user_id,
+                        face_shape=appearance_profile.faceShape,
+                        skin_tone=appearance_profile.skinTone,
+                        body_type=appearance_profile.bodyType,
+                        style_type=appearance_profile.styleType,
+                        source_run_id=str(run_id),
+                        max_retries=3,
+                    )
+                    profile_persistence = (
+                        "saved"
+                        if (persisted is True or persisted is None)
+                        else "not_saved"
+                    )
+                except TypeError:
+                    # Backward-compatible call for test fakes without max_retries parameter
+                    try:
+                        persisted = self._user_state.update_style_profile(
+                            user_id=user_id,
+                            face_shape=appearance_profile.faceShape,
+                            skin_tone=appearance_profile.skinTone,
+                            body_type=appearance_profile.bodyType,
+                            style_type=appearance_profile.styleType,
+                            source_run_id=str(run_id),
+                        )
+                        profile_persistence = (
+                            "saved"
+                            if (persisted is True or persisted is None)
+                            else "not_saved"
+                        )
+                    except Exception:
+                        profile_persistence = "not_saved"
+                except Exception:
+                    profile_persistence = "not_saved"
+            else:
+                profile_persistence = "unknown"
 
-            # One commit covers the run's signals (never one per insert).
-            if self._learning_signal is not None:
+            # One commit covers the run's signals (never one per insert), committed
+            # only after confirmed profile persistence success.
+            if profile_persistence == "saved" and self._learning_signal is not None:
                 self._learning_signal.insert_look_saved(
                     user_id=user_id,
                     signal_type="analysis_updated",
@@ -414,6 +425,34 @@ class CreateOutfitRun:
                 if self._activity_days is not None:
                     mark_styled_today(activity_days=self._activity_days, user_id=user_id)
                 self._learning_signal.commit()
+        else:
+            profile_persistence = "not_applicable"
+
+        # Step 4: Complete with every valid branch result and explicit persistence outcome.
+        # Branch failures are explicit keys, never a top-level "error".
+        snapshot: dict = (
+            hairstyle_result.to_snapshot() if hairstyle_result is not None else {}
+        )
+        if garment_profile is not None:
+            snapshot["garment"] = garment_profile.to_snapshot()
+        else:
+            snapshot["garment_error"] = {"reason": garment_reason}
+        if appearance_reason is not None:
+            snapshot["appearance_error"] = {"reason": appearance_reason}
+        snapshot["profile_persistence"] = profile_persistence
+
+        completed = self._runs.complete(
+            run_id=run_id,
+            user_id=user_id,
+            status="completed",
+            result=snapshot,
+        )
+        if not completed:
+            raise ApiError(
+                status_code=500,
+                code="DATABASE_FAILURE",
+                message="Something went wrong while saving your data. Please try again.",
+            )
 
         return run_id
 
@@ -631,12 +670,25 @@ class CreateHairstyleImageRun:
         return run_id
 
 
+_BEARD_STYLE_LOOK_MAP: dict[str, str] = {
+    "full_beard": "full_beard",
+    "classic_stubble": "classic_stubble",
+    "stubble": "classic_stubble",
+    "goatee": "structured_goatee",
+    "structured_goatee": "structured_goatee",
+    "circle_beard": "structured_goatee",
+    "van_dyke": "goatee_with_mustache",
+    "goatee_with_mustache": "goatee_with_mustache",
+    "moustache": "goatee_with_mustache",
+}
+
+
 class CreateGroomingRun:
     """UC-?? — submit a grooming analysis (profile-only pass).
 
-    The stored `style_profile` is the grounding input (honest: nothing is
-    fabricated). Without stored face attributes we return
-    ``INSUFFICIENT_USER_DATA`` rather than inventing a profile.
+    The stored `style_profile` or valid manual grooming inputs ground the
+    analysis. Without stored face attributes and without valid manual inputs
+    we return ``INSUFFICIENT_USER_DATA`` rather than inventing a profile.
 
     STEP 11.3 — mirrors STEP 11.2 (hairstyle): the owner's existing
     `saved_looks` rows are read (PostgreSQL remains the source of truth) and
@@ -698,11 +750,46 @@ class CreateGroomingRun:
         return HairstylePreferences(preferredLookIds=frozenset(preferred))
 
     def __call__(
-        self, *, user_id: UUID, idempotency_key: Optional[str] = None
+        self,
+        *,
+        user_id: UUID,
+        idempotency_key: Optional[str] = None,
+        manual_inputs: Optional[Any] = None,
     ) -> UUID:
-        profile = self._user_state.get_style_profile(user_id=user_id)
-        if not profile or not profile.get("face_shape"):
+        inputs: dict[str, Any] = {}
+        if manual_inputs is not None:
+            if hasattr(manual_inputs, "model_dump"):
+                inputs = manual_inputs.model_dump(exclude_unset=True)
+            elif isinstance(manual_inputs, dict):
+                inputs = manual_inputs
+
+        manual_face = str(inputs.get("face_shape") or inputs.get("faceShape") or "").strip()
+        manual_beard = str(inputs.get("beard_style") or inputs.get("beardStyle") or "").strip()
+        manual_density = str(inputs.get("beard_density") or inputs.get("beardDensity") or "").strip()
+        manual_color = str(inputs.get("beard_color") or inputs.get("beardColor") or "").strip()
+        manual_skin = str(inputs.get("skin_tone") or inputs.get("skinTone") or "").strip()
+        manual_body = str(inputs.get("body_type") or inputs.get("bodyType") or "").strip()
+        manual_style = str(inputs.get("style_type") or inputs.get("styleType") or "").strip()
+
+        profile = self._user_state.get_style_profile(user_id=user_id) or {}
+        server_face = str(profile.get("face_shape") or "").strip()
+        server_skin = str(profile.get("skin_tone") or "").strip()
+        server_body = str(profile.get("body_type") or "").strip()
+        server_style = str(profile.get("style_type") or "").strip()
+
+        has_server_face = bool(server_face)
+        has_manual_face = bool(manual_face)
+        has_manual_grooming = bool(manual_beard or manual_density or manual_color)
+
+        if not has_server_face and not has_manual_face and not has_manual_grooming:
             raise insufficient_user_data("face")
+
+        # Authoritative precedence: confirmed server attributes take priority;
+        # transient manual inputs ground when server attributes are unmeasured.
+        effective_face_shape = server_face if has_server_face else manual_face
+        effective_skin_tone = server_skin if bool(server_skin) else manual_skin
+        effective_body_type = server_body if bool(server_body) else manual_body
+        effective_style_type = server_style if bool(server_style) else manual_style
 
         if idempotency_key is not None:
             existing = self._runs.get_by_idempotency(
@@ -734,15 +821,28 @@ class CreateGroomingRun:
             raise
 
         appearance = AppearanceProfile(
-            faceShape=str(profile["face_shape"]),
-            skinTone=str(profile.get("skin_tone") or ""),
-            bodyType=str(profile.get("body_type") or ""),
-            styleType=str(profile.get("style_type") or ""),
+            faceShape=effective_face_shape,
+            skinTone=effective_skin_tone,
+            bodyType=effective_body_type,
+            styleType=effective_style_type,
             sourceRunId=str(run_id),
         )
 
         try:
             preferences = self._saved_grooming_preferences(user_id=user_id)
+            if manual_beard:
+                normalized_beard = manual_beard.lower()
+                mapped_look_id = _BEARD_STYLE_LOOK_MAP.get(normalized_beard, normalized_beard)
+                try:
+                    if self._knowledge.lookup_grooming_look(mapped_look_id) is not None:
+                        combined = set(preferences.preferredLookIds) | {mapped_look_id}
+                        preferences = HairstylePreferences(
+                            excludedLookIds=preferences.excludedLookIds,
+                            preferredLookIds=frozenset(combined),
+                        )
+                except Exception:
+                    pass
+
             result = recommend_grooming(self._knowledge, appearance, preferences)
             enrich = self._enrich or (lambda r: r)
             result = enrich(result)
@@ -1116,6 +1216,7 @@ class EphemeralOutfitAnalysis:
             snapshot["garment_error"] = {"reason": garment_reason}
         if appearance_reason is not None:
             snapshot["appearance_error"] = {"reason": appearance_reason}
+        snapshot["profile_persistence"] = "not_applicable"
         return snapshot
 
 class EphemeralGroomingAnalysis:

@@ -314,11 +314,10 @@ def test_non_outfit_callers_intentionally_left_empty():
     root = pathlib.Path(__file__).resolve().parents[1] / "app"
     events = (root / "application" / "events.py").read_text()
     today = (root / "application" / "today.py").read_text()
-    main = (root / "main.py").read_text()
-    # No explicit preference source on these paths: still literal empty,
-    # assistant entry still omits the kwarg (baseline preserved).
     assert "preferredItemIds" not in events
     assert "preferredItemIds" not in today
     assert "score_outfit_candidate(candidate, items_by_id, frozenset(), occasions)" in events
     assert "score_outfit_candidate(candidate, items_by_id, frozenset(), occasions)" in today
-    assert "preferred_item_ids" not in main
+    main = (root / "main.py").read_text()
+    # Assistant entrypoint wires preferred_item_ids starting with Stage 1D Batch 4B.2.
+    assert "preferredItemIds" not in main

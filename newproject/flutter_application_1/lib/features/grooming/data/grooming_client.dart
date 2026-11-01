@@ -39,19 +39,43 @@ class GroomingClient {
   String? get activeIdempotencyKey => _activeIdempotencyKey;
   void resetIdempotencyKey() => _activeIdempotencyKey = null;
 
+  String? _lastSubmitError;
+  String? get lastSubmitError => _lastSubmitError;
+
   /// Submits a grooming analysis for the authenticated user's stored style
-  /// profile (profile-only pass).
+  /// profile or manual grooming inputs (profile-only pass).
   ///
-  /// Wire contract (endpoint #38): JSON transport is preserved — POST empty
-  /// JSON `{}` with `Content-Type: application/json` (Phase 28: obsolete
-  /// `face_profile_ref` removed; backend resolves `style_profile` by
-  /// `user_id`). Grooming has no image part, unlike the hairstyle/outfit
+  /// Wire contract (endpoint #38): JSON transport is preserved — POST JSON
+  /// with manual inputs when provided, or `{}` when relying solely on stored
+  /// profile. Grooming has no image part, unlike the hairstyle/outfit
   /// multipart endpoints.
   ///
   /// Returns the submitted run id, or null when the backend is unreachable.
-  Future<String?> submitGroomingAnalysis({String? idempotencyKey}) async {
+  Future<String?> submitGroomingAnalysis({
+    String? faceShape,
+    String? beardStyle,
+    String? beardDensity,
+    String? beardColor,
+    String? idempotencyKey,
+  }) async {
+    _lastSubmitError = null;
     final effectiveKey =
-        idempotencyKey ?? (_activeIdempotencyKey ??= newGroomingIdempotencyKey());
+        idempotencyKey ??
+        (_activeIdempotencyKey ??= newGroomingIdempotencyKey());
+    final bodyMap = <String, dynamic>{};
+    if (faceShape != null && faceShape.isNotEmpty) {
+      bodyMap['face_shape'] = faceShape;
+    }
+    if (beardStyle != null && beardStyle.isNotEmpty) {
+      bodyMap['beard_style'] = beardStyle;
+    }
+    if (beardDensity != null && beardDensity.isNotEmpty) {
+      bodyMap['beard_density'] = beardDensity;
+    }
+    if (beardColor != null && beardColor.isNotEmpty) {
+      bodyMap['beard_color'] = beardColor;
+    }
+
     try {
       final response = await _client
           .post(
@@ -61,7 +85,7 @@ class GroomingClient {
               'Authorization': 'Bearer $_devToken',
               'Idempotency-Key': effectiveKey,
             },
-            body: jsonEncode({}),
+            body: jsonEncode(bodyMap),
           )
           .timeout(_timeout);
 
@@ -71,11 +95,22 @@ class GroomingClient {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return decoded['run_id'] as String?;
       }
+      if (response.statusCode == 422) {
+        try {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
+          final error = decoded?['error'] as Map<String, dynamic>?;
+          final message = error?['message'] as String?;
+          if (message != null && message.isNotEmpty) {
+            _lastSubmitError = message;
+          }
+        } catch (_) {}
+      }
       debugPrint(
         'Grooming submit responded ${response.statusCode}: ${response.body}',
       );
     } catch (error) {
       debugPrint('Grooming backend unreachable during submit: $error');
+      _lastSubmitError = 'Grooming service unreachable. Please try again.';
     }
     return null;
   }
@@ -142,10 +177,7 @@ class GroomingClient {
       debugPrint(
         'Grooming ephemeral responded ${response.statusCode}: ${response.body}',
       );
-      return (
-        snapshot: null,
-        failureReason: _ephemeralFailureReason(response),
-      );
+      return (snapshot: null, failureReason: _ephemeralFailureReason(response));
     } catch (error) {
       debugPrint('Grooming ephemeral unreachable: $error');
       return (snapshot: null, failureReason: 'unreachable');
@@ -278,8 +310,7 @@ class GroomingClient {
       debugPrint(
         'Grooming save responded ${response.statusCode}: ${response.body}',
       );
-    }
-    catch (error) {
+    } catch (error) {
       debugPrint('Grooming backend unreachable during save: $error');
     }
     return false;
@@ -289,7 +320,10 @@ class GroomingClient {
   ///
   /// Returns null when the backend is unreachable, matching the graceful
   /// null-on-failure pattern used elsewhere in this client.
-  Future<List<dynamic>?> listSavedLooks({int page = 1, int pageSize = 50}) async {
+  Future<List<dynamic>?> listSavedLooks({
+    int page = 1,
+    int pageSize = 50,
+  }) async {
     try {
       final response = await _client
           .get(
@@ -306,7 +340,9 @@ class GroomingClient {
         'Grooming list saved looks responded ${response.statusCode}: ${response.body}',
       );
     } catch (error) {
-      debugPrint('Grooming backend unreachable during saved-looks list: $error');
+      debugPrint(
+        'Grooming backend unreachable during saved-looks list: $error',
+      );
     }
     return null;
   }
@@ -324,4 +360,4 @@ String newGroomingIdempotencyKey() {
   final h = bytes.map(hex).join();
   return '${h.substring(0, 8)}-${h.substring(8, 12)}-'
       '${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
-}
+}

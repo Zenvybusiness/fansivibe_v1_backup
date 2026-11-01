@@ -308,3 +308,30 @@ def test_preferences_change_results_deterministically():
     )
     assert excluded.top.id == "classic_stubble"
     assert excluded.top.id != plain.top.id
+
+
+# --- zero-fabrication tests ---------------------------------------------------
+
+
+def test_grooming_zero_fabrication_when_face_shape_missing():
+    """Grooming engine does not fabricate oval when face shape is missing or empty."""
+    result = recommend_grooming(
+        KNOWLEDGE,
+        AppearanceProfile(faceShape="", skinTone="", bodyType="", styleType=""),
+    )
+    # structured_goatee seed is 0.92, classic_stubble is 0.85
+    assert result.top.id == "structured_goatee"
+    assert result.top.matchScore == 0.92  # No face boost (would be +0.06 if oval defaulted)
+    assert not any("strongest match for your" in r.lower() for r in result.top.reasons)
+    assert not any("face-shape fit" in r.lower() for r in result.top.reasons)
+
+
+def test_grooming_face_boost_applied_when_explicitly_oval():
+    """Grooming engine applies face boost and explanation when face shape is explicitly oval."""
+    result = recommend_grooming(
+        KNOWLEDGE,
+        AppearanceProfile(faceShape="oval", skinTone="", bodyType="", styleType=""),
+    )
+    assert result.top.id == "structured_goatee"
+    assert result.top.matchScore == 0.98  # 0.92 seed + 0.06 oval boost = 0.98
+    assert any("Strongest match for your oval face shape" in r for r in result.top.reasons)

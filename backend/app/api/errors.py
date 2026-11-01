@@ -49,12 +49,14 @@ class ApiError(Exception):
         code: str,
         message: str,
         details: Optional[dict[str, Any]] = None,
+        headers: Optional[dict[str, str]] = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.details = details or {}
+        self.headers = headers or {}
 
 
 def not_found() -> ApiError:
@@ -183,6 +185,10 @@ def register_error_handlers(app: FastAPI) -> None:
             # Frozen contract (API-7, ERROR_HANDLING §5.2): every 401
             # carries the Bearer challenge.
             headers["WWW-Authenticate"] = "Bearer"
+        if exc.code == "RATE_LIMITED" and exc.details and "retry_after" in exc.details:
+            headers["Retry-After"] = str(exc.details["retry_after"])
+        if getattr(exc, "headers", None):
+            headers.update(exc.headers)
 
         if exc.status_code >= 500:
             logger.error(

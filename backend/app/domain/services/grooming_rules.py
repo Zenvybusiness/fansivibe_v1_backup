@@ -49,7 +49,6 @@ _GROOMING_BOOSTS: dict[str, dict[str, float]] = {
 # Deterministic defaults
 # ---------------------------------------------------------------------------
 
-_DEFAULT_FACE_SHAPE: str = "oval"
 _FACE_SHAPE_ALIASES: dict[str, str] = {"rectangle": "rectangular"}
 
 _APPEARANCE_SIGNALS: tuple[str, ...] = ("faceShape", "skinTone", "bodyType", "styleType")
@@ -103,10 +102,10 @@ class Explanation:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _face_shape(appearance: AppearanceProfile) -> str:
+def _face_shape(appearance: AppearanceProfile) -> str | None:
     raw = (appearance.faceShape or "").strip().lower()
     if not raw:
-        return _DEFAULT_FACE_SHAPE
+        return None
     return _FACE_SHAPE_ALIASES.get(raw, raw)
 
 
@@ -190,7 +189,7 @@ def score_grooming_candidates(
 
     scored: list[ScoredCandidate] = []
     for look in candidates:
-        face_boost = _GROOMING_BOOSTS.get(look.id, {}).get(face, 0.0)
+        face_boost = _GROOMING_BOOSTS.get(look.id, {}).get(face, 0.0) if face else 0.0
         preference_boost = (
             0.03 if look.id in preferred else 0.0
         )
@@ -255,9 +254,9 @@ def build_grooming_explanations(
     return explanations
 
 
-def _face_match_reason(candidate: ScoredCandidate, face_shape: str) -> str | None:
+def _face_match_reason(candidate: ScoredCandidate, face_shape: str | None) -> str | None:
     boost = candidate.signals.get("face_shape", 0.0)
-    if boost <= 0.0:
+    if boost <= 0.0 or not face_shape:
         return None
     return (
         f"Strongest match for your {face_shape} face shape "

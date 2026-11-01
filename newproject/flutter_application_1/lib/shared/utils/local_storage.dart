@@ -169,6 +169,20 @@ class LocalStorage {
     _prefs!.setStringList('user_profile', _encodeMap(value));
   }
 
+  /// ----- Application Settings -----
+
+  static Map<String, dynamic> get settings {
+    if (_prefs == null) return {};
+    final raw = _prefs!.getStringList('app_settings');
+    if (raw == null || raw.isEmpty) return {};
+    return _decodeStringList(raw);
+  }
+
+  static set settings(Map<String, dynamic> value) {
+    if (_prefs == null) return;
+    _prefs!.setStringList('app_settings', _encodeMap(value));
+  }
+
   /// ----- Helper methods -----
 
   static List<String> _encodeMap(Map<String, dynamic> map) {

@@ -100,6 +100,19 @@ class ScriptedWardrobeRepository implements WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) => throw UnimplementedError();
+
+  @override
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) =>
+      logWear(
+        itemIds: itemIds,
+        wornAt: wornAt,
+        idempotencyKey: idempotencyKey,
+      );
+
 }
 
 Widget clothesHarness(ScriptedWardrobeRepository wardrobe) {

@@ -143,6 +143,11 @@ class TestExistingSettingsPreserved:
             database_url="postgresql+psycopg://prod_user:StrongProdPass123!@db.internal:5432/prod_fansivibe",
             auth_secret="a" * 32,
             allow_dev_token=False,
+            media_storage_provider="r2",
+            r2_bucket_name="prod-wardrobe-bucket",
+            r2_account_id="cf-acc-prod-123456",
+            r2_access_key_id="cf-key-prod-123456",
+            r2_secret_access_key="cf-secret-prod-123456",
         )
         assert s_without.youtube_data_api_key is None
 
@@ -151,6 +156,11 @@ class TestExistingSettingsPreserved:
             database_url="postgresql+psycopg://prod_user:StrongProdPass123!@db.internal:5432/prod_fansivibe",
             auth_secret="a" * 32,
             allow_dev_token=False,
+            media_storage_provider="r2",
+            r2_bucket_name="prod-wardrobe-bucket",
+            r2_account_id="cf-acc-prod-123456",
+            r2_access_key_id="cf-key-prod-123456",
+            r2_secret_access_key="cf-secret-prod-123456",
             youtube_data_api_key="prod-dummy-key",
         )
         assert s_with.youtube_data_api_key == "prod-dummy-key"

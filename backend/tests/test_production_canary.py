@@ -78,10 +78,16 @@ class TestProductionConfiguration:
             FANSIVIBE_CORS_ORIGINS=["https://fansivibe.com"],
             FANSIVIBE_CORS_ALLOW_CREDENTIALS=False,
             FANSIVIBE_ALLOW_DEV_TOKEN=False,
+            MEDIA_STORAGE_PROVIDER="r2",
+            R2_BUCKET_NAME="prod-wardrobe-bucket",
+            R2_ACCOUNT_ID="cf-acc-prod-123456",
+            R2_ACCESS_KEY_ID="cf-key-prod-123456",
+            R2_SECRET_ACCESS_KEY="cf-secret-prod-123456",
         )
         assert s.is_production is True
         assert s.is_docs_enabled is False
         assert s.reasoning_host == "http://ollama-prod.internal:11434"
+        assert s.media_storage_provider == "r2"
 
 
 class TestCanaryTrafficSplitting:
