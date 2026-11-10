@@ -307,6 +307,7 @@ class ModelInfo:
     is_verified: bool = False
     verification_notes: Optional[str] = None
     last_state_change: float = 0.0
+    last_observation_timestamp: float = 0.0
 
     def __post_init__(self) -> None:
         if self.last_state_change == 0.0:

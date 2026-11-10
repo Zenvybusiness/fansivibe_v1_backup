@@ -1,10 +1,24 @@
-"""AI Model Resource Manager (Phase 1 & Phase 2 Batch 1).
+"""AI Model Resource Manager (Phase 1, Phase 2 Batch 1 & Batch 2).
 
 Provides centralized, observational monitoring of GPU VRAM, host system RAM,
-NVMe storage, model registration, honest memory requirement tracking, and
-cross-process shared GPU scheduling arbitrated by kernel advisory file locking.
+NVMe storage, model registration, honest memory requirement tracking,
+cross-process shared GPU scheduling arbitrated by kernel advisory file locking,
+and model adapters for runtime inspection and explicit verified eviction.
 """
 
+from app.ai.manager.adapters import (
+    OllamaAdapterError,
+    OllamaConnectionError,
+    OllamaLoadedModel,
+    OllamaModelAdapter,
+    OllamaModelNotFoundError,
+    OllamaModelResidency,
+    OllamaResponseError,
+    OllamaTimeoutError,
+    OllamaUnloadError,
+    OllamaUnloadResult,
+    OllamaUnloadTimeoutError,
+)
 from app.ai.manager.memory_gpu import (
     DEFAULT_GPU_SAFETY_HEADROOM_BYTES,
     GPUMemoryMonitor,
@@ -63,6 +77,10 @@ __all__ = [
     "GPUMemorySnapshot",
     "SystemMemorySnapshot",
     "StorageSnapshot",
+    # Adapter Types
+    "OllamaLoadedModel",
+    "OllamaModelResidency",
+    "OllamaUnloadResult",
     # Exceptions
     "ModelManagerError",
     "InsufficientVRAMError",
@@ -76,6 +94,13 @@ __all__ = [
     "SchedulerTimeoutError",
     "SchedulerShutdownError",
     "WorkloadUncertainError",
+    "OllamaAdapterError",
+    "OllamaConnectionError",
+    "OllamaTimeoutError",
+    "OllamaResponseError",
+    "OllamaModelNotFoundError",
+    "OllamaUnloadError",
+    "OllamaUnloadTimeoutError",
     # Registry & Monitors
     "ModelRegistry",
     "GPUMemoryMonitor",
@@ -83,6 +108,8 @@ __all__ = [
     "StorageManager",
     # Scheduler
     "GPUResourceScheduler",
+    # Adapters
+    "OllamaModelAdapter",
     # Constants
     "DEFAULT_GPU_SAFETY_HEADROOM_BYTES",
     "DEFAULT_RAM_SAFETY_HEADROOM_BYTES",

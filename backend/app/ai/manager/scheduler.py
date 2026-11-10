@@ -21,6 +21,7 @@ import inspect
 import json
 import logging
 import os
+import stat
 import threading
 import time
 import uuid
@@ -110,6 +111,8 @@ class _AsyncLeaseContextManager:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
         try:
             if self.lease is not None:
+                if exc_type is None:
+                    self.lease.mark_workload_completed()
                 await self.scheduler._do_release_async(
                     self.lease,
                     exc_type=exc_type,
@@ -167,6 +170,8 @@ class _SyncLeaseContextManager:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         if self.lease is not None:
+            if exc_type is None:
+                self.lease.mark_workload_completed()
             self.scheduler._do_release_sync(
                 self.lease,
                 exc_type=exc_type,
@@ -265,15 +270,82 @@ class GPUResourceScheduler:
             self._handle_fork()
 
     def _open_lockfile(self) -> int:
-        """Open or create lockfile with restrictive 0o600 permissions."""
+        """Open or create lockfile securely with restrictive 0o600 permissions.
+
+        Security invariants (F-05):
+        - Uses os.O_NOFOLLOW where supported to reject symlink traversal.
+        - Validates opened descriptor via os.fstat to eliminate TOCTOU races.
+        - Rejects non-regular files (FIFOs, sockets, device nodes, directories).
+        - Verifies ownership matches the current process UID.
+        - Enforces and verifies restrictive mode 0o600 (no group or world access).
+        - Never unlinks or replaces the active lockfile to maintain cross-process inode stability.
+        - Handles platforms lacking O_NOFOLLOW explicitly via lstat fallback.
+        """
         dir_name = os.path.dirname(self.lockfile_path) or "/tmp"
         os.makedirs(dir_name, exist_ok=True)
-        fd = os.open(self.lockfile_path, os.O_RDWR | os.O_CREAT, 0o600)
+
+        flags = os.O_RDWR | os.O_CREAT
+        has_nofollow = hasattr(os, "O_NOFOLLOW")
+        if has_nofollow:
+            flags |= os.O_NOFOLLOW
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+
         try:
-            os.fchmod(fd, 0o600)
-        except OSError:
-            pass
-        return fd
+            fd = os.open(self.lockfile_path, flags, 0o600)
+        except OSError as exc:
+            if getattr(exc, "errno", None) == errno.ELOOP:
+                raise PermissionError(
+                    f"Lockfile '{self.lockfile_path}' is an unauthorized symlink (rejected by O_NOFOLLOW)"
+                ) from exc
+            raise
+
+        try:
+            st = os.fstat(fd)
+
+            # 1. Reject non-regular files (FIFOs, directories, device nodes, sockets)
+            if not stat.S_ISREG(st.st_mode):
+                raise PermissionError(
+                    f"Lockfile '{self.lockfile_path}' is not a regular file (mode: {oct(st.st_mode)})"
+                )
+
+            # 2. Fallback symlink detection if platform does not support O_NOFOLLOW
+            if not has_nofollow:
+                try:
+                    lst = os.lstat(self.lockfile_path)
+                    if stat.S_ISLNK(lst.st_mode):
+                        raise PermissionError(
+                            f"Lockfile '{self.lockfile_path}' is a symbolic link"
+                        )
+                except OSError as lst_exc:
+                    raise PermissionError(
+                        f"Failed to verify lockfile link status: {lst_exc}"
+                    ) from lst_exc
+
+            # 3. Ownership verification: must match current process uid
+            current_uid = os.getuid()
+            if st.st_uid != current_uid:
+                raise PermissionError(
+                    f"Lockfile '{self.lockfile_path}' is owned by UID {st.st_uid}, expected {current_uid}"
+                )
+
+            # 4. Enforce and verify restrictive permissions (0o600)
+            try:
+                os.fchmod(fd, 0o600)
+                st = os.fstat(fd)
+            except OSError:
+                pass
+
+            mode_perms = st.st_mode & 0o777
+            if (mode_perms & 0o077) != 0 or (mode_perms & 0o600) != 0o600:
+                raise PermissionError(
+                    f"Lockfile '{self.lockfile_path}' has insecure permissions {oct(mode_perms)}; expected 0o600"
+                )
+
+            return fd
+        except BaseException:
+            os.close(fd)
+            raise
 
     def _write_metadata_atomically(self, lease: Optional[GPUSchedulerLease]) -> None:
         """Write lease metadata atomically via write-and-replace."""
@@ -321,6 +393,36 @@ class GPUResourceScheduler:
             os.replace(tmp_path, self.quarantine_path)
         except Exception as exc:
             logger.error("Failed to write quarantine evidence atomically: %s", exc)
+
+    def _quarantine_unconfirmed_lease(
+        self,
+        lease: GPUSchedulerLease,
+        reason: str,
+        exc_type_name: Optional[str] = None,
+    ) -> None:
+        """Persist quarantine state for an unconfirmed lease without releasing lock (F-06)."""
+        lease.state = LeaseState.QUARANTINED
+        lease._quarantine_reason = reason
+        evidence = {
+            "quarantined_at": time.time(),
+            "lease_id": lease.lease_id,
+            "holder_pid": lease.holder_pid,
+            "model_id": lease.model_id,
+            "workload_type": (
+                lease.workload_type.value
+                if hasattr(lease.workload_type, "value")
+                else str(lease.workload_type)
+            ),
+            "reason": reason,
+            "exception_type": exc_type_name,
+            "grace_period_s": self.grace_period_s,
+        }
+        self._quarantined = True
+        self._quarantine_evidence = evidence
+        self._write_quarantine_atomically(evidence)
+        self.on_quarantined(evidence)
+        with self._thread_lock:
+            self._tier1_active_entry = None
 
     def _release_kernel_lock(self, lease: GPUSchedulerLease) -> None:
         """Release POSIX fcntl.flock and close file descriptor."""
@@ -457,6 +559,9 @@ class GPUResourceScheduler:
     ) -> GPUSchedulerLease:
         self._check_fork()
 
+        if self._is_shutting_down:
+            raise SchedulerShutdownError("Scheduler is shutting down; cannot grant new leases")
+
         if self.is_quarantined():
             evidence = self.get_quarantine_evidence() or {}
             reason = evidence.get("reason", "unresponsive workload")
@@ -464,9 +569,6 @@ class GPUResourceScheduler:
                 f"GPU resource is currently quarantined: {reason}",
                 evidence=evidence,
             )
-
-        if self._is_shutting_down:
-            raise SchedulerShutdownError("Scheduler is shutting down; cannot grant new leases")
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
@@ -529,72 +631,76 @@ class GPUResourceScheduler:
 
         # Tier 1 acquired; now contend for Tier 2 Linux kernel advisory lock
         fd: Optional[int] = None
-        while True:
-            self._check_fork()
-            if self.is_quarantined():
-                with self._thread_lock:
-                    self._tier1_active_entry = None
-                    self._maybe_dispatch_next_locked()
-                evidence = self.get_quarantine_evidence() or {}
-                raise GPUResourceQuarantinedError(
-                    f"GPU quarantined while contending for lock: {evidence.get('reason')}",
-                    evidence=evidence,
-                )
+        acquired_flock = False
+        try:
+            while True:
+                self._check_fork()
+                if self.is_quarantined():
+                    evidence = self.get_quarantine_evidence() or {}
+                    raise GPUResourceQuarantinedError(
+                        f"GPU quarantined while contending for lock: {evidence.get('reason')}",
+                        evidence=evidence,
+                    )
 
-            remaining = acq_deadline - time.monotonic()
-            if remaining <= 0:
-                with self._thread_lock:
-                    self._tier1_active_entry = None
-                    self._maybe_dispatch_next_locked()
-                raise SchedulerTimeoutError(
-                    f"Timed out acquiring cross-process kernel lock after {acquisition_timeout_s}s",
-                    phase="acquisition",
-                    timeout_s=acquisition_timeout_s,
-                )
+                remaining = acq_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SchedulerTimeoutError(
+                        f"Timed out acquiring cross-process kernel lock after {acquisition_timeout_s}s",
+                        phase="acquisition",
+                        timeout_s=acquisition_timeout_s,
+                    )
 
-            fd = self._open_lockfile()
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                # Successfully acquired kernel lock!
-                break
-            except (BlockingIOError, OSError) as exc:
-                os.close(fd)
-                fd = None
-                if getattr(exc, "errno", None) not in (
-                    errno.EACCES,
-                    errno.EAGAIN,
-                    errno.EWOULDBLOCK,
-                ):
-                    with self._thread_lock:
-                        self._tier1_active_entry = None
-                        self._maybe_dispatch_next_locked()
-                    raise
-                sleep_s = min(self.poll_interval_s, remaining)
+                fd = self._open_lockfile()
                 try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    # Successfully acquired kernel lock!
+                    acquired_flock = True
+                    break
+                except (BlockingIOError, OSError) as exc:
+                    os.close(fd)
+                    fd = None
+                    if getattr(exc, "errno", None) not in (
+                        errno.EAGAIN,
+                        errno.EWOULDBLOCK,
+                    ):
+                        raise
+                    sleep_s = min(self.poll_interval_s, remaining)
                     await asyncio.sleep(sleep_s)
-                except asyncio.CancelledError:
-                    with self._thread_lock:
-                        self._tier1_active_entry = None
-                        self._maybe_dispatch_next_locked()
-                    raise
 
-        lease = GPUSchedulerLease(
-            lease_id=lease_id,
-            model_id=model_id,
-            workload_type=workload_type,
-            priority=priority,
-            holder_pid=os.getpid(),
-            acquired_at=time.time(),
-            timeout_s=timeout_s,
-            state=LeaseState.ACQUIRED,
-            _lock_fd=fd,
-            _abort_fn=abort_fn,
-            _is_stopped_fn=is_workload_stopped,
-        )
-        self._active_lease = lease
-        self._write_metadata_atomically(lease)
-        self.on_lease_acquired(lease)
-        return lease
+            lease = GPUSchedulerLease(
+                lease_id=lease_id,
+                model_id=model_id,
+                workload_type=workload_type,
+                priority=priority,
+                holder_pid=os.getpid(),
+                acquired_at=time.time(),
+                timeout_s=timeout_s,
+                state=LeaseState.ACQUIRED,
+                _lock_fd=fd,
+                _abort_fn=abort_fn,
+                _is_stopped_fn=is_workload_stopped,
+            )
+            self._active_lease = lease
+            self._write_metadata_atomically(lease)
+            self.on_lease_acquired(lease)
+            return lease
+        except BaseException:
+            if fd is not None:
+                if acquired_flock:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                fd = None
+            with self._thread_lock:
+                if self._tier1_active_entry is entry:
+                    self._tier1_active_entry = None
+                self._maybe_dispatch_next_locked()
+            raise
 
     def _do_acquire_sync(
         self,
@@ -609,15 +715,15 @@ class GPUResourceScheduler:
         """Synchronous acquisition implementation for threads/subprocesses."""
         self._check_fork()
 
+        if self._is_shutting_down:
+            raise SchedulerShutdownError("Scheduler is shutting down")
+
         if self.is_quarantined():
             evidence = self.get_quarantine_evidence() or {}
             raise GPUResourceQuarantinedError(
                 f"GPU resource is currently quarantined: {evidence.get('reason')}",
                 evidence=evidence,
             )
-
-        if self._is_shutting_down:
-            raise SchedulerShutdownError("Scheduler is shutting down")
 
         event = threading.Event()
         lease_id = f"lease-{uuid.uuid4().hex[:8]}"
@@ -666,64 +772,74 @@ class GPUResourceScheduler:
 
         # Tier 2 kernel lock polling
         fd: Optional[int] = None
-        while True:
-            self._check_fork()
-            if self.is_quarantined():
-                with self._thread_lock:
-                    self._tier1_active_entry = None
-                    self._maybe_dispatch_next_locked()
-                evidence = self.get_quarantine_evidence() or {}
-                raise GPUResourceQuarantinedError(
-                    f"GPU quarantined while contending for lock: {evidence.get('reason')}",
-                    evidence=evidence,
-                )
+        acquired_flock = False
+        try:
+            while True:
+                self._check_fork()
+                if self.is_quarantined():
+                    evidence = self.get_quarantine_evidence() or {}
+                    raise GPUResourceQuarantinedError(
+                        f"GPU quarantined while contending for lock: {evidence.get('reason')}",
+                        evidence=evidence,
+                    )
 
-            remaining = acq_deadline - time.monotonic()
-            if remaining <= 0:
-                with self._thread_lock:
-                    self._tier1_active_entry = None
-                    self._maybe_dispatch_next_locked()
-                raise SchedulerTimeoutError(
-                    f"Timed out acquiring kernel lock after {acquisition_timeout_s}s",
-                    phase="acquisition",
-                    timeout_s=acquisition_timeout_s,
-                )
+                remaining = acq_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SchedulerTimeoutError(
+                        f"Timed out acquiring kernel lock after {acquisition_timeout_s}s",
+                        phase="acquisition",
+                        timeout_s=acquisition_timeout_s,
+                    )
 
-            fd = self._open_lockfile()
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except (BlockingIOError, OSError) as exc:
-                os.close(fd)
+                fd = self._open_lockfile()
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired_flock = True
+                    break
+                except (BlockingIOError, OSError) as exc:
+                    os.close(fd)
+                    fd = None
+                    if getattr(exc, "errno", None) not in (
+                        errno.EAGAIN,
+                        errno.EWOULDBLOCK,
+                    ):
+                        raise
+                    time.sleep(min(self.poll_interval_s, remaining))
+
+            lease = GPUSchedulerLease(
+                lease_id=lease_id,
+                model_id=model_id,
+                workload_type=workload_type,
+                priority=priority,
+                holder_pid=os.getpid(),
+                acquired_at=time.time(),
+                timeout_s=timeout_s,
+                state=LeaseState.ACQUIRED,
+                _lock_fd=fd,
+                _abort_fn=abort_fn,
+                _is_stopped_fn=is_workload_stopped,
+            )
+            self._active_lease = lease
+            self._write_metadata_atomically(lease)
+            self.on_lease_acquired(lease)
+            return lease
+        except BaseException:
+            if fd is not None:
+                if acquired_flock:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
                 fd = None
-                if getattr(exc, "errno", None) not in (
-                    errno.EACCES,
-                    errno.EAGAIN,
-                    errno.EWOULDBLOCK,
-                ):
-                    with self._thread_lock:
-                        self._tier1_active_entry = None
-                        self._maybe_dispatch_next_locked()
-                    raise
-                time.sleep(min(self.poll_interval_s, remaining))
-
-        lease = GPUSchedulerLease(
-            lease_id=lease_id,
-            model_id=model_id,
-            workload_type=workload_type,
-            priority=priority,
-            holder_pid=os.getpid(),
-            acquired_at=time.time(),
-            timeout_s=timeout_s,
-            state=LeaseState.ACQUIRED,
-            _lock_fd=fd,
-            _abort_fn=abort_fn,
-            _is_stopped_fn=is_workload_stopped,
-        )
-        self._active_lease = lease
-        self._write_metadata_atomically(lease)
-        self.on_lease_acquired(lease)
-        return lease
+            with self._thread_lock:
+                if self._tier1_active_entry is entry:
+                    self._tier1_active_entry = None
+                self._maybe_dispatch_next_locked()
+            raise
 
     async def release_lease(
         self,
@@ -749,6 +865,9 @@ class GPUResourceScheduler:
     ) -> None:
         if lease.state == LeaseState.RELEASED:
             return
+        if lease.state == LeaseState.QUARANTINED:
+            # Already quarantined: do NOT unlock kernel lock or re-dispatch!
+            return
 
         is_failure_or_cancelled = (
             aborted
@@ -767,58 +886,57 @@ class GPUResourceScheduler:
             )
             self.on_lease_cancelled(lease, cancel_reason)
 
-            # Invoke abort handler if registered
-            if lease._abort_fn is not None:
-                try:
-                    await self._invoke_callable_async(lease._abort_fn)
-                except Exception as exc:
-                    logger.warning("Abort handler raised an exception: %s", exc)
-
-            # Active termination verification loop up to grace_period_s
             confirmed_stopped = False
-            if lease._is_stopped_fn is not None:
-                grace_deadline = time.monotonic() + self.grace_period_s
-                while time.monotonic() < grace_deadline:
+            try:
+                # Invoke abort handler if registered
+                if lease._abort_fn is not None:
                     try:
-                        res = await self._invoke_callable_async(lease._is_stopped_fn)
-                        if res is True:
-                            confirmed_stopped = True
-                            break
-                    except Exception as check_exc:
-                        logger.warning("Termination check error: %s", check_exc)
-                    await asyncio.sleep(self.poll_interval_s)
-            else:
+                        await self._invoke_callable_async(lease._abort_fn)
+                    except Exception as exc:
+                        logger.warning("Abort handler raised an exception: %s", exc)
+
+                # Active termination verification loop up to grace_period_s
+                if lease._is_stopped_fn is not None:
+                    grace_deadline = time.monotonic() + self.grace_period_s
+                    while time.monotonic() < grace_deadline:
+                        try:
+                            res = await self._invoke_callable_async(lease._is_stopped_fn)
+                            if res is True:
+                                confirmed_stopped = True
+                                break
+                        except Exception as check_exc:
+                            logger.warning("Termination check error: %s", check_exc)
+                        await asyncio.sleep(self.poll_interval_s)
+                else:
+                    confirmed_stopped = False
+            except asyncio.CancelledError:
+                # Repeated cancellation during release (F-06):
+                # Workload termination is unconfirmed!
+                logger.critical(
+                    "Lease release was interrupted by cancellation; transition to QUARANTINED (lease=%s)",
+                    lease.lease_id,
+                )
+                self._quarantine_unconfirmed_lease(
+                    lease,
+                    reason=f"Release interrupted by cancellation; termination unconfirmed ({cancel_reason})",
+                    exc_type_name="CancelledError",
+                )
+                raise
+            except Exception as loop_exc:
+                logger.error("Unexpected error during termination verification: %s", loop_exc)
                 confirmed_stopped = False
 
             if not confirmed_stopped or force_quarantine:
                 # Critical safety invariant: Workload termination unconfirmed -> QUARANTINE!
-                lease.state = LeaseState.QUARANTINED
-                lease._quarantine_reason = (
-                    f"Workload termination unconfirmed within {self.grace_period_s}s grace period"
-                    if not confirmed_stopped
-                    else "Forced quarantine"
-                )
-                evidence = {
-                    "quarantined_at": time.time(),
-                    "lease_id": lease.lease_id,
-                    "holder_pid": lease.holder_pid,
-                    "model_id": lease.model_id,
-                    "workload_type": (
-                        lease.workload_type.value
-                        if hasattr(lease.workload_type, "value")
-                        else str(lease.workload_type)
+                self._quarantine_unconfirmed_lease(
+                    lease,
+                    reason=(
+                        f"Workload termination unconfirmed within {self.grace_period_s}s grace period"
+                        if not confirmed_stopped
+                        else "Forced quarantine"
                     ),
-                    "reason": lease._quarantine_reason,
-                    "exception_type": exc_type.__name__ if exc_type else None,
-                    "grace_period_s": self.grace_period_s,
-                }
-                self._quarantined = True
-                self._quarantine_evidence = evidence
-                self._write_quarantine_atomically(evidence)
-                self.on_quarantined(evidence)
-                # Do NOT unlock kernel descriptor to waiting workloads!
-                with self._thread_lock:
-                    self._tier1_active_entry = None
+                    exc_type_name=exc_type.__name__ if exc_type else None,
+                )
                 return
 
         # Normal completion or confirmed termination: release lock cleanly
@@ -850,6 +968,8 @@ class GPUResourceScheduler:
     ) -> None:
         """Synchronous release implementation for threads/subprocesses."""
         if lease.state == LeaseState.RELEASED:
+            return
+        if lease.state == LeaseState.QUARANTINED:
             return
 
         is_failure_or_cancelled = (
@@ -891,32 +1011,15 @@ class GPUResourceScheduler:
                 confirmed_stopped = False
 
             if not confirmed_stopped or force_quarantine:
-                lease.state = LeaseState.QUARANTINED
-                lease._quarantine_reason = (
-                    f"Workload termination unconfirmed within {self.grace_period_s}s grace period"
-                    if not confirmed_stopped
-                    else "Forced quarantine"
-                )
-                evidence = {
-                    "quarantined_at": time.time(),
-                    "lease_id": lease.lease_id,
-                    "holder_pid": lease.holder_pid,
-                    "model_id": lease.model_id,
-                    "workload_type": (
-                        lease.workload_type.value
-                        if hasattr(lease.workload_type, "value")
-                        else str(lease.workload_type)
+                self._quarantine_unconfirmed_lease(
+                    lease,
+                    reason=(
+                        f"Workload termination unconfirmed within {self.grace_period_s}s grace period"
+                        if not confirmed_stopped
+                        else "Forced quarantine"
                     ),
-                    "reason": lease._quarantine_reason,
-                    "exception_type": exc_type.__name__ if exc_type else None,
-                    "grace_period_s": self.grace_period_s,
-                }
-                self._quarantined = True
-                self._quarantine_evidence = evidence
-                self._write_quarantine_atomically(evidence)
-                self.on_quarantined(evidence)
-                with self._thread_lock:
-                    self._tier1_active_entry = None
+                    exc_type_name=exc_type.__name__ if exc_type else None,
+                )
                 return
 
         lease.state = LeaseState.RELEASED
@@ -975,29 +1078,65 @@ class GPUResourceScheduler:
         self,
         force: bool = False,
         hardware_check: Optional[Callable[[], bool | Awaitable[bool]]] = None,
+        workload_check: Optional[Callable[[], bool | Awaitable[bool]]] = None,
+        operator_override: bool = False,
+        operator_reason: Optional[str] = None,
     ) -> bool:
         """Clear quarantine state with explicit recovery verification.
 
-        - If hardware_check is provided, executes it.
-        - If hardware_check returns False and force is False, quarantine remains.
-        - If force is True or hardware_check returns True, lifts quarantine and removes file.
+        Safety invariants (F-07):
+        1. Workload Cessation: Workload must be verified stopped. If workload_check
+           or active lease termination check returns False, quarantine is RETAINED.
+           force=True does NOT bypass active workload checks.
+        2. Hardware Health: If hardware_check is provided and returns False,
+           quarantine is RETAINED regardless of force=True.
+        3. Ordinary requests without verification or operator override cannot clear quarantine.
+        4. Safe recovery requires verified workload cessation and GPU health.
         """
         if not self.is_quarantined():
             return True
 
-        if hardware_check is not None:
-            ok = self._invoke_callable_sync(hardware_check)
-            if not ok and not force:
-                logger.warning("Hardware verification check failed; GPU remains quarantined")
+        # Check 1: Workload Termination Verification
+        if workload_check is not None:
+            workload_ok = self._invoke_callable_sync(workload_check)
+            if not workload_ok:
+                logger.warning(
+                    "Workload verification check returned False; GPU remains quarantined"
+                )
                 return False
-        elif not force:
+
+        evidence = self.get_quarantine_evidence() or {}
+        evidence_pid = evidence.get("holder_pid")
+        if (
+            evidence_pid
+            and evidence_pid != os.getpid()
+            and self._is_process_alive(evidence_pid)
+            and workload_check is None
+            and not operator_override
+        ):
             logger.warning(
-                "Attempted to clear quarantine without hardware verification or force=True; rejected"
+                "Quarantined external holder PID %s is still alive; GPU remains quarantined",
+                evidence_pid,
             )
             return False
 
+        # Check 2: Hardware Health Verification
+        if hardware_check is not None:
+            hw_ok = self._invoke_callable_sync(hardware_check)
+            if not hw_ok:
+                logger.warning(
+                    "Hardware verification check failed; GPU remains quarantined regardless of force/override"
+                )
+                return False
+        elif not force and not operator_override:
+            logger.warning(
+                "Attempted to clear quarantine without hardware verification or operator override; rejected"
+            )
+            return False
+
+        # Recovery established safely
         self._quarantined = False
-        evidence = self._quarantine_evidence
+        quar_evidence = self._quarantine_evidence
         self._quarantine_evidence = None
 
         # If holding a quarantined kernel lock fd, release it now
@@ -1011,13 +1150,76 @@ class GPUResourceScheduler:
         except OSError:
             pass
 
-        self.on_quarantine_cleared(evidence)
+        self.on_quarantine_cleared(quar_evidence)
 
         with self._thread_lock:
             self._tier1_active_entry = None
             self._maybe_dispatch_next_locked()
 
         return True
+
+    def operator_recover(
+        self,
+        operator_id: str,
+        reason: str,
+        hardware_check: Optional[Callable[[], bool | Awaitable[bool]]] = None,
+        workload_check: Optional[Callable[[], bool | Awaitable[bool]]] = None,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Documented, explicit operator recovery procedure (F-07).
+
+        Requires verified workload termination and GPU health.
+        Logs operator identity and audit trail.
+        """
+        if not operator_id or not reason:
+            return {
+                "success": False,
+                "quarantined": self.is_quarantined(),
+                "error": "Operator ID and reason are mandatory for quarantine recovery",
+            }
+
+        logger.info(
+            "OPERATOR RECOVERY INITIATED by '%s' (reason: %s, force=%s)",
+            operator_id,
+            reason,
+            force,
+        )
+
+        cleared = self.clear_quarantine(
+            force=force,
+            hardware_check=hardware_check,
+            workload_check=workload_check,
+            operator_override=True,
+            operator_reason=reason,
+        )
+
+        result = {
+            "success": cleared,
+            "quarantined": self.is_quarantined(),
+            "operator_id": operator_id,
+            "reason": reason,
+            "cleared_at": time.time() if cleared else None,
+        }
+        if cleared:
+            logger.info("OPERATOR RECOVERY SUCCESSFUL by '%s'", operator_id)
+        else:
+            logger.error("OPERATOR RECOVERY FAILED by '%s'; GPU remains quarantined", operator_id)
+        return result
+
+    @staticmethod
+    def _is_process_alive(pid: int) -> bool:
+        """Check if process with given PID is currently alive."""
+        if pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
 
     def get_queue_status(self) -> dict[str, Any]:
         """Return current queue depth, active lease, and quarantine state."""
@@ -1053,7 +1255,15 @@ class GPUResourceScheduler:
     # ---------------------------------------------------------------------------
 
     async def shutdown(self, timeout_s: float = 5.0) -> None:
-        """Cancel queued requests and cleanly release scheduler state."""
+        """Cancel queued requests and cleanly release scheduler state.
+
+        Shutdown safety invariants (F-06):
+        - If an active workload is running, waits up to timeout_s for graceful release.
+        - If the workload remains active or unconfirmed when timeout expires (or if shutdown
+          is interrupted by asyncio.CancelledError), the scheduler NEVER unlocks the kernel flock.
+        - Instead, it transitions to QUARANTINED, persists quarantine evidence, and preserves
+          the lock descriptor to prevent concurrent GPU access.
+        """
         self._is_shutting_down = True
         with self._thread_lock:
             for entry in self._queue:
@@ -1066,14 +1276,50 @@ class GPUResourceScheduler:
                     entry.event.set()
             self._queue.clear()
 
-        if self._active_lease and self._active_lease.state == LeaseState.RUNNING:
-            deadline = time.monotonic() + timeout_s
-            while self._active_lease and time.monotonic() < deadline:
-                await asyncio.sleep(0.05)
+        if self._active_lease is None:
+            return
 
-        if self._active_lease and self._active_lease._lock_fd is not None:
-            self._release_kernel_lock(self._active_lease)
+        lease = self._active_lease
+        if lease.state == LeaseState.RELEASED:
             self._active_lease = None
+            return
+
+        if lease.state == LeaseState.QUARANTINED:
+            # Already quarantined; do NOT release kernel lock!
+            return
+
+        try:
+            deadline = time.monotonic() + timeout_s
+            while (
+                self._active_lease is not None
+                and self._active_lease.state in (LeaseState.ACQUIRED, LeaseState.RUNNING)
+            ):
+                if time.monotonic() >= deadline:
+                    break
+                await asyncio.sleep(0.01)
+        except asyncio.CancelledError:
+            logger.warning("Scheduler shutdown was cancelled while waiting for active lease")
+            if self._active_lease and self._active_lease.state != LeaseState.RELEASED:
+                self._quarantine_unconfirmed_lease(
+                    self._active_lease,
+                    reason="Scheduler shutdown cancelled while workload was active",
+                    exc_type_name="CancelledError",
+                )
+            raise
+
+        if self._active_lease is not None:
+            if self._active_lease._workload_completed or self._active_lease.state == LeaseState.RELEASED:
+                self._release_kernel_lock(self._active_lease)
+                self._active_lease = None
+            else:
+                logger.critical(
+                    "Scheduler shutdown timeout expired with unconfirmed workload; QUARANTINING GPU"
+                )
+                self._quarantine_unconfirmed_lease(
+                    self._active_lease,
+                    reason=f"Scheduler shutdown timed out after {timeout_s}s with active workload",
+                    exc_type_name="TimeoutError",
+                )
 
     def on_lease_acquired(self, lease: GPUSchedulerLease) -> None:
         """Telemetry hook: invoked upon lease acquisition."""

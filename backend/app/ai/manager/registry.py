@@ -7,6 +7,7 @@ Enforces that unverified values (such as FASHN VTON requirements) are explicitly
 from __future__ import annotations
 
 import copy
+import logging
 import threading
 import time
 from typing import Dict, List, Optional
@@ -18,6 +19,8 @@ from app.ai.manager.types import (
     ModelState,
     WorkloadType,
 )
+
+logger = logging.getLogger("fansivibe.ai.manager.registry")
 
 # Canonical initial models with honest verification flags
 _DEFAULT_MODELS: tuple[ModelInfo, ...] = (
@@ -97,14 +100,80 @@ class ModelRegistry:
         with self._lock:
             return model_id in self._models
 
-    def update_state(self, model_id: str, new_state: ModelState) -> ModelInfo:
-        """Update the residency state of a model."""
+    def update_state(
+        self,
+        model_id: str,
+        new_state: ModelState,
+        observation_timestamp: Optional[float] = None,
+    ) -> ModelInfo:
+        """Update the residency state of a model with monotonic observation fencing.
+
+        Thread-safe method that updates a registered model's current residency state
+        while enforcing monotonic observation fencing on an independent observation
+        timeline (last_observation_timestamp) separate from state-transition history
+        (last_state_change).
+
+        Args:
+            model_id: Unique identifier of the registered model.
+            new_state: Newly observed ModelState (HOT, COLD, UNKNOWN).
+            observation_timestamp: Optional POSIX timestamp (in seconds) representing
+                when the observation was made. When None, current wall-clock time
+                (time.time()) is used, but cannot bypass an established timestamp fence
+                (i.e. if current time is strictly less than an established future/higher
+                last_observation_timestamp, the legacy call is rejected as stale).
+
+        Fencing Rules:
+            - Newer observation (observation_timestamp > info.last_observation_timestamp):
+              ACCEPTED. last_observation_timestamp advances to observation_timestamp.
+              last_state_change is updated to observation_timestamp ONLY IF the model's
+              current_state actually changes (new_state != info.current_state).
+            - Stale observation (observation_timestamp < info.last_observation_timestamp):
+              REJECTED. The stale observation is safely discarded/ignored without
+              altering current_state, last_state_change, or last_observation_timestamp.
+            - Equal timestamp (observation_timestamp == info.last_observation_timestamp):
+              DETERMINISTIC LAST-WRITE-WINS: ACCEPTED. If new_state != info.current_state,
+              current_state and last_state_change are updated. If new_state == info.current_state,
+              this is an idempotent refresh and last_state_change remains unchanged.
+            - Legacy un-timestamped callers:
+              When observation_timestamp is None, effective_ts = time.time(). If effective_ts
+              is strictly less than info.last_observation_timestamp, the call is rejected to
+              prevent bypassing an established fence. Otherwise, it is accepted and advances
+              last_observation_timestamp, updating last_state_change only on state change.
+
+        Returns:
+            An isolated ModelInfo snapshot reflecting the post-fencing state.
+
+        Raises:
+            ModelNotFoundError: If model_id is not registered.
+        """
         with self._lock:
             info = self._models.get(model_id)
             if info is None:
                 raise ModelNotFoundError(model_id)
-            info.current_state = new_state
-            info.last_state_change = time.time()
+
+            if observation_timestamp is not None:
+                effective_ts = observation_timestamp
+                is_legacy = False
+            else:
+                effective_ts = time.time()
+                is_legacy = True
+
+            if effective_ts < info.last_observation_timestamp:
+                logger.debug(
+                    "Rejected %s observation for model '%s': "
+                    "timestamp=%.6f < last_observation_timestamp=%.6f",
+                    "untimestamped" if is_legacy else "stale",
+                    model_id,
+                    effective_ts,
+                    info.last_observation_timestamp,
+                )
+                return copy.deepcopy(info)
+
+            info.last_observation_timestamp = effective_ts
+            if new_state != info.current_state:
+                info.current_state = new_state
+                info.last_state_change = effective_ts
+
             return copy.deepcopy(info)
 
     def update_memory_requirements(

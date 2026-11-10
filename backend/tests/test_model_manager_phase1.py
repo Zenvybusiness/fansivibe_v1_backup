@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 from typing import NamedTuple
 
 import pytest
@@ -471,4 +472,325 @@ def test_live_gpu_memory_monitor_on_host():
         assert "RTX 3050" in (snap.device_name or "")
     except HardwareMonitoringError as exc:
         pytest.fail(f"Live nvidia-smi monitoring failed unexpectedly: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# 7. ModelRegistry Observation Fencing Tests (F-02)
+# ---------------------------------------------------------------------------
+
+
+def test_registry_observation_timestamp_independent_fencing_sequence():
+    """F-02: Mandatory sequence testing independent observation fencing vs state change.
+
+    1. Timestamp 100 HOT accepted.
+    2. Timestamp 200 HOT accepted without changing last_state_change.
+    3. Timestamp 150 COLD rejected.
+    4. last_observation_timestamp remains 200 after the rejected observation.
+    5. Newer state-changing observation updates last_state_change.
+    """
+    registry = ModelRegistry(pre_register_defaults=True)
+    initial_info = registry.get("qwen3-vl:4b-instruct")
+    assert initial_info.current_state == ModelState.COLD
+    assert initial_info.last_observation_timestamp == 0.0
+
+    # 1. Timestamp 100 HOT accepted (state changes COLD -> HOT)
+    info1 = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.HOT,
+        observation_timestamp=100.0,
+    )
+    assert info1.current_state == ModelState.HOT
+    assert info1.last_observation_timestamp == 100.0
+    assert info1.last_state_change == 100.0
+
+    # 2. Timestamp 200 HOT accepted without changing last_state_change
+    info2 = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.HOT,
+        observation_timestamp=200.0,
+    )
+    assert info2.current_state == ModelState.HOT
+    assert info2.last_observation_timestamp == 200.0
+    # CRITICAL INVARIANT: last_state_change MUST NOT change when state remains HOT
+    assert info2.last_state_change == 100.0
+
+    # 3. Timestamp 150 COLD rejected (older than last_observation_timestamp 200.0)
+    info3 = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.COLD,
+        observation_timestamp=150.0,
+    )
+    assert info3.current_state == ModelState.HOT  # Rejected: state remains HOT
+    assert info3.last_state_change == 100.0
+
+    # 4. last_observation_timestamp remains 200 after the rejected observation
+    assert info3.last_observation_timestamp == 200.0
+    stored = registry.get("qwen3-vl:4b-instruct")
+    assert stored.current_state == ModelState.HOT
+    assert stored.last_observation_timestamp == 200.0
+    assert stored.last_state_change == 100.0
+
+    # 5. Newer state-changing observation updates last_state_change
+    info5 = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.COLD,
+        observation_timestamp=250.0,
+    )
+    assert info5.current_state == ModelState.COLD
+    assert info5.last_observation_timestamp == 250.0
+    assert info5.last_state_change == 250.0
+    stored5 = registry.get("qwen3-vl:4b-instruct")
+    assert stored5.current_state == ModelState.COLD
+    assert stored5.last_observation_timestamp == 250.0
+    assert stored5.last_state_change == 250.0
+
+
+def test_registry_fencing_newer_observation_accepted():
+    """F-02: Verify newer observation is accepted and advances last_observation_timestamp."""
+    registry = ModelRegistry(pre_register_defaults=True)
+    t0 = time.time() + 10.0
+    info1 = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.HOT,
+        observation_timestamp=t0,
+    )
+    assert info1.current_state == ModelState.HOT
+    assert info1.last_observation_timestamp == t0
+    assert info1.last_state_change == t0
+
+    t1 = t0 + 50.0
+    info2 = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.COLD,
+        observation_timestamp=t1,
+    )
+    assert info2.current_state == ModelState.COLD
+    assert info2.last_observation_timestamp == t1
+    assert info2.last_state_change == t1
+    assert registry.get("qwen3-vl:4b-instruct").current_state == ModelState.COLD
+    assert registry.get("qwen3-vl:4b-instruct").last_observation_timestamp == t1
+
+
+def test_registry_fencing_older_observation_rejected():
+    """F-02: Verify stale observation is rejected without altering current state or timestamps."""
+    registry = ModelRegistry(pre_register_defaults=True)
+    t0 = time.time() + 100.0
+    info_init = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.HOT,
+        observation_timestamp=t0,
+    )
+    assert info_init.current_state == ModelState.HOT
+    assert info_init.last_observation_timestamp == t0
+    assert info_init.last_state_change == t0
+
+    t_stale = t0 - 50.0
+    info_stale = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.COLD,
+        observation_timestamp=t_stale,
+    )
+    assert info_stale.current_state == ModelState.HOT
+    assert info_stale.last_observation_timestamp == t0
+    assert info_stale.last_state_change == t0
+    assert registry.get("qwen3-vl:4b-instruct").current_state == ModelState.HOT
+    assert registry.get("qwen3-vl:4b-instruct").last_observation_timestamp == t0
+
+
+def test_registry_fencing_equal_timestamp_deterministic():
+    """F-02: Verify deterministic behavior for observations with equal timestamps (last-write-wins)."""
+    registry = ModelRegistry(pre_register_defaults=True)
+    t0 = 100.0
+    info1 = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.HOT,
+        observation_timestamp=t0,
+    )
+    assert info1.current_state == ModelState.HOT
+    assert info1.last_observation_timestamp == t0
+    assert info1.last_state_change == t0
+
+    info2 = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.COLD,
+        observation_timestamp=t0,
+    )
+    assert info2.current_state == ModelState.COLD
+    assert info2.last_observation_timestamp == t0
+    assert info2.last_state_change == t0
+    assert registry.get("qwen3-vl:4b-instruct").current_state == ModelState.COLD
+
+    # Idempotent re-write at equal timestamp with same state
+    info3 = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.COLD,
+        observation_timestamp=t0,
+    )
+    assert info3.current_state == ModelState.COLD
+    assert info3.last_observation_timestamp == t0
+    assert info3.last_state_change == t0
+
+
+def test_registry_fencing_existing_callers_without_timestamps():
+    """F-02: Verify backward compatibility for existing callers without observation timestamps."""
+    registry = ModelRegistry(pre_register_defaults=True)
+    t_before = time.time()
+    info = registry.update_state("qwen3-vl:4b-instruct", ModelState.HOT)
+    t_after = time.time()
+
+    assert info.current_state == ModelState.HOT
+    assert t_before <= info.last_observation_timestamp <= t_after + 0.1
+    assert t_before <= info.last_state_change <= t_after + 0.1
+    assert registry.get("qwen3-vl:4b-instruct").current_state == ModelState.HOT
+
+    # Subsequent legacy call with same state advances observation time but not state_change
+    time.sleep(0.01)
+    info_same = registry.update_state("qwen3-vl:4b-instruct", ModelState.HOT)
+    assert info_same.current_state == ModelState.HOT
+    assert info_same.last_observation_timestamp >= info.last_observation_timestamp
+    assert info_same.last_state_change == info.last_state_change
+
+
+def test_registry_fencing_legacy_cannot_bypass_fence():
+    """F-02: Verify untimestamped legacy call cannot bypass an established timestamp fence."""
+    registry = ModelRegistry(pre_register_defaults=True)
+    future_ts = time.time() + 1000.0
+    info_fenced = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.HOT,
+        observation_timestamp=future_ts,
+    )
+    assert info_fenced.current_state == ModelState.HOT
+    assert info_fenced.last_observation_timestamp == future_ts
+    assert info_fenced.last_state_change == future_ts
+
+    # Legacy caller without observation_timestamp operates at current time (now < future_ts)
+    # It must be REJECTED and cannot overwrite state or timestamps
+    info_legacy = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.COLD,
+        observation_timestamp=None,
+    )
+    assert info_legacy.current_state == ModelState.HOT
+    assert info_legacy.last_observation_timestamp == future_ts
+    assert info_legacy.last_state_change == future_ts
+    assert registry.get("qwen3-vl:4b-instruct").current_state == ModelState.HOT
+
+
+def test_registry_fencing_unknown_observations():
+    """F-02: Verify UNKNOWN observations are accepted and fenced correctly."""
+    registry = ModelRegistry(pre_register_defaults=True)
+    t0 = 100.0
+    info0 = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.HOT,
+        observation_timestamp=t0,
+    )
+    assert info0.current_state == ModelState.HOT
+    assert info0.last_observation_timestamp == t0
+    assert info0.last_state_change == t0
+
+    t1 = 200.0
+    info_unk = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.UNKNOWN,
+        observation_timestamp=t1,
+    )
+    assert info_unk.current_state == ModelState.UNKNOWN
+    assert info_unk.last_observation_timestamp == t1
+    assert info_unk.last_state_change == t1
+    assert registry.get("qwen3-vl:4b-instruct").current_state == ModelState.UNKNOWN
+
+    # Stale observation rejected
+    t_stale = 150.0  # Older than t1 (200.0)
+    info_stale = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.HOT,
+        observation_timestamp=t_stale,
+    )
+    assert info_stale.current_state == ModelState.UNKNOWN
+    assert info_stale.last_observation_timestamp == t1
+    assert info_stale.last_state_change == t1
+
+    # Newer observation with same UNKNOWN state updates observation ts but not state change
+    t2 = 250.0
+    info_unk2 = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.UNKNOWN,
+        observation_timestamp=t2,
+    )
+    assert info_unk2.current_state == ModelState.UNKNOWN
+    assert info_unk2.last_observation_timestamp == t2
+    assert info_unk2.last_state_change == t1  # Remained at t1!
+
+    # Newer observation with different state updates both
+    t3 = 300.0
+    info_cold = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.COLD,
+        observation_timestamp=t3,
+    )
+    assert info_cold.current_state == ModelState.COLD
+    assert info_cold.last_observation_timestamp == t3
+    assert info_cold.last_state_change == t3
+
+
+def test_registry_fencing_concurrent_updates():
+    """F-02: Verify thread safety under rapid concurrent updates with various timestamps."""
+    registry = ModelRegistry(pre_register_defaults=True)
+    t_base = time.time() + 10.0
+    deltas = [10.0, 50.0, 30.0, 90.0, 20.0, 100.0, 70.0, 40.0, 80.0, 60.0]
+    errors: list[Exception] = []
+
+    def worker(delta: float, state: ModelState):
+        try:
+            registry.update_state(
+                "qwen3-vl:4b-instruct",
+                state,
+                observation_timestamp=t_base + delta,
+            )
+        except Exception as e:
+            errors.append(e)
+
+    threads = [
+        threading.Thread(
+            target=worker,
+            args=(d, ModelState.HOT if int(d) % 20 == 0 else ModelState.COLD),
+        )
+        for d in deltas
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    final_info = registry.get("qwen3-vl:4b-instruct")
+    # Highest delta in the list was 100.0 (which mapped to HOT because 100 % 20 == 0)
+    assert final_info.last_observation_timestamp == t_base + 100.0
+    assert final_info.current_state == ModelState.HOT
+    assert final_info.last_state_change <= final_info.last_observation_timestamp
+
+
+def test_registry_fencing_snapshot_compatibility():
+    """F-02: Verify update_state returns an isolated snapshot preserving registry state."""
+    registry = ModelRegistry(pre_register_defaults=True)
+    t0 = time.time() + 10.0
+    snapshot = registry.update_state(
+        "qwen3-vl:4b-instruct",
+        ModelState.HOT,
+        observation_timestamp=t0,
+    )
+    assert snapshot.last_observation_timestamp == t0
+    assert snapshot.last_state_change == t0
+
+    # Mutating snapshot fields does not alter internal registry state
+    snapshot.current_state = ModelState.COLD
+    snapshot.last_state_change = t0 + 999.0
+    snapshot.last_observation_timestamp = t0 + 888.0
+
+    current_in_registry = registry.get("qwen3-vl:4b-instruct")
+    assert current_in_registry.current_state == ModelState.HOT
+    assert current_in_registry.last_state_change == t0
+    assert current_in_registry.last_observation_timestamp == t0
 

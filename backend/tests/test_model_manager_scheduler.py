@@ -874,3 +874,511 @@ async def test_recovery_without_concurrent_gpu_grants(tmp_path):
     assert max_active == 1
     assert active_count == 0
 
+
+# ---------------------------------------------------------------------------
+# 19. Finding F-04: Tier 1 Queue Recovery Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_f04_tier1_recovery_on_permission_error_async(tmp_path, monkeypatch):
+    """When _open_lockfile raises PermissionError, Tier 1 state must recover cleanly.
+
+    Invariants verified:
+    - Failing task receives PermissionError.
+    - Tier 1 active slot is freed.
+    - Waiting tasks in queue are dispatched and succeed.
+    - Zero leaked file descriptors.
+    """
+    scheduler = _make_scheduler(tmp_path)
+
+    orig_open = scheduler._open_lockfile
+    call_count = 0
+
+    def faulty_open():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise PermissionError("EACCES: Injected lockfile permission failure")
+        return orig_open()
+
+    monkeypatch.setattr(scheduler, "_open_lockfile", faulty_open)
+
+    task_b_acquired = False
+
+    async def task_a():
+        async with scheduler.acquire_lease("model-a"):
+            pass
+
+    async def task_b():
+        nonlocal task_b_acquired
+        async with scheduler.acquire_lease("model-b"):
+            task_b_acquired = True
+
+    t_a = asyncio.create_task(task_a())
+    await asyncio.sleep(0.005)
+    t_b = asyncio.create_task(task_b())
+
+    with pytest.raises(PermissionError, match="Injected lockfile permission failure"):
+        await t_a
+
+    await asyncio.wait_for(t_b, timeout=2.0)
+    assert task_b_acquired is True
+    assert scheduler.get_queue_status()["tier1_active"] is False
+
+
+def test_f04_tier1_recovery_on_permission_error_sync(tmp_path, monkeypatch):
+    """Sync threads: When _open_lockfile raises PermissionError, queue recovers."""
+    scheduler = _make_scheduler(tmp_path)
+
+    orig_open = scheduler._open_lockfile
+    call_count = 0
+    lock = threading.Lock()
+
+    def faulty_open():
+        nonlocal call_count
+        with lock:
+            call_count += 1
+            if call_count == 1:
+                raise PermissionError("EACCES: Sync injected permission failure")
+            return orig_open()
+
+    monkeypatch.setattr(scheduler, "_open_lockfile", faulty_open)
+
+    thread_b_success = False
+    thread_a_error: Optional[Exception] = None
+
+    def worker_a():
+        nonlocal thread_a_error
+        try:
+            with scheduler.acquire_lease_sync("model-a"):
+                pass
+        except Exception as exc:
+            thread_a_error = exc
+
+    def worker_b():
+        nonlocal thread_b_success
+        with scheduler.acquire_lease_sync("model-b"):
+            thread_b_success = True
+
+    t_a = threading.Thread(target=worker_a)
+    t_b = threading.Thread(target=worker_b)
+
+    t_a.start()
+    time.sleep(0.01)
+    t_b.start()
+
+    t_a.join(timeout=3.0)
+    t_b.join(timeout=3.0)
+
+    assert isinstance(thread_a_error, PermissionError)
+    assert thread_b_success is True
+
+
+@pytest.mark.anyio
+async def test_f04_tier1_recovery_on_flock_os_error(tmp_path, monkeypatch):
+    """When fcntl.flock raises unexpected OSError, Tier 1 recovers and fd is closed."""
+    import errno
+    import fcntl
+
+    scheduler = _make_scheduler(tmp_path)
+
+    orig_flock = fcntl.flock
+    call_count = 0
+
+    def faulty_flock(fd, op):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise OSError(errno.EIO, "Injected I/O error during flock")
+        return orig_flock(fd, op)
+
+    monkeypatch.setattr(fcntl, "flock", faulty_flock)
+
+    task_b_ok = False
+
+    async def task_a():
+        async with scheduler.acquire_lease("model-a"):
+            pass
+
+    async def task_b():
+        nonlocal task_b_ok
+        async with scheduler.acquire_lease("model-b"):
+            task_b_ok = True
+
+    t_a = asyncio.create_task(task_a())
+    await asyncio.sleep(0.005)
+    t_b = asyncio.create_task(task_b())
+
+    with pytest.raises(OSError, match="Injected I/O error during flock"):
+        await t_a
+
+    await asyncio.wait_for(t_b, timeout=2.0)
+    assert task_b_ok is True
+
+
+@pytest.mark.anyio
+async def test_f04_tier1_recovery_on_cancellation_during_tier2_wait(tmp_path):
+    """Task cancelled while contending for Tier 2 lock releases Tier 1 for next waiter."""
+    scheduler = _make_scheduler(tmp_path)
+
+    lease1_held = asyncio.Event()
+    release_lease1 = asyncio.Event()
+
+    async def holder():
+        async with scheduler.acquire_lease("holder"):
+            lease1_held.set()
+            await release_lease1.wait()
+
+    t_holder = asyncio.create_task(holder())
+    await lease1_held.wait()
+
+    task_c_acquired = False
+
+    async def task_b():
+        async with scheduler.acquire_lease("contender"):
+            pass
+
+    async def task_c():
+        nonlocal task_c_acquired
+        async with scheduler.acquire_lease("waiter-c"):
+            task_c_acquired = True
+
+    t_b = asyncio.create_task(task_b())
+    await asyncio.sleep(0.02)
+    t_c = asyncio.create_task(task_c())
+    await asyncio.sleep(0.01)
+
+    t_b.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await t_b
+
+    release_lease1.set()
+    await t_holder
+
+    await asyncio.wait_for(t_c, timeout=2.0)
+    assert task_c_acquired is True
+
+
+# ---------------------------------------------------------------------------
+# 20. Finding F-05: Lock-file Security Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_f05_lockfile_symlink_rejected(tmp_path):
+    """A symlink in place of the lockfile is rejected via O_NOFOLLOW without traversing."""
+    target_file = tmp_path / "sensitive_target.txt"
+    target_file.write_text("SENSITIVE DATA")
+
+    symlink_path = tmp_path / "symlink_gpu.lock"
+    os.symlink(str(target_file), str(symlink_path))
+
+    scheduler = GPUResourceScheduler(
+        lockfile_path=str(symlink_path),
+        metadata_path=str(tmp_path / "meta.json"),
+        quarantine_path=str(tmp_path / "quar.json"),
+    )
+
+    with pytest.raises(PermissionError, match="symlink"):
+        async with scheduler.acquire_lease("model"):
+            pass
+
+    assert target_file.read_text() == "SENSITIVE DATA"
+
+
+@pytest.mark.anyio
+async def test_f05_lockfile_fifo_rejected(tmp_path):
+    """A FIFO (named pipe) in place of the lockfile is rejected as a non-regular file."""
+    fifo_path = tmp_path / "fifo_gpu.lock"
+    os.mkfifo(str(fifo_path))
+
+    scheduler = GPUResourceScheduler(
+        lockfile_path=str(fifo_path),
+        metadata_path=str(tmp_path / "meta.json"),
+        quarantine_path=str(tmp_path / "quar.json"),
+    )
+
+    with pytest.raises(PermissionError, match="not a regular file"):
+        async with scheduler.acquire_lease("model"):
+            pass
+
+
+@pytest.mark.anyio
+async def test_f05_lockfile_directory_rejected(tmp_path):
+    """A directory in place of the lockfile is rejected as a non-regular file."""
+    dir_path = tmp_path / "dir_gpu.lock"
+    os.mkdir(str(dir_path))
+
+    scheduler = GPUResourceScheduler(
+        lockfile_path=str(dir_path),
+        metadata_path=str(tmp_path / "meta.json"),
+        quarantine_path=str(tmp_path / "quar.json"),
+    )
+
+    with pytest.raises((PermissionError, IsADirectoryError, OSError)):
+        async with scheduler.acquire_lease("model"):
+            pass
+
+
+@pytest.mark.anyio
+async def test_f05_lockfile_wrong_ownership_rejected(tmp_path, monkeypatch):
+    """A lockfile owned by a different UID is rejected."""
+    scheduler = _make_scheduler(tmp_path)
+
+    fd = scheduler._open_lockfile()
+    os.close(fd)
+
+    real_uid = os.getuid()
+    monkeypatch.setattr(os, "getuid", lambda: real_uid + 9999)
+
+    with pytest.raises(PermissionError, match="owned by UID"):
+        scheduler._open_lockfile()
+
+
+@pytest.mark.anyio
+async def test_f05_lockfile_insecure_mode_rejected_if_unfixable(tmp_path, monkeypatch):
+    """If lockfile has insecure permissions that fchmod cannot fix, open is rejected."""
+    scheduler = _make_scheduler(tmp_path)
+
+    orig_fstat = os.fstat
+
+    class FakeStat:
+        def __init__(self, real_st):
+            self.st_mode = real_st.st_mode | 0o066
+            self.st_uid = real_st.st_uid
+
+    monkeypatch.setattr(os, "fchmod", lambda fd, mode: None)
+
+    def fake_fstat(fd):
+        real_st = orig_fstat(fd)
+        return FakeStat(real_st)
+
+    monkeypatch.setattr(os, "fstat", fake_fstat)
+
+    with pytest.raises(PermissionError, match="insecure permissions"):
+        scheduler._open_lockfile()
+
+
+@pytest.mark.anyio
+async def test_f05_lockfile_never_unlinked_or_replaced(tmp_path):
+    """Scheduler must never unlink or replace the active lockfile (inode stability)."""
+    scheduler = _make_scheduler(tmp_path)
+
+    async with scheduler.acquire_lease("model-1"):
+        pass
+
+    initial_inode = os.stat(scheduler.lockfile_path).st_ino
+
+    async with scheduler.acquire_lease("model-2"):
+        pass
+
+    assert os.stat(scheduler.lockfile_path).st_ino == initial_inode
+
+    scheduler.clear_quarantine(force=True)
+    assert os.stat(scheduler.lockfile_path).st_ino == initial_inode
+
+
+# ---------------------------------------------------------------------------
+# 21. Finding F-06: Cancellation-Safe Release Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_f06_repeated_cancellation_during_release_quarantines_and_preserves_lock(tmp_path):
+    """Repeated cancellation during release must NOT unlock kernel lock; must persist quarantine."""
+    scheduler = _make_scheduler(tmp_path, grace_period_s=5.0)
+
+    in_stopped_check = asyncio.Event()
+
+    async def slow_stopped_check():
+        in_stopped_check.set()
+        await asyncio.sleep(10.0)
+        return True
+
+    lease = await scheduler._do_acquire_async(
+        model_id="test-model",
+        workload_type=WorkloadType.REASONING_VISION,
+        priority=1,
+        timeout_s=10.0,
+        acquisition_timeout_s=2.0,
+        abort_fn=None,
+        is_workload_stopped=slow_stopped_check,
+    )
+
+    assert lease._lock_fd is not None
+    original_fd = lease._lock_fd
+
+    release_task = asyncio.create_task(
+        scheduler._do_release_async(lease, aborted=True)
+    )
+
+    await in_stopped_check.wait()
+
+    release_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await release_task
+
+    assert scheduler.is_quarantined() is True
+    assert lease.state == LeaseState.QUARANTINED
+    assert lease._lock_fd == original_fd
+
+    await scheduler.release_lease(lease)
+    assert lease._lock_fd == original_fd
+
+    scheduler._release_kernel_lock(lease)
+
+
+@pytest.mark.anyio
+async def test_f06_shutdown_with_unconfirmed_workload_quarantines_and_preserves_lock(tmp_path):
+    """Shutdown with active unconfirmed workload quarantines GPU and preserves lock descriptor."""
+    scheduler = _make_scheduler(tmp_path)
+
+    lease = await scheduler._do_acquire_async(
+        model_id="hanging-model",
+        workload_type=WorkloadType.REASONING_VISION,
+        priority=1,
+        timeout_s=10.0,
+        acquisition_timeout_s=2.0,
+        abort_fn=None,
+        is_workload_stopped=lambda: False,
+    )
+    original_fd = lease._lock_fd
+
+    await scheduler.shutdown(timeout_s=0.05)
+
+    assert scheduler.is_quarantined() is True
+    assert lease.state == LeaseState.QUARANTINED
+    assert lease._lock_fd == original_fd
+
+    scheduler._release_kernel_lock(lease)
+
+
+@pytest.mark.anyio
+async def test_f06_shutdown_cancellation_quarantines_active_workload(tmp_path):
+    """When scheduler.shutdown is interrupted by CancelledError, GPU is quarantined and lock preserved."""
+    scheduler = _make_scheduler(tmp_path)
+
+    lease = await scheduler._do_acquire_async(
+        model_id="active-model",
+        workload_type=WorkloadType.REASONING_VISION,
+        priority=1,
+        timeout_s=10.0,
+        acquisition_timeout_s=2.0,
+        abort_fn=None,
+        is_workload_stopped=lambda: False,
+    )
+    original_fd = lease._lock_fd
+
+    shutdown_task = asyncio.create_task(scheduler.shutdown(timeout_s=10.0))
+    await asyncio.sleep(0.01)
+
+    shutdown_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await shutdown_task
+
+    assert scheduler.is_quarantined() is True
+    assert lease.state == LeaseState.QUARANTINED
+    assert lease._lock_fd == original_fd
+
+    scheduler._release_kernel_lock(lease)
+
+
+# ---------------------------------------------------------------------------
+# 22. Finding F-07: Recovery Hardening Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_f07_force_does_not_clear_if_workload_check_fails(tmp_path):
+    """clear_quarantine(force=True) fails if workload_check explicitly returns False."""
+    scheduler = _make_scheduler(tmp_path)
+
+    scheduler._quarantined = True
+    scheduler._quarantine_evidence = {"reason": "test failure", "holder_pid": os.getpid()}
+
+    cleared = scheduler.clear_quarantine(force=True, workload_check=lambda: False)
+    assert cleared is False
+    assert scheduler.is_quarantined() is True
+
+
+@pytest.mark.anyio
+async def test_f07_force_does_not_clear_if_hardware_check_fails(tmp_path):
+    """clear_quarantine(force=True) fails if hardware_check explicitly returns False."""
+    scheduler = _make_scheduler(tmp_path)
+
+    scheduler._quarantined = True
+    scheduler._quarantine_evidence = {"reason": "test failure", "holder_pid": os.getpid()}
+
+    cleared = scheduler.clear_quarantine(force=True, hardware_check=lambda: False)
+    assert cleared is False
+    assert scheduler.is_quarantined() is True
+
+
+@pytest.mark.anyio
+async def test_f07_force_does_not_clear_if_external_process_alive(tmp_path, monkeypatch):
+    """clear_quarantine(force=True) fails if external holder process is still alive."""
+    scheduler = _make_scheduler(tmp_path)
+
+    fake_external_pid = 999999
+    scheduler._quarantined = True
+    scheduler._quarantine_evidence = {
+        "reason": "external worker crashed",
+        "holder_pid": fake_external_pid,
+    }
+
+    monkeypatch.setattr(scheduler, "_is_process_alive", lambda pid: pid == fake_external_pid)
+
+    cleared = scheduler.clear_quarantine(force=True)
+    assert cleared is False
+    assert scheduler.is_quarantined() is True
+
+
+@pytest.mark.anyio
+async def test_f07_operator_recovery_procedure_full_lifecycle(tmp_path):
+    """Documented operator recovery procedure validates operator identity, checks, and audit trail."""
+    scheduler = _make_scheduler(tmp_path)
+
+    scheduler._quarantined = True
+    scheduler._quarantine_evidence = {
+        "reason": "simulated OOM",
+        "holder_pid": os.getpid(),
+    }
+
+    res1 = scheduler.operator_recover(operator_id="", reason="")
+    assert res1["success"] is False
+    assert scheduler.is_quarantined() is True
+
+    res2 = scheduler.operator_recover(
+        operator_id="ops-admin-1",
+        reason="Manual restart attempted",
+        hardware_check=lambda: False,
+    )
+    assert res2["success"] is False
+    assert scheduler.is_quarantined() is True
+
+    res3 = scheduler.operator_recover(
+        operator_id="ops-admin-1",
+        reason="Manual restart attempted",
+        hardware_check=lambda: True,
+        workload_check=lambda: False,
+    )
+    assert res3["success"] is False
+    assert scheduler.is_quarantined() is True
+
+    res4 = scheduler.operator_recover(
+        operator_id="ops-admin-1",
+        reason="Verified Ollama process killed and VRAM reset to 15 MiB",
+        hardware_check=lambda: True,
+        workload_check=lambda: True,
+    )
+    assert res4["success"] is True
+    assert scheduler.is_quarantined() is False
+    assert res4["operator_id"] == "ops-admin-1"
+    assert res4["cleared_at"] is not None
+
+    async with scheduler.acquire_lease("recovered-model") as lease:
+        assert lease.state == LeaseState.RUNNING
+
