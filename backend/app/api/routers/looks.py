@@ -139,7 +139,7 @@ async def get_today_look(
     longitude: float | None = Query(default=None, ge=-180.0, le=180.0),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
-    weather_provider: WeatherProvider = Depends(get_weather_provider),
+    weather_provider: WeatherProvider | None = Depends(get_weather_provider),
 ) -> TodayLook:
     """Derive today's look (TRX-2 read/derive only, UC-17).
 
@@ -187,7 +187,7 @@ async def regenerate_today_look(
     longitude: float | None = Query(default=None, ge=-180.0, le=180.0),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
-    weather_provider: WeatherProvider = Depends(get_weather_provider),
+    weather_provider: WeatherProvider | None = Depends(get_weather_provider),
 ) -> TodayLook:
     """Derive a fresh today's look (UC-16).
 

@@ -35,6 +35,7 @@ from app.domain.value_objects import WeatherContext, WeatherLocation
 from app.infrastructure.external.weather import (
     OpenMeteoWeatherAdapter,
     WMO_CODE_MAP,
+    create_weather_provider,
     get_default_weather_provider,
     reset_default_weather_provider,
     resolve_wmo_code,
@@ -356,7 +357,7 @@ class TestOpenMeteoAdapterResponses:
             "longitude": -122.33,
             "generationtime_ms": 0.05,
             "utc_offset_seconds": 0,
-            "timezone": "auto",
+            "timezone": "UTC",
             "current": {
                 "time": "2026-11-02T12:00",
                 "interval": 900,
@@ -375,6 +376,7 @@ class TestOpenMeteoAdapterResponses:
             assert request.url.path == "/v1/forecast"
             assert "latitude=47.60" in request.url.query.decode()
             assert "longitude=-122.33" in request.url.query.decode()
+            assert "timezone=UTC" in request.url.query.decode()
             assert "current=" in request.url.query.decode()
             return httpx.Response(200, json=payload)
 
@@ -403,7 +405,177 @@ class TestOpenMeteoAdapterResponses:
         assert weather.location.longitude == -122.33
         assert weather.location.city == "Seattle"
         assert weather.location.country == "US"
-        assert weather.forecast_timestamp.year == 2026
+        assert weather.forecast_timestamp == datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc)
+        assert weather.forecast_timestamp.tzinfo == timezone.utc
+
+        await adapter.close()
+
+    @pytest.mark.anyio
+    async def test_non_zero_offset_local_timestamp_normalized_to_utc(self):
+        """F-02 / F-04: Non-zero-offset fixture (Seattle, PST UTC-8) correctly normalizes to UTC instant."""
+        payload = {
+            "latitude": 47.6,
+            "longitude": -122.33,
+            "utc_offset_seconds": -28800,  # PST: -8 hours
+            "timezone": "America/Los_Angeles",
+            "current": {
+                "time": "2026-11-02T04:00",  # 4:00 AM local PST -> 12:00 PM UTC
+                "temperature_2m": 12.0,
+                "apparent_temperature": 11.5,
+                "weather_code": 3,
+            },
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=payload)
+
+        client = create_mock_transport(handler)
+        adapter = OpenMeteoWeatherAdapter(client=client)
+
+        weather = await adapter.get_weather(
+            latitude=47.60, longitude=-122.33, city="Seattle", country="US"
+        )
+        assert weather is not None
+        expected_utc = datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc)
+        assert weather.forecast_timestamp == expected_utc
+        # Verify exact instant match
+        assert weather.forecast_timestamp.timestamp() == expected_utc.timestamp()
+        assert weather.forecast_timestamp.tzinfo == timezone.utc
+
+        await adapter.close()
+
+    @pytest.mark.anyio
+    async def test_aware_timestamp_with_offset_no_double_offset_conversion(self):
+        """F-02: Aware ISO timestamps must not apply utc_offset_seconds twice."""
+        payload = {
+            "latitude": 47.6,
+            "longitude": -122.33,
+            "utc_offset_seconds": -28800,  # -8 hours in root metadata
+            "timezone": "America/Los_Angeles",
+            "current": {
+                # Already carries -08:00 offset in ISO string
+                "time": "2026-11-02T04:00:00-08:00",
+                "temperature_2m": 12.0,
+                "apparent_temperature": 11.5,
+                "weather_code": 0,
+            },
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=payload)
+
+        client = create_mock_transport(handler)
+        adapter = OpenMeteoWeatherAdapter(client=client)
+
+        weather = await adapter.get_weather(latitude=47.6, longitude=-122.33)
+        assert weather is not None
+        expected_utc = datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc)
+        assert weather.forecast_timestamp == expected_utc
+        assert weather.forecast_timestamp.timestamp() == expected_utc.timestamp()
+        assert weather.forecast_timestamp.tzinfo == timezone.utc
+
+        await adapter.close()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "invalid_time",
+        [None, "", "   ", "malformed-timestamp", "2026-99-99T99:99", 12345],
+    )
+    async def test_missing_or_malformed_timestamp_safely_falls_back_to_utc_now(
+        self, invalid_time
+    ):
+        """Phase 6C: Missing or invalid time field raises WeatherResponseError and is not cached."""
+        payload = {
+            "current": {
+                "time": invalid_time,
+                "temperature_2m": 18.0,
+                "apparent_temperature": 18.0,
+                "weather_code": 1,
+            }
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=payload)
+
+        client = create_mock_transport(handler)
+        adapter = OpenMeteoWeatherAdapter(client=client)
+
+        with pytest.raises(WeatherResponseError) as exc_info:
+            await adapter.get_weather(latitude=40.71, longitude=-74.01)
+
+        err_msg = str(exc_info.value)
+        assert "Missing or invalid forecast timestamp in weather response" in err_msg
+        assert "40.71" not in err_msg
+        assert "-74.01" not in err_msg
+        assert "40.7" not in err_msg
+        assert "-74.0" not in err_msg
+        if invalid_time is not None and str(invalid_time).strip():
+            assert str(invalid_time) not in err_msg
+
+        # Prohibit caching an invalid response
+        assert adapter.cache_size == 0
+
+        await adapter.close()
+
+    @pytest.mark.anyio
+    async def test_invalid_timestamp_not_cached_and_subsequent_valid_request_succeeds(self):
+        """Phase 6C: Invalid timestamp is not cached and does not poison subsequent requests."""
+        call_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First request returns invalid timestamp
+                return httpx.Response(
+                    200,
+                    json={
+                        "current": {
+                            "time": "not-a-timestamp",
+                            "temperature_2m": 18.0,
+                            "apparent_temperature": 18.0,
+                            "weather_code": 1,
+                        }
+                    },
+                )
+            # Second request returns valid timestamp
+            return httpx.Response(
+                200,
+                json={
+                    "timezone": "UTC",
+                    "utc_offset_seconds": 0,
+                    "current": {
+                        "time": "2026-11-02T12:00",
+                        "temperature_2m": 20.0,
+                        "apparent_temperature": 20.0,
+                        "weather_code": 0,
+                    },
+                },
+            )
+
+        client = create_mock_transport(handler)
+        adapter = OpenMeteoWeatherAdapter(client=client)
+
+        # First call fails and is not cached
+        with pytest.raises(WeatherResponseError) as exc_info:
+            await adapter.get_weather(latitude=40.71, longitude=-74.01)
+        assert "Missing or invalid forecast timestamp in weather response" in str(exc_info.value)
+        assert adapter.cache_size == 0
+        assert call_count == 1
+
+        # Second call to same coordinates succeeds and populates cache
+        weather = await adapter.get_weather(latitude=40.71, longitude=-74.01)
+        assert weather is not None
+        assert weather.temperature_c == 20.0
+        assert weather.forecast_timestamp == datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc)
+        assert adapter.cache_size == 1
+        assert call_count == 2
+
+        # Third call served from cache (handler not invoked)
+        cached_weather = await adapter.get_weather(latitude=40.71, longitude=-74.01)
+        assert cached_weather is not None
+        assert cached_weather.temperature_c == 20.0
+        assert call_count == 2
 
         await adapter.close()
 
@@ -587,6 +759,45 @@ class TestOpenMeteoAdapterTransportErrors:
 
         await adapter.close()
 
+    @pytest.mark.anyio
+    async def test_coordinate_sanitization_in_location_error(self):
+        """F-03: Neither raw nor coarse coordinates appear in WeatherLocationError message on HTTP 400."""
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, text="Latitude must be in range of -90 to 90°")
+
+        client = create_mock_transport(handler)
+        adapter = OpenMeteoWeatherAdapter(client=client)
+
+        with pytest.raises(WeatherLocationError) as exc_info:
+            await adapter.get_weather(latitude=47.61, longitude=-122.33)
+
+        msg = str(exc_info.value)
+        # Operational info preserved
+        assert "Weather service rejected coordinates" in msg
+        assert "HTTP 400" in msg
+        # Privacy: coarse and raw coordinates stripped
+        assert "47.6" not in msg
+        assert "122.3" not in msg
+
+        await adapter.close()
+
+    @pytest.mark.anyio
+    async def test_out_of_bounds_coordinate_error_message_sanitized(self):
+        """F-03: Out-of-bounds coordinate checks do not leak coordinate values in error messages."""
+        adapter = OpenMeteoWeatherAdapter()
+
+        with pytest.raises(WeatherLocationError) as exc_info_lat:
+            await adapter.get_weather(latitude=95.5, longitude=0.0)
+        assert "95" not in str(exc_info_lat.value)
+        assert "Latitude out of range [-90.0, 90.0]" in str(exc_info_lat.value)
+
+        with pytest.raises(WeatherLocationError) as exc_info_lon:
+            await adapter.get_weather(latitude=0.0, longitude=195.5)
+        assert "195" not in str(exc_info_lon.value)
+        assert "Longitude out of range [-180.0, 180.0]" in str(exc_info_lon.value)
+
+        await adapter.close()
+
 
 # ==============================================================================
 # 4. In-Memory Caching & Privacy Tests
@@ -757,6 +968,42 @@ class TestWeatherArchitectureAndDI:
 
         with pytest.raises(ValidationError, match="WEATHER_CACHE_TTL_S must be non-negative"):
             Settings(weather_cache_ttl_s=-10)
+
+    def test_weather_provider_off_returns_none_cleanly(self):
+        """F-01: WEATHER_PROVIDER=off disables weather cleanly without raising exception."""
+        clear_settings_cache()
+        reset_default_weather_provider()
+
+        settings = Settings(weather_provider="off")
+        created = create_weather_provider(settings)
+        assert created is None
+
+        default_provider = get_default_weather_provider(settings)
+        assert default_provider is None
+
+        # Verify idempotence on singleton getter
+        assert get_default_weather_provider(settings) is None
+
+        reset_default_weather_provider()
+        clear_settings_cache()
+
+    def test_weather_provider_open_meteo_initialization(self):
+        """Verify open_meteo continues to initialize correctly."""
+        settings = Settings(weather_provider="open_meteo")
+        provider = create_weather_provider(settings)
+        assert isinstance(provider, OpenMeteoWeatherAdapter)
+
+    def test_unsupported_weather_provider_raises_value_error(self):
+        """Unsupported provider raises descriptive ValueError."""
+        # Using model_construct to bypass Pydantic validation and test factory error handling
+        settings = Settings.model_construct(
+            weather_provider="unsupported_vendor",
+            weather_api_base_url="https://api.open-meteo.com",
+            weather_timeout_s=1.5,
+            weather_cache_ttl_s=1800,
+        )
+        with pytest.raises(ValueError, match="Unsupported weather provider: 'unsupported_vendor'"):
+            create_weather_provider(settings)
 
     def test_di_resolves_weather_provider_singleton(self):
         clear_settings_cache()

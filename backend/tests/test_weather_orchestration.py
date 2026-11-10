@@ -17,9 +17,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import logging
 from typing import Any, Optional, Sequence
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -34,6 +36,7 @@ from app.application.today import (
     resolve_weather_location,
 )
 from app.application.users import UpdatePreferences
+from app.config.settings import Settings, clear_settings_cache
 from app.domain.ports.external import (
     WeatherError,
     WeatherLocationError,
@@ -52,6 +55,10 @@ from app.domain.value_objects import WeatherContext, WeatherLocation
 from app.infrastructure.external.ephemeral_repositories import (
     EphemeralUserStateRepository,
     EphemeralWardrobeItemRepository,
+)
+from app.infrastructure.external.weather import (
+    OpenMeteoWeatherAdapter,
+    reset_default_weather_provider,
 )
 from app.main import app
 
@@ -544,6 +551,78 @@ class TestWeatherProviderOrchestration:
         assert rec is not None
         assert rec.weather is None
 
+    @pytest.mark.anyio
+    async def test_invalid_forecast_timestamp_fails_open_for_get_and_regenerate(self):
+        """Phase 6C: Invalid forecast timestamp raises WeatherResponseError in adapter,
+        which is caught at the application fail-open boundary in _derive_today_look,
+        producing weather_context=None and uninterrupted canonical recommendation."""
+        invalid_payload = {
+            "current": {
+                "time": "malformed-timestamp",
+                "temperature_2m": 22.0,
+                "apparent_temperature": 22.0,
+                "weather_code": 0,
+            }
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=invalid_payload)
+
+        transport = httpx.MockTransport(handler)
+        client = httpx.AsyncClient(transport=transport, base_url="https://api.open-meteo.com")
+        adapter = OpenMeteoWeatherAdapter(client=client)
+
+        wardrobe = MockWardrobeItemRepository(_standard_wardrobe())
+        user_state = MockUserStateRepository(
+            settings={"weather_location": {"city": "Seattle", "lat": 47.61, "lon": -122.33}}
+        )
+
+        # Baseline run with weather_provider=None
+        use_case_none = GetTodayLook(
+            events=MockUserEventRepository(),
+            event_types=MockEventTypeRepository(),
+            wardrobe_items=wardrobe,
+            user_state=user_state,
+            weather_provider=None,
+        )
+        rec_baseline = await use_case_none(user_id=_TEST_USER_ID)
+        assert rec_baseline is not None
+        assert rec_baseline.weather is None
+
+        # GET with invalid timestamp adapter
+        use_case_get = GetTodayLook(
+            events=MockUserEventRepository(),
+            event_types=MockEventTypeRepository(),
+            wardrobe_items=wardrobe,
+            user_state=user_state,
+            weather_provider=adapter,
+        )
+        rec_get = await use_case_get(user_id=_TEST_USER_ID)
+        assert rec_get is not None
+        assert rec_get.weather is None
+        # Canonical recommendation is uninterrupted and identical to baseline
+        assert rec_get.match_score == rec_baseline.match_score
+        assert [c.id for c in rec_get.components] == [c.id for c in rec_baseline.components]
+
+        # POST with invalid timestamp adapter
+        use_case_regen = RegenerateTodayLook(
+            events=MockUserEventRepository(),
+            event_types=MockEventTypeRepository(),
+            wardrobe_items=wardrobe,
+            user_state=user_state,
+            weather_provider=adapter,
+        )
+        rec_regen = await use_case_regen(user_id=_TEST_USER_ID)
+        assert rec_regen is not None
+        assert rec_regen.weather is None
+        assert rec_regen.match_score == rec_baseline.match_score
+        assert [c.id for c in rec_regen.components] == [c.id for c in rec_baseline.components]
+
+        # Ensure adapter cache was never populated
+        assert adapter.cache_size == 0
+
+        await adapter.close()
+
 
 # ==============================================================================
 # Suite 3: Canonical Scoring Integration
@@ -655,6 +734,45 @@ class TestCanonicalScoringIntegration:
         assert rec_none.selected_item_ids == rec_fail.selected_item_ids
         assert rec_none.title == rec_fail.title
         assert rec_none.description == rec_fail.description
+
+    @pytest.mark.anyio
+    async def test_warning_logs_do_not_contain_coordinates_on_provider_error(
+        self, caplog: pytest.LogCaptureFixture
+    ):
+        """F-03: Provider error logs must never include raw or coarse coordinates."""
+        wardrobe = MockWardrobeItemRepository(_standard_wardrobe())
+        user_state = MockUserStateRepository()
+        provider_fail = MockWeatherProvider(
+            exception_to_raise=WeatherLocationError(
+                "Weather service rejected coordinates: HTTP 400 Bad Request"
+            )
+        )
+
+        use_case = GetTodayLook(
+            events=MockUserEventRepository(),
+            event_types=MockEventTypeRepository(),
+            wardrobe_items=wardrobe,
+            user_state=user_state,
+            weather_provider=provider_fail,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            rec = await use_case(
+                user_id=_TEST_USER_ID,
+                city="Seattle",
+                latitude=47.61,
+                longitude=-122.33,
+            )
+
+        assert rec is not None
+        assert rec.weather is None
+        # Coordinates must NOT appear in logged warning output
+        assert "47.61" not in caplog.text
+        assert "-122.33" not in caplog.text
+        assert "47.6" not in caplog.text
+        assert "-122.3" not in caplog.text
+        # Diagnostic category preserved
+        assert "WeatherLocationError" in caplog.text
 
 
 # ==============================================================================
@@ -863,6 +981,232 @@ class TestDailyLookApiResponse:
             assert data["weather"]["applied"] is True
             assert data["weather"]["city"] == "Rome"
             assert data["weather"]["temperatureC"] == 25.0
+        finally:
+            looks_module.RegenerateTodayLook = orig_regenerate_today_look
+            app.dependency_overrides.clear()
+
+    def test_get_today_look_with_weather_provider_off_di_succeeds(self, test_client):
+        """F-01: GET /v1/looks/today succeeds when weather_provider is None (WEATHER_PROVIDER=off)."""
+        wardrobe = MockWardrobeItemRepository(_standard_wardrobe())
+        user_state = MockUserStateRepository(settings={})
+
+        app.dependency_overrides[get_current_user_id] = lambda: _TEST_USER_ID
+        app.dependency_overrides[get_weather_provider] = lambda: None
+        app.dependency_overrides[get_db] = lambda: object()
+
+        import app.api.routers.looks as looks_module
+        orig_get_today_look = looks_module.GetTodayLook
+
+        try:
+            use_case = GetTodayLook(
+                events=MockUserEventRepository(),
+                event_types=MockEventTypeRepository(),
+                wardrobe_items=wardrobe,
+                user_state=user_state,
+                weather_provider=None,
+            )
+            looks_module.GetTodayLook = lambda **kwargs: use_case
+
+            resp = test_client.get(
+                "/v1/looks/today?city=Seattle&lat=47.61&lon=-122.33",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "weather" not in data
+            assert data["title"] is not None
+            assert len(data["components"]) > 0
+        finally:
+            looks_module.GetTodayLook = orig_get_today_look
+            app.dependency_overrides.clear()
+
+    def test_post_regenerate_today_look_with_weather_provider_off_di_succeeds(self, test_client):
+        """F-01: POST /v1/looks/today succeeds when weather_provider is None (WEATHER_PROVIDER=off)."""
+        wardrobe = MockWardrobeItemRepository(_standard_wardrobe())
+        user_state = MockUserStateRepository(settings={})
+
+        app.dependency_overrides[get_current_user_id] = lambda: _TEST_USER_ID
+        app.dependency_overrides[get_weather_provider] = lambda: None
+        app.dependency_overrides[get_db] = lambda: object()
+
+        import app.api.routers.looks as looks_module
+        orig_regenerate_today_look = looks_module.RegenerateTodayLook
+
+        try:
+            use_case = RegenerateTodayLook(
+                events=MockUserEventRepository(),
+                event_types=MockEventTypeRepository(),
+                wardrobe_items=wardrobe,
+                user_state=user_state,
+                weather_provider=None,
+            )
+            looks_module.RegenerateTodayLook = lambda **kwargs: use_case
+
+            resp = test_client.post(
+                "/v1/looks/today?city=Seattle&lat=47.61&lon=-122.33&seed=new-seed",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "weather" not in data
+            assert data["title"] is not None
+            assert len(data["components"]) > 0
+        finally:
+            looks_module.RegenerateTodayLook = orig_regenerate_today_look
+            app.dependency_overrides.clear()
+
+    def test_real_dependency_injection_weather_provider_off(self, test_client, monkeypatch):
+        """F-01: Real get_weather_provider dependency injects None when WEATHER_PROVIDER=off."""
+        monkeypatch.setenv("WEATHER_PROVIDER", "off")
+        clear_settings_cache()
+        reset_default_weather_provider()
+
+        wardrobe = MockWardrobeItemRepository(_standard_wardrobe())
+        user_state = MockUserStateRepository(settings={})
+
+        app.dependency_overrides[get_current_user_id] = lambda: _TEST_USER_ID
+        app.dependency_overrides[get_db] = lambda: object()
+        # NOTE: get_weather_provider is NOT overridden — testing the real dependency path!
+
+        import app.api.routers.looks as looks_module
+        orig_get_today_look = looks_module.GetTodayLook
+
+        captured_provider: list[Any] = []
+
+        def tracking_factory(**kwargs):
+            captured_provider.append(kwargs.get("weather_provider"))
+            return GetTodayLook(
+                events=MockUserEventRepository(),
+                event_types=MockEventTypeRepository(),
+                wardrobe_items=wardrobe,
+                user_state=user_state,
+                weather_provider=kwargs.get("weather_provider"),
+            )
+
+        try:
+            looks_module.GetTodayLook = tracking_factory
+
+            resp = test_client.get(
+                "/v1/looks/today?city=Seattle",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "weather" not in data
+            assert data["title"] is not None
+            # Proves FastAPI dependency injection provided None to router and use-case
+            assert len(captured_provider) == 1
+            assert captured_provider[0] is None
+        finally:
+            looks_module.GetTodayLook = orig_get_today_look
+            app.dependency_overrides.clear()
+            clear_settings_cache()
+            reset_default_weather_provider()
+
+    def test_get_today_look_with_invalid_timestamp_fails_open_api(self, test_client):
+        """Phase 6C: GET /v1/looks/today fails open when adapter encounters invalid timestamp."""
+        invalid_payload = {
+            "current": {
+                "time": None,
+                "temperature_2m": 22.0,
+                "apparent_temperature": 22.0,
+                "weather_code": 0,
+            }
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=invalid_payload)
+
+        transport = httpx.MockTransport(handler)
+        client = httpx.AsyncClient(transport=transport, base_url="https://api.open-meteo.com")
+        adapter = OpenMeteoWeatherAdapter(client=client)
+
+        wardrobe = MockWardrobeItemRepository(_standard_wardrobe())
+        user_state = MockUserStateRepository(
+            settings={"weather_location": {"city": "Seattle", "lat": 47.61, "lon": -122.33}}
+        )
+
+        app.dependency_overrides[get_current_user_id] = lambda: _TEST_USER_ID
+        app.dependency_overrides[get_weather_provider] = lambda: adapter
+        app.dependency_overrides[get_db] = lambda: object()
+
+        import app.api.routers.looks as looks_module
+        orig_get_today_look = looks_module.GetTodayLook
+
+        try:
+            use_case = GetTodayLook(
+                events=MockUserEventRepository(),
+                event_types=MockEventTypeRepository(),
+                wardrobe_items=wardrobe,
+                user_state=user_state,
+                weather_provider=adapter,
+            )
+            looks_module.GetTodayLook = lambda **kwargs: use_case
+
+            resp = test_client.get(
+                "/v1/looks/today?city=Seattle",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "weather" not in data
+            assert data["title"] is not None
+            assert len(data["components"]) > 0
+            assert adapter.cache_size == 0
+        finally:
+            looks_module.GetTodayLook = orig_get_today_look
+            app.dependency_overrides.clear()
+
+    def test_post_regenerate_today_look_with_invalid_timestamp_fails_open_api(self, test_client):
+        """Phase 6C: POST /v1/looks/today fails open when adapter encounters invalid timestamp."""
+        invalid_payload = {
+            "current": {
+                "time": "2026-99-99T99:99",
+                "temperature_2m": 22.0,
+                "apparent_temperature": 22.0,
+                "weather_code": 0,
+            }
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=invalid_payload)
+
+        transport = httpx.MockTransport(handler)
+        client = httpx.AsyncClient(transport=transport, base_url="https://api.open-meteo.com")
+        adapter = OpenMeteoWeatherAdapter(client=client)
+
+        wardrobe = MockWardrobeItemRepository(_standard_wardrobe())
+        user_state = MockUserStateRepository(
+            settings={"weather_location": {"city": "Seattle", "lat": 47.61, "lon": -122.33}}
+        )
+
+        app.dependency_overrides[get_current_user_id] = lambda: _TEST_USER_ID
+        app.dependency_overrides[get_weather_provider] = lambda: adapter
+        app.dependency_overrides[get_db] = lambda: object()
+
+        import app.api.routers.looks as looks_module
+        orig_regenerate_today_look = looks_module.RegenerateTodayLook
+
+        try:
+            use_case = RegenerateTodayLook(
+                events=MockUserEventRepository(),
+                event_types=MockEventTypeRepository(),
+                wardrobe_items=wardrobe,
+                user_state=user_state,
+                weather_provider=adapter,
+            )
+            looks_module.RegenerateTodayLook = lambda **kwargs: use_case
+
+            resp = test_client.post(
+                "/v1/looks/today?city=Seattle&seed=test-seed",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "weather" not in data
+            assert data["title"] is not None
+            assert len(data["components"]) > 0
+            assert adapter.cache_size == 0
         finally:
             looks_module.RegenerateTodayLook = orig_regenerate_today_look
             app.dependency_overrides.clear()

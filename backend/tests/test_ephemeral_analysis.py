@@ -510,8 +510,8 @@ def test_migration_head_is_current():
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
     # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
-    # Current source head is 0032.
-    assert tuple(script.get_heads()) == ("0032",)
+    # Current source head is 0036 (post-P0-4 media lifecycle revisions 0033-0036).
+    assert tuple(script.get_heads()) == ("0036",)
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None

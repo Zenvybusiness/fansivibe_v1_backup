@@ -316,8 +316,16 @@ def test_non_outfit_callers_intentionally_left_empty():
     today = (root / "application" / "today.py").read_text()
     assert "preferredItemIds" not in events
     assert "preferredItemIds" not in today
+    import re
+
     assert "score_outfit_candidate(candidate, items_by_id, frozenset(), occasions)" in events
-    assert "score_outfit_candidate(candidate, items_by_id, frozenset(), occasions)" in today
+    assert (
+        re.search(
+            r"score_outfit_candidate\s*\(\s*candidate,\s*items_by_id,\s*frozenset\(\),\s*occasions",
+            today,
+        )
+        is not None
+    )
     main = (root / "main.py").read_text()
     # Assistant entrypoint wires preferred_item_ids starting with Stage 1D Batch 4B.2.
     assert "preferredItemIds" not in main

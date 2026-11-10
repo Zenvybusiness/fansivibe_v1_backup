@@ -249,7 +249,7 @@ def test_current_head_and_0028_linear_chain():
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(_alembic_config())
-    assert tuple(script.get_heads()) == ("0032",)
+    assert tuple(script.get_heads()) == ("0036",)
 
     rev = script.get_revision("0028")
     assert rev is not None and rev.down_revision == "0027"

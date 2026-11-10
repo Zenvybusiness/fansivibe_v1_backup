@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import logging
 from typing import Any, Optional
@@ -158,13 +158,9 @@ class OpenMeteoWeatherAdapter:
         lon_val = float(longitude)
 
         if not (-90.0 <= lat_val <= 90.0):
-            raise WeatherLocationError(
-                f"Latitude out of range [-90.0, 90.0]: {lat_val}"
-            )
+            raise WeatherLocationError("Latitude out of range [-90.0, 90.0]")
         if not (-180.0 <= lon_val <= 180.0):
-            raise WeatherLocationError(
-                f"Longitude out of range [-180.0, 180.0]: {lon_val}"
-            )
+            raise WeatherLocationError("Longitude out of range [-180.0, 180.0]")
 
         # Enforce coarse resolution: round to 2 decimal places (~1.1km)
         coarse_lat = round(lat_val, 2)
@@ -218,7 +214,7 @@ class OpenMeteoWeatherAdapter:
                 "weather_code,"
                 "is_day"
             ),
-            "timezone": "auto",
+            "timezone": "UTC",
         }
 
         client = self._get_client()
@@ -243,7 +239,7 @@ class OpenMeteoWeatherAdapter:
         # Handle HTTP status codes
         if response.status_code == 400:
             raise WeatherLocationError(
-                f"Weather service rejected coordinates ({coarse_lat}, {coarse_lon}): {response.text[:200]}"
+                "Weather service rejected coordinates: HTTP 400 Bad Request"
             )
         elif response.status_code >= 500:
             raise WeatherTransientError(
@@ -347,21 +343,35 @@ class OpenMeteoWeatherAdapter:
             elif isinstance(is_day_raw, (int, float)):
                 is_day = bool(int(is_day_raw) == 1)
 
-        # Parse forecast timestamp
+        # Parse forecast timestamp (Stage 2 P1-3 Phase 6C remediation)
         time_raw = current.get("time")
-        now_utc = datetime.now(timezone.utc)
+        if not isinstance(time_raw, str) or not time_raw.strip():
+            raise WeatherResponseError(
+                "Missing or invalid forecast timestamp in weather response"
+            )
+
         forecast_ts: datetime
-        if isinstance(time_raw, str) and time_raw.strip():
-            try:
-                parsed_dt = datetime.fromisoformat(time_raw.strip())
-                if parsed_dt.tzinfo is None:
-                    forecast_ts = parsed_dt.replace(tzinfo=timezone.utc)
+        try:
+            parsed_dt = datetime.fromisoformat(time_raw.strip())
+            if parsed_dt.tzinfo is not None:
+                # Timestamp already carries timezone offset -> normalize to UTC
+                forecast_ts = parsed_dt.astimezone(timezone.utc)
+            else:
+                # Naive datetime: check if root response provides utc_offset_seconds
+                offset_sec = data.get("utc_offset_seconds")
+                if isinstance(offset_sec, (int, float)):
+                    tz = timezone(timedelta(seconds=int(offset_sec)))
+                    forecast_ts = parsed_dt.replace(tzinfo=tz).astimezone(timezone.utc)
                 else:
-                    forecast_ts = parsed_dt.astimezone(timezone.utc)
-            except ValueError:
-                forecast_ts = now_utc
-        else:
-            forecast_ts = now_utc
+                    # timezone="UTC" was requested, so naive timestamp represents UTC directly
+                    forecast_ts = parsed_dt.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError, OverflowError) as exc:
+            raise WeatherResponseError(
+                "Missing or invalid forecast timestamp in weather response",
+                cause=exc,
+            ) from exc
+
+        now_utc = datetime.now(timezone.utc)
 
         condition_code, condition_text = resolve_wmo_code(weather_code)
 
@@ -434,9 +444,14 @@ _weather_provider_instance: Optional[WeatherProvider] = None
 _weather_provider_config_fingerprint: Optional[tuple] = None
 
 
-def create_weather_provider(settings: Settings) -> WeatherProvider:
-    """Factory creating the appropriate WeatherProvider based on Settings."""
+def create_weather_provider(settings: Settings) -> Optional[WeatherProvider]:
+    """Factory creating the appropriate WeatherProvider based on Settings.
+
+    Returns None when weather is disabled ('off').
+    """
     provider = (settings.weather_provider or "open_meteo").lower().strip()
+    if provider == "off":
+        return None
     if provider == "open_meteo":
         return OpenMeteoWeatherAdapter(
             base_url=settings.weather_api_base_url,
@@ -446,8 +461,11 @@ def create_weather_provider(settings: Settings) -> WeatherProvider:
     raise ValueError(f"Unsupported weather provider: '{provider}'")
 
 
-def get_default_weather_provider(settings: Settings) -> WeatherProvider:
-    """Retrieve or initialize the process-wide weather provider singleton."""
+def get_default_weather_provider(settings: Settings) -> Optional[WeatherProvider]:
+    """Retrieve or initialize the process-wide weather provider singleton.
+
+    Returns None if weather is disabled ('off').
+    """
     global _weather_provider_instance, _weather_provider_config_fingerprint
     fingerprint = (
         settings.weather_provider,
@@ -456,7 +474,7 @@ def get_default_weather_provider(settings: Settings) -> WeatherProvider:
         settings.weather_cache_ttl_s,
     )
     if (
-        _weather_provider_instance is None
+        _weather_provider_config_fingerprint is None
         or _weather_provider_config_fingerprint != fingerprint
     ):
         _weather_provider_instance = create_weather_provider(settings)

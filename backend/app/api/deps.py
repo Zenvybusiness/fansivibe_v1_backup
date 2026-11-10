@@ -16,6 +16,7 @@ silently become production identity.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from fastapi import Depends, Header
@@ -29,6 +30,9 @@ from app.domain.ports.repositories import TrendRepository
 from app.infrastructure.db.models import UserState, Users
 from app.infrastructure.db.repositories import AuthRepositorySQL
 from app.infrastructure.db.session import get_db
+
+if TYPE_CHECKING:
+    from app.domain.ports.external import WeatherProvider
 
 DEV_TOKEN = get_settings().dev_token
 _DEV_PROVIDER = "dev"
@@ -179,10 +183,11 @@ def get_storage_adapter():
     return get_default_storage_adapter(get_settings())
 
 
-def get_weather_provider():
+def get_weather_provider() -> Optional[WeatherProvider]:
     """Dependency provider for weather provider port (Stage 2 P1-3).
 
     Instantiates the configured weather provider based on Settings.
+    Returns None if weather is disabled ('off').
     Tests override this via app.dependency_overrides[get_weather_provider].
     """
     from app.config.settings import get_settings

@@ -130,7 +130,9 @@ def test_no_signals_repo_means_no_ledger_touch():
 # D. Edits never emit item_added (UpdateWardrobeItem takes no signals).
 def test_update_path_has_no_signal_surface():
     params = inspect.signature(UpdateWardrobeItem.__init__).parameters
-    assert set(params) == {"self", "wardrobe"}
+    assert set(params) == {"self", "wardrobe", "db"}
+    assert "signals" not in params
+    assert "learning_signals" not in params
 
 
 # E. Retry/duplicate behavior follows the existing append-only writer:
@@ -176,7 +178,7 @@ def test_0024_revision_chain_and_static_contract():
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
-    assert tuple(script.get_heads()) == ("0032",)
+    assert tuple(script.get_heads()) == ("0036",)
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None

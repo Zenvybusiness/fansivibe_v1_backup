@@ -89,8 +89,8 @@ def test_0023_revision_chain_and_static_contract():
     script = ScriptDirectory.from_config(config)
     # C-10 added 0025 (analysis_runs idempotency) on top of 0024.
     # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
-    # Current source head is 0032.
-    assert tuple(script.get_heads()) == ("0032",)
+    # Current source head is 0036 (post-P0-4 media lifecycle revisions 0033-0036).
+    assert tuple(script.get_heads()) == ("0036",)
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None

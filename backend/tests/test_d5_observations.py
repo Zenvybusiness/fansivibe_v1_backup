@@ -86,7 +86,7 @@ def test_current_head_and_0028_linear_chain():
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
-    assert tuple(script.get_heads()) == ("0032",)
+    assert tuple(script.get_heads()) == ("0036",)
 
     rev = script.get_revision("0028")
     assert rev is not None and rev.down_revision == "0027"
