@@ -6,7 +6,9 @@ import 'package:fansivibe/features/outfit_builder/data/outfit_client.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_models.dart';
 import 'package:fansivibe/features/outfit_builder/data/outfit_repository.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart';
+import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_slot_swap_sheet.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+
 import 'package:fansivibe/features/wardrobe/presentation/ensemble_wear_confirmation_sheet.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
@@ -68,13 +70,52 @@ class _OutfitRecommendationScreenState
   bool _saving = false;
   bool _saved = false;
   bool _worn = false;
+  final Set<String> _pinnedGarmentIds = <String>{};
+
+  void _handleTogglePin(String garmentId) {
+    setState(() {
+      if (_pinnedGarmentIds.contains(garmentId)) {
+        _pinnedGarmentIds.remove(garmentId);
+        _showSnackBar('Piece unpinned');
+      } else {
+        _pinnedGarmentIds.add(garmentId);
+        _showSnackBar('Piece pinned (preserved during swaps)');
+      }
+    });
+  }
+
+  Future<void> _handleReplaceSlot(OutfitComponent component) async {
+    if (_pinnedGarmentIds.contains(component.id)) {
+      _showSnackBar('This piece is pinned. Unpin it first to replace.');
+      return;
+    }
+    if (_saving || _regenerating) return;
+
+    final updatedOutfit = await showOutfitSlotSwapSheet(
+      context: context,
+      currentOutfit: _rec,
+      targetComponent: component,
+      request: widget.request,
+      outfitRepository: _repository,
+      wardrobeRepository: _wardrobeRepository,
+      pinnedGarmentIds: _pinnedGarmentIds,
+    );
+
+    if (!mounted || updatedOutfit == null) return;
+
+    setState(() {
+      _rec = updatedOutfit;
+      _saved = false;
+      _worn = false;
+    });
+    _showSnackBar('Outfit updated with replacement piece');
+  }
 
   @override
   void initState() {
     super.initState();
     _repository = widget.outfitRepository ?? OutfitBuilderRepositoryImpl();
-    _wardrobeRepository =
-        widget.wardrobeRepository ?? WardrobeRepositoryImpl();
+    _wardrobeRepository = widget.wardrobeRepository ?? WardrobeRepositoryImpl();
     _rec = widget.recommendation;
   }
 
@@ -357,18 +398,9 @@ class _OutfitRecommendationScreenState
         ...rec.components.map(
           (component) => OutfitComponentCard(
             component: component,
-            onReplace: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Replace ${component.name} coming soon'),
-                  backgroundColor: FansivibeColors.accentGold,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: FansivibeRadius.smdBorder,
-                  ),
-                ),
-              );
-            },
+            isPinned: _pinnedGarmentIds.contains(component.id),
+            onTogglePin: () => _handleTogglePin(component.id),
+            onReplace: () => _handleReplaceSlot(component),
           ),
         ),
       ],
@@ -487,9 +519,7 @@ class _OutfitRecommendationScreenState
                   RouteNames.tryOn,
                   extra: {
                     'outfitSource': 'outfit',
-                    'garmentIds': [
-                      for (final c in _rec.components) c.id,
-                    ],
+                    'garmentIds': [for (final c in _rec.components) c.id],
                     'title': _rec.title,
                   },
                 ),

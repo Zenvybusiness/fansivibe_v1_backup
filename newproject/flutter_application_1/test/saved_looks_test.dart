@@ -126,6 +126,14 @@ class _FakeSavedLooksRepository implements SavedLooksRepository {
     rows = rows.where((row) => row.id != id).toList();
     return SavedLookDeleteOutcome.deleted;
   }
+
+  @override
+  Future<SavedLookItem?> getSavedLook({
+    required String id,
+    bool includeItems = true,
+  }) async {
+    return rows.where((row) => row.id == id).firstOrNull;
+  }
 }
 
 Widget _wrap(Widget child) {

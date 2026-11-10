@@ -36,6 +36,12 @@ class _FakeSavedLooksRepository implements SavedLooksRepository {
   @override
   Future<SavedLookDeleteOutcome?> deleteSavedLook({required String id}) async =>
       SavedLookDeleteOutcome.deleted;
+
+  @override
+  Future<SavedLookItem?> getSavedLook({
+    required String id,
+    bool includeItems = true,
+  }) async => _row();
 }
 
 /// Scriptable feedback double: scripted results, full call accounting.

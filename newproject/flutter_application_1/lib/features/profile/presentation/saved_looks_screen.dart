@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/feedback/data/feedback_client.dart';
 import 'package:fansivibe/features/feedback/feedback.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_repository.dart';
+import 'package:fansivibe/features/profile/presentation/widgets/saved_look_mosaic_image.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_error_view.dart';
 import 'package:fansivibe/shared/components/fansi_hero_card.dart';
-import 'package:fansivibe/shared/components/fansi_image_well.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
+
 import 'package:fansivibe/shared/components/fansi_loading_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
@@ -91,7 +94,9 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
 
   Future<void> _loadSavedLooks() async {
     final hasInjectedRepo = widget.repository != null;
-    if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) return;
+    if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) {
+      return;
+    }
     final page = await _repository.listSavedLooks(page: 1, pageSize: 20);
 
     if (!mounted) return;
@@ -105,7 +110,9 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
 
   Future<void> _retryLoad() async {
     final hasInjectedRepo = widget.repository != null;
-    if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) return;
+    if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) {
+      return;
+    }
     setState(() {
       _isLoading = true;
       _loadFailed = false;
@@ -428,12 +435,25 @@ class _SavedLookCard extends StatelessWidget {
       children: [
         FansiHeroCard(
           eyebrow: _eyebrow,
-          image: FansiImageWell(icon: _icon, color: _color),
+          image: SavedLookMosaicImage(
+            items: look.items ?? const [],
+            fallbackIcon: _icon,
+            fallbackColor: _color,
+          ),
           badge: FansiBadge(score: _computeScore(look)),
           title: look.title.isEmpty ? 'Untitled' : look.title,
           subtitle: look.sourceRunId != null
               ? 'From run ${look.sourceRunId}'
               : null,
+          onTap: () async {
+            final result = await context.pushNamed(
+              RouteNames.savedLookDetails,
+              extra: look,
+            );
+            if (result == true) {
+              onDelete();
+            }
+          },
           footer: Padding(
             padding: const EdgeInsets.fromLTRB(
               FansivibeSpacing.lg,

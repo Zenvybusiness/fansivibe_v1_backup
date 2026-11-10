@@ -179,3 +179,15 @@ def get_storage_adapter():
     return get_default_storage_adapter(get_settings())
 
 
+def get_weather_provider():
+    """Dependency provider for weather provider port (Stage 2 P1-3).
+
+    Instantiates the configured weather provider based on Settings.
+    Tests override this via app.dependency_overrides[get_weather_provider].
+    """
+    from app.config.settings import get_settings
+    from app.infrastructure.external.weather import get_default_weather_provider
+
+    return get_default_weather_provider(get_settings())
+
+

@@ -164,6 +164,69 @@ class OutfitBuilderClient {
     return null;
   }
 
+  /// Fetches eligible wardrobe candidates for a slot (P1-1).
+  Future<List<OutfitCandidateItem>> getCandidates({
+    required String slot,
+    List<String>? currentGarmentIds,
+    int limit = 20,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        'slot': slot,
+        if (currentGarmentIds != null && currentGarmentIds.isNotEmpty)
+          'currentGarmentIds': currentGarmentIds,
+        'limit': limit,
+      };
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/outfits/candidates'),
+            headers: _jsonHeaders,
+            body: jsonEncode(payload),
+          )
+          .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        final rawList = decoded['candidates'] as List<dynamic>? ?? [];
+        return rawList
+            .map((e) => OutfitCandidateItem.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      debugPrint(
+        'Outfit candidates responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Outfit backend unreachable during candidates fetch: $error');
+    }
+    return [];
+  }
+
+  /// Swaps one component slot and recalculates compatibility (P1-1).
+  Future<OutfitSlotSwapResponse?> swapSlot({
+    required OutfitSlotSwapRequest request,
+  }) async {
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/outfits/swap-slot'),
+            headers: _jsonHeaders,
+            body: jsonEncode(request.toJson()),
+          )
+          .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return OutfitSlotSwapResponse.fromJson(decoded);
+      }
+      debugPrint(
+        'Outfit swap slot responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Outfit backend unreachable during swap slot: $error');
+    }
+    return null;
+  }
+
   OutfitFailure _failureFor(int statusCode) {
     switch (statusCode) {
       case 401:

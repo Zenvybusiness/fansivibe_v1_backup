@@ -6,9 +6,9 @@ live in `app/infrastructure`.
 
 from __future__ import annotations
 
-from typing import Optional, Protocol
+from typing import Optional, Protocol, runtime_checkable
 
-from app.domain.value_objects import HairstyleRecommendation
+from app.domain.value_objects import HairstyleRecommendation, WeatherContext
 
 
 class KnowledgeError(ValueError):
@@ -44,3 +44,72 @@ class KnowledgeSource(Protocol):
     def lookup_hairstyle_look(self, code: str) -> Optional[HairstyleRecommendation]: ...
 
     def retrieve_hairstyle_looks(self) -> list[HairstyleRecommendation]: ...
+
+
+# --- Weather Provider Port & Exceptions (Stage 2 P1-3) ---
+
+
+class WeatherError(Exception):
+    """Base exception for weather retrieval, transport, and response parsing failures.
+
+    Adapters translate all vendor/HTTP exceptions into WeatherError subclasses so
+    domain and application code remain vendor-neutral (DEC-017-G).
+    """
+
+    def __init__(self, message: str, *, cause: Optional[Exception] = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.cause = cause
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.message!r})"
+
+
+class WeatherTransientError(WeatherError):
+    """Transient network error, timeout, or upstream 5xx failure (safe to retry or fail open)."""
+
+
+class WeatherLocationError(WeatherError):
+    """Invalid, out-of-range, or unsupported geographic coordinates."""
+
+
+class WeatherResponseError(WeatherError):
+    """Upstream payload was malformed, missing required fields, or unparseable."""
+
+
+@runtime_checkable
+class WeatherProvider(Protocol):
+    """Application-owned abstraction for external weather forecasting services.
+
+    Application use cases depend strictly on this port, isolating Fansivibe
+    from concrete weather vendors (Open-Meteo, NOAA, Tomorrow.io, etc.).
+    """
+
+    async def get_weather(
+        self,
+        *,
+        latitude: float,
+        longitude: float,
+        city: Optional[str] = None,
+        country: Optional[str] = None,
+    ) -> Optional[WeatherContext]:
+        """Retrieve and normalize current weather for the specified coarse coordinates.
+
+        Args:
+            latitude: Geographic latitude in decimal degrees (-90.0 to 90.0).
+            longitude: Geographic longitude in decimal degrees (-180.0 to 180.0).
+            city: Optional human-readable city name for presentation context.
+            country: Optional country name or code for presentation context.
+
+        Returns:
+            A validated WeatherContext instance, or None if weather is unavailable.
+
+        Raises:
+            WeatherError: On transport, response, or coordinate failure (callers
+            may catch WeatherError to implement graceful degradation).
+        """
+        ...
+
+    async def close(self) -> None:
+        """Release underlying HTTP client connections or resources."""
+        ...

@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Local storage for persisting user journey state across app launches.
@@ -169,6 +171,46 @@ class LocalStorage {
     _prefs!.setStringList('user_profile', _encodeMap(value));
   }
 
+  /// ----- Weather Location -----
+  //
+  // The dedicated key mirrors the guest city for quick reads; authenticated
+  // profiles may only carry `settings['weather_location']` (synced from the
+  // backend), so the getter falls back to that stored setting.
+
+  /// Bumped after a successful city save so mounted look surfaces refetch.
+  static final ValueNotifier<int> weatherLocationVersion = ValueNotifier(0);
+
+  static void notifyWeatherLocationChanged() {
+    weatherLocationVersion.value++;
+  }
+
+  static String? get weatherCity {
+    final direct = _prefs?.getString('weather_city')?.trim();
+    if (direct != null && direct.isNotEmpty) return direct;
+    final loc =
+        settings['weather_location'] ??
+        settings['weatherLocation'] ??
+        settings['location'];
+    if (loc is Map) {
+      final city = loc['city'] ?? loc['cityName'] ?? loc['name'];
+      if (city != null && city.toString().trim().isNotEmpty) {
+        return city.toString().trim();
+      }
+    }
+    final flat = settings['weatherCity'];
+    if (flat is String && flat.trim().isNotEmpty) return flat.trim();
+    return null;
+  }
+
+  static set weatherCity(String? value) {
+    if (_prefs == null) return;
+    if (value != null && value.trim().isNotEmpty) {
+      _prefs!.setString('weather_city', value.trim());
+    } else {
+      _prefs!.remove('weather_city');
+    }
+  }
+
   /// ----- Application Settings -----
 
   static Map<String, dynamic> get settings {
@@ -194,6 +236,7 @@ class LocalStorage {
     if (value is int) return value.toString();
     if (value is double) return value.toString();
     if (value is bool) return value.toString();
+    if (value is Map || value is List) return jsonEncode(value);
     return value.toString();
   }
 
@@ -204,6 +247,14 @@ class LocalStorage {
       if (colonIndex < 0) continue;
       final key = item.substring(0, colonIndex);
       final valueStr = item.substring(colonIndex + 1);
+      // Try to parse nested JSON Map or List
+      if ((valueStr.startsWith('{') && valueStr.endsWith('}')) ||
+          (valueStr.startsWith('[') && valueStr.endsWith(']'))) {
+        try {
+          result[key] = jsonDecode(valueStr);
+          continue;
+        } catch (_) {}
+      }
       // Try to parse as int
       if (int.tryParse(valueStr) != null) {
         result[key] = int.parse(valueStr);

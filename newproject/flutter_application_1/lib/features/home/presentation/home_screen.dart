@@ -151,6 +151,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // mounted: cached backend futures belong to the previous session and
     // must be dropped so the newly resolved session re-derives its own.
     AuthSession.authVersion.addListener(_onAuthChanged);
+    LocalStorage.weatherLocationVersion.addListener(_onWeatherLocationChanged);
 
     if (isGuestUser) {
       LearningService.instance.load().then((_) {
@@ -230,7 +231,19 @@ class _HomeScreenState extends State<HomeScreen> {
     LearningService.instance.removeListener(_onLocalChanged);
     UserSession.savedWardrobeItemNotifier.removeListener(_onLocalChanged);
     AuthSession.authVersion.removeListener(_onAuthChanged);
+    LocalStorage.weatherLocationVersion.removeListener(
+      _onWeatherLocationChanged,
+    );
     super.dispose();
+  }
+
+  /// Refetch the look after a successful city change so the card never
+  /// keeps showing weather derived for the previous location.
+  void _onWeatherLocationChanged() {
+    if (!mounted || _todayLookFuture == null) return;
+    setState(() {
+      _todayLookFuture = _todayLookRepository.getTodayLook();
+    });
   }
 
   void _onLocalChanged() {
@@ -667,7 +680,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return TodaysLookData(
       title: look.title,
       occasion: look.occasion ?? 'Everyday',
-      weather: '',
+      weather: look.weather?.summary ?? '',
       description: look.description,
       items: look.components
           .map(

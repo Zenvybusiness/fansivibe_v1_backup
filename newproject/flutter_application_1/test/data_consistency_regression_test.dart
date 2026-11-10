@@ -118,6 +118,18 @@ class _EmptyOutfitRepository implements OutfitBuilderRepository {
     required Map<String, dynamic> snapshot,
     required String idempotencyKey,
   }) async => null;
+
+  @override
+  Future<List<OutfitCandidateItem>> getCandidates({
+    required String slot,
+    List<String>? currentGarmentIds,
+    int limit = 20,
+  }) async => const [];
+
+  @override
+  Future<OutfitSlotSwapResponse?> swapSlot({
+    required OutfitSlotSwapRequest request,
+  }) async => null;
 }
 
 void main() {

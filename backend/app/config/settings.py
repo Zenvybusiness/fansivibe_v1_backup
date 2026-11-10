@@ -213,6 +213,20 @@ class Settings(BaseSettings):
         default_factory=dict, alias="MEDIA_UPLOAD_KEY_RING", repr=False
     )
 
+    # Weather Provider Configuration (Stage 2 P1-3)
+    weather_provider: str = Field(
+        default="open_meteo", alias="WEATHER_PROVIDER"
+    )
+    weather_api_base_url: str = Field(
+        default="https://api.open-meteo.com", alias="WEATHER_API_BASE_URL"
+    )
+    weather_timeout_s: float = Field(
+        default=1.5, alias="WEATHER_TIMEOUT_S"
+    )
+    weather_cache_ttl_s: int = Field(
+        default=1800, alias="WEATHER_CACHE_TTL_S"
+    )
+
     # CORS configuration (P2-9): explicit origins list, never wildcard in prod.
     cors_origins: list[str] = Field(
         default_factory=list, alias="FANSIVIBE_CORS_ORIGINS"
@@ -357,6 +371,24 @@ class Settings(BaseSettings):
         if isinstance(v, (list, tuple, set)):
             return [str(item).strip() for item in v if str(item).strip()]
         return []
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _validate_database_url(cls, v: Any) -> str:
+        if v is None:
+            raise ValueError("DATABASE_URL must not be None.")
+        val = str(v).strip()
+        if not val:
+            raise ValueError("DATABASE_URL must not be empty.")
+        if val.startswith("driver://") or "driver://" in val:
+            raise ValueError(
+                "DATABASE_URL contains an unresolved placeholder scheme: 'driver://'"
+            )
+        if "user:pass@localhost/dbname" in val:
+            raise ValueError(
+                "DATABASE_URL contains an unresolved placeholder template ('user:pass@localhost/dbname')."
+            )
+        return val
 
     @field_validator("youtube_data_api_key", mode="before")
     @classmethod
@@ -564,6 +596,14 @@ class Settings(BaseSettings):
                 raise ValueError("R2_READ_TIMEOUT_S must be greater than 0.")
             if self.r2_max_retries < 0:
                 raise ValueError("R2_MAX_RETRIES must be non-negative.")
+        if self.weather_provider not in ("open_meteo", "off"):
+            raise ValueError(
+                f"WEATHER_PROVIDER must be 'open_meteo' or 'off', got '{self.weather_provider}'."
+            )
+        if self.weather_timeout_s <= 0:
+            raise ValueError("WEATHER_TIMEOUT_S must be greater than 0.")
+        if self.weather_cache_ttl_s < 0:
+            raise ValueError("WEATHER_CACHE_TTL_S must be non-negative.")
         if self.is_production or self.is_staging:
             # Staging and production both forbid wildcard origins with credentials
             if self.cors_allow_credentials and any(

@@ -32,8 +32,7 @@ Map<String, dynamic> _wire(List<String> reasons) => {
   'bodyFit': 'Assembled for a tailored fit across 2 pieces.',
   'occasionMatch': 'Matched for Office across 2 categories.',
   'styleScoreImpact': '87% ensemble match from 2 owned pieces.',
-  'improvementSuggestion':
-      'Consider adding footwear to complete the coverage.',
+  'improvementSuggestion': 'Consider adding footwear to complete the coverage.',
   'selectedOccasion': 'office',
   'selectedMood': 'classic',
   'selectedColorPalette': 'warm',
@@ -64,6 +63,18 @@ class _FakeRepo implements OutfitBuilderRepository {
     required Map<String, dynamic> snapshot,
     required String idempotencyKey,
   }) async => null;
+
+  @override
+  Future<List<OutfitCandidateItem>> getCandidates({
+    required String slot,
+    List<String>? currentGarmentIds,
+    int limit = 20,
+  }) async => const [];
+
+  @override
+  Future<OutfitSlotSwapResponse?> swapSlot({
+    required OutfitSlotSwapRequest request,
+  }) async => null;
 }
 
 Widget _harness(OutfitRecommendation rec) {
@@ -81,16 +92,18 @@ void main() {
     testWidgets('renders deterministic backend reasons verbatim', (
       WidgetTester tester,
     ) async {
-      final rec = OutfitRecommendation.fromJson(_wire([
-        'Picked for a Office occasion',
-        'Covers 2 categories: tops, bottoms',
-        'Matches your preferred palette',
-        'Matches your preferred fit',
-        'Uses an item you selected',
-        'Matches the selected occasion',
-        "Similar to outfits you've liked",
-        'Previously worn combination',
-      ]));
+      final rec = OutfitRecommendation.fromJson(
+        _wire([
+          'Picked for a Office occasion',
+          'Covers 2 categories: tops, bottoms',
+          'Matches your preferred palette',
+          'Matches your preferred fit',
+          'Uses an item you selected',
+          'Matches the selected occasion',
+          "Similar to outfits you've liked",
+          'Previously worn combination',
+        ]),
+      );
       await tester.pumpWidget(_harness(rec));
       await tester.pumpAndSettle();
 
@@ -99,10 +112,7 @@ void main() {
       expect(find.text('Matches your preferred fit'), findsOneWidget);
       expect(find.text('Uses an item you selected'), findsOneWidget);
       expect(find.text('Matches the selected occasion'), findsOneWidget);
-      expect(
-        find.text("Similar to outfits you've liked"),
-        findsOneWidget,
-      );
+      expect(find.text("Similar to outfits you've liked"), findsOneWidget);
       expect(find.text('Previously worn combination'), findsOneWidget);
     });
 
@@ -114,15 +124,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Why This Look Works'), findsOneWidget);
-      expect(
-        find.text('No grounded explanation available.'),
-        findsOneWidget,
-      );
+      expect(find.text('No grounded explanation available.'), findsOneWidget);
     });
 
-    testWidgets('reasons keep backend order', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('reasons keep backend order', (WidgetTester tester) async {
       final reasons = [
         'Picked for a Office occasion',
         'Covers 2 categories: tops, bottoms',

@@ -11,6 +11,7 @@ import 'package:fansivibe/features/wardrobe/presentation/ensemble_wear_confirmat
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
@@ -83,8 +84,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
   void initState() {
     super.initState();
     _repository = widget.todayLookRepository ?? TodayLookRepositoryImpl();
-    _wardrobeRepository =
-        widget.wardrobeRepository ?? WardrobeRepositoryImpl();
+    _wardrobeRepository = widget.wardrobeRepository ?? WardrobeRepositoryImpl();
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2400),
@@ -108,6 +108,24 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     // branch state) must flip to the authenticated fetch instead of
     // keeping the sign-in prompt.
     AuthSession.authVersion.addListener(_onAuthChanged);
+    LocalStorage.weatherLocationVersion.addListener(_onWeatherLocationChanged);
+  }
+
+  /// A saved city change invalidates the current derivation: drop the old
+  /// look (and its weather) before the fresh request, so stale weather is
+  /// never presented as current.
+  void _onWeatherLocationChanged() {
+    if (!mounted || _guestBlocked) return;
+    setState(() {
+      _loading = true;
+      _look = null;
+      _failure = null;
+      _noneAvailable = false;
+      _regenerating = false;
+      _saved = false;
+      _worn = false;
+    });
+    _fetchToday();
   }
 
   void _onAuthChanged() {
@@ -135,6 +153,9 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
   @override
   void dispose() {
     AuthSession.authVersion.removeListener(_onAuthChanged);
+    LocalStorage.weatherLocationVersion.removeListener(
+      _onWeatherLocationChanged,
+    );
     _controller.dispose();
     super.dispose();
   }
@@ -390,6 +411,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     }
 
     final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final weatherSection = _buildWeatherSection(context, look);
 
     return Scaffold(
       backgroundColor: FansivibeColors.surface,
@@ -427,6 +449,14 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                               reduceMotion,
                               _buildEditorialSummary(context, look),
                             ),
+                            if (weatherSection != null) ...[
+                              SizedBox(height: FansivibeSpacing.lg),
+                              _animatedSection(
+                                _editorialAnim,
+                                reduceMotion,
+                                weatherSection,
+                              ),
+                            ],
                             SizedBox(height: FansivibeSpacing.xxl),
                             _animatedSection(
                               _breakdownAnim,
@@ -509,10 +539,14 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Text(
-                    'TODAY\'S LOOK',
-                    style: FansivibeTypography.headlineMediumWithFamily
-                        .copyWith(fontSize: 20, fontWeight: FontWeight.w500),
+                  Expanded(
+                    child: Text(
+                      'TODAY\'S LOOK',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: FansivibeTypography.headlineMediumWithFamily
+                          .copyWith(fontSize: 20, fontWeight: FontWeight.w500),
+                    ),
                   ),
                 ],
               ),
@@ -902,6 +936,276 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
         ),
       ],
     );
+  }
+
+  // ─────────────────────────── WEATHER CONTEXT ───────────────────────────
+
+  /// Compact weather card. Null when the look carries no weather and no city
+  /// is configured — the normal daily-look interface then renders unchanged.
+  Widget? _buildWeatherSection(BuildContext context, TodayLook look) {
+    final weather = look.weather;
+    if (weather == null) {
+      if (LocalStorage.weatherCity != null) return null;
+      return _buildCityPrompt(context);
+    }
+
+    final city = weather.city?.trim();
+    final summary = weather.summary?.trim();
+    final detail = (summary != null && summary.isNotEmpty)
+        ? summary
+        : _weatherDetail(weather);
+    final rain = _weatherRainLabel(weather);
+    final freshness = _weatherFreshness(weather);
+    final hasData =
+        (detail != null && detail.isNotEmpty) ||
+        (city != null && city.isNotEmpty) ||
+        rain != null ||
+        weather.applied;
+    if (!hasData) return null;
+
+    final showCityTitle =
+        city != null &&
+        city.isNotEmpty &&
+        !(detail?.toLowerCase().contains(city.toLowerCase()) ?? false);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _goldLabel('WEATHER CONTEXT'),
+        SizedBox(height: FansivibeSpacing.sm),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          decoration: BoxDecoration(
+            color: FansivibeColors.surfaceContainerLow,
+            borderRadius: FansivibeRadius.mdBorder,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: FansivibeColors.primary.withValues(alpha: 0.1),
+                  borderRadius: FansivibeRadius.smBorder,
+                ),
+                child: Center(
+                  child: ExcludeSemantics(
+                    child: Icon(
+                      _weatherIcon(weather),
+                      size: 22,
+                      color: FansivibeColors.primary,
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: FansivibeSpacing.sm + 4),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (showCityTitle)
+                      Text(
+                        city,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: FansivibeTypography.titleLargeWithFamily
+                            .copyWith(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: FansivibeColors.onSurface,
+                            ),
+                      ),
+                    if (showCityTitle && detail != null)
+                      SizedBox(height: FansivibeSpacing.xs),
+                    if (detail != null && detail.isNotEmpty)
+                      Text(
+                        detail,
+                        style: FansivibeTypography.bodyMediumWithFamily
+                            .copyWith(
+                              color: showCityTitle
+                                  ? FansivibeColors.secondary
+                                  : FansivibeColors.onSurface,
+                              fontSize: 14,
+                              height: 1.4,
+                              fontWeight: showCityTitle
+                                  ? FontWeight.w400
+                                  : FontWeight.w600,
+                            ),
+                      ),
+                    if (rain != null) ...[
+                      SizedBox(height: FansivibeSpacing.xs),
+                      _weatherDetailRow(
+                        Icons.water_drop_outlined,
+                        rain,
+                        FansivibeColors.secondary,
+                      ),
+                    ],
+                    if (weather.applied) ...[
+                      SizedBox(height: FansivibeSpacing.xs),
+                      _weatherDetailRow(
+                        Icons.auto_awesome_rounded,
+                        'Weather considered in today\'s recommendation.',
+                        FansivibeColors.primary,
+                      ),
+                    ],
+                    if (freshness != null) ...[
+                      SizedBox(height: FansivibeSpacing.xs),
+                      Text(
+                        freshness,
+                        style: FansivibeTypography.labelSmallWithFamily
+                            .copyWith(
+                              color: FansivibeColors.secondary.withValues(
+                                alpha: 0.75,
+                              ),
+                              fontSize: 10.5,
+                            ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _weatherDetailRow(IconData icon, String text, Color color) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 13, color: color),
+        SizedBox(width: FansivibeSpacing.xs + 2),
+        Expanded(
+          child: Text(
+            text,
+            style: FansivibeTypography.labelSmallWithFamily.copyWith(
+              color: color,
+              fontSize: 11.5,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCityPrompt(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.mdBorder,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.location_on_outlined,
+                size: 18,
+                color: FansivibeColors.primary,
+              ),
+              SizedBox(width: FansivibeSpacing.sm),
+              Expanded(
+                child: Text(
+                  'No city selected for weather. Choose one in Settings to '
+                  'see weather-aware recommendations.',
+                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                    color: FansivibeColors.secondary,
+                    fontSize: 12.5,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => context.pushNamed(RouteNames.profileSettings),
+              child: const Text('Choose City'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _weatherDetail(TodayLookWeather weather) {
+    final temp = weather.temperatureC != null
+        ? '${weather.temperatureC!.round()}°C'
+        : weather.temperatureF != null
+        ? '${weather.temperatureF!.round()}°F'
+        : null;
+    final condition = weather.condition?.trim();
+    final base = [
+      if (temp != null) temp,
+      if (condition != null && condition.isNotEmpty) condition,
+    ].join(' • ');
+    final city = weather.city?.trim();
+    if (base.isEmpty) {
+      return (city != null && city.isNotEmpty) ? city : null;
+    }
+    return (city != null && city.isNotEmpty) ? '$base in $city' : base;
+  }
+
+  String? _weatherRainLabel(TodayLookWeather weather) {
+    final probability = weather.precipitationProbability;
+    if (weather.isRaining == true) {
+      return probability != null
+          ? '${probability.round()}% chance of rain'
+          : 'Rain expected';
+    }
+    if (probability != null && probability >= 20) {
+      return '${probability.round()}% chance of rain';
+    }
+    return null;
+  }
+
+  String? _weatherFreshness(TodayLookWeather weather) {
+    final timestamp = weather.forecastTimestamp;
+    if (weather.fallback) {
+      return timestamp == null
+          ? 'Cached forecast'
+          : 'Cached forecast • ${_weatherAge(timestamp)}';
+    }
+    if (timestamp == null) return null;
+    return 'Forecast updated ${_weatherAge(timestamp)}';
+  }
+
+  String _weatherAge(DateTime timestamp) {
+    final age = DateTime.now().toUtc().difference(timestamp.toUtc());
+    if (age.isNegative || age.inMinutes < 2) return 'just now';
+    if (age.inMinutes < 60) return '${age.inMinutes} min ago';
+    if (age.inHours < 24) return '${age.inHours} hr ago';
+    return '${age.inDays} days ago';
+  }
+
+  IconData _weatherIcon(TodayLookWeather weather) {
+    final code = '${weather.conditionCode ?? ''} ${weather.condition ?? ''}'
+        .toLowerCase();
+    if (code.contains('thunder')) return Icons.flash_on_rounded;
+    if (code.contains('snow')) return Icons.ac_unit_rounded;
+    if (code.contains('rain') ||
+        code.contains('drizzle') ||
+        weather.isRaining == true) {
+      return Icons.water_drop_outlined;
+    }
+    if (code.contains('fog')) return Icons.blur_on_rounded;
+    if (code.contains('cloud') || code.contains('overcast')) {
+      return Icons.cloud_outlined;
+    }
+    if (code.contains('clear') || code.contains('sun')) {
+      return Icons.wb_sunny_outlined;
+    }
+    return Icons.thermostat_rounded;
   }
 
   // ─────────────────────────── THE ENSEMBLE ───────────────────────────

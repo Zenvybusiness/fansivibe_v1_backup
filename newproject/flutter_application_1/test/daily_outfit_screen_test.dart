@@ -67,11 +67,20 @@ class _FakeTodayLookRepository implements TodayLookRepository {
   int saveCalls = 0;
 
   @override
-  Future<TodayLookResult> getTodayLook() async =>
+  Future<TodayLookResult> getTodayLook({
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async =>
       _getResult ?? TodayLookResult.available(TodayLook.fromJson(_wire()));
 
   @override
-  Future<TodayLookResult> regenerateTodayLook({String? seed}) async {
+  Future<TodayLookResult> regenerateTodayLook({
+    String? seed,
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async {
     regenCalls += 1;
     return _regenResult ??
         TodayLookResult.available(TodayLook.fromJson(_wire()));

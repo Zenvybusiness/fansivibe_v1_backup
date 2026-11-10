@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import hashlib
 from types import SimpleNamespace
-from typing import Optional
+from typing import Optional, Sequence
 from uuid import UUID
 
 from app.api.errors import ApiError, ai_failure, not_found
@@ -43,6 +43,7 @@ from app.domain.ports.repositories import (
     FeedbackRepository,
     LearningSignalRepository,
     OutfitComponent,
+
     OutfitRecommendation,
     SavedLookRepository,
     UserStateRepository,
@@ -60,6 +61,8 @@ from app.domain.services.analysis_rules import (
     score_outfit_candidate,
     select_best_outfit_candidate,
 )
+from app.domain.value_objects import OutfitCandidate
+
 
 # Canonical ensemble slot order for component rendering (tops first —
 # same order as the M8-C event outfit and M9 adapters).
@@ -657,3 +660,284 @@ class SaveOutfit:
             source_context="outfit",
             idempotency_key=idempotency_key,
         )
+
+
+def normalize_slot_name(slot: str) -> str:
+    """Normalize user/client-provided slot name to canonical category (P1-1).
+
+    Supported:
+    - 'top', 'tops' -> 'tops'
+    - 'bottom', 'bottoms' -> 'bottoms'
+    - 'footwear', 'shoe', 'shoes' -> 'footwear'
+    - 'outerwear' -> 'outerwear'
+    - 'accessory', 'accessories' -> 'accessories'
+    """
+    clean = (slot or "").strip().lower()
+    mapping = {
+        "top": "tops",
+        "tops": "tops",
+        "bottom": "bottoms",
+        "bottoms": "bottoms",
+        "footwear": "footwear",
+        "shoe": "footwear",
+        "shoes": "footwear",
+        "outerwear": "outerwear",
+        "accessory": "accessories",
+        "accessories": "accessories",
+    }
+    if clean not in mapping:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message=f"Unsupported slot '{slot}'. Supported slots: tops, bottoms, footwear, outerwear, accessories.",
+            details={"field_errors": [{"field": "slot", "error": f"unsupported slot '{slot}'"}]},
+        )
+    return mapping[clean]
+
+
+class SwapOutfitSlot:
+    """Swap one outfit component slot and recalculate complete compatibility (P1-1).
+
+    Enforces:
+    - User ownership of all current garments and replacement garment (OW-1, 404).
+    - Slot category match for replacement garment (422).
+    - No duplicate garments across slots (422).
+    - Pinned slot protection: cannot swap if the requested slot is pinned (409 PINNED_SLOT_CONFLICT).
+    - Preservation of all other pinned garments (invariants verified).
+    - Canonical compatibility recalculation using `score_outfit_candidate` and `_to_recommendation`.
+    """
+
+    def __init__(
+        self,
+        *,
+        wardrobe_items: WardrobeItemRepository,
+        user_state: UserStateRepository,
+        feedback: Optional[FeedbackRepository] = None,
+        saved_looks: Optional[SavedLookRepository] = None,
+        wears: Optional[WearEventRepository] = None,
+    ) -> None:
+        self._wardrobe_items = wardrobe_items
+        self._user_state = user_state
+        self._feedback = feedback
+        self._saved_looks = saved_looks
+        self._wears = wears
+
+    def execute(
+        self,
+        *,
+        user_id: UUID,
+        occasion: object,
+        mood: object,
+        fit: object,
+        color_palette: object,
+        current_garment_ids: Sequence[UUID],
+        slot: str,
+        replacement_garment_id: UUID,
+        pinned_garment_ids: Optional[Sequence[UUID]] = None,
+        seed: object = None,
+    ) -> tuple[OutfitRecommendation, Optional[str], Optional[float], list[str]]:
+        clean_occasion = _validate_preference("occasion", occasion)
+        clean_mood = _validate_preference("mood", mood)
+        clean_fit = _validate_preference("fit", fit)
+        clean_palette = _validate_preference("colorPalette", color_palette)
+        canonical_slot = normalize_slot_name(slot)
+
+        if not current_garment_ids:
+            raise _field_error("currentGarmentIds", "must not be empty")
+
+        # Load and verify replacement garment ownership
+        replacement_item = self._wardrobe_items.get_by_id(
+            user_id=user_id, item_id=replacement_garment_id
+        )
+        if replacement_item is None:
+            raise not_found()
+
+        if replacement_item.category != canonical_slot:
+            raise _field_error(
+                "replacementGarmentId",
+                f"replacement garment category '{replacement_item.category}' does not match requested slot '{canonical_slot}'",
+            )
+
+        # Load and verify ownership of every current garment
+        current_items: dict[UUID, object] = {}
+        for gid in current_garment_ids:
+            item = self._wardrobe_items.get_by_id(user_id=user_id, item_id=gid)
+            if item is None:
+                raise not_found()
+            current_items[gid] = item
+
+        pinned_set = set(pinned_garment_ids or ())
+        for pid in pinned_set:
+            if pid not in current_items:
+                raise _field_error(
+                    "pinnedGarmentIds",
+                    f"pinned garment ID '{pid}' is not part of the current outfit",
+                )
+
+        # Find the garment currently in the requested slot
+        current_slot_items = [
+            item for item in current_items.values() if item.category == canonical_slot
+        ]
+        previous_item_id = str(current_slot_items[0].id) if current_slot_items else None
+
+        # Pinned slot rejection
+        if current_slot_items and current_slot_items[0].id in pinned_set:
+            raise ApiError(
+                status_code=409,
+                code="PINNED_SLOT_CONFLICT",
+                message=f"Cannot replace slot '{canonical_slot}' because it is pinned. Unpin it first.",
+                details={"slot": canonical_slot, "pinned_garment_id": str(current_slot_items[0].id)},
+            )
+
+        # Reject duplicate garment across different slots
+        if replacement_garment_id in current_items:
+            existing = current_items[replacement_garment_id]
+            if existing.category != canonical_slot:
+                raise _field_error(
+                    "replacementGarmentId",
+                    f"garment '{replacement_garment_id}' is already used in slot '{existing.category}'",
+                )
+
+        # Calculate previous compatibility score if possible
+        prev_score: Optional[float] = None
+        prev_buckets = {
+            "top_ids": tuple(str(item.id) for item in current_items.values() if item.category == "tops"),
+            "bottom_ids": tuple(str(item.id) for item in current_items.values() if item.category == "bottoms"),
+            "outerwear_ids": tuple(str(item.id) for item in current_items.values() if item.category == "outerwear"),
+            "footwear_ids": tuple(str(item.id) for item in current_items.values() if item.category == "footwear"),
+            "accessory_ids": tuple(str(item.id) for item in current_items.values() if item.category == "accessories"),
+        }
+        if prev_buckets["top_ids"] and prev_buckets["bottom_ids"]:
+            try:
+                prev_cand = OutfitCandidate(**prev_buckets)
+                prev_items_by_id = {
+                    str(item.id): SimpleNamespace(
+                        id=str(item.id),
+                        category=item.category,
+                        color=item.color,
+                        material=item.material,
+                        is_favorite=item.is_favorite,
+                        fit=item.fit,
+                        fit_confidence=item.fit_confidence,
+                    )
+                    for item in current_items.values()
+                }
+                prev_scored = score_outfit_candidate(
+                    prev_cand,
+                    prev_items_by_id,
+                    frozenset(),
+                    [clean_occasion],
+                    preferred_palette=clean_palette,
+                    preferred_fit=clean_fit,
+                )
+                prev_score = round(prev_scored.score / 100, 4)
+            except Exception:
+                prev_score = None
+
+        # Build resulting items list
+        resulting_items = [
+            item for item in current_items.values() if item.category != canonical_slot
+        ] + [replacement_item]
+
+        # Verify all other pinned garments are preserved
+        resulting_ids = {item.id for item in resulting_items}
+        for pid in pinned_set:
+            if pid not in resulting_ids:
+                raise ApiError(
+                    status_code=409,
+                    code="PINNED_PRESERVATION_VIOLATION",
+                    message=f"Pinned garment '{pid}' must be preserved.",
+                    details={"pinned_garment_id": str(pid)},
+                )
+
+        buckets = {
+            "top_ids": tuple(str(item.id) for item in resulting_items if item.category == "tops"),
+            "bottom_ids": tuple(str(item.id) for item in resulting_items if item.category == "bottoms"),
+            "outerwear_ids": tuple(str(item.id) for item in resulting_items if item.category == "outerwear"),
+            "footwear_ids": tuple(str(item.id) for item in resulting_items if item.category == "footwear"),
+            "accessory_ids": tuple(str(item.id) for item in resulting_items if item.category == "accessories"),
+        }
+        candidate = OutfitCandidate(**buckets)
+
+        if not candidate.top_ids or not candidate.bottom_ids:
+            raise _field_error(
+                "slot",
+                "Resulting outfit must contain at least tops and bottoms.",
+            )
+
+        occasions = [clean_occasion]
+        occasions.extend(
+            item
+            for item in _preferred_occasions(user_state=self._user_state, user_id=user_id)
+            if isinstance(item, str) and item not in occasions
+        )
+        feedback_context = build_feedback_context(
+            user_id=user_id,
+            feedback=self._feedback,
+            saved_looks=self._saved_looks,
+            wears=self._wears,
+        )
+        items_by_id = {
+            str(item.id): SimpleNamespace(
+                id=str(item.id),
+                category=item.category,
+                color=item.color,
+                material=item.material,
+                is_favorite=item.is_favorite,
+                fit=item.fit,
+                fit_confidence=item.fit_confidence,
+            )
+            for item in resulting_items
+        }
+        scored = score_outfit_candidate(
+            candidate,
+            items_by_id,
+            frozenset(),
+            occasions,
+            preferred_palette=clean_palette,
+            preferred_fit=clean_fit,
+            feedback_context=feedback_context,
+        )
+
+        by_record = {str(item.id): item for item in resulting_items}
+        recommendation = _to_recommendation(
+            occasion=clean_occasion,
+            mood=clean_mood,
+            fit=clean_fit,
+            color_palette=clean_palette,
+            winner=scored,
+            by_record=by_record,
+            occasions=occasions,
+        )
+
+        warnings: list[str] = []
+        if scored.score < 50.0:
+            warnings.append("Resulting outfit compatibility is below recommended threshold.")
+
+        return recommendation, previous_item_id, prev_score, warnings
+
+
+class GetOutfitCandidates:
+    """Retrieve eligible replacement wardrobe items for a slot (P1-1)."""
+
+    def __init__(self, *, wardrobe_items: WardrobeItemRepository) -> None:
+        self._wardrobe_items = wardrobe_items
+
+    def execute(
+        self,
+        *,
+        user_id: UUID,
+        slot: str,
+        current_garment_ids: Optional[Sequence[UUID]] = None,
+        limit: int = 20,
+    ) -> tuple[str, list]:
+        canonical_slot = normalize_slot_name(slot)
+        exclude_ids = {gid for gid in (current_garment_ids or ())}
+        items, _ = self._wardrobe_items.get_for_user(
+            user_id=user_id,
+            page=1,
+            page_size=max(limit * 2, 50),
+            category=canonical_slot,
+        )
+        candidates = [item for item in items if item.id not in exclude_ids]
+        return canonical_slot, candidates[:limit]

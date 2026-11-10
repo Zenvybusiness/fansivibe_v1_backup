@@ -129,6 +129,44 @@ class ScriptedOutfitRepository implements OutfitBuilderRepository {
     saveKeys.add(idempotencyKey);
     return saveHandler!();
   }
+
+  Future<List<OutfitCandidateItem>> Function({
+    required String slot,
+    List<String>? currentGarmentIds,
+    int limit,
+  })?
+  getCandidatesHandler;
+
+  Future<OutfitSlotSwapResponse?> Function({
+    required OutfitSlotSwapRequest request,
+  })?
+  swapSlotHandler;
+
+  @override
+  Future<List<OutfitCandidateItem>> getCandidates({
+    required String slot,
+    List<String>? currentGarmentIds,
+    int limit = 20,
+  }) async {
+    if (getCandidatesHandler != null) {
+      return getCandidatesHandler!(
+        slot: slot,
+        currentGarmentIds: currentGarmentIds,
+        limit: limit,
+      );
+    }
+    return const [];
+  }
+
+  @override
+  Future<OutfitSlotSwapResponse?> swapSlot({
+    required OutfitSlotSwapRequest request,
+  }) async {
+    if (swapSlotHandler != null) {
+      return swapSlotHandler!(request: request);
+    }
+    return null;
+  }
 }
 
 Widget _generationWith(ScriptedOutfitRepository repo) {
@@ -279,7 +317,10 @@ void main() {
         matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
       );
       expect(buildButton, findsOneWidget);
-      expect(tester.widget<ButtonStyleButton>(buildButton).onPressed, isNotNull);
+      expect(
+        tester.widget<ButtonStyleButton>(buildButton).onPressed,
+        isNotNull,
+      );
     });
 
     testWidgets('selecting an option shows check icon', (
@@ -547,10 +588,7 @@ void main() {
         // Fresh key per case: the screen fetches in initState, so the
         // state tree must reset to observe each reason.
         await tester.pumpWidget(
-          KeyedSubtree(
-            key: ValueKey(entry.key),
-            child: _generationWith(repo),
-          ),
+          KeyedSubtree(key: ValueKey(entry.key), child: _generationWith(repo)),
         );
         await tester.pumpAndSettle();
 
@@ -701,7 +739,9 @@ void main() {
       expect(find.text('Occasion Match'), findsOneWidget);
     });
 
-    testWidgets('renders Ensemble Match impact card', (WidgetTester tester) async {
+    testWidgets('renders Ensemble Match impact card', (
+      WidgetTester tester,
+    ) async {
       final repo = ScriptedOutfitRepository();
       await tester.pumpWidget(_recommendationWith(repo, _rec(_wire())));
       await tester.pumpAndSettle();

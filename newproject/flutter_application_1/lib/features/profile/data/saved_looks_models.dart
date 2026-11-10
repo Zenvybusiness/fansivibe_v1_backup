@@ -1,3 +1,6 @@
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+
 /// Data models for the backend saved-looks collection (DEC-013, STEP 18.4).
 ///
 /// Wire shapes mirror `POST/GET /v1/looks/saved` exactly (camelCase):
@@ -17,6 +20,7 @@ class SavedLookItem {
     this.sourceContext,
     this.snapshot = const {},
     this.sourceRunId,
+    this.items,
   });
 
   /// Backend UUID of the saved look (the DELETE path parameter).
@@ -40,6 +44,9 @@ class SavedLookItem {
 
   /// Save instant.
   final DateTime createdAt;
+
+  /// Hydrated wardrobe garments (null when unhydrated, empty for non-outfit looks).
+  final List<HydratedGarmentItem>? items;
 
   /// `selectedItemIds` carried by outfit snapshots (canonical backend
   /// wardrobe UUID strings). Empty for non-outfit snapshots. Read-only:
@@ -68,6 +75,13 @@ class SavedLookItem {
     createdAt:
         DateTime.tryParse(json['createdAt'] as String? ?? '') ??
         DateTime.fromMillisecondsSinceEpoch(0),
+    items: json['items'] != null
+        ? (json['items'] as List<dynamic>)
+              .map(
+                (e) => HydratedGarmentItem.fromJson(e as Map<String, dynamic>),
+              )
+              .toList()
+        : null,
   );
 
   /// Serializes this item back to the backend wire shape.
@@ -79,6 +93,7 @@ class SavedLookItem {
     'snapshot': snapshot,
     if (sourceRunId != null) 'sourceRunId': sourceRunId,
     'createdAt': createdAt.toIso8601String(),
+    if (items != null) 'items': items!.map((e) => e.toJson()).toList(),
   };
 
   /// Copy with modified fields.
@@ -90,6 +105,7 @@ class SavedLookItem {
     Map<String, dynamic>? snapshot,
     String? Function()? sourceRunId,
     DateTime? createdAt,
+    List<HydratedGarmentItem>? Function()? items,
   }) {
     return SavedLookItem(
       id: id ?? this.id,
@@ -101,6 +117,120 @@ class SavedLookItem {
       snapshot: snapshot ?? this.snapshot,
       sourceRunId: sourceRunId != null ? sourceRunId() : this.sourceRunId,
       createdAt: createdAt ?? this.createdAt,
+      items: items != null ? items() : this.items,
+    );
+  }
+}
+
+/// Hydrated garment metadata embedded in a saved look (P1-2).
+class HydratedGarmentItem {
+  const HydratedGarmentItem({
+    required this.id,
+    required this.name,
+    required this.category,
+    required this.color,
+    this.material,
+    this.isFavorite = false,
+    this.imageRef,
+    this.imageUrl,
+    this.fit,
+    this.fitConfidence,
+    this.reason,
+    this.isArchived = false,
+  });
+
+  /// Backend garment UUID string.
+  final String id;
+
+  /// Garment display name.
+  final String name;
+
+  /// Canonical category (tops, bottoms, outerwear, footwear, accessories).
+  final String category;
+
+  /// Color string.
+  final String color;
+
+  /// Fabric / material string.
+  final String? material;
+
+  /// Favorite status.
+  final bool isFavorite;
+
+  /// Media storage reference descriptor.
+  final Map<String, dynamic>? imageRef;
+
+  /// Authorized temporary presigned GET URL for garment image.
+  final String? imageUrl;
+
+  /// Fit attribute (e.g. relaxed, slim).
+  final String? fit;
+
+  /// Model fit confidence (0.0 to 1.0).
+  final double? fitConfidence;
+
+  /// Stylist selection reason from the saved ensemble snapshot.
+  final String? reason;
+
+  /// True if this piece has been deleted or archived from the user's active wardrobe.
+  final bool isArchived;
+
+  factory HydratedGarmentItem.fromJson(Map<String, dynamic> json) {
+    double? parsedConfidence;
+    final rawConf = json['fitConfidence'];
+    if (rawConf is num) {
+      parsedConfidence = rawConf.toDouble();
+    }
+    return HydratedGarmentItem(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      category: json['category'] as String? ?? '',
+      color: json['color'] as String? ?? '',
+      material: json['material'] as String?,
+      isFavorite: json['isFavorite'] as bool? ?? false,
+      imageRef: (json['imageRef'] as Map?)?.map(
+        (key, value) => MapEntry(key.toString(), value),
+      ),
+      imageUrl: json['imageUrl'] as String?,
+      fit: json['fit'] as String?,
+      fitConfidence: parsedConfidence,
+      reason: json['reason'] as String?,
+      isArchived: json['isArchived'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'category': category,
+    'color': color,
+    if (material != null) 'material': material,
+    'isFavorite': isFavorite,
+    if (imageRef != null) 'imageRef': imageRef,
+    if (imageUrl != null) 'imageUrl': imageUrl,
+    if (fit != null) 'fit': fit,
+    if (fitConfidence != null) 'fitConfidence': fitConfidence,
+    if (reason != null) 'reason': reason,
+    'isArchived': isArchived,
+  };
+
+  /// Converts to [WardrobeItemData] for rendering via [WardrobeItemImage].
+  WardrobeItemData toWardrobeItemData() {
+    MediaRef? ref;
+    if (imageRef != null) {
+      try {
+        ref = MediaRef.fromJson(imageRef!);
+      } catch (_) {}
+    }
+    return WardrobeItemData(
+      id: id,
+      name: name,
+      category: category,
+      color: color,
+      material: material,
+      isFavorite: isFavorite,
+      imageRef: ref,
+      imageUrl: imageUrl,
     );
   }
 }

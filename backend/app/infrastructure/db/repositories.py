@@ -829,6 +829,19 @@ class WardrobeItemRepositorySQL:
         ).scalar_one_or_none()
         return self._to_record(row) if row else None
 
+    def get_by_ids(
+        self, *, user_id: UUID, item_ids: Sequence[UUID]
+    ) -> list["WardrobeItemRecord"]:
+        if not item_ids:
+            return []
+        rows = self._session.execute(
+            select(WardrobeItems).where(
+                WardrobeItems.user_id == user_id,
+                WardrobeItems.id.in_(list(item_ids)),
+            )
+        ).scalars().all()
+        return [self._to_record(r) for r in rows]
+
     def create(
         self,
         *,

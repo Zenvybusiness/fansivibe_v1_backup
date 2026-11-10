@@ -294,3 +294,139 @@ class OutfitResult {
   /// Verbatim backend empty reason, when [noneAvailable].
   final String? emptyReason;
 }
+
+/// Eligible replacement wardrobe candidate for an outfit slot (P1-1).
+class OutfitCandidateItem {
+  const OutfitCandidateItem({
+    required this.id,
+    required this.name,
+    required this.category,
+    required this.color,
+    this.material,
+    this.isFavorite = false,
+    this.fit,
+    this.fitConfidence,
+    this.imageRef,
+    this.imageUrl,
+  });
+
+  final String id;
+  final String name;
+  final String category;
+  final String color;
+  final String? material;
+  final bool isFavorite;
+  final String? fit;
+  final double? fitConfidence;
+  final Map<String, dynamic>? imageRef;
+  final String? imageUrl;
+
+  factory OutfitCandidateItem.fromJson(Map<String, dynamic> json) =>
+      OutfitCandidateItem(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        category: json['category'] as String,
+        color: json['color'] as String,
+        material: json['material'] as String?,
+        isFavorite: (json['isFavorite'] as bool?) ?? false,
+        fit: json['fit'] as String?,
+        fitConfidence: (json['fitConfidence'] as num?)?.toDouble(),
+        imageRef: json['imageRef'] as Map<String, dynamic>?,
+        imageUrl: json['imageUrl'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'category': category,
+    'color': color,
+    if (material != null) 'material': material,
+    'isFavorite': isFavorite,
+    if (fit != null) 'fit': fit,
+    if (fitConfidence != null) 'fitConfidence': fitConfidence,
+    if (imageRef != null) 'imageRef': imageRef,
+    if (imageUrl != null) 'imageUrl': imageUrl,
+  };
+}
+
+/// Request payload for swapping an outfit component slot (P1-1).
+class OutfitSlotSwapRequest {
+  const OutfitSlotSwapRequest({
+    required this.occasion,
+    required this.mood,
+    required this.fit,
+    required this.colorPalette,
+    required this.currentGarmentIds,
+    required this.slot,
+    required this.replacementGarmentId,
+    this.pinnedGarmentIds,
+    this.seed,
+  });
+
+  final String occasion;
+  final String mood;
+  final String fit;
+  final String colorPalette;
+  final List<String> currentGarmentIds;
+  final String slot;
+  final String replacementGarmentId;
+  final List<String>? pinnedGarmentIds;
+  final String? seed;
+
+  Map<String, dynamic> toJson() => {
+    'occasion': occasion,
+    'mood': mood,
+    'fit': fit,
+    'colorPalette': colorPalette,
+    'currentGarmentIds': currentGarmentIds,
+    'slot': slot,
+    'replacementGarmentId': replacementGarmentId,
+    if (pinnedGarmentIds != null && pinnedGarmentIds!.isNotEmpty)
+      'pinnedGarmentIds': pinnedGarmentIds,
+    if (seed != null) 'seed': seed,
+  };
+}
+
+/// Response payload from swapping an outfit component slot (P1-1).
+class OutfitSlotSwapResponse {
+  const OutfitSlotSwapResponse({
+    required this.outfit,
+    required this.replacedSlot,
+    required this.replacementGarmentId,
+    required this.compatibilityScore,
+    required this.reasons,
+    this.previousGarmentId,
+    this.previousCompatibilityScore,
+    this.warnings = const [],
+  });
+
+  final OutfitRecommendation outfit;
+  final String replacedSlot;
+  final String replacementGarmentId;
+  final double compatibilityScore;
+  final List<String> reasons;
+  final String? previousGarmentId;
+  final double? previousCompatibilityScore;
+  final List<String> warnings;
+
+  factory OutfitSlotSwapResponse.fromJson(Map<String, dynamic> json) =>
+      OutfitSlotSwapResponse(
+        outfit: OutfitRecommendation.fromJson(
+          json['outfit'] as Map<String, dynamic>,
+        ),
+        replacedSlot: json['replacedSlot'] as String,
+        replacementGarmentId: json['replacementGarmentId'] as String,
+        compatibilityScore: (json['compatibilityScore'] as num).toDouble(),
+        reasons: (json['reasons'] as List<dynamic>)
+            .map((e) => e as String)
+            .toList(),
+        previousGarmentId: json['previousGarmentId'] as String?,
+        previousCompatibilityScore: (json['previousCompatibilityScore'] as num?)
+            ?.toDouble(),
+        warnings:
+            (json['warnings'] as List<dynamic>?)
+                ?.map((e) => e as String)
+                .toList() ??
+            const [],
+      );
+}

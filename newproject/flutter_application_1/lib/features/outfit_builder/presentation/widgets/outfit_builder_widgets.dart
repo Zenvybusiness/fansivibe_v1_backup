@@ -134,10 +134,7 @@ class OptionSection extends StatelessWidget {
             color: FansivibeColors.textSecondary,
           ),
         ),
-        if (helper != null) ...[
-          const SizedBox(height: 12),
-          helper!,
-        ],
+        if (helper != null) ...[const SizedBox(height: 12), helper!],
         const SizedBox(height: 12),
         ...options.map(
           (option) => Padding(
@@ -242,11 +239,15 @@ class OutfitComponentCard extends StatelessWidget {
   const OutfitComponentCard({
     required this.component,
     required this.onReplace,
+    this.isPinned = false,
+    this.onTogglePin,
     super.key,
   });
 
   final OutfitComponent component;
   final VoidCallback onReplace;
+  final bool isPinned;
+  final VoidCallback? onTogglePin;
 
   @override
   Widget build(BuildContext context) {
@@ -260,6 +261,12 @@ class OutfitComponentCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: FansivibeColors.surfaceContainerLow,
         borderRadius: FansivibeRadius.smdBorder,
+        border: isPinned
+            ? Border.all(
+                color: FansivibeColors.accentGold.withValues(alpha: 0.5),
+                width: 1.5,
+              )
+            : null,
       ),
       child: Row(
         children: [
@@ -284,13 +291,27 @@ class OutfitComponentCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  component.name,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                    color: FansivibeColors.textPrimary,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        component.name,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w500,
+                          color: FansivibeColors.textPrimary,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (isPinned) ...[
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.push_pin_rounded,
+                        size: 14,
+                        color: FansivibeColors.accentGold,
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Row(
@@ -334,11 +355,24 @@ class OutfitComponentCard extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          if (onTogglePin != null) ...[
+            IconButton(
+              icon: Icon(
+                isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                color: isPinned
+                    ? FansivibeColors.accentGold
+                    : FansivibeColors.textSecondary.withValues(alpha: 0.6),
+                size: 20,
+              ),
+              tooltip: isPinned ? 'Unpin piece' : 'Pin piece',
+              onPressed: onTogglePin,
+            ),
+          ],
+          const SizedBox(width: 4),
           Flexible(
             child: FansiButton.secondary(
-              label: 'Replace',
-              onPressed: onReplace,
+              label: isPinned ? 'Pinned' : 'Replace',
+              onPressed: isPinned ? null : onReplace,
               expanded: false,
             ),
           ),

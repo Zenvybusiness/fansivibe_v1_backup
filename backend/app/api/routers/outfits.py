@@ -16,12 +16,17 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from uuid import UUID
 
-from app.api.deps import get_current_user_id
+from app.api.deps import get_current_user_id, get_storage_adapter
 from app.api.errors import validation
 from app.api.schemas.outfits import (
     OutfitGenerateRequest,
     OutfitRecommendation,
     OutfitComponent,
+    OutfitSlotSwapRequest,
+    OutfitSlotSwapResponse,
+    OutfitCandidatesRequest,
+    OutfitCandidatesResponse,
+    OutfitCandidateItem,
 )
 from app.api.schemas.saved_looks import SaveLookRequest, SavedLook
 from app.application.outfits import (
@@ -29,8 +34,11 @@ from app.application.outfits import (
     NO_LEGAL_CANDIDATE,
     GenerateOutfit,
     SaveOutfit,
+    SwapOutfitSlot,
+    GetOutfitCandidates,
 )
 from app.domain.ports.repositories import OutfitRecommendation as OutfitRecord
+from app.domain.ports.storage import ObjectStoragePort
 from app.infrastructure.db.repositories import (
     ActivityDayRepositorySQL,
     FeedbackRepositorySQL,
@@ -42,6 +50,7 @@ from app.infrastructure.db.repositories import (
 )
 from app.infrastructure.db.session import get_db
 from app.infrastructure.external.knowledge import CatalogKnowledgeSource
+
 
 router = APIRouter(prefix="/v1/outfits", tags=["outfits"])
 
@@ -192,3 +201,131 @@ def save_outfit(
         idempotency_key=idempotency_key,
     )
     return _record_to_saved_schema(record)
+
+
+async def _candidate_to_wire(record, storage: ObjectStoragePort | None = None) -> OutfitCandidateItem:
+    """Map a `WardrobeItemRecord` to `OutfitCandidateItem` enriched with presigned GET URL."""
+    image_url: str | None = None
+    image_ref = record.image_ref
+    if image_ref and isinstance(image_ref, dict):
+        key = (
+            image_ref.get("objectKey")
+            or image_ref.get("object_key")
+            or image_ref.get("canonical_key")
+            or image_ref.get("canonicalKey")
+            or image_ref.get("key")
+        )
+        if key and storage is not None:
+            try:
+                image_url = await storage.generate_presigned_get_url(key=key, expires_in_s=900)
+                image_ref = {**image_ref, "downloadUrl": image_url, "url": image_url}
+            except Exception:
+                pass
+    return OutfitCandidateItem(
+        id=str(record.id),
+        name=record.name,
+        category=record.category,
+        color=record.color,
+        material=record.material,
+        isFavorite=record.is_favorite,
+        fit=record.fit,
+        fitConfidence=record.fit_confidence,
+        imageRef=image_ref,
+        imageUrl=image_url,
+    )
+
+
+@router.post(
+    "/swap-slot",
+    response_model=OutfitSlotSwapResponse,
+    response_model_exclude_none=True,
+    responses={
+        401: {"model": dict},
+        404: {"model": dict},
+        409: {"model": dict},
+        422: {"model": dict},
+        429: {"model": dict},
+        503: {"model": dict},
+    },
+)
+def swap_outfit_slot(
+    request: OutfitSlotSwapRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> OutfitSlotSwapResponse:
+    """Swap one outfit component slot and recalculate complete compatibility (P1-1).
+
+    Enforces:
+    - User authentication (401).
+    - Ownership validation: all current garments and replacement garment must belong to user (OW-1, 404).
+    - Slot category match (422).
+    - No duplicate garments across slots (422).
+    - Pinned slot protection: cannot replace a pinned slot (409 PINNED_SLOT_CONFLICT).
+    - Preservation of all other pinned garments (409).
+    - Canonical compatibility recalculation via existing decision engine.
+    """
+    use_case = SwapOutfitSlot(
+        wardrobe_items=WardrobeItemRepositorySQL(db),
+        user_state=UserStateRepositorySQL(db),
+        feedback=FeedbackRepositorySQL(db),
+        saved_looks=SavedLookRepositorySQL(db),
+        wears=WearEventRepositorySQL(db),
+    )
+    rec_record, prev_id, prev_score, warnings = use_case.execute(
+        user_id=user_id,
+        occasion=request.occasion,
+        mood=request.mood,
+        fit=request.fit,
+        color_palette=request.colorPalette,
+        current_garment_ids=request.currentGarmentIds,
+        slot=request.slot,
+        replacement_garment_id=request.replacementGarmentId,
+        pinned_garment_ids=request.pinnedGarmentIds,
+        seed=request.seed,
+    )
+    outfit_schema = _record_to_outfit_schema(rec_record)
+    return OutfitSlotSwapResponse(
+        outfit=outfit_schema,
+        replacedSlot=request.slot,
+        previousGarmentId=prev_id,
+        replacementGarmentId=str(request.replacementGarmentId),
+        compatibilityScore=outfit_schema.matchScore,
+        previousCompatibilityScore=prev_score,
+        reasons=outfit_schema.reasons,
+        warnings=warnings,
+    )
+
+
+@router.post(
+    "/candidates",
+    response_model=OutfitCandidatesResponse,
+    response_model_exclude_none=True,
+    responses={
+        401: {"model": dict},
+        422: {"model": dict},
+        429: {"model": dict},
+    },
+)
+async def get_outfit_candidates(
+    request: OutfitCandidatesRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
+) -> OutfitCandidatesResponse:
+    """Retrieve eligible replacement wardrobe items for a slot (P1-1).
+
+    Filters by slot category and excludes garments currently occupying slots in the outfit.
+    Enriches with presigned GET image URLs when media references exist.
+    """
+    use_case = GetOutfitCandidates(wardrobe_items=WardrobeItemRepositorySQL(db))
+    canonical_slot, items = use_case.execute(
+        user_id=user_id,
+        slot=request.slot,
+        current_garment_ids=request.currentGarmentIds,
+        limit=request.limit,
+    )
+    candidates = [await _candidate_to_wire(item, storage=storage) for item in items]
+    return OutfitCandidatesResponse(
+        slot=canonical_slot,
+        candidates=candidates,
+    )

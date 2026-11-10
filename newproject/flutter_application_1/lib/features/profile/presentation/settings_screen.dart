@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:fansivibe/features/home/presentation/widgets/city_selection_sheet.dart';
 import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/features/profile/data/user_profile_repository.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
@@ -15,10 +16,7 @@ const Map<String, String> _settingLabelToKey = {
 };
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({
-    super.key,
-    this.userProfileRepository,
-  });
+  const SettingsScreen({super.key, this.userProfileRepository});
 
   final UserProfileRepository? userProfileRepository;
 
@@ -29,23 +27,54 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late UserProfileRepository _userProfileRepo;
   late List<SettingsItem> _items;
+  Map<String, dynamic> _currentSettings = {};
 
   @override
   void initState() {
     super.initState();
-    _userProfileRepo = widget.userProfileRepository ?? UserProfileRepositoryImpl();
-    _items = _buildItems(LocalStorage.settings);
+    _userProfileRepo =
+        widget.userProfileRepository ?? UserProfileRepositoryImpl();
+    _currentSettings = Map<String, dynamic>.from(LocalStorage.settings);
+    _items = _buildItems(_currentSettings);
 
     _userProfileRepo.fetchProfile().then((profile) {
       if (!mounted || profile == null) return;
       setState(() {
+        _currentSettings = Map<String, dynamic>.from(profile.settings);
         _items = _buildItems(profile.settings);
       });
     });
   }
 
+  String _resolveSavedCity(Map<String, dynamic> settings) {
+    // Authenticated users read the profile settings they just hydrated;
+    // device-local state is only authoritative for guests.
+    final isAuthenticated = AuthSession.isAuthenticated && !isGuestUser;
+    if (!isAuthenticated) {
+      final local = LocalStorage.weatherCity;
+      if (local != null) return local;
+    }
+    return _cityFromSettings(settings) ?? 'Not set';
+  }
+
+  static String? _cityFromSettings(Map<String, dynamic> settings) {
+    final loc =
+        settings['weather_location'] ??
+        settings['weatherLocation'] ??
+        settings['location'];
+    if (loc is Map) {
+      final city = loc['city'] ?? loc['cityName'] ?? loc['name'];
+      if (city != null && city.toString().trim().isNotEmpty) {
+        return city.toString().trim();
+      }
+    }
+    final flat = settings['weatherCity'];
+    if (flat is String && flat.trim().isNotEmpty) return flat.trim();
+    return null;
+  }
+
   List<SettingsItem> _buildItems(Map<String, dynamic> settings) {
-    return ProfileMockData.settingsGroups.map((s) {
+    final list = ProfileMockData.settingsGroups.map((s) {
       if (!s.isSwitch) return s;
       final key = _settingLabelToKey[s.label];
       final val = (key != null && settings.containsKey(key))
@@ -59,6 +88,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         switchValue: val,
       );
     }).toList();
+
+    // Weather Location item
+    list.add(
+      SettingsItem(
+        label: 'Weather Location',
+        description: 'City for weather-aware recommendations',
+        value: _resolveSavedCity(settings),
+        isSwitch: false,
+      ),
+    );
+
+    return list;
   }
 
   Future<void> _onToggle(int index, bool val) async {
@@ -124,6 +165,106 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _onSelectCity() async {
+    final isAuthenticatedUser = AuthSession.isAuthenticated && !isGuestUser;
+    final currentCity = _resolveSavedCity(_currentSettings);
+    final selectedCity = await showCitySelectionSheet(
+      context,
+      currentCity: currentCity == 'Not set' ? null : currentCity,
+    );
+    if (selectedCity == null) return;
+
+    final cleanCity = selectedCity.trim();
+    final newCityVal = cleanCity.isEmpty ? null : cleanCity;
+
+    if (!isAuthenticatedUser) {
+      _applyCityLocally(newCityVal);
+      if (!mounted) return;
+      _refreshCityTile(Map<String, dynamic>.from(LocalStorage.settings));
+      LocalStorage.notifyWeatherLocationChanged();
+      _showCityFeedback(
+        newCityVal != null
+            ? 'Weather city saved on this device'
+            : 'Weather city cleared',
+        error: false,
+      );
+      return;
+    }
+
+    // Persist through the approved preferences flow first; the local cache
+    // (and mounted look surfaces) only change after confirmed backend save.
+    try {
+      final res = await _userProfileRepo.updateSettings({
+        'weather_location': newCityVal != null ? {'city': newCityVal} : null,
+      });
+      if (!mounted) return;
+      if (res == null) {
+        _showCityFeedback(
+          'Failed to update weather city. Please try again.',
+          error: true,
+        );
+        return;
+      }
+
+      _applyCityLocally(newCityVal);
+      final updated = Map<String, dynamic>.from(res.settings);
+      if (newCityVal != null) {
+        updated['weather_location'] = {'city': newCityVal};
+        updated['weatherCity'] = newCityVal;
+      } else {
+        updated.remove('weather_location');
+        updated.remove('weatherCity');
+      }
+      _refreshCityTile(updated);
+      LocalStorage.notifyWeatherLocationChanged();
+      _showCityFeedback(
+        newCityVal != null
+            ? 'Weather city updated to $newCityVal'
+            : 'Weather city cleared',
+        error: false,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showCityFeedback(
+        'Failed to update weather city. Please try again.',
+        error: true,
+      );
+    }
+  }
+
+  /// Mirrors the saved city into device storage without touching unrelated
+  /// settings keys.
+  void _applyCityLocally(String? city) {
+    LocalStorage.weatherCity = city;
+    final updated = Map<String, dynamic>.from(LocalStorage.settings);
+    if (city != null) {
+      updated['weather_location'] = {'city': city};
+      updated['weatherCity'] = city;
+    } else {
+      updated.remove('weather_location');
+      updated.remove('weatherCity');
+    }
+    LocalStorage.settings = updated;
+  }
+
+  void _refreshCityTile(Map<String, dynamic> settings) {
+    setState(() {
+      _currentSettings = settings;
+      _items = _buildItems(settings);
+    });
+  }
+
+  void _showCityFeedback(String message, {required bool error}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: error
+            ? FansivibeColors.error
+            : FansivibeColors.primary,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -183,6 +324,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     onToggle: item.isSwitch
                                         ? (val) => _onToggle(i, val)
                                         : null,
+                                    onTap: item.label == 'Weather Location'
+                                        ? _onSelectCity
+                                        : null,
                                   ),
                                   if (i < _items.length - 1)
                                     Divider(
@@ -211,68 +355,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 class _SettingsTile extends StatelessWidget {
-  const _SettingsTile({required this.item, this.onToggle});
+  const _SettingsTile({required this.item, this.onToggle, this.onTap});
 
   final SettingsItem item;
   final ValueChanged<bool>? onToggle;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.label,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w500,
-                    color: FansivibeColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  item.description,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: FansivibeColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (item.isSwitch)
-            Switch(
-              value: item.switchValue,
-              onChanged: onToggle,
-              activeTrackColor: FansivibeColors.accentGold.withValues(
-                alpha: 0.3,
-              ),
-            )
-          else
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (item.value != null)
+    return InkWell(
+      onTap: item.isSwitch ? null : onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    item.value!,
-                    style: theme.textTheme.bodyMedium?.copyWith(
+                    item.label,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w500,
+                      color: FansivibeColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    item.description,
+                    style: theme.textTheme.bodySmall?.copyWith(
                       color: FansivibeColors.textSecondary,
                     ),
                   ),
-                const SizedBox(width: 4),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  size: 20,
-                  color: FansivibeColors.textSecondary,
-                ),
-              ],
+                ],
+              ),
             ),
-        ],
+            if (item.isSwitch)
+              Switch(
+                value: item.switchValue,
+                onChanged: onToggle,
+                activeTrackColor: FansivibeColors.accentGold.withValues(
+                  alpha: 0.3,
+                ),
+              )
+            else
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (item.value != null)
+                    Text(
+                      item.value!,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: FansivibeColors.textSecondary,
+                      ),
+                    ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 20,
+                    color: FansivibeColors.textSecondary,
+                  ),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }

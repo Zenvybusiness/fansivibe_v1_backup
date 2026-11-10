@@ -1,13 +1,14 @@
 // TodayLook DTOs for the M9 Today's Look surface (STEP 19.25, DEC-017/018).
 //
 // Wire shapes follow the frozen backend contract exactly (camelCase):
-// `TodayLook {title, occasion?, description, matchScore, styleScore,
-// components[], reasons[], styleDna?, wardrobeContext, alternatives[],
-// selectedItemIds[]}` — the honesty subset from `today.py` (no `weather`,
-// no `colorHex`, no `aiSelectionReason`/`confidenceBoost`/`aiInsights`/
-// `dailyStyleTip`, no `wardrobeContext.insight`). `weather` has no provider
-// in v1 and is always absent, so it has no field here — callers treat a
-// missing weather as normal, never as a failure.
+// `TodayLook {title, occasion?, weather?, description, matchScore,
+// styleScore, components[], reasons[], styleDna?, wardrobeContext,
+// alternatives[], selectedItemIds[]}` — the honesty subset from `today.py`
+// (no `colorHex`, no `aiSelectionReason`/`confidenceBoost`/`aiInsights`/
+// `dailyStyleTip`, no `wardrobeContext.insight`). `weather` is optional:
+// the backend omits it entirely when no location is configured or the
+// provider is unavailable, so callers treat a missing weather as normal,
+// never as a failure.
 //
 // `id` values are always backend UUID strings. Local numeric IDs are never
 // produced, stored, or sent by this layer: component and selected-item IDs
@@ -132,6 +133,122 @@ class TodayLookAlternative {
   Map<String, dynamic> toJson() => {'id': id, 'matchScore': matchScore};
 }
 
+/// Normalized weather context exposed in TodayLook (Stage 2 P1-3).
+///
+/// Mirrors backend `TodayLookWeather` from `today.py`. All fields are safely
+/// deserialized without throwing on missing values. Null weather is normal
+/// when location is unconfigured or provider is offline.
+class TodayLookWeather {
+  const TodayLookWeather({
+    this.applied = false,
+    this.condition,
+    this.conditionCode,
+    this.temperatureC,
+    this.temperatureF,
+    this.apparentTemperatureC,
+    this.apparentTemperatureF,
+    this.precipitationProbability,
+    this.precipitationMm,
+    this.windSpeedKmh,
+    this.isRaining,
+    this.forecastTimestamp,
+    this.city,
+    this.summary,
+    this.fallback = false,
+  });
+
+  /// Whether weather context influenced the recommendation scoring.
+  /// Missing on the wire means "not proven applied", never a claim.
+  final bool applied;
+
+  /// Human-readable condition label (e.g. "Cloudy", "Rain", "Clear").
+  final String? condition;
+
+  /// Semantic condition code (e.g. "cloudy", "rain", "clear").
+  final String? conditionCode;
+
+  /// Temperature in Celsius.
+  final double? temperatureC;
+
+  /// Temperature in Fahrenheit.
+  final double? temperatureF;
+
+  /// Apparent / feels-like temperature in Celsius.
+  final double? apparentTemperatureC;
+
+  /// Apparent / feels-like temperature in Fahrenheit.
+  final double? apparentTemperatureF;
+
+  /// Precipitation probability percentage (0–100).
+  final double? precipitationProbability;
+
+  /// Precipitation amount in millimeters.
+  final double? precipitationMm;
+
+  /// Wind speed in kilometers per hour.
+  final double? windSpeedKmh;
+
+  /// Convenience boolean derived from precipitation/condition.
+  final bool? isRaining;
+
+  /// UTC forecast timestamp.
+  final DateTime? forecastTimestamp;
+
+  /// Resolved city name (e.g. "Seattle", "Paris").
+  final String? city;
+
+  /// Concise presentation summary (e.g. "15°C • Cloudy in Seattle").
+  final String? summary;
+
+  /// Whether this forecast is from a fallback/cached record.
+  final bool fallback;
+
+  factory TodayLookWeather.fromJson(Map<String, dynamic> json) {
+    return TodayLookWeather(
+      applied: json['applied'] as bool? ?? false,
+      condition: json['condition'] as String?,
+      conditionCode: json['conditionCode']?.toString(),
+      temperatureC: (json['temperatureC'] as num?)?.toDouble(),
+      temperatureF: (json['temperatureF'] as num?)?.toDouble(),
+      apparentTemperatureC: (json['apparentTemperatureC'] as num?)?.toDouble(),
+      apparentTemperatureF: (json['apparentTemperatureF'] as num?)?.toDouble(),
+      precipitationProbability: (json['precipitationProbability'] as num?)
+          ?.toDouble(),
+      precipitationMm: (json['precipitationMm'] as num?)?.toDouble(),
+      windSpeedKmh: (json['windSpeedKmh'] as num?)?.toDouble(),
+      isRaining: json['isRaining'] as bool?,
+      forecastTimestamp: json['forecastTimestamp'] != null
+          ? DateTime.tryParse(json['forecastTimestamp'].toString())
+          : null,
+      city: json['city'] as String?,
+      summary: json['summary'] as String?,
+      fallback: json['fallback'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'applied': applied,
+    if (condition != null) 'condition': condition,
+    if (conditionCode != null) 'conditionCode': conditionCode,
+    if (temperatureC != null) 'temperatureC': temperatureC,
+    if (temperatureF != null) 'temperatureF': temperatureF,
+    if (apparentTemperatureC != null)
+      'apparentTemperatureC': apparentTemperatureC,
+    if (apparentTemperatureF != null)
+      'apparentTemperatureF': apparentTemperatureF,
+    if (precipitationProbability != null)
+      'precipitationProbability': precipitationProbability,
+    if (precipitationMm != null) 'precipitationMm': precipitationMm,
+    if (windSpeedKmh != null) 'windSpeedKmh': windSpeedKmh,
+    if (isRaining != null) 'isRaining': isRaining,
+    if (forecastTimestamp != null)
+      'forecastTimestamp': forecastTimestamp!.toUtc().toIso8601String(),
+    if (city != null) 'city': city,
+    if (summary != null) 'summary': summary,
+    'fallback': fallback,
+  };
+}
+
 /// Derived today's look (endpoints #31–32, UC-16/UC-17).
 ///
 /// [snapshot] is the decoded response body itself, kept so
@@ -148,6 +265,7 @@ class TodayLook {
     required this.selectedItemIds,
     required this.snapshot,
     this.occasion,
+    this.weather,
     this.styleDna,
     this.alternatives = const [],
   });
@@ -158,6 +276,11 @@ class TodayLook {
   /// preferred occasion, else absent. Displayed as-is when present; never
   /// recalculated locally.
   final String? occasion;
+
+  /// Normalized weather context (Stage 2 P1-3). Absent when location is
+  /// unconfigured or provider is offline. Callers treat missing weather as
+  /// normal, never as a failure.
+  final TodayLookWeather? weather;
   final String description;
 
   /// Native 0–100 int scale (STEP-13 budget — no rescale).
@@ -180,6 +303,9 @@ class TodayLook {
   factory TodayLook.fromJson(Map<String, dynamic> json) => TodayLook(
     title: json['title'] as String,
     occasion: json['occasion'] as String?,
+    weather: json['weather'] != null && json['weather'] is Map<String, dynamic>
+        ? TodayLookWeather.fromJson(json['weather'] as Map<String, dynamic>)
+        : null,
     description: json['description'] as String,
     matchScore: json['matchScore'] as int,
     styleScore: json['styleScore'] as int,
@@ -207,6 +333,7 @@ class TodayLook {
   Map<String, dynamic> toJson() => {
     'title': title,
     'occasion': occasion,
+    if (weather != null) 'weather': weather!.toJson(),
     'description': description,
     'matchScore': matchScore,
     'styleScore': styleScore,

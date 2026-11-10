@@ -52,6 +52,7 @@ abstract final class RouteNames {
 
   static const profilePreferences = 'profile-preferences';
   static const profileSavedLooks = 'profile-saved-looks';
+  static const savedLookDetails = 'saved-look-details';
   static const profileSubscription = 'profile-subscription';
   static const profileSupport = 'profile-support';
   static const profileSettings = 'profile-settings';

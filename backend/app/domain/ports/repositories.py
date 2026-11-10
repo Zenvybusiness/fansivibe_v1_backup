@@ -206,6 +206,7 @@ class TodayLookRecommendation:
     matching_items: int
     alternatives: list["TodayLookAlternative"]
     selected_item_ids: list[str]
+    weather: Optional[dict[str, Any]] = None
 
 
 @dataclass(frozen=True)
@@ -666,6 +667,10 @@ class WardrobeItemRepository(Protocol):
     def get_by_id(
         self, *, user_id: UUID, item_id: UUID
     ) -> Optional["WardrobeItemRecord"]: ...
+
+    def get_by_ids(
+        self, *, user_id: UUID, item_ids: Sequence[UUID]
+    ) -> list["WardrobeItemRecord"]: ...
 
     def create(
         self,

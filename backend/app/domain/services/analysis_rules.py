@@ -794,6 +794,7 @@ from app.domain.value_objects import (
     OccasionContext,
     OutfitCandidate,
     FeedbackContext,
+    WeatherContext,
     WardrobeContext,
     OutfitIntelligence,
 )
@@ -1441,17 +1442,255 @@ def candidate_wear_points(
     return round(min(_WEAR_BONUS_CAP, wear_score), 2)
 
 
+# Stage 2 P1-3 Phase 2 — Weather-aware advisory scoring constants.
+# Total weather adjustment is strictly bounded in [-10.0, +10.0].
+# Soft scoring adjustment only — never filters, rejects, or vetoes outfits.
+_WEATHER_ADJUSTMENT_MIN = -10.0
+_WEATHER_ADJUSTMENT_MAX = 10.0
+
+# Temperature thresholds (apparent / effective temperature in Celsius)
+_TEMP_FREEZING_THRESHOLD = 0.0   # < 0°C (Very Cold / Freezing)
+_TEMP_COLD_THRESHOLD = 10.0       # 0°C to < 10°C (Cold)
+_TEMP_MILD_THRESHOLD = 18.0       # 10°C to < 18°C (Mild / Transitional)
+_TEMP_WARM_THRESHOLD = 24.0       # 18°C to < 24°C (Warm / Room Temp)
+_TEMP_HOT_THRESHOLD = 30.0        # 24°C to < 30°C (Hot)
+                                  # >= 30°C (Very Hot / Heatwave)
+
+# Precipitation thresholds
+_PRECIP_HIGH_PROBABILITY = 50.0   # >= 50% rain probability considered likely
+_PRECIP_ACTIVE_MM_THRESHOLD = 0.1 # >= 0.1mm considered active precipitation
+
+# Wind threshold
+_WIND_HIGH_KMH_THRESHOLD = 30.0   # > 30 km/h considered high wind / strong breeze
+
+# Canonical material categories for weather scoring (from migration 0005 vocabularies)
+_WARM_INSULATING_MATERIALS = frozenset({
+    "wool", "cashmere", "fleece", "heavy_wool", "tweed", "corduroy",
+})
+_BREATHABLE_LIGHT_MATERIALS = frozenset({
+    "linen", "silk", "cotton", "jersey",
+})
+_WATER_VULNERABLE_MATERIALS = frozenset({
+    "suede", "silk", "canvas",
+})
+_WATER_RESISTANT_MATERIALS = frozenset({
+    "leather", "polyester",
+})
+_WIND_RESISTANT_MATERIALS = frozenset({
+    "leather", "polyester", "wool", "heavy_wool", "tweed", "corduroy", "denim",
+})
+
+
+def _weather_points(
+    members: list,
+    weather_context: Optional[WeatherContext],
+) -> float:
+    """Compute advisory weather scoring adjustment in [-10.0, +10.0].
+
+    Deterministic, soft-scoring rule evaluation:
+    - Temperature & feels-like suitability (outerwear layering & fabric warmth/breathability).
+    - Rain & precipitation protection (outerwear barrier, water resistance, water vulnerability).
+    - Wind resistance (outerwear windbreak, dense fabrics vs lightweight flowy fabrics).
+    - Weather-condition compatibility (e.g. snow insulation, sunny accessories).
+
+    Safety and degradation guarantees:
+    - weather_context=None -> returns 0.0 (byte-identical baseline preservation).
+    - Missing fields degrade neutrally (0.0 adjustment for unobserved factors).
+    - Unknown conditions or materials degrade neutrally without fabrication or penalties.
+    - Weather never overrides user intent, occasion, or pinned items (advisory only).
+    - Total adjustment is strictly clamped to [_WEATHER_ADJUSTMENT_MIN, _WEATHER_ADJUSTMENT_MAX].
+    """
+    if weather_context is None:
+        return 0.0
+
+    # Defensive extraction: extract effective temperature (prefer apparent_temperature_c)
+    apparent_temp = getattr(weather_context, "apparent_temperature_c", None)
+    raw_temp = getattr(weather_context, "temperature_c", None)
+    effective_temp: Optional[float] = None
+    if isinstance(apparent_temp, (int, float)) and not isinstance(apparent_temp, bool):
+        effective_temp = float(apparent_temp)
+    elif isinstance(raw_temp, (int, float)) and not isinstance(raw_temp, bool):
+        effective_temp = float(raw_temp)
+
+    # Precipitation signals
+    precip_prob = getattr(weather_context, "precipitation_probability", None)
+    if not isinstance(precip_prob, (int, float)) or isinstance(precip_prob, bool):
+        precip_prob = None
+    else:
+        precip_prob = float(precip_prob)
+
+    precip_mm = getattr(weather_context, "precipitation_mm", None)
+    if not isinstance(precip_mm, (int, float)) or isinstance(precip_mm, bool):
+        precip_mm = None
+    else:
+        precip_mm = float(precip_mm)
+
+    is_raining = getattr(weather_context, "is_raining", False)
+    if not isinstance(is_raining, bool):
+        is_raining = False
+
+    # Wind speed
+    wind_speed = getattr(weather_context, "wind_speed_kmh", None)
+    if not isinstance(wind_speed, (int, float)) or isinstance(wind_speed, bool):
+        wind_speed = None
+    else:
+        wind_speed = float(wind_speed)
+
+    # Condition code
+    condition_code = getattr(weather_context, "condition_code", "")
+    if not isinstance(condition_code, str):
+        condition_code = ""
+    condition_code = condition_code.strip().lower()
+
+    # Member attributes inspection
+    categories = {m.get("category") for m in members if m.get("category")}
+    has_outerwear = "outerwear" in categories
+    has_accessories = "accessories" in categories
+
+    known_materials = [
+        m["material"]
+        for m in members
+        if m.get("material") and m["material"] != "unknown"
+    ]
+    footwear_materials = [
+        m["material"]
+        for m in members
+        if m.get("category") == "footwear"
+        and m.get("material")
+        and m["material"] != "unknown"
+    ]
+    body_materials = [
+        m["material"]
+        for m in members
+        if m.get("category") in {"tops", "bottoms", "outerwear"}
+        and m.get("material")
+        and m["material"] != "unknown"
+    ]
+
+    has_warm_mat = any(mat in _WARM_INSULATING_MATERIALS for mat in known_materials)
+    has_light_mat = any(mat in _BREATHABLE_LIGHT_MATERIALS for mat in known_materials)
+    has_vulnerable_mat = any(mat in _WATER_VULNERABLE_MATERIALS for mat in known_materials)
+    has_water_resistant_mat = any(mat in _WATER_RESISTANT_MATERIALS for mat in known_materials)
+    has_wind_resistant_mat = any(mat in _WIND_RESISTANT_MATERIALS for mat in known_materials)
+    has_wind_resistant_body = any(mat in _WIND_RESISTANT_MATERIALS for mat in body_materials)
+    has_flowy_body = any(mat in {"linen", "silk"} for mat in body_materials)
+
+    temp_points = 0.0
+    if effective_temp is not None:
+        if effective_temp < _TEMP_FREEZING_THRESHOLD:
+            # Very Cold (< 0°C)
+            temp_points += 5.0 if has_outerwear else -4.0
+            if has_warm_mat:
+                temp_points += 2.0
+            if has_light_mat and not has_warm_mat:
+                temp_points -= 2.0
+        elif effective_temp < _TEMP_COLD_THRESHOLD:
+            # Cold (0°C to < 10°C)
+            temp_points += 4.0 if has_outerwear else -2.0
+            if has_warm_mat:
+                temp_points += 2.0
+            if has_light_mat and not has_warm_mat:
+                temp_points -= 1.0
+        elif effective_temp < _TEMP_MILD_THRESHOLD:
+            # Mild (10°C to < 18°C)
+            temp_points += 2.0 if has_outerwear else 0.0
+            if any(mat in {"heavy_wool", "fleece"} for mat in known_materials):
+                temp_points -= 1.0
+        elif effective_temp < _TEMP_WARM_THRESHOLD:
+            # Warm (18°C to < 24°C)
+            # Baseline neutral for outerwear
+            if has_light_mat:
+                temp_points += 1.0
+            if any(mat in {"heavy_wool", "fleece"} for mat in known_materials):
+                temp_points -= 2.0
+        elif effective_temp < _TEMP_HOT_THRESHOLD:
+            # Hot (24°C to < 30°C)
+            temp_points += -4.0 if has_outerwear else 2.0
+            if has_light_mat:
+                temp_points += 2.0
+            if has_warm_mat:
+                temp_points -= 3.0
+        else:
+            # Very Hot (>= 30°C)
+            temp_points += -6.0 if has_outerwear else 3.0
+            if has_light_mat:
+                temp_points += 3.0
+            if has_warm_mat or any(mat == "leather" for mat in known_materials):
+                temp_points -= 4.0
+
+    # Precipitation Signal
+    precip_points = 0.0
+    is_active_precip = (
+        is_raining
+        or (precip_mm is not None and precip_mm >= _PRECIP_ACTIVE_MM_THRESHOLD)
+        or condition_code in {"rain", "drizzle", "thunderstorm", "snow"}
+    )
+    is_likely_precip = (
+        not is_active_precip
+        and precip_prob is not None
+        and precip_prob >= _PRECIP_HIGH_PROBABILITY
+    )
+
+    if is_active_precip:
+        if has_outerwear:
+            precip_points += 3.0
+        if has_vulnerable_mat:
+            precip_points -= 4.0
+        if any(mat in {"suede", "canvas"} for mat in footwear_materials):
+            precip_points -= 2.0
+        if has_water_resistant_mat:
+            precip_points += 2.0
+        if any(mat == "leather" for mat in footwear_materials):
+            precip_points += 1.0
+    elif is_likely_precip:
+        if has_outerwear:
+            precip_points += 2.0
+        if has_vulnerable_mat:
+            precip_points -= 2.0
+        if has_water_resistant_mat:
+            precip_points += 1.0
+
+    # Wind Signal
+    wind_points = 0.0
+    if wind_speed is not None and wind_speed > _WIND_HIGH_KMH_THRESHOLD:
+        if has_outerwear:
+            wind_points += 2.0
+        if has_wind_resistant_body:
+            wind_points += 1.0
+        if not has_outerwear and has_flowy_body and not has_wind_resistant_body:
+            wind_points -= 2.0
+
+    # Weather condition specific signals
+    condition_points = 0.0
+    if condition_code == "snow":
+        if has_outerwear:
+            condition_points += 2.0
+        if any(mat in {"canvas", "suede"} for mat in footwear_materials):
+            condition_points -= 2.0
+    elif condition_code == "clear" and effective_temp is not None and effective_temp >= _TEMP_WARM_THRESHOLD:
+        if has_accessories:
+            condition_points += 1.0
+
+    raw_weather = temp_points + precip_points + wind_points + condition_points
+    clamped_weather = max(
+        _WEATHER_ADJUSTMENT_MIN, min(_WEATHER_ADJUSTMENT_MAX, raw_weather)
+    )
+    return round(clamped_weather, 2)
+
+
 def compose_candidate_score(
     compatibility: float,
     preference: float,
     favorite: float,
     feedback: float = 0.0,
     wear: float = 0.0,
+    weather: float = 0.0,
 ) -> float:
     """Compose the bounded candidate score (0–100) from separated signals.
 
     Each component is clamped to its sub-range (compatibility 0–70,
-    preference 0–15, favorite 0–15, feedback -6..+6, wear 0..2);
+    preference 0–15, favorite 0–15, feedback -6..+6, wear 0..2,
+    weather -10..+10);
     non-numeric input degrades to 0 for that component.
     Final score is bounded in [0.0, 100.0].
     Deterministic: identical inputs → identical score.
@@ -1472,8 +1711,9 @@ def compose_candidate_score(
     fav = _clamp(favorite, 0.0, _CANDIDATE_FAVORITE_MAX)
     fb = _clamp(feedback, _FEEDBACK_NEGATIVE_CAP, _FEEDBACK_POSITIVE_CAP)
     wr = _clamp(wear, 0.0, _WEAR_BONUS_CAP)
+    wth = _clamp(weather, _WEATHER_ADJUSTMENT_MIN, _WEATHER_ADJUSTMENT_MAX)
 
-    raw = comp + pref + fav + fb + wr
+    raw = comp + pref + fav + fb + wr + wth
     return round(max(0.0, min(100.0, raw)), 2)
 
 
@@ -1926,6 +2166,7 @@ def score_outfit_candidate(
     preferred_palette: Optional[str] = None,
     preferred_fit: Optional[str] = None,
     feedback_context: Optional[FeedbackContext] = None,
+    weather_context: Optional[WeatherContext] = None,
 ) -> OutfitCandidate:
     """Score one candidate deterministically (STEP 13.4 — scoring only).
 
@@ -1934,8 +2175,9 @@ def score_outfit_candidate(
     11 mechanism over the candidate's own IDs (saved_looks never read here,
     learning_signals never touched); favorite reuses the Step 13.2
     candidate term; feedback consumes positive/negative outfit reactions
-    (Phase 2 Step 1); wear consumes behavioral wear history. Each mechanism counted exactly once.
-    Returns an immutable replacement with compatibility/preference/favorite/feedback/wear/score
+    (Phase 2 Step 1); wear consumes behavioral wear history; weather consumes
+    meteorological context (Stage 2 P1-3 Phase 2). Each mechanism counted exactly once.
+    Returns an immutable replacement with compatibility/preference/favorite/feedback/wear/weather/score
     populated; the input is untouched. Identical inputs → identical output.
 
     STEP 2.8 (C-02-P Option A, owner-locked): palette is a +5 soft signal over
@@ -1963,8 +2205,14 @@ def score_outfit_candidate(
     favorite = candidate_favorite_points([m["is_favorite"] for m in members])
     feedback = candidate_feedback_points(feedback_context, ids)
     wear = candidate_wear_points(feedback_context, ids)
+    weather = _weather_points(members, weather_context)
     score = compose_candidate_score(
-        compatibility, preference, favorite, feedback=feedback, wear=wear
+        compatibility,
+        preference,
+        favorite,
+        feedback=feedback,
+        wear=wear,
+        weather=weather,
     )
     return replace(
         candidate,
@@ -1973,6 +2221,7 @@ def score_outfit_candidate(
         favorite=favorite,
         feedback=feedback,
         wear=wear,
+        weather=weather,
         score=score,
     )
 

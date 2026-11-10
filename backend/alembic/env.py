@@ -14,8 +14,41 @@ config = context.config
 
 import os
 
-# Override the URL with the runtime value from the environment if provided.
-runtime_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url") or DATABASE_URL
+
+def _is_placeholder(url: str | None) -> bool:
+    if not url:
+        return True
+    u = url.strip()
+    return (
+        not u
+        or u.startswith("driver://")
+        or "driver://" in u
+        or "user:pass@localhost/dbname" in u
+    )
+
+
+def _resolve_database_url() -> str:
+    # 1. Environment-derived URL takes primary precedence
+    env_url = os.getenv("DATABASE_URL")
+    if env_url and not _is_placeholder(env_url):
+        return env_url.strip()
+
+    # 2. Config option if explicitly configured (e.g. by test runner) and not a placeholder
+    config_url = config.get_main_option("sqlalchemy.url")
+    if config_url and not _is_placeholder(config_url):
+        return config_url.strip()
+
+    # 3. Authoritative application database URL from session/settings
+    if DATABASE_URL and not _is_placeholder(DATABASE_URL):
+        return DATABASE_URL.strip()
+
+    raise ValueError(
+        "Alembic database URL is not configured or contains an unresolved placeholder. "
+        "A valid DATABASE_URL must be provided."
+    )
+
+
+runtime_url = _resolve_database_url()
 config.set_main_option("sqlalchemy.url", runtime_url)
 
 # Interpret the config file for Python logging.

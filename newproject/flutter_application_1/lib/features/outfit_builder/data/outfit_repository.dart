@@ -36,6 +36,18 @@ abstract class OutfitBuilderRepository {
     required Map<String, dynamic> snapshot,
     required String idempotencyKey,
   });
+
+  /// Fetches eligible wardrobe replacement candidates for an outfit slot (P1-1).
+  Future<List<OutfitCandidateItem>> getCandidates({
+    required String slot,
+    List<String>? currentGarmentIds,
+    int limit = 20,
+  }) async => const [];
+
+  /// Swaps one outfit slot and recalculates complete compatibility (P1-1).
+  Future<OutfitSlotSwapResponse?> swapSlot({
+    required OutfitSlotSwapRequest request,
+  }) async => null;
 }
 
 /// Backend implementation of [OutfitBuilderRepository].
@@ -85,5 +97,25 @@ class OutfitBuilderRepositoryImpl implements OutfitBuilderRepository {
       snapshot: snapshot,
       idempotencyKey: idempotencyKey,
     );
+  }
+
+  @override
+  Future<List<OutfitCandidateItem>> getCandidates({
+    required String slot,
+    List<String>? currentGarmentIds,
+    int limit = 20,
+  }) {
+    return _client.getCandidates(
+      slot: slot,
+      currentGarmentIds: currentGarmentIds,
+      limit: limit,
+    );
+  }
+
+  @override
+  Future<OutfitSlotSwapResponse?> swapSlot({
+    required OutfitSlotSwapRequest request,
+  }) {
+    return _client.swapSlot(request: request);
   }
 }

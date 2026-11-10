@@ -71,3 +71,60 @@ class OutfitRecommendation(BaseModel):
     selectedOccasion: str
     selectedMood: str
     selectedColorPalette: str
+
+
+class OutfitSlotSwapRequest(BaseModel):
+    """Request payload for replacing a single outfit component slot (P1-1)."""
+
+    occasion: str = Field(min_length=1, max_length=200)
+    mood: str = Field(min_length=1, max_length=200)
+    fit: str = Field(min_length=1, max_length=200)
+    colorPalette: str = Field(min_length=1, max_length=200)
+    currentGarmentIds: list[UUID] = Field(min_length=1)
+    slot: str = Field(min_length=1, max_length=50)
+    replacementGarmentId: UUID
+    pinnedGarmentIds: Optional[list[UUID]] = None
+    seed: Optional[str] = Field(default=None, min_length=1, max_length=200)
+
+
+class OutfitSlotSwapResponse(BaseModel):
+    """Response payload after swapping an outfit component slot (P1-1)."""
+
+    outfit: OutfitRecommendation
+    replacedSlot: str
+    previousGarmentId: Optional[str] = None
+    replacementGarmentId: str
+    compatibilityScore: float = Field(ge=0, le=1)
+    previousCompatibilityScore: Optional[float] = Field(default=None, ge=0, le=1)
+    reasons: list[str]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class OutfitCandidatesRequest(BaseModel):
+    """Request payload for eligible replacement wardrobe candidates for a slot (P1-1)."""
+
+    slot: str = Field(min_length=1, max_length=50)
+    currentGarmentIds: Optional[list[UUID]] = None
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class OutfitCandidateItem(BaseModel):
+    """One eligible replacement wardrobe candidate (P1-1)."""
+
+    id: str
+    name: str
+    category: str
+    color: str
+    material: Optional[str] = None
+    isFavorite: bool = False
+    fit: Optional[str] = None
+    fitConfidence: Optional[float] = None
+    imageRef: Optional[dict] = None
+    imageUrl: Optional[str] = None
+
+
+class OutfitCandidatesResponse(BaseModel):
+    """Response payload containing eligible candidates for a slot (P1-1)."""
+
+    slot: str
+    candidates: list[OutfitCandidateItem]

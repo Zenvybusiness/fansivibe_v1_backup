@@ -1,7 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';import 'package:go_router/go_router.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -48,12 +49,19 @@ class _FixedSummaryRepository implements LearningSummaryRepository {
 
 class _EmptyTodayLookRepository implements TodayLookRepository {
   @override
-  Future<TodayLookResult> getTodayLook() async =>
-      const TodayLookResult.failure(TodayLookFailure.unknown);
+  Future<TodayLookResult> getTodayLook({
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async => const TodayLookResult.failure(TodayLookFailure.unknown);
 
   @override
-  Future<TodayLookResult> regenerateTodayLook({String? seed}) async =>
-      const TodayLookResult.failure(TodayLookFailure.unknown);
+  Future<TodayLookResult> regenerateTodayLook({
+    String? seed,
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async => const TodayLookResult.failure(TodayLookFailure.unknown);
 
   @override
   Future<SavedTodayLook?> saveTodayLook({
@@ -122,12 +130,7 @@ class _NullInsightRepository implements WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) =>
-      logWear(
-        itemIds: itemIds,
-        wornAt: wornAt,
-        idempotencyKey: idempotencyKey,
-      );
-
+      logWear(itemIds: itemIds, wornAt: wornAt, idempotencyKey: idempotencyKey);
 
   @override
   Future<WearSummary?> getWearSummary() => throw UnimplementedError();
@@ -147,8 +150,7 @@ class _NoneAvailableOutfitRepository implements OutfitBuilderRepository {
     required String colorPalette,
     String? seed,
     List<String>? preferredItemIds,
-  }) async =>
-      const OutfitResult.noneAvailable();
+  }) async => const OutfitResult.noneAvailable();
 
   @override
   Future<SavedOutfit?> saveOutfit({
@@ -156,8 +158,19 @@ class _NoneAvailableOutfitRepository implements OutfitBuilderRepository {
     required String title,
     required Map<String, dynamic> snapshot,
     required String idempotencyKey,
-  }) async =>
-      null;
+  }) async => null;
+
+  @override
+  Future<List<OutfitCandidateItem>> getCandidates({
+    required String slot,
+    List<String>? currentGarmentIds,
+    int limit = 20,
+  }) async => const [];
+
+  @override
+  Future<OutfitSlotSwapResponse?> swapSlot({
+    required OutfitSlotSwapRequest request,
+  }) async => null;
 }
 
 void main() {
@@ -190,8 +203,9 @@ void main() {
       }
     });
 
-    testWidgets('authenticated home ignores onboarding extra (no mock home)',
-        (WidgetTester tester) async {
+    testWidgets('authenticated home ignores onboarding extra (no mock home)', (
+      WidgetTester tester,
+    ) async {
       await AuthSession.saveSession('regression-session-token');
       LocalStorage.hasSavedWardrobeItem = true;
       await tester.pumpWidget(
@@ -242,10 +256,8 @@ void main() {
           ),
           GoRoute(
             path: '/processing',
-            builder: (_, __) => OutfitProcessingScreen(
-              runId: 'failed-run',
-              client: client,
-            ),
+            builder: (_, __) =>
+                OutfitProcessingScreen(runId: 'failed-run', client: client),
           ),
         ],
       );
@@ -363,10 +375,8 @@ void main() {
         routes: [
           GoRoute(
             path: '/processing',
-            builder: (_, __) => OutfitProcessingScreen(
-              runId: 'r1',
-              client: client,
-            ),
+            builder: (_, __) =>
+                OutfitProcessingScreen(runId: 'r1', client: client),
             routes: [
               GoRoute(
                 path: 'analysis',
@@ -416,8 +426,7 @@ void main() {
   group('multi-angle analysis aggregates real backend votes', () {
     test('majority faceShape wins from three real runs', () async {
       var submits = 0;
-      String shapeFor(String runId) =>
-          runId == 'run-3' ? 'round' : 'oval';
+      String shapeFor(String runId) => runId == 'run-3' ? 'round' : 'oval';
       final client = HairstyleClient(
         client: MockClient((request) async {
           if (request.method == 'POST') {
@@ -455,8 +464,7 @@ void main() {
       expect(service.analysisError, isNull);
     });
 
-    test('disagreeing views are an explicit failure, never a guess',
-        () async {
+    test('disagreeing views are an explicit failure, never a guess', () async {
       var submits = 0;
       const shapes = ['oval', 'round', 'square'];
       final client = HairstyleClient(
@@ -465,7 +473,9 @@ void main() {
             submits++;
             return http.Response('{"run_id":"run-$submits"}', 202);
           }
-          final shape = shapes[int.parse(request.url.pathSegments.last.split('-').last) - 1];
+          final shape =
+              shapes[int.parse(request.url.pathSegments.last.split('-').last) -
+                  1];
           return http.Response(
             '{"run_id":"x","run_type":"hairstyle","status":"completed",'
             '"result":{"appearance":{"faceShape":"$shape"},'

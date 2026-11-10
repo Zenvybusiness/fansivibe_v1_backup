@@ -47,12 +47,15 @@ import 'package:fansivibe/features/outfit_builder/presentation/outfit_recommenda
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_analysis_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_processing_screen.dart';
 import 'package:fansivibe/features/outfit_scan/presentation/outfit_scan_screen.dart';
+import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
 import 'package:fansivibe/features/profile/presentation/preferences_screen.dart';
 import 'package:fansivibe/features/profile/presentation/profile_screen.dart';
+import 'package:fansivibe/features/profile/presentation/saved_look_details_screen.dart';
 import 'package:fansivibe/features/profile/presentation/saved_looks_screen.dart';
 import 'package:fansivibe/features/profile/presentation/settings_screen.dart';
 import 'package:fansivibe/features/profile/presentation/subscription_screen.dart';
 import 'package:fansivibe/features/profile/presentation/support_screen.dart';
+
 import 'package:fansivibe/features/stylist/presentation/stylist_screen.dart';
 import 'package:fansivibe/features/wardrobe/data/garment_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
@@ -572,7 +575,18 @@ final List<RouteBase> appRoutes = [
                 path: 'saved-looks',
                 name: RouteNames.profileSavedLooks,
                 builder: (context, state) => const SavedLooksScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'details',
+                    name: RouteNames.savedLookDetails,
+                    builder: (context, state) {
+                      final look = state.extra as SavedLookItem?;
+                      return SavedLookDetailsScreen(look: look);
+                    },
+                  ),
+                ],
               ),
+
               GoRoute(
                 path: 'subscription',
                 name: RouteNames.profileSubscription,

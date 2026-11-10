@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND="$ROOT/backend"
 
+if [ -f "$BACKEND/.env" ]; then
+    set -a
+    source "$BACKEND/.env"
+    set +a
+fi
+
 echo "=== Fansivibe startup ==="
 
 echo "[1/4] Starting PostgreSQL..."
@@ -36,9 +42,6 @@ fi
 
 echo
 echo "=== Starting FastAPI ==="
-set -a
-source "$BACKEND/.env"
-set +a
 
 TAILSCALE_IP="$(tailscale ip -4)"
 exec "$BACKEND/.venv/bin/uvicorn" app.main:app --host "$TAILSCALE_IP" --port 8000

@@ -164,3 +164,27 @@ class TestExistingSettingsPreserved:
             youtube_data_api_key="prod-dummy-key",
         )
         assert s_with.youtube_data_api_key == "prod-dummy-key"
+
+
+class TestDatabaseUrlSettings:
+    """Validate database URL validation and placeholder rejection."""
+
+    def test_default_database_url_valid(self):
+        settings = Settings()
+        assert settings.database_url.startswith("postgresql+psycopg://")
+
+    def test_rejects_empty_database_url(self):
+        with pytest.raises(ValidationError, match="must not be empty"):
+            Settings(database_url="")
+
+    def test_rejects_whitespace_database_url(self):
+        with pytest.raises(ValidationError, match="must not be empty"):
+            Settings(database_url="   ")
+
+    def test_rejects_driver_placeholder(self):
+        with pytest.raises(ValidationError, match="unresolved placeholder scheme"):
+            Settings(database_url="driver://user:pass@localhost/dbname")
+
+    def test_rejects_template_placeholder(self):
+        with pytest.raises(ValidationError, match="unresolved placeholder template"):
+            Settings(database_url="postgresql+psycopg://user:pass@localhost/dbname")

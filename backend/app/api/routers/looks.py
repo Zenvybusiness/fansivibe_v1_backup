@@ -16,25 +16,35 @@ from fastapi import APIRouter, Depends, Header, Path, Query
 from sqlalchemy.orm import Session
 from uuid import UUID
 
-from app.api.deps import get_current_user_id
+from app.api.deps import get_current_user_id, get_storage_adapter, get_weather_provider
 from app.api.errors import not_found, validation
 from app.api.schemas.discover import ForYouFeed, LookDetail, LookFeed, LookSummary
-from app.api.schemas.saved_looks import SaveLookRequest, SavedLook, SavedLookList
+from app.api.schemas.saved_looks import (
+    HydratedGarmentItem,
+    SaveLookRequest,
+    SavedLook,
+    SavedLookList,
+)
 from app.api.schemas.today import (
     TodayLook,
     TodayLookAlternative,
     TodayLookComponent,
     TodayLookStyleDna,
     TodayLookWardrobeContext,
+    TodayLookWeather,
 )
 from app.application.saved_looks import (
     DeleteSavedLook,
+    GetSavedLook,
+    HydrateSavedLookGarments,
     ListSavedLooks,
     SaveRecommendation,
 )
 from app.application.discover import GetForYouFeed, GetLookDetail, GetLookFeed
 from app.application.today import GetTodayLook, RegenerateTodayLook
+from app.domain.ports.external import WeatherProvider
 from app.domain.ports.repositories import TodayLookRecommendation
+from app.domain.ports.storage import ObjectStoragePort
 from app.infrastructure.db.repositories import (
     ActivityDayRepositorySQL,
     EventTypeRepositorySQL,
@@ -50,7 +60,9 @@ from app.infrastructure.external.knowledge import CatalogKnowledgeSource
 router = APIRouter(prefix="/v1/looks", tags=["looks"])
 
 
-def _record_to_schema(record) -> SavedLook:
+def _record_to_schema(
+    record, items: list[HydratedGarmentItem] | None = None
+) -> SavedLook:
     return SavedLook(
         id=record.id,
         lookId=record.look_id,
@@ -59,7 +71,9 @@ def _record_to_schema(record) -> SavedLook:
         snapshot=record.snapshot,
         sourceRunId=record.source_run_id,
         createdAt=record.created_at,
+        items=items,
     )
+
 
 
 def _today_to_schema(record: TodayLookRecommendation) -> TodayLook:
@@ -71,9 +85,18 @@ def _today_to_schema(record: TodayLookRecommendation) -> TodayLook:
             skinTone=record.style_dna.get("skinTone"),
             faceShape=record.style_dna.get("faceShape"),
         )
+    weather_dto = None
+    if getattr(record, "weather", None):
+        w = record.weather
+        if isinstance(w, TodayLookWeather):
+            weather_dto = w
+        elif isinstance(w, dict):
+            weather_dto = TodayLookWeather(**w)
+
     return TodayLook(
         title=record.title,
         occasion=record.occasion,
+        weather=weather_dto,
         description=record.description,
         matchScore=record.match_score,
         styleScore=record.style_score,
@@ -107,23 +130,38 @@ def _today_to_schema(record: TodayLookRecommendation) -> TodayLook:
     response_model_exclude_none=True,
     responses={401: {"model": dict}, 404: {"model": dict}, 422: {"model": dict}},
 )
-def get_today_look(
+async def get_today_look(
     variant: str | None = Query(default=None, min_length=1, max_length=200),
+    city: str | None = Query(default=None, max_length=100),
+    lat: float | None = Query(default=None, ge=-90.0, le=90.0),
+    lon: float | None = Query(default=None, ge=-180.0, le=180.0),
+    latitude: float | None = Query(default=None, ge=-90.0, le=90.0),
+    longitude: float | None = Query(default=None, ge=-180.0, le=180.0),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
+    weather_provider: WeatherProvider = Depends(get_weather_provider),
 ) -> TodayLook:
     """Derive today's look (TRX-2 read/derive only, UC-17).
 
     Empty wardrobe or no legal candidate → 404 ("none found"). No side
     effects; repeated calls over unchanged inputs are deterministic.
     """
+    resolved_lat = latitude if latitude is not None else lat
+    resolved_lon = longitude if longitude is not None else lon
     use_case = GetTodayLook(
         events=UserEventRepositorySQL(db),
         event_types=EventTypeRepositorySQL(db),
         wardrobe_items=WardrobeItemRepositorySQL(db),
         user_state=UserStateRepositorySQL(db),
+        weather_provider=weather_provider,
     )
-    record = use_case(user_id=user_id, variant=variant)
+    record = await use_case(
+        user_id=user_id,
+        variant=variant,
+        city=city,
+        latitude=resolved_lat,
+        longitude=resolved_lon,
+    )
     if record is None:
         raise not_found()
     return _today_to_schema(record)
@@ -140,23 +178,38 @@ def get_today_look(
         503: {"model": dict},
     },
 )
-def regenerate_today_look(
+async def regenerate_today_look(
     seed: str | None = Query(default=None, min_length=1, max_length=200),
+    city: str | None = Query(default=None, max_length=100),
+    lat: float | None = Query(default=None, ge=-90.0, le=90.0),
+    lon: float | None = Query(default=None, ge=-180.0, le=180.0),
+    latitude: float | None = Query(default=None, ge=-90.0, le=90.0),
+    longitude: float | None = Query(default=None, ge=-180.0, le=180.0),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
+    weather_provider: WeatherProvider = Depends(get_weather_provider),
 ) -> TodayLook:
     """Derive a fresh today's look (UC-16).
 
     `seed` selects the ranked derivation variant (absent → the winner).
     Persists nothing, never keyed. No legal candidate → 404.
     """
+    resolved_lat = latitude if latitude is not None else lat
+    resolved_lon = longitude if longitude is not None else lon
     use_case = RegenerateTodayLook(
         events=UserEventRepositorySQL(db),
         event_types=EventTypeRepositorySQL(db),
         wardrobe_items=WardrobeItemRepositorySQL(db),
         user_state=UserStateRepositorySQL(db),
+        weather_provider=weather_provider,
     )
-    record = use_case(user_id=user_id, seed=seed)
+    record = await use_case(
+        user_id=user_id,
+        seed=seed,
+        city=city,
+        latitude=resolved_lat,
+        longitude=resolved_lon,
+    )
     if record is None:
         raise not_found()
     return _today_to_schema(record)
@@ -255,21 +308,64 @@ def save_look(
     response_model=SavedLookList,
     responses={422: {"model": dict}, 401: {"model": dict}},
 )
-def list_saved_looks(
+async def list_saved_looks(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    include_items: bool = Query(default=True),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
 ) -> SavedLookList:
     """Paged saved-look list for the owner (createdAt desc; OW-1)."""
     use_case = ListSavedLooks(saved_looks=SavedLookRepositorySQL(db))
     items, total = use_case(user_id=user_id, page=page, page_size=page_size)
+    hydrated_map: dict[UUID, list[HydratedGarmentItem]] = {}
+    if include_items and items:
+        hydrator = HydrateSavedLookGarments(
+            wardrobe_items=WardrobeItemRepositorySQL(db),
+            storage=storage,
+        )
+        hydrated_map = await hydrator(user_id=user_id, records=items)
+
     return SavedLookList(
-        items=[_record_to_schema(item) for item in items],
+        items=[
+            _record_to_schema(
+                item,
+                items=hydrated_map.get(item.id) if include_items else None,
+            )
+            for item in items
+        ],
         page=page,
         page_size=page_size,
         total=total,
     )
+
+
+@router.get(
+    "/saved/{saved_look_id}",
+    response_model=SavedLook,
+    responses={401: {"model": dict}, 404: {"model": dict}, 422: {"model": dict}},
+)
+async def get_saved_look(
+    saved_look_id: UUID = Path(..., description="UUID of the saved look to retrieve"),
+    include_items: bool = Query(default=True),
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
+) -> SavedLook:
+    """Retrieve one owned saved look (OW-1)."""
+    use_case = GetSavedLook(saved_looks=SavedLookRepositorySQL(db))
+    record = use_case(user_id=user_id, saved_look_id=saved_look_id)
+    hydrated_items: list[HydratedGarmentItem] | None = None
+    if include_items:
+        hydrator = HydrateSavedLookGarments(
+            wardrobe_items=WardrobeItemRepositorySQL(db),
+            storage=storage,
+        )
+        hydrated_map = await hydrator(user_id=user_id, records=[record])
+        hydrated_items = hydrated_map.get(record.id, [])
+    return _record_to_schema(record, items=hydrated_items)
+
 
 
 @router.delete(

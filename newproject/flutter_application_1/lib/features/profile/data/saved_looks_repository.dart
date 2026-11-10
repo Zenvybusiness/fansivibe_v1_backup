@@ -11,7 +11,13 @@ import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
 /// retry.
 abstract class SavedLooksRepository {
   /// Returns one page of the owner's saved looks (`createdAt` desc).
-  Future<SavedLookListPage?> listSavedLooks({int page, int pageSize});
+  Future<SavedLookListPage?> listSavedLooks({int page = 1, int pageSize = 20});
+
+  /// Fetches one owned saved look by its backend UUID.
+  Future<SavedLookItem?> getSavedLook({
+    required String id,
+    bool includeItems = true,
+  }) async => null;
 
   /// Deletes one owned saved look by its backend UUID.
   Future<SavedLookDeleteOutcome?> deleteSavedLook({required String id});
@@ -29,8 +35,20 @@ class SavedLooksRepositoryImpl implements SavedLooksRepository {
   @override
   Future<SavedLookListPage?> listSavedLooks({int page = 1, int pageSize = 20}) {
     // Verbatim passthrough: ordering, pagination, and envelope semantics
-    // stay server-authoritative. Null means the list is unavailable.
-    return _client.listSavedLooks(page: page, pageSize: pageSize);
+    // stay server-authoritative. Always hydrates garments for UI rendering.
+    return _client.listSavedLooks(
+      page: page,
+      pageSize: pageSize,
+      includeItems: true,
+    );
+  }
+
+  @override
+  Future<SavedLookItem?> getSavedLook({
+    required String id,
+    bool includeItems = true,
+  }) {
+    return _client.getSavedLook(id: id, includeItems: includeItems);
   }
 
   @override

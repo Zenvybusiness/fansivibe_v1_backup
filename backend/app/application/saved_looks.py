@@ -19,10 +19,11 @@ single commit, no signal write — history (`learning_signals`) is preserved.
 from __future__ import annotations
 
 import json
-from typing import Optional
+from typing import Any, Optional, Sequence
 from uuid import UUID
 
 from app.api.errors import ApiError, conflict, not_found
+from app.api.schemas.saved_looks import HydratedGarmentItem
 from app.application.learning import mark_styled_today
 from app.domain.ports.external import KnowledgeSource
 from app.domain.ports.repositories import (
@@ -30,8 +31,11 @@ from app.domain.ports.repositories import (
     LearningSignalRepository,
     SavedLookRecord,
     SavedLookRepository,
+    WardrobeItemRecord,
     WardrobeItemRepository,
 )
+from app.domain.ports.storage import ObjectStoragePort
+
 
 _SOURCE_CONTEXTS = {"hairstyle", "grooming", "outfit", "daily"}
 
@@ -258,3 +262,219 @@ class DeleteSavedLook:
             raise not_found()
         self._saved_looks.delete(user_id=user_id, saved_look_id=saved_look_id)
         self._saved_looks.commit()
+
+
+class GetSavedLook:
+    """Retrieve one owned saved look (endpoint `GET /v1/looks/saved/{saved_look_id}`).
+
+    Owner-scoped lookup (OW-1, 404-not-403). Foreign or missing ID raises 404.
+    """
+
+    def __init__(self, *, saved_looks: SavedLookRepository) -> None:
+        self._saved_looks = saved_looks
+
+    def __call__(
+        self,
+        *,
+        user_id: UUID,
+        saved_look_id: UUID,
+    ) -> SavedLookRecord:
+        record = self._saved_looks.get_for_user(
+            user_id=user_id, saved_look_id=saved_look_id
+        )
+        if record is None:
+            raise not_found()
+        return record
+
+
+class HydrateSavedLookGarments:
+    """Enriches saved looks with current active wardrobe items and presigned image URLs (P1-2).
+
+    Read-only: never modifies the database or the durable snapshot.
+    Enforces OW-1: queries only wardrobe items belonging to user_id.
+    Handles archived/deleted garments gracefully with isArchived=True.
+    Avoids N+1 queries by batching all garment lookups across all records.
+    """
+
+    def __init__(
+        self,
+        *,
+        wardrobe_items: WardrobeItemRepository,
+        storage: Optional[ObjectStoragePort] = None,
+    ) -> None:
+        self._wardrobe_items = wardrobe_items
+        self._storage = storage
+
+    async def __call__(
+        self,
+        *,
+        user_id: UUID,
+        records: Sequence[SavedLookRecord],
+    ) -> dict[UUID, list[HydratedGarmentItem]]:
+        result: dict[UUID, list[HydratedGarmentItem]] = {}
+        if not records:
+            return result
+
+        # 1. Collect all distinct referenced garment UUIDs across all records
+        all_garment_ids: set[UUID] = set()
+        for record in records:
+            if record.source_context in ("hairstyle", "grooming"):
+                continue
+
+            snapshot = record.snapshot if isinstance(record.snapshot, dict) else {}
+            components = snapshot.get("components")
+            if isinstance(components, list):
+                for comp in components:
+                    if isinstance(comp, dict) and comp.get("id"):
+                        try:
+                            all_garment_ids.add(UUID(str(comp["id"])))
+                        except (ValueError, TypeError):
+                            pass
+            selected_ids = snapshot.get("selectedItemIds")
+            if isinstance(selected_ids, list):
+                for sid in selected_ids:
+                    try:
+                        all_garment_ids.add(UUID(str(sid)))
+                    except (ValueError, TypeError):
+                        pass
+
+        # 2. Batch query active wardrobe items owned by user_id
+        active_items: dict[str, WardrobeItemRecord] = {}
+        if all_garment_ids:
+            found_records = self._wardrobe_items.get_by_ids(
+                user_id=user_id, item_ids=list(all_garment_ids)
+            )
+            for item in found_records:
+                active_items[str(item.id)] = item
+
+        # 3. Pre-generate presigned GET URLs for all active items that have valid keys
+        presigned_urls: dict[str, tuple[str, dict[str, Any]]] = {}
+        if self._storage is not None:
+            user_prefix = f"users/{user_id}/"
+            for gid, item in active_items.items():
+                image_ref = item.image_ref
+                if image_ref and isinstance(image_ref, dict):
+                    key = (
+                        image_ref.get("objectKey")
+                        or image_ref.get("object_key")
+                        or image_ref.get("canonical_key")
+                        or image_ref.get("canonicalKey")
+                        or image_ref.get("key")
+                    )
+                    # Verify key belongs to this user namespace (OW-1 defense)
+                    if key and isinstance(key, str) and (key.startswith(user_prefix) or str(user_id) in key):
+                        try:
+                            url = await self._storage.generate_presigned_get_url(
+                                key=key, expires_in_s=900
+                            )
+                            enriched_ref = {**image_ref, "downloadUrl": url, "url": url}
+                            presigned_urls[gid] = (url, enriched_ref)
+                        except Exception:
+                            pass
+
+        # 4. Construct HydratedGarmentItem list for each look
+        for record in records:
+            if record.source_context in ("hairstyle", "grooming"):
+                result[record.id] = []
+                continue
+
+            snapshot = record.snapshot if isinstance(record.snapshot, dict) else {}
+            components = snapshot.get("components")
+            selected_ids = snapshot.get("selectedItemIds")
+
+            look_items: list[HydratedGarmentItem] = []
+            seen_ids: set[str] = set()
+
+            if isinstance(components, list) and components:
+                for comp in components:
+                    if not isinstance(comp, dict):
+                        continue
+                    raw_id = comp.get("id")
+                    if not raw_id:
+                        continue
+                    gid = str(raw_id)
+                    seen_ids.add(gid)
+
+                    if gid in active_items:
+                        active = active_items[gid]
+                        img_url, img_ref = presigned_urls.get(gid, (None, active.image_ref))
+                        look_items.append(
+                            HydratedGarmentItem(
+                                id=gid,
+                                name=active.name or comp.get("name") or "Garment",
+                                category=active.category or comp.get("category") or "unknown",
+                                color=active.color or comp.get("color") or "",
+                                material=active.material or comp.get("material"),
+                                isFavorite=active.is_favorite,
+                                imageRef=img_ref,
+                                imageUrl=img_url,
+                                fit=active.fit,
+                                fitConfidence=active.fit_confidence,
+                                reason=comp.get("reason"),
+                                isArchived=False,
+                            )
+                        )
+                    else:
+                        look_items.append(
+                            HydratedGarmentItem(
+                                id=gid,
+                                name=comp.get("name") or "Archived Garment",
+                                category=comp.get("category") or "unknown",
+                                color=comp.get("color") or "",
+                                material=comp.get("material"),
+                                isFavorite=False,
+                                imageRef=None,
+                                imageUrl=None,
+                                fit=None,
+                                fitConfidence=None,
+                                reason=comp.get("reason"),
+                                isArchived=True,
+                            )
+                        )
+            elif isinstance(selected_ids, list) and selected_ids:
+                for raw_id in selected_ids:
+                    gid = str(raw_id)
+                    if gid in seen_ids:
+                        continue
+                    seen_ids.add(gid)
+
+                    if gid in active_items:
+                        active = active_items[gid]
+                        img_url, img_ref = presigned_urls.get(gid, (None, active.image_ref))
+                        look_items.append(
+                            HydratedGarmentItem(
+                                id=gid,
+                                name=active.name or "Garment",
+                                category=active.category or "unknown",
+                                color=active.color or "",
+                                material=active.material,
+                                isFavorite=active.is_favorite,
+                                imageRef=img_ref,
+                                imageUrl=img_url,
+                                fit=active.fit,
+                                fitConfidence=active.fit_confidence,
+                                reason=None,
+                                isArchived=False,
+                            )
+                        )
+                    else:
+                        look_items.append(
+                            HydratedGarmentItem(
+                                id=gid,
+                                name="Archived Garment",
+                                category="unknown",
+                                color="",
+                                material=None,
+                                isFavorite=False,
+                                imageRef=None,
+                                imageUrl=None,
+                                fit=None,
+                                fitConfidence=None,
+                                reason=None,
+                                isArchived=True,
+                            )
+                        )
+
+            result[record.id] = look_items
+
+        return result

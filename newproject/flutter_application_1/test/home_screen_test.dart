@@ -64,10 +64,19 @@ class _FakeTodayLookRepository implements TodayLookRepository {
   final TodayLookResult result;
 
   @override
-  Future<TodayLookResult> getTodayLook() async => result;
+  Future<TodayLookResult> getTodayLook({
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async => result;
 
   @override
-  Future<TodayLookResult> regenerateTodayLook({String? seed}) async => result;
+  Future<TodayLookResult> regenerateTodayLook({
+    String? seed,
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async => result;
 
   @override
   Future<SavedTodayLook?> saveTodayLook({
@@ -113,8 +122,7 @@ class _FakeInsightRepository implements WardrobeRepository {
     String? order,
     int page = 1,
     int pageSize = 20,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<WardrobeItemData?> getItem({required String itemId}) =>
@@ -129,8 +137,7 @@ class _FakeInsightRepository implements WardrobeRepository {
     MediaRef? imageRef,
     String? fit,
     double? fitConfidence,
-  }) =>
-      throw UnimplementedError();
+  }) => throw UnimplementedError();
 
   @override
   Future<WardrobeItemData?> updateItem({
@@ -142,8 +149,7 @@ class _FakeInsightRepository implements WardrobeRepository {
     bool? isFavorite,
     String? fit,
     double? fitConfidence,
-  }) =>
-      throw UnimplementedError();
+  }) => throw UnimplementedError();
 
   @override
   Future<bool?> deleteItem({required String itemId}) =>
@@ -154,8 +160,7 @@ class _FakeInsightRepository implements WardrobeRepository {
     required List<String> itemIds,
     DateTime? wornAt,
     String? idempotencyKey,
-  }) =>
-      throw UnimplementedError();
+  }) => throw UnimplementedError();
 
   @override
   Future<WearEventLogResponse?> logEnsembleWear({
@@ -163,12 +168,7 @@ class _FakeInsightRepository implements WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) =>
-      logWear(
-        itemIds: itemIds,
-        wornAt: wornAt,
-        idempotencyKey: idempotencyKey,
-      );
-
+      logWear(itemIds: itemIds, wornAt: wornAt, idempotencyKey: idempotencyKey);
 
   @override
   Future<WearSummary?> getWearSummary() => throw UnimplementedError();
@@ -201,6 +201,7 @@ class _NullSummaryRepository implements LearningSummaryRepository {
   @override
   Future<LearningSummary?> getSummary() async => null;
 }
+
 Widget _backendApp({WardrobeRepository? wardrobeRepository}) {
   final todayRepo = _FakeTodayLookRepository(_backendLookResult());
   return FansivibeApp(
@@ -266,17 +267,18 @@ void main() {
       expect(find.text('Alex'), findsNothing);
     });
 
-    testWidgets('renders greeting header with real display name when available', (
-      WidgetTester tester,
-    ) async {
-      LocalStorage.displayName = 'Taylor';
-      await tester.pumpWidget(_freshApp());
-      await tester.pumpAndSettle();
+    testWidgets(
+      'renders greeting header with real display name when available',
+      (WidgetTester tester) async {
+        LocalStorage.displayName = 'Taylor';
+        await tester.pumpWidget(_freshApp());
+        await tester.pumpAndSettle();
 
-      // Verify real stored display name is used
-      expect(find.text('Good morning, Taylor'), findsOneWidget);
-      expect(find.text('Good morning, Alex'), findsNothing);
-    });
+        // Verify real stored display name is used
+        expect(find.text('Good morning, Taylor'), findsOneWidget);
+        expect(find.text('Good morning, Alex'), findsNothing);
+      },
+    );
 
     testWidgets('renders Today\'s Look card from the backend', (
       WidgetTester tester,
@@ -387,18 +389,19 @@ void main() {
       expect(find.text('Sun'), findsNothing);
     });
 
-    testWidgets('omits AI insight card when no backend insight exists (no fabricated content)', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(_freshApp());
-      await tester.pumpAndSettle();
+    testWidgets(
+      'omits AI insight card when no backend insight exists (no fabricated content)',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(_freshApp());
+        await tester.pumpAndSettle();
 
-      // Verify mock insight is NOT rendered
-      expect(find.text('Wardrobe Insight'), findsNothing);
-      expect(find.textContaining('outerwear pieces'), findsNothing);
-      expect(find.text('Wardrobe Gap Detected'), findsNothing);
-      expect(find.text('View Recommendations'), findsNothing);
-    });
+        // Verify mock insight is NOT rendered
+        expect(find.text('Wardrobe Insight'), findsNothing);
+        expect(find.textContaining('outerwear pieces'), findsNothing);
+        expect(find.text('Wardrobe Gap Detected'), findsNothing);
+        expect(find.text('View Recommendations'), findsNothing);
+      },
+    );
 
     testWidgets('renders live backend insight verbatim when returned', (
       WidgetTester tester,
@@ -410,9 +413,7 @@ void main() {
         accentColor: 0xFFC5A059,
       );
       await tester.pumpWidget(
-        _backendApp(
-          wardrobeRepository: _FakeInsightRepository(liveInsight),
-        ),
+        _backendApp(wardrobeRepository: _FakeInsightRepository(liveInsight)),
       );
       await tester.pumpAndSettle();
 
@@ -434,38 +435,37 @@ void main() {
       expect(find.text('Wardrobe Gap Detected'), findsNothing);
     });
 
-    testWidgets('HomeScreen is scrollable with all sections (truthful content)', (
-      WidgetTester tester,
-    ) async {
-      // M9 (STEP 19.25) + P2-8: scrolled through truthful backend slots.
-      const liveInsight = WardrobeInsightData(
-        title: 'Seasonal Balance',
-        insight: 'Neutral layers match well.',
-        iconName: 'lightbulb_outline_rounded',
-        accentColor: 0xFFC5A059,
-      );
-      await tester.pumpWidget(
-        _backendApp(
-          wardrobeRepository: _FakeInsightRepository(liveInsight),
-        ),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      'HomeScreen is scrollable with all sections (truthful content)',
+      (WidgetTester tester) async {
+        // M9 (STEP 19.25) + P2-8: scrolled through truthful backend slots.
+        const liveInsight = WardrobeInsightData(
+          title: 'Seasonal Balance',
+          insight: 'Neutral layers match well.',
+          iconName: 'lightbulb_outline_rounded',
+          accentColor: 0xFFC5A059,
+        );
+        await tester.pumpWidget(
+          _backendApp(wardrobeRepository: _FakeInsightRepository(liveInsight)),
+        );
+        await tester.pumpAndSettle();
 
-      await tester.drag(
-        find.byType(SingleChildScrollView),
-        const Offset(0, -1000),
-      );
-      await tester.pumpAndSettle();
+        await tester.drag(
+          find.byType(SingleChildScrollView),
+          const Offset(0, -1000),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('Good morning'), findsOneWidget);
-      expect(find.text('Good morning, Alex'), findsNothing);
-      expect(find.text("TODAY'S LOOK"), findsOneWidget);
-      expect(find.text('Style Score'), findsOneWidget);
-      expect(find.text('Quick Actions'), findsOneWidget);
-      expect(find.text('Style Streak'), findsOneWidget);
-      expect(find.text('Seasonal Balance'), findsOneWidget);
-      expect(find.text('AI Insight'), findsOneWidget);
-    });
+        expect(find.text('Good morning'), findsOneWidget);
+        expect(find.text('Good morning, Alex'), findsNothing);
+        expect(find.text("TODAY'S LOOK"), findsOneWidget);
+        expect(find.text('Style Score'), findsOneWidget);
+        expect(find.text('Quick Actions'), findsOneWidget);
+        expect(find.text('Style Streak'), findsOneWidget);
+        expect(find.text('Seasonal Balance'), findsOneWidget);
+        expect(find.text('AI Insight'), findsOneWidget);
+      },
+    );
 
     testWidgets('HomeScreen uses correct theme colors', (
       WidgetTester tester,
@@ -543,16 +543,17 @@ void main() {
       expect(find.text('Capture Photo'), findsOneWidget);
     });
 
-    testWidgets('does not present fabricated recommendations snackbar on Home', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(_freshApp());
-      await tester.pumpAndSettle();
+    testWidgets(
+      'does not present fabricated recommendations snackbar on Home',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(_freshApp());
+        await tester.pumpAndSettle();
 
-      // Fabricated CTA and fake snackbar are completely absent
-      expect(find.text('View Recommendations'), findsNothing);
-      expect(find.text('Opening Wardrobe Recommendations...'), findsNothing);
-    });
+        // Fabricated CTA and fake snackbar are completely absent
+        expect(find.text('View Recommendations'), findsNothing);
+        expect(find.text('Opening Wardrobe Recommendations...'), findsNothing);
+      },
+    );
 
     testWidgets('Style Journey shows live score without fabricated history', (
       WidgetTester tester,
@@ -599,10 +600,7 @@ void main() {
       await tester.pumpWidget(_backendApp());
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(
-        find.text('EDITORIAL SELECTION'),
-        500.0,
-      );
+      await tester.scrollUntilVisible(find.text('EDITORIAL SELECTION'), 500.0);
       await tester.pumpAndSettle();
       expect(find.text('Curated Looks'), findsOneWidget);
       expect(find.text('BASED ON YOUR STYLE'), findsNothing);

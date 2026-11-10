@@ -76,6 +76,7 @@ class UpdatePreferences:
                     }
                 )
 
+        clean_settings = None
         if settings is not None:
             if not isinstance(settings, dict):
                 errors.append(
@@ -84,6 +85,76 @@ class UpdatePreferences:
                         "error": "must be a dictionary",
                     }
                 )
+            else:
+                clean_settings = dict(settings)
+                # Validate and sanitize location settings if present (P1-3)
+                for loc_key in ("weather_location", "weatherLocation", "location"):
+                    if loc_key in clean_settings:
+                        loc_val = clean_settings[loc_key]
+                        if loc_val is not None and not isinstance(loc_val, dict):
+                            errors.append(
+                                {
+                                    "field": f"settings.{loc_key}",
+                                    "error": "must be a dictionary",
+                                }
+                            )
+                        elif isinstance(loc_val, dict):
+                            sanitized_loc = dict(loc_val)
+                            # Validate city if present
+                            c_val = sanitized_loc.get("city")
+                            if c_val is not None:
+                                if not isinstance(c_val, str) or len(c_val) > 100:
+                                    errors.append(
+                                        {
+                                            "field": f"settings.{loc_key}.city",
+                                            "error": "must be a string up to 100 characters",
+                                        }
+                                    )
+                                else:
+                                    sanitized_loc["city"] = c_val.strip()
+
+                            # Validate and enforce coarse resolution on lat/lon (~1.1km / 2 decimals)
+                            lat_key = "latitude" if "latitude" in sanitized_loc else "lat"
+                            lon_key = "longitude" if "longitude" in sanitized_loc else "lon"
+                            if lat_key in sanitized_loc and sanitized_loc[lat_key] is not None:
+                                lat_v = sanitized_loc[lat_key]
+                                if not isinstance(lat_v, (int, float)) or isinstance(lat_v, bool):
+                                    errors.append(
+                                        {
+                                            "field": f"settings.{loc_key}.{lat_key}",
+                                            "error": "must be a numeric latitude",
+                                        }
+                                    )
+                                elif not (-90.0 <= float(lat_v) <= 90.0):
+                                    errors.append(
+                                        {
+                                            "field": f"settings.{loc_key}.{lat_key}",
+                                            "error": "latitude must be between -90.0 and 90.0",
+                                        }
+                                    )
+                                else:
+                                    sanitized_loc[lat_key] = round(float(lat_v), 2)
+
+                            if lon_key in sanitized_loc and sanitized_loc[lon_key] is not None:
+                                lon_v = sanitized_loc[lon_key]
+                                if not isinstance(lon_v, (int, float)) or isinstance(lon_v, bool):
+                                    errors.append(
+                                        {
+                                            "field": f"settings.{loc_key}.{lon_key}",
+                                            "error": "must be a numeric longitude",
+                                        }
+                                    )
+                                elif not (-180.0 <= float(lon_v) <= 180.0):
+                                    errors.append(
+                                        {
+                                            "field": f"settings.{loc_key}.{lon_key}",
+                                            "error": "longitude must be between -180.0 and 180.0",
+                                        }
+                                    )
+                                else:
+                                    sanitized_loc[lon_key] = round(float(lon_v), 2)
+
+                            clean_settings[loc_key] = sanitized_loc
 
         if errors:
             raise validation(errors)
@@ -105,10 +176,10 @@ class UpdatePreferences:
                     confidence=1.0,
                 )
 
-        if settings is not None:
+        if clean_settings is not None:
             self._user_state.update_settings(
                 user_id=user_id,
-                settings=settings,
+                settings=clean_settings,
             )
 
         record = self._user_state.get_profile(user_id=user_id)

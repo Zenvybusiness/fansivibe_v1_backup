@@ -9,6 +9,7 @@ structure the decision engine produces and the API serializes.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional
 
 
@@ -451,6 +452,7 @@ class OutfitCandidate:
     favorite: float = 0.0
     feedback: float = 0.0
     wear: float = 0.0
+    weather: float = 0.0
     score: float = 0.0
 
 
@@ -491,3 +493,239 @@ class ClothingIntelligence:
 
     confidence: float  # 0.0–1.0, derived from data availability
     explanation: StylingExplanation
+
+
+###############################################################################
+# Weather Context — domain value objects (Stage 2 P1-3)
+# BA-3: application/domain layer depends on these normalized objects only
+###############################################################################
+
+
+@dataclass(frozen=True)
+class WeatherLocation:
+    """Coarse geographic location for weather retrieval (privacy-preserving).
+
+    In accordance with Phase 0 audit §6:
+    - Coordinates are coarse (rounded to at most 2 decimal places, ~1.1km resolution).
+    - Precise GPS coordinates (meter-level) are never collected or stored.
+    - Valid latitude range: -90.0 to +90.0.
+    - Valid longitude range: -180.0 to +180.0.
+    """
+
+    latitude: float
+    longitude: float
+    city: Optional[str] = None
+    country: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.latitude, (int, float)) or isinstance(
+            self.latitude, bool
+        ):
+            raise ValueError(
+                f"Latitude must be a number, got {type(self.latitude).__name__}"
+            )
+        if not isinstance(self.longitude, (int, float)) or isinstance(
+            self.longitude, bool
+        ):
+            raise ValueError(
+                f"Longitude must be a number, got {type(self.longitude).__name__}"
+            )
+        lat = float(self.latitude)
+        lon = float(self.longitude)
+        if not (-90.0 <= lat <= 90.0):
+            raise ValueError(
+                f"Latitude must be between -90.0 and 90.0, got {lat}"
+            )
+        if not (-180.0 <= lon <= 180.0):
+            raise ValueError(
+                f"Longitude must be between -180.0 and 180.0, got {lon}"
+            )
+
+        # Enforce coarse resolution: round to 2 decimal places (~1.1km)
+        object.__setattr__(self, "latitude", round(lat, 2))
+        object.__setattr__(self, "longitude", round(lon, 2))
+        if self.city is not None:
+            object.__setattr__(self, "city", str(self.city).strip() or None)
+        if self.country is not None:
+            object.__setattr__(self, "country", str(self.country).strip() or None)
+
+
+@dataclass(frozen=True)
+class WeatherContext:
+    """Application-owned normalized weather representation.
+
+    Normalized fields reflect the requirements of Phase 0 audit §5:
+    - temperature_c: dry-bulb ambient temperature in degrees Celsius.
+    - apparent_temperature_c: perceived "feels-like" temperature in degrees Celsius.
+    - weather_code: WMO weather interpretation code (0-99).
+    - condition_code: semantic category code ('clear', 'partly_cloudy', 'cloudy',
+      'fog', 'drizzle', 'rain', 'snow', 'thunderstorm', 'unknown').
+    - condition_text: human-readable weather condition description.
+    - forecast_timestamp: datetime for which the forecast applies.
+    - retrieved_at: datetime when the data was retrieved/normalized.
+    - precipitation_probability: estimated chance of precipitation (0.0 to 100.0) or None.
+    - precipitation_mm: precipitation amount in millimeters (>= 0.0) or None.
+    - relative_humidity_pct: relative humidity percentage (0.0 to 100.0) or None.
+    - wind_speed_kmh: wind speed in kilometers per hour (>= 0.0) or None.
+    - is_day: optional boolean indicating daylight vs night.
+    - location: optional coarse WeatherLocation context.
+    """
+
+    temperature_c: float
+    apparent_temperature_c: float
+    weather_code: int
+    condition_code: str
+    condition_text: str
+    forecast_timestamp: datetime
+    retrieved_at: datetime
+    precipitation_probability: Optional[float] = None
+    precipitation_mm: Optional[float] = None
+    relative_humidity_pct: Optional[float] = None
+    wind_speed_kmh: Optional[float] = None
+    is_day: Optional[bool] = None
+    location: Optional[WeatherLocation] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.temperature_c, (int, float)) or isinstance(
+            self.temperature_c, bool
+        ):
+            raise ValueError(
+                f"temperature_c must be numeric, got {type(self.temperature_c).__name__}"
+            )
+        temp_val = float(self.temperature_c)
+        if not (-90.0 <= temp_val <= 70.0):
+            raise ValueError(
+                f"temperature_c outside reasonable terrestrial range (-90 to 70°C): {temp_val}"
+            )
+        object.__setattr__(self, "temperature_c", round(temp_val, 1))
+
+        if not isinstance(
+            self.apparent_temperature_c, (int, float)
+        ) or isinstance(self.apparent_temperature_c, bool):
+            raise ValueError(
+                f"apparent_temperature_c must be numeric, got {type(self.apparent_temperature_c).__name__}"
+            )
+        app_temp_val = float(self.apparent_temperature_c)
+        if not (-100.0 <= app_temp_val <= 80.0):
+            raise ValueError(
+                f"apparent_temperature_c outside reasonable range (-100 to 80°C): {app_temp_val}"
+            )
+        object.__setattr__(self, "apparent_temperature_c", round(app_temp_val, 1))
+
+        if not isinstance(self.weather_code, int) or isinstance(
+            self.weather_code, bool
+        ):
+            raise ValueError(
+                f"weather_code must be an integer, got {type(self.weather_code).__name__}"
+            )
+        if not (0 <= self.weather_code <= 99):
+            raise ValueError(
+                f"weather_code must be in WMO range 0-99, got {self.weather_code}"
+            )
+
+        if not isinstance(self.condition_code, str) or not self.condition_code.strip():
+            raise ValueError("condition_code must be a non-empty string")
+        object.__setattr__(
+            self, "condition_code", self.condition_code.strip().lower()
+        )
+
+        if not isinstance(self.condition_text, str) or not self.condition_text.strip():
+            raise ValueError("condition_text must be a non-empty string")
+        object.__setattr__(self, "condition_text", self.condition_text.strip())
+
+        if not isinstance(self.forecast_timestamp, datetime):
+            raise ValueError("forecast_timestamp must be a datetime instance")
+        if not isinstance(self.retrieved_at, datetime):
+            raise ValueError("retrieved_at must be a datetime instance")
+
+        if self.precipitation_probability is not None:
+            if not isinstance(
+                self.precipitation_probability, (int, float)
+            ) or isinstance(self.precipitation_probability, bool):
+                raise ValueError("precipitation_probability must be numeric")
+            p_val = float(self.precipitation_probability)
+            if not (0.0 <= p_val <= 100.0):
+                raise ValueError(
+                    f"precipitation_probability must be between 0.0 and 100.0, got {p_val}"
+                )
+            object.__setattr__(
+                self, "precipitation_probability", round(p_val, 1)
+            )
+
+        if self.precipitation_mm is not None:
+            if not isinstance(self.precipitation_mm, (int, float)) or isinstance(
+                self.precipitation_mm, bool
+            ):
+                raise ValueError("precipitation_mm must be numeric")
+            mm_val = float(self.precipitation_mm)
+            if mm_val < 0.0:
+                raise ValueError(
+                    f"precipitation_mm cannot be negative, got {mm_val}"
+                )
+            object.__setattr__(self, "precipitation_mm", round(mm_val, 2))
+
+        if self.relative_humidity_pct is not None:
+            if not isinstance(
+                self.relative_humidity_pct, (int, float)
+            ) or isinstance(self.relative_humidity_pct, bool):
+                raise ValueError("relative_humidity_pct must be numeric")
+            h_val = float(self.relative_humidity_pct)
+            if not (0.0 <= h_val <= 100.0):
+                raise ValueError(
+                    f"relative_humidity_pct must be between 0.0 and 100.0, got {h_val}"
+                )
+            object.__setattr__(self, "relative_humidity_pct", round(h_val, 1))
+
+        if self.wind_speed_kmh is not None:
+            if not isinstance(self.wind_speed_kmh, (int, float)) or isinstance(
+                self.wind_speed_kmh, bool
+            ):
+                raise ValueError("wind_speed_kmh must be numeric")
+            w_val = float(self.wind_speed_kmh)
+            if w_val < 0.0:
+                raise ValueError(
+                    f"wind_speed_kmh cannot be negative, got {w_val}"
+                )
+            object.__setattr__(self, "wind_speed_kmh", round(w_val, 1))
+
+        if self.is_day is not None and not isinstance(self.is_day, bool):
+            raise ValueError(
+                f"is_day must be a boolean or None, got {type(self.is_day).__name__}"
+            )
+
+        if self.location is not None and not isinstance(
+            self.location, WeatherLocation
+        ):
+            raise ValueError(
+                f"location must be a WeatherLocation instance or None, got {type(self.location).__name__}"
+            )
+
+    @property
+    def temperature_f(self) -> float:
+        """Temperature converted to Fahrenheit."""
+        return round((self.temperature_c * 9.0 / 5.0) + 32.0, 1)
+
+    @property
+    def apparent_temperature_f(self) -> float:
+        """Apparent temperature converted to Fahrenheit."""
+        return round((self.apparent_temperature_c * 9.0 / 5.0) + 32.0, 1)
+
+    @property
+    def is_raining(self) -> bool:
+        """Whether current conditions indicate active or imminent rain."""
+        rain_codes = {
+            51, 53, 55, 56, 57,  # Drizzle
+            61, 63, 65, 66, 67,  # Rain
+            80, 81, 82,          # Rain showers
+            95, 96, 99,          # Thunderstorms
+        }
+        if self.weather_code in rain_codes:
+            return True
+        if self.precipitation_mm is not None and self.precipitation_mm > 0.1:
+            return True
+        if (
+            self.precipitation_probability is not None
+            and self.precipitation_probability >= 50.0
+        ):
+            return True
+        return False

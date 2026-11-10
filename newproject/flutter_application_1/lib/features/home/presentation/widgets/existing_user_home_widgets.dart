@@ -95,7 +95,8 @@ class ExistingUserHeader extends StatelessWidget {
                   ),
                   child: ClipOval(
                     child: AtelierImage(
-                      assetPath: avatarUrl ?? 'assets/images/profile_avatar.png',
+                      assetPath:
+                          avatarUrl ?? 'assets/images/profile_avatar.png',
                       fit: BoxFit.cover,
                       fallbackIcon: Icons.person_rounded,
                     ),
@@ -116,17 +117,16 @@ class ExistingUserHeader extends StatelessWidget {
 /// Serif headline: `Good morning, [User]`
 /// Supporting copy: `Your style, curated for today.`
 class ExistingUserGreeting extends StatelessWidget {
-  const ExistingUserGreeting({
-    this.displayName,
-    super.key,
-  });
+  const ExistingUserGreeting({this.displayName, super.key});
 
   final String? displayName;
 
   @override
   Widget build(BuildContext context) {
     final hasName = displayName != null && displayName!.trim().isNotEmpty;
-    final greetingText = hasName ? 'Good morning, ${displayName!.trim()}' : 'Good morning';
+    final greetingText = hasName
+        ? 'Good morning, ${displayName!.trim()}'
+        : 'Good morning';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -279,10 +279,11 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                         ),
                         child: Text(
                           item.name,
-                          style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                            color: FansivibeColors.onSurface,
-                            fontSize: 12,
-                          ),
+                          style: FansivibeTypography.bodyMediumWithFamily
+                              .copyWith(
+                                color: FansivibeColors.onSurface,
+                                fontSize: 12,
+                              ),
                         ),
                       );
                     }).toList(),
@@ -319,12 +320,21 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                 fontSize: 11,
               ),
             ),
-            Text(
-              '08:00 AM',
-              style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                color: FansivibeColors.secondary.withValues(alpha: 0.7),
-                letterSpacing: 1.0,
-                fontSize: 11,
+            Flexible(
+              child: Text(
+                widget.data.weather.isNotEmpty
+                    ? widget.data.weather
+                    : '08:00 AM',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                  color: widget.data.weather.isNotEmpty
+                      ? FansivibeColors.primary
+                      : FansivibeColors.secondary.withValues(alpha: 0.7),
+                  letterSpacing: 1.0,
+                  fontSize: 11,
+                ),
               ),
             ),
           ],
@@ -432,12 +442,13 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                             children: [
                               Text(
                                 '$matchScore% STYLE MATCH',
-                                style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                  color: FansivibeColors.primary,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 1.0,
-                                  fontSize: 10,
-                                ),
+                                style: FansivibeTypography.labelSmallWithFamily
+                                    .copyWith(
+                                      color: FansivibeColors.primary,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 1.0,
+                                      fontSize: 10,
+                                    ),
                               ),
                               SizedBox(
                                 width: 0,
@@ -461,7 +472,8 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                             button: true,
                             label: 'Favorite',
                             child: InkWell(
-                              onTap: () => setState(() => _isFavorite = !_isFavorite),
+                              onTap: () =>
+                                  setState(() => _isFavorite = !_isFavorite),
                               borderRadius: BorderRadius.circular(20),
                               child: Container(
                                 width: 34,
@@ -470,9 +482,8 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                                   color: Colors.black.withValues(alpha: 0.5),
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: FansivibeColors.outlineVariant.withValues(
-                                      alpha: 0.35,
-                                    ),
+                                    color: FansivibeColors.outlineVariant
+                                        .withValues(alpha: 0.35),
                                   ),
                                 ),
                                 child: Icon(
@@ -502,9 +513,8 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                                   color: Colors.black.withValues(alpha: 0.5),
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: FansivibeColors.outlineVariant.withValues(
-                                      alpha: 0.35,
-                                    ),
+                                    color: FansivibeColors.outlineVariant
+                                        .withValues(alpha: 0.35),
                                   ),
                                 ),
                                 child: Icon(
@@ -560,12 +570,13 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                             widget.data.occasion.isNotEmpty
                                 ? widget.data.occasion
                                 : 'SMART CASUAL • EVENING',
-                            style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                              color: FansivibeColors.secondary,
-                              fontSize: 11,
-                              letterSpacing: 1.0,
-                              fontWeight: FontWeight.w600,
-                            ),
+                            style: FansivibeTypography.labelSmallWithFamily
+                                .copyWith(
+                                  color: FansivibeColors.secondary,
+                                  fontSize: 11,
+                                  letterSpacing: 1.0,
+                                  fontWeight: FontWeight.w600,
+                                ),
                           ),
                         ],
                       ),
@@ -577,11 +588,14 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                             : 'Impeccable camel coat tailoring paired with fine-gauge knitwear for effortless sartorial poise.',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                          color: FansivibeColors.onSurface.withValues(alpha: 0.8),
-                          fontSize: 13,
-                          height: 1.35,
-                        ),
+                        style: FansivibeTypography.bodyMediumWithFamily
+                            .copyWith(
+                              color: FansivibeColors.onSurface.withValues(
+                                alpha: 0.8,
+                              ),
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
                       ),
                       if (widget.data.items.isNotEmpty) ...[
                         const SizedBox(height: 8),
@@ -599,17 +613,17 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                                 color: Colors.black.withValues(alpha: 0.4),
                                 borderRadius: BorderRadius.circular(6),
                                 border: Border.all(
-                                  color: FansivibeColors.outlineVariant.withValues(
-                                    alpha: 0.3,
-                                  ),
+                                  color: FansivibeColors.outlineVariant
+                                      .withValues(alpha: 0.3),
                                 ),
                               ),
                               child: Text(
                                 item.name,
-                                style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                  color: FansivibeColors.secondary,
-                                  fontSize: 11,
-                                ),
+                                style: FansivibeTypography.labelSmallWithFamily
+                                    .copyWith(
+                                      color: FansivibeColors.secondary,
+                                      fontSize: 11,
+                                    ),
                               ),
                             );
                           }).toList(),
@@ -626,18 +640,22 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                             child: InkWell(
                               onTap: () => _showWhyThisWorks(context),
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 4,
+                                ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
                                       'WHY THIS WORKS →',
-                                      style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                        color: FansivibeColors.primary,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 1.2,
-                                        fontSize: 11,
-                                      ),
+                                      style: FansivibeTypography
+                                          .labelSmallWithFamily
+                                          .copyWith(
+                                            color: FansivibeColors.primary,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: 1.2,
+                                            fontSize: 11,
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -646,11 +664,14 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                           ),
                           Text(
                             'CURATED #140',
-                            style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                              color: FansivibeColors.secondary.withValues(alpha: 0.6),
-                              letterSpacing: 1.2,
-                              fontSize: 10,
-                            ),
+                            style: FansivibeTypography.labelSmallWithFamily
+                                .copyWith(
+                                  color: FansivibeColors.secondary.withValues(
+                                    alpha: 0.6,
+                                  ),
+                                  letterSpacing: 1.2,
+                                  fontSize: 10,
+                                ),
                           ),
                         ],
                       ),
@@ -742,7 +763,8 @@ class ExistingUserStyleScoreCard extends StatelessWidget {
     required this.score,
     this.scoreChange,
     this.rankingLabel,
-    this.supportingText = 'Your style consistency is improving across tailoring & tone.',
+    this.supportingText =
+        'Your style consistency is improving across tailoring & tone.',
     super.key,
   });
 
@@ -812,16 +834,19 @@ class ExistingUserStyleScoreCard extends StatelessWidget {
                               vertical: 3,
                             ),
                             decoration: BoxDecoration(
-                              color: FansivibeColors.primary.withValues(alpha: 0.12),
+                              color: FansivibeColors.primary.withValues(
+                                alpha: 0.12,
+                              ),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
                               scoreChange!,
-                              style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                color: FansivibeColors.primary,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 9,
-                              ),
+                              style: FansivibeTypography.labelSmallWithFamily
+                                  .copyWith(
+                                    color: FansivibeColors.primary,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 9,
+                                  ),
                             ),
                           ),
                         ],
@@ -880,11 +905,12 @@ class ExistingUserStyleScoreCard extends StatelessWidget {
                             const SizedBox(height: 2),
                             Text(
                               rankingLabel!,
-                              style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                color: FansivibeColors.primary,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 9,
-                              ),
+                              style: FansivibeTypography.labelSmallWithFamily
+                                  .copyWith(
+                                    color: FansivibeColors.primary,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 9,
+                                  ),
                             ),
                           ],
                         ],
@@ -910,8 +936,10 @@ class ExistingUserStyleScoreCard extends StatelessWidget {
 /// - CTA: `EXPLORE RECOMMENDATION →`
 class ExistingUserAiInsightCard extends StatelessWidget {
   const ExistingUserAiInsightCard({
-    this.quote = '“Your recent looks are leaning toward structured silhouettes and neutral palettes.”',
-    this.supportingText = 'Try introducing one warmer accent this week to create dynamic visual depth.',
+    this.quote =
+        '“Your recent looks are leaning toward structured silhouettes and neutral palettes.”',
+    this.supportingText =
+        'Try introducing one warmer accent this week to create dynamic visual depth.',
     this.onExploreTap,
     super.key,
   });
@@ -956,10 +984,7 @@ class ExistingUserAiInsightCard extends StatelessWidget {
               const SizedBox(
                 width: 0,
                 height: 0,
-                child: Opacity(
-                  opacity: 0.0,
-                  child: Text('AI Insight'),
-                ),
+                child: Opacity(opacity: 0.0, child: Text('AI Insight')),
               ),
             ],
           ),
@@ -983,10 +1008,7 @@ class ExistingUserAiInsightCard extends StatelessWidget {
                 SizedBox(
                   width: 0,
                   height: 0,
-                  child: Opacity(
-                    opacity: 0.0,
-                    child: Text(quote),
-                  ),
+                  child: Opacity(opacity: 0.0, child: Text(quote)),
                 ),
             ],
           ),
@@ -1173,10 +1195,7 @@ class ExistingUserUpcomingCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: FansivibeColors.surfaceContainerHigh,
                   borderRadius: BorderRadius.circular(6),
@@ -1206,10 +1225,7 @@ class ExistingUserUpcomingCard extends StatelessWidget {
                 height: 44,
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [
-                      FansivibeColors.primary,
-                      Color(0xFFC6A85B),
-                    ],
+                    colors: [FansivibeColors.primary, Color(0xFFC6A85B)],
                   ),
                   borderRadius: BorderRadius.circular(24),
                 ),
@@ -1367,20 +1383,13 @@ class ExistingUserAiStylistGrid extends StatelessWidget {
                 for (final text in hiddenSemantics)
                   Opacity(
                     opacity: 0.0,
-                    child: Text(
-                      text,
-                      style: const TextStyle(fontSize: 1),
-                    ),
+                    child: Text(text, style: const TextStyle(fontSize: 1)),
                   ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    icon,
-                    size: 20,
-                    color: FansivibeColors.primary,
-                  ),
+                  Icon(icon, size: 20, color: FansivibeColors.primary),
                   const SizedBox(height: 12),
                   Text(
                     title,
@@ -1418,10 +1427,7 @@ class ExistingUserAiStylistGrid extends StatelessWidget {
 /// static editorial content — not personalized recommendations — so the
 /// header says so instead of claiming a style match.
 class ExistingUserCuratedForYou extends StatelessWidget {
-  const ExistingUserCuratedForYou({
-    this.onLookTap,
-    super.key,
-  });
+  const ExistingUserCuratedForYou({this.onLookTap, super.key});
 
   final void Function(String title)? onLookTap;
 
@@ -1461,7 +1467,8 @@ class ExistingUserCuratedForYou extends StatelessWidget {
               child: Column(
                 children: [
                   _CuratedCard(
-                    imageAsset: 'assets/images/discover_look_modern_classics.jpg',
+                    imageAsset:
+                        'assets/images/discover_look_modern_classics.jpg',
                     category: 'STUDIO ATELIER',
                     title: 'Quiet Tailoring',
                     height: 230,
@@ -1469,7 +1476,8 @@ class ExistingUserCuratedForYou extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   _CuratedCard(
-                    imageAsset: 'assets/images/discover_moodboard_silhouette.jpg',
+                    imageAsset:
+                        'assets/images/discover_moodboard_silhouette.jpg',
                     category: 'PARIS RUNWAY',
                     title: 'Modern Minimal',
                     height: 250,
@@ -1551,7 +1559,9 @@ class _CuratedCardState extends State<_CuratedCard> {
             children: [
               // Image container with heart button
               ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(15),
+                ),
                 child: SizedBox(
                   height: widget.height,
                   width: double.infinity,
@@ -1636,10 +1646,7 @@ class _CuratedCardState extends State<_CuratedCard> {
 /// Static editorial picks — not personalized affinity predictions — so no
 /// per-user affinity percentages are shown.
 class ExistingUserTrending extends StatelessWidget {
-  const ExistingUserTrending({
-    this.onTrendingTap,
-    super.key,
-  });
+  const ExistingUserTrending({this.onTrendingTap, super.key});
 
   final VoidCallback? onTrendingTap;
 
@@ -1738,10 +1745,7 @@ class ExistingUserTrending extends StatelessWidget {
                 child: SizedBox(
                   width: 44,
                   height: 44,
-                  child: AtelierImage(
-                    assetPath: imageAsset,
-                    fit: BoxFit.cover,
-                  ),
+                  child: AtelierImage(assetPath: imageAsset, fit: BoxFit.cover),
                 ),
               ),
               const SizedBox(width: 10),
@@ -1905,10 +1909,7 @@ class ExistingUserStyleJourney extends StatelessWidget {
                 ? const LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [
-                      FansivibeColors.primary,
-                      Color(0xFFC6A85B),
-                    ],
+                    colors: [FansivibeColors.primary, Color(0xFFC6A85B)],
                   )
                 : null,
             borderRadius: BorderRadius.circular(6),
@@ -1940,10 +1941,7 @@ class ExistingUserStyleJourney extends StatelessWidget {
 
 /// Zero wardrobe guidance card for established users who have 0 items.
 class ZeroWardrobeContextCard extends StatelessWidget {
-  const ZeroWardrobeContextCard({
-    required this.onAddWardrobeItem,
-    super.key,
-  });
+  const ZeroWardrobeContextCard({required this.onAddWardrobeItem, super.key});
 
   final VoidCallback onAddWardrobeItem;
 

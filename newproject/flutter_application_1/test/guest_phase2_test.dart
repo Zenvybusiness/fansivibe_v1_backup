@@ -57,13 +57,22 @@ class _CountingTodayLookRepository implements TodayLookRepository {
   int calls = 0;
 
   @override
-  Future<TodayLookResult> getTodayLook() async {
+  Future<TodayLookResult> getTodayLook({
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async {
     calls++;
     return const TodayLookResult.failure(TodayLookFailure.networkError);
   }
 
   @override
-  Future<TodayLookResult> regenerateTodayLook({String? seed}) async {
+  Future<TodayLookResult> regenerateTodayLook({
+    String? seed,
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async {
     calls++;
     return const TodayLookResult.failure(TodayLookFailure.networkError);
   }
@@ -159,12 +168,7 @@ class _CountingWardrobeRepository implements WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) =>
-      logWear(
-        itemIds: itemIds,
-        wornAt: wornAt,
-        idempotencyKey: idempotencyKey,
-      );
-
+      logWear(itemIds: itemIds, wornAt: wornAt, idempotencyKey: idempotencyKey);
 
   @override
   Future<WearSummary?> getWearSummary() async {
@@ -255,7 +259,9 @@ class _CountingDiscoverRepository implements DiscoverRepository {
     bool includeSynthetic = true,
   }) async {
     completeLooksCalls++;
-    return const CompleteLooksDiscoveryResult.failure(DiscoverFailure.networkError);
+    return const CompleteLooksDiscoveryResult.failure(
+      DiscoverFailure.networkError,
+    );
   }
 
   @override
@@ -302,7 +308,9 @@ class _CountingDiscoverRepository implements DiscoverRepository {
     String surface = 'product_offers',
     int? position,
   }) {
-    return Uri.parse('http://localhost:8000/v1/discovery/offers/$offerId/redirect');
+    return Uri.parse(
+      'http://localhost:8000/v1/discovery/offers/$offerId/redirect',
+    );
   }
 }
 
@@ -331,6 +339,22 @@ class _CountingOutfitRepository implements OutfitBuilderRepository {
   }) async {
     throw StateError('must not be called for guests');
   }
+
+  @override
+  Future<List<OutfitCandidateItem>> getCandidates({
+    required String slot,
+    List<String>? currentGarmentIds,
+    int limit = 20,
+  }) async {
+    throw StateError('must not be called for guests');
+  }
+
+  @override
+  Future<OutfitSlotSwapResponse?> swapSlot({
+    required OutfitSlotSwapRequest request,
+  }) async {
+    throw StateError('must not be called for guests');
+  }
 }
 
 class _CountingSavedLooksRepository implements SavedLooksRepository {
@@ -346,8 +370,15 @@ class _CountingSavedLooksRepository implements SavedLooksRepository {
   }
 
   @override
-  Future<SavedLookDeleteOutcome?> deleteSavedLook({
+  Future<SavedLookDeleteOutcome?> deleteSavedLook({required String id}) async {
+    calls++;
+    return null;
+  }
+
+  @override
+  Future<SavedLookItem?> getSavedLook({
     required String id,
+    bool includeItems = true,
   }) async {
     calls++;
     return null;
@@ -399,9 +430,7 @@ void main() {
     ) async {
       final today = _CountingTodayLookRepository();
       await tester.pumpWidget(
-        MaterialApp(
-          home: DailyOutfitScreen(todayLookRepository: today),
-        ),
+        MaterialApp(home: DailyOutfitScreen(todayLookRepository: today)),
       );
       await tester.pumpAndSettle();
 
@@ -460,11 +489,7 @@ void main() {
       final repository = _CountingDiscoverRepository();
       final wardrobe = _CountingWardrobeRepository();
       await tester.pumpWidget(
-        MaterialApp(
-          home: WardrobeScreen(
-            repository: wardrobe,
-          ),
-        ),
+        MaterialApp(home: WardrobeScreen(repository: wardrobe)),
       );
       await tester.pumpAndSettle();
 
@@ -624,10 +649,7 @@ void main() {
       final repository = _CountingWardrobeRepository();
       await tester.pumpWidget(
         MaterialApp(
-          home: WardrobeItemDetailsScreen(
-            itemId: '1',
-            repository: repository,
-          ),
+          home: WardrobeItemDetailsScreen(itemId: '1', repository: repository),
         ),
       );
       await tester.pumpAndSettle();
@@ -640,8 +662,9 @@ void main() {
     testWidgets('guest add-item saves on-device with a local id', (
       WidgetTester tester,
     ) async {
-      final category =
-          AddItemConfig.categories.firstWhere((c) => c.id == 'tops');
+      final category = AddItemConfig.categories.firstWhere(
+        (c) => c.id == 'tops',
+      );
       await tester.pumpWidget(
         MaterialApp(home: AddWardrobeItemScreen(category: category)),
       );
@@ -742,18 +765,13 @@ void main() {
     testWidgets('guest preference saves on-device only', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: PreferencesScreen()),
-      );
+      await tester.pumpWidget(const MaterialApp(home: PreferencesScreen()));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Business'));
       await tester.pumpAndSettle();
 
-      expect(
-        LearningService.instance.preferredOccasions,
-        contains('Business'),
-      );
+      expect(LearningService.instance.preferredOccasions, contains('Business'));
       expect(find.textContaining('this device only'), findsOneWidget);
     });
   });

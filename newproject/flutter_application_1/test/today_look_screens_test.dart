@@ -103,13 +103,22 @@ class ScriptedTodayLookRepository implements TodayLookRepository {
   final List<String> saveKeys = [];
 
   @override
-  Future<TodayLookResult> getTodayLook() {
+  Future<TodayLookResult> getTodayLook({
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) {
     getCalls += 1;
     return getHandler!();
   }
 
   @override
-  Future<TodayLookResult> regenerateTodayLook({String? seed}) {
+  Future<TodayLookResult> regenerateTodayLook({
+    String? seed,
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) {
     regenCalls += 1;
     regenSeeds.add(seed);
     return regenHandler!(seed);

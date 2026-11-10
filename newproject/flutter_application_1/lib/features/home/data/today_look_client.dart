@@ -58,11 +58,33 @@ class TodayLookClient {
   /// Derives today's look (#31 `GET /v1/looks/today`, read/derive only).
   ///
   /// Never throws. Repeated calls over unchanged inputs are deterministic
-  /// server-side.
-  Future<TodayLookResult> getTodayLook() async {
+  /// server-side. Pass optional [city], [latitude], or [longitude] to request
+  /// weather-aware derivation.
+  Future<TodayLookResult> getTodayLook({
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async {
     try {
+      final queryParams = <String, String>{};
+      if (city != null && city.trim().isNotEmpty) {
+        queryParams['city'] = city.trim();
+      }
+      if (latitude != null) {
+        queryParams['lat'] = latitude.toString();
+      }
+      if (longitude != null) {
+        queryParams['lon'] = longitude.toString();
+      }
+
+      final uri = queryParams.isEmpty
+          ? Uri.parse('$baseUrl/v1/looks/today')
+          : Uri.parse(
+              '$baseUrl/v1/looks/today',
+            ).replace(queryParameters: queryParams);
+
       final response = await _client
-          .get(Uri.parse('$baseUrl/v1/looks/today'), headers: _headers)
+          .get(uri, headers: _headers)
           .timeout(_timeout);
       return _decodeLookResponse(response, operation: 'get today look');
     } catch (error) {
@@ -74,16 +96,36 @@ class TodayLookClient {
   /// Derives a fresh today's look (#32 `POST /v1/looks/today`).
   ///
   /// [seed] is an opaque 1..200 selector sent as `?seed=` (absent → the
-  /// winner; same seed repeats the backend result). The seed is passed
-  /// through verbatim — never randomized here. Never throws. Persists
-  /// nothing and is never keyed.
-  Future<TodayLookResult> regenerateTodayLook({String? seed}) async {
+  /// winner; same seed repeats the backend result). Pass optional [city],
+  /// [latitude], or [longitude] to request weather-aware derivation.
+  /// Never throws. Persists nothing and is never keyed.
+  Future<TodayLookResult> regenerateTodayLook({
+    String? seed,
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async {
     try {
-      final uri = seed == null
+      final queryParams = <String, String>{};
+      if (seed != null) {
+        queryParams['seed'] = seed;
+      }
+      if (city != null && city.trim().isNotEmpty) {
+        queryParams['city'] = city.trim();
+      }
+      if (latitude != null) {
+        queryParams['lat'] = latitude.toString();
+      }
+      if (longitude != null) {
+        queryParams['lon'] = longitude.toString();
+      }
+
+      final uri = queryParams.isEmpty
           ? Uri.parse('$baseUrl/v1/looks/today')
           : Uri.parse(
-              '$baseUrl/v1/looks/today?seed=${Uri.encodeQueryComponent(seed)}',
-            );
+              '$baseUrl/v1/looks/today',
+            ).replace(queryParameters: queryParams);
+
       final response = await _client
           .post(uri, headers: _headers)
           .timeout(_timeout);

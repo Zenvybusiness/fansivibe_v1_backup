@@ -26,19 +26,25 @@ space can collide, DEC-017-C). Bounds (`1..200`, supplied-empty
 rejected) are enforced here so direct callers see identical 422s; the
 router declares the same bounds as the wire guard.
 
-Weather has no provider in v1: the derivation carries no weather hint
-and never fails for weather (DEC-017-G).
+Weather integration (Stage 2 P1-3): resolves location based on priority
+(request params -> stored user settings -> ephemeral guest settings -> None).
+When a valid location exists and WeatherProvider is configured, weather
+context is retrieved with provider timeout and caching. Failures or absent
+location gracefully fall back to baseline derivation without weather (DEC-017-G).
+Canonical 12-term scoring engine evaluates weather as an advisory soft adjustment.
 """
 
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from app.api.errors import ApiError, ai_failure, internal_error
+from app.domain.ports.external import WeatherError, WeatherProvider
 from app.domain.ports.repositories import (
     EventTypeRepository,
     TodayLookAlternative,
@@ -54,6 +60,193 @@ from app.domain.services.analysis_rules import (
     score_outfit_candidate,
     select_best_outfit_candidate,
 )
+from app.domain.value_objects import WeatherContext, WeatherLocation
+
+logger = logging.getLogger(__name__)
+
+# Curated major city centroids (rounded to 2 decimal places, ~1.1km resolution)
+# Used when a user or client supplies only a city name without explicit coordinates.
+MAJOR_CITIES: dict[str, tuple[float, float, str, str]] = {
+    "london": (51.51, -0.13, "London", "GB"),
+    "paris": (48.86, 2.35, "Paris", "FR"),
+    "new york": (40.71, -74.01, "New York", "US"),
+    "tokyo": (35.68, 139.69, "Tokyo", "JP"),
+    "seattle": (47.61, -122.33, "Seattle", "US"),
+    "san francisco": (37.77, -122.42, "San Francisco", "US"),
+    "los angeles": (34.05, -118.24, "Los Angeles", "US"),
+    "chicago": (41.88, -87.63, "Chicago", "US"),
+    "berlin": (52.52, 13.41, "Berlin", "DE"),
+    "sydney": (33.87, 151.21, "Sydney", "AU"),
+    "toronto": (43.65, -79.38, "Toronto", "CA"),
+    "milan": (45.46, 9.19, "Milan", "IT"),
+    "rome": (41.90, 12.50, "Rome", "IT"),
+    "oslo": (59.91, 10.75, "Oslo", "NO"),
+    "stockholm": (59.33, 18.07, "Stockholm", "SE"),
+    "amsterdam": (52.37, 4.90, "Amsterdam", "NL"),
+    "madrid": (40.42, -3.70, "Madrid", "ES"),
+    "barcelona": (41.39, 2.17, "Barcelona", "ES"),
+    "singapore": (1.35, 103.82, "Singapore", "SG"),
+    "seoul": (37.57, 126.98, "Seoul", "KR"),
+}
+
+
+def _parse_coordinates(lat_val: Any, lon_val: Any) -> Optional[tuple[float, float]]:
+    if lat_val is None or lon_val is None:
+        return None
+    try:
+        if isinstance(lat_val, bool) or isinstance(lon_val, bool):
+            return None
+        lat = float(lat_val)
+        lon = float(lon_val)
+        if -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0:
+            return round(lat, 2), round(lon, 2)
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def resolve_weather_location(
+    *,
+    city: Optional[str] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+    user_state: Optional[UserStateRepository] = None,
+    user_id: Optional[UUID] = None,
+) -> Optional[WeatherLocation]:
+    """Resolve coarse WeatherLocation following the 4-level priority order:
+    1. Explicit coordinates / city passed in the current request.
+    2. Authenticated user's saved location preference from UserState settings.
+    3. Guest user's locally supplied location in ephemeral user state.
+    4. Fallback to None (weather omitted cleanly).
+    """
+    # Priority 1: Explicit request params
+    coords = _parse_coordinates(latitude, longitude)
+    clean_city = city.strip() if isinstance(city, str) and city.strip() else None
+    if coords is not None:
+        return WeatherLocation(
+            latitude=coords[0],
+            longitude=coords[1],
+            city=clean_city,
+        )
+    if clean_city:
+        matched = MAJOR_CITIES.get(clean_city.lower())
+        if matched is not None:
+            return WeatherLocation(
+                latitude=matched[0],
+                longitude=matched[1],
+                city=matched[2],
+                country=matched[3],
+            )
+
+    # Priority 2 & 3: Stored settings
+    if user_state is not None and user_id is not None:
+        try:
+            profile = user_state.get_profile(user_id=user_id)
+        except Exception:
+            profile = None
+        if profile is not None and isinstance(profile.settings, dict):
+            settings = profile.settings
+            loc_data = (
+                settings.get("weather_location")
+                or settings.get("weatherLocation")
+                or settings.get("location")
+            )
+            if isinstance(loc_data, dict):
+                s_lat = loc_data.get("lat") or loc_data.get("latitude")
+                s_lon = loc_data.get("lon") or loc_data.get("longitude")
+                s_city = (
+                    loc_data.get("city")
+                    or loc_data.get("cityName")
+                    or loc_data.get("name")
+                )
+                s_country = loc_data.get("country")
+                s_coords = _parse_coordinates(s_lat, s_lon)
+                clean_s_city = (
+                    s_city.strip()
+                    if isinstance(s_city, str) and s_city.strip()
+                    else None
+                )
+                if s_coords is not None:
+                    return WeatherLocation(
+                        latitude=s_coords[0],
+                        longitude=s_coords[1],
+                        city=clean_s_city,
+                        country=str(s_country).strip() if s_country else None,
+                    )
+                if clean_s_city:
+                    matched = MAJOR_CITIES.get(clean_s_city.lower())
+                    if matched is not None:
+                        return WeatherLocation(
+                            latitude=matched[0],
+                            longitude=matched[1],
+                            city=matched[2],
+                            country=matched[3],
+                        )
+
+            # Check flat settings keys
+            flat_lat = settings.get("lat") or settings.get("latitude")
+            flat_lon = settings.get("lon") or settings.get("longitude")
+            flat_city = settings.get("city")
+            flat_coords = _parse_coordinates(flat_lat, flat_lon)
+            clean_flat_city = (
+                flat_city.strip()
+                if isinstance(flat_city, str) and flat_city.strip()
+                else None
+            )
+            if flat_coords is not None:
+                return WeatherLocation(
+                    latitude=flat_coords[0],
+                    longitude=flat_coords[1],
+                    city=clean_flat_city,
+                )
+            if clean_flat_city:
+                matched = MAJOR_CITIES.get(clean_flat_city.lower())
+                if matched is not None:
+                    return WeatherLocation(
+                        latitude=matched[0],
+                        longitude=matched[1],
+                        city=matched[2],
+                        country=matched[3],
+                    )
+
+    # Priority 4: No valid location
+    return None
+
+
+def _build_weather_payload(
+    weather_context: Optional[WeatherContext],
+) -> Optional[dict[str, Any]]:
+    """Build wire-compatible weather dictionary from domain WeatherContext."""
+    if weather_context is None:
+        return None
+    city = weather_context.location.city if weather_context.location else None
+    temp_c = weather_context.temperature_c
+    temp_round = int(round(temp_c))
+    condition = weather_context.condition_text
+    summary = (
+        f"{temp_round}°C • {condition} in {city}"
+        if city
+        else f"{temp_round}°C • {condition}"
+    )
+
+    return {
+        "applied": True,
+        "condition": condition,
+        "conditionCode": weather_context.condition_code,
+        "temperatureC": temp_c,
+        "temperatureF": weather_context.temperature_f,
+        "apparentTemperatureC": weather_context.apparent_temperature_c,
+        "apparentTemperatureF": weather_context.apparent_temperature_f,
+        "precipitationProbability": weather_context.precipitation_probability,
+        "precipitationMm": weather_context.precipitation_mm,
+        "windSpeedKmh": weather_context.wind_speed_kmh,
+        "isRaining": weather_context.is_raining,
+        "forecastTimestamp": weather_context.forecast_timestamp,
+        "city": city,
+        "summary": summary,
+        "fallback": False,
+    }
+
 
 # Canonical ensemble slot order for component rendering (tops first —
 # same order as the M8-C event outfit adapter).
@@ -138,7 +331,7 @@ class _DerivationFailed(Exception):
     """Unexpected engine failure during candidate derivation."""
 
 
-def _derive_today_look(
+async def _derive_today_look(
     *,
     events: UserEventRepository,
     event_types: EventTypeRepository,
@@ -146,6 +339,10 @@ def _derive_today_look(
     user_state: UserStateRepository,
     user_id: UUID,
     key: Optional[str],
+    weather_provider: Optional[WeatherProvider] = None,
+    city: Optional[str] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
 ) -> Optional[TodayLookRecommendation]:
     """Shared derivation for GET (variant) and POST (seed).
 
@@ -171,6 +368,37 @@ def _derive_today_look(
         if isinstance(item, str) and item not in occasions
     )
 
+    # Weather location resolution & provider orchestration (Stage 2 P1-3)
+    weather_location = resolve_weather_location(
+        city=city,
+        latitude=latitude,
+        longitude=longitude,
+        user_state=user_state,
+        user_id=user_id,
+    )
+    weather_context: Optional[WeatherContext] = None
+    if weather_provider is not None and weather_location is not None:
+        try:
+            weather_context = await weather_provider.get_weather(
+                latitude=weather_location.latitude,
+                longitude=weather_location.longitude,
+                city=weather_location.city,
+                country=weather_location.country,
+            )
+        except WeatherError as exc:
+            logger.warning(
+                "Weather provider returned %s: %s; falling back to normal scoring",
+                exc.__class__.__name__,
+                exc.message,
+            )
+            weather_context = None
+        except Exception as exc:
+            logger.exception(
+                "Unexpected error fetching weather (%s); falling back to normal scoring",
+                exc.__class__.__name__,
+            )
+            weather_context = None
+
     adapted = [
         SimpleNamespace(
             id=str(record.id),
@@ -185,7 +413,13 @@ def _derive_today_look(
     try:
         ranked = rank_outfit_candidates(
             [
-                score_outfit_candidate(candidate, items_by_id, frozenset(), occasions)
+                score_outfit_candidate(
+                    candidate,
+                    items_by_id,
+                    frozenset(),
+                    occasions,
+                    weather_context=weather_context,
+                )
                 for candidate in generate_outfit_candidates(adapted)
             ]
         )
@@ -210,6 +444,7 @@ def _derive_today_look(
         ranked=ranked,
         by_record=by_record,
         total_items=len(wardrobe),
+        weather_context=weather_context,
     )
 
 
@@ -280,6 +515,7 @@ def _to_recommendation(
     ranked: list,
     by_record: dict,
     total_items: int,
+    weather_context: Optional[WeatherContext] = None,
 ) -> TodayLookRecommendation:
     if event_code is not None:
         type_row = event_types.get_by_code(code=event_code)
@@ -347,6 +583,7 @@ def _to_recommendation(
         matching_items=len(selected_item_ids),
         alternatives=alternatives,
         selected_item_ids=selected_item_ids,
+        weather=_build_weather_payload(weather_context),
     )
 
 
@@ -356,7 +593,7 @@ class GetTodayLook:
     READ/DERIVE only (TRX-2): repeated calls over unchanged inputs are
     byte-identical. `variant` is an opaque ranked-candidate selector —
     no vocabulary is invented for it. No legal candidate → `None`
-    (the router answers 404); weather is absent by design (never 503).
+    (the router answers 404); weather failure gracefully falls back (DEC-017-G).
     """
 
     def __init__(
@@ -366,24 +603,36 @@ class GetTodayLook:
         event_types: EventTypeRepository,
         wardrobe_items: WardrobeItemRepository,
         user_state: UserStateRepository,
+        weather_provider: Optional[WeatherProvider] = None,
     ) -> None:
         self._events = events
         self._event_types = event_types
         self._wardrobe_items = wardrobe_items
         self._user_state = user_state
+        self._weather_provider = weather_provider
 
-    def __call__(
-        self, *, user_id: UUID, variant: object = None
+    async def __call__(
+        self,
+        *,
+        user_id: UUID,
+        variant: object = None,
+        city: Optional[str] = None,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
     ) -> Optional[TodayLookRecommendation]:
         key = _validate_selector("variant", variant)
         try:
-            return _derive_today_look(
+            return await _derive_today_look(
                 events=self._events,
                 event_types=self._event_types,
                 wardrobe_items=self._wardrobe_items,
                 user_state=self._user_state,
                 user_id=user_id,
                 key=key,
+                weather_provider=self._weather_provider,
+                city=city,
+                latitude=latitude,
+                longitude=longitude,
             )
         except _DerivationFailed:
             raise internal_error()
@@ -406,24 +655,36 @@ class RegenerateTodayLook:
         event_types: EventTypeRepository,
         wardrobe_items: WardrobeItemRepository,
         user_state: UserStateRepository,
+        weather_provider: Optional[WeatherProvider] = None,
     ) -> None:
         self._events = events
         self._event_types = event_types
         self._wardrobe_items = wardrobe_items
         self._user_state = user_state
+        self._weather_provider = weather_provider
 
-    def __call__(
-        self, *, user_id: UUID, seed: object = None
+    async def __call__(
+        self,
+        *,
+        user_id: UUID,
+        seed: object = None,
+        city: Optional[str] = None,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
     ) -> Optional[TodayLookRecommendation]:
         key = _validate_selector("seed", seed)
         try:
-            return _derive_today_look(
+            return await _derive_today_look(
                 events=self._events,
                 event_types=self._event_types,
                 wardrobe_items=self._wardrobe_items,
                 user_state=self._user_state,
                 user_id=user_id,
                 key=key,
+                weather_provider=self._weather_provider,
+                city=city,
+                latitude=latitude,
+                longitude=longitude,
             )
         except _DerivationFailed:
             raise ai_failure()

@@ -19,9 +19,30 @@ optionals never reach the wire. Alternatives carry the minimal mapping
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+
+class TodayLookWeather(BaseModel):
+    """Normalized weather context exposed in TodayLook (Stage 2 P1-3)."""
+
+    applied: bool = True
+    condition: str
+    conditionCode: Optional[str] = None
+    temperatureC: float
+    temperatureF: float
+    apparentTemperatureC: Optional[float] = None
+    apparentTemperatureF: Optional[float] = None
+    precipitationProbability: Optional[float] = None
+    precipitationMm: Optional[float] = None
+    windSpeedKmh: Optional[float] = None
+    isRaining: Optional[bool] = None
+    forecastTimestamp: Optional[datetime] = None
+    city: Optional[str] = None
+    summary: str
+    fallback: bool = False
 
 
 class TodayLookComponent(BaseModel):
@@ -64,6 +85,7 @@ class TodayLook(BaseModel):
 
     title: str
     occasion: Optional[str] = None
+    weather: Optional[TodayLookWeather] = None
     description: str
     matchScore: int = Field(ge=0, le=100)
     styleScore: int = Field(ge=0, le=100)

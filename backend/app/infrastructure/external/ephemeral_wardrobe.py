@@ -201,6 +201,13 @@ class EphemeralWardrobeItemRepository:
                 return item
         return None
 
+    def get_by_ids(
+        self, *, user_id: Optional[UUID] = None, item_ids: Sequence[Union[UUID, str]]
+    ) -> list[WardrobeItemRecord]:
+        targets = {str(iid) for iid in item_ids}
+        return [item for item in self._items if str(item.id) in targets]
+
+
     def get_insight_summary(
         self, *, user_id: Optional[UUID] = None
     ) -> WardrobeInsightSummary:

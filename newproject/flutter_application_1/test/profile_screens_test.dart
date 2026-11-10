@@ -44,6 +44,14 @@ class _FakeSavedLooksRepository implements SavedLooksRepository {
   Future<SavedLookDeleteOutcome?> deleteSavedLook({required String id}) async {
     return SavedLookDeleteOutcome.deleted;
   }
+
+  @override
+  Future<SavedLookItem?> getSavedLook({
+    required String id,
+    bool includeItems = true,
+  }) async {
+    return rows.where((r) => r.id == id).firstOrNull;
+  }
 }
 
 SavedLookItem _row(String id, String title, String? sourceContext) {
@@ -105,9 +113,7 @@ void main() {
           if (request.method == 'GET') {
             return http.Response(
               jsonEncode({
-                'preferences': {
-                  'preferredOccasions': <String>[],
-                },
+                'preferences': {'preferredOccasions': <String>[]},
               }),
               200,
             );

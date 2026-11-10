@@ -20,6 +20,21 @@ class SaveLookRequest(BaseModel):
     snapshot: dict[str, Any]
 
 
+class HydratedGarmentItem(BaseModel):
+    id: str
+    name: str
+    category: str
+    color: str
+    material: Optional[str] = None
+    isFavorite: bool = False
+    imageRef: Optional[dict[str, Any]] = None
+    imageUrl: Optional[str] = None
+    fit: Optional[str] = None
+    fitConfidence: Optional[float] = None
+    reason: Optional[str] = None
+    isArchived: bool = False
+
+
 class SavedLook(BaseModel):
     id: UUID
     lookId: Optional[str] = None
@@ -28,6 +43,7 @@ class SavedLook(BaseModel):
     snapshot: dict[str, Any]
     sourceRunId: Optional[UUID] = None
     createdAt: datetime
+    items: Optional[list[HydratedGarmentItem]] = None
 
 
 class SavedLookList(BaseModel):

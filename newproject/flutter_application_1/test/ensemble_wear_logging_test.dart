@@ -30,23 +30,22 @@ const _wearB = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 Map<String, dynamic> _wearResponseJson({
   bool created = true,
   List<String> items = const [_itemA, _itemB],
-}) =>
-    {
-      'wearGroupId': _groupA,
-      'wornAt': '2026-10-31T20:00:00.000Z',
-      'created': created,
-      'wears': items
-          .map(
-            (id) => {
-              'id': id == _itemA ? _wearA : _wearB,
-              'wardrobeItemId': id,
-              'wornAt': '2026-10-31T20:00:00.000Z',
-              'wearGroupId': _groupA,
-              'createdAt': '2026-10-31T20:00:00.000Z',
-            },
-          )
-          .toList(),
-    };
+}) => {
+  'wearGroupId': _groupA,
+  'wornAt': '2026-10-31T20:00:00.000Z',
+  'created': created,
+  'wears': items
+      .map(
+        (id) => {
+          'id': id == _itemA ? _wearA : _wearB,
+          'wardrobeItemId': id,
+          'wornAt': '2026-10-31T20:00:00.000Z',
+          'wearGroupId': _groupA,
+          'createdAt': '2026-10-31T20:00:00.000Z',
+        },
+      )
+      .toList(),
+};
 
 class _MockScriptedWardrobeRepository implements WardrobeRepository {
   List<String>? lastLoggedIds;
@@ -80,12 +79,11 @@ class _MockScriptedWardrobeRepository implements WardrobeRepository {
     required List<String> itemIds,
     DateTime? wornAt,
     String? idempotencyKey,
-  }) =>
-      logEnsembleWear(
-        itemIds: itemIds,
-        wornAt: wornAt,
-        idempotencyKey: idempotencyKey,
-      );
+  }) => logEnsembleWear(
+    itemIds: itemIds,
+    wornAt: wornAt,
+    idempotencyKey: idempotencyKey,
+  );
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -96,11 +94,19 @@ class _FakeTodayLookRepo implements TodayLookRepository {
   final TodayLook look;
 
   @override
-  Future<TodayLookResult> getTodayLook() async => TodayLookResult.available(look);
+  Future<TodayLookResult> getTodayLook({
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async => TodayLookResult.available(look);
 
   @override
-  Future<TodayLookResult> regenerateTodayLook({String? seed}) async =>
-      TodayLookResult.available(look);
+  Future<TodayLookResult> regenerateTodayLook({
+    String? seed,
+    String? city,
+    double? latitude,
+    double? longitude,
+  }) async => TodayLookResult.available(look);
 
   @override
   Future<SavedTodayLook?> saveTodayLook({
@@ -108,12 +114,12 @@ class _FakeTodayLookRepo implements TodayLookRepository {
     String? lookId,
     required Map<String, dynamic> snapshot,
     required String idempotencyKey,
-  }) async =>
-      null;
+  }) async => null;
 }
 
 TodayLook _buildTestTodayLook({List<TodayLookComponent>? components}) {
-  final comps = components ??
+  final comps =
+      components ??
       const [
         TodayLookComponent(
           id: _itemA,
@@ -138,14 +144,18 @@ TodayLook _buildTestTodayLook({List<TodayLookComponent>? components}) {
     styleScore: 90,
     components: comps,
     reasons: const ['Color harmony across neutral tones'],
-    wardrobeContext: const TodayLookWardrobeContext(totalItems: 12, matchingItems: 8),
+    wardrobeContext: const TodayLookWardrobeContext(
+      totalItems: 12,
+      matchingItems: 8,
+    ),
     selectedItemIds: comps.map((c) => c.id).toList(),
     snapshot: const {'title': 'Modern Tailoring'},
   );
 }
 
 OutfitRecommendation _buildTestOutfitRec({List<OutfitComponent>? components}) {
-  final comps = components ??
+  final comps =
+      components ??
       const [
         OutfitComponent(
           id: _itemA,
@@ -190,36 +200,39 @@ void main() {
   });
 
   group('WardrobeClient.logEnsembleWear', () {
-    test('sends POST /v1/wardrobe/wears with correct headers and payload', () async {
-      late http.Request captured;
-      final mock = MockClient((request) async {
-        captured = request;
-        return http.Response(
-          jsonEncode(_wearResponseJson(created: true)),
-          201,
-          headers: {'content-type': 'application/json'},
+    test(
+      'sends POST /v1/wardrobe/wears with correct headers and payload',
+      () async {
+        late http.Request captured;
+        final mock = MockClient((request) async {
+          captured = request;
+          return http.Response(
+            jsonEncode(_wearResponseJson(created: true)),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+
+        final client = WardrobeClient(client: mock);
+        final resp = await client.logEnsembleWear(
+          itemIds: const [_itemA, _itemB],
+          idempotencyKey: 'test-idemp-key',
         );
-      });
 
-      final client = WardrobeClient(client: mock);
-      final resp = await client.logEnsembleWear(
-        itemIds: const [_itemA, _itemB],
-        idempotencyKey: 'test-idemp-key',
-      );
+        expect(resp, isNotNull);
+        expect(resp!.created, isTrue);
+        expect(resp.wearGroupId, _groupA);
+        expect(resp.wears.length, 2);
 
-      expect(resp, isNotNull);
-      expect(resp!.created, isTrue);
-      expect(resp.wearGroupId, _groupA);
-      expect(resp.wears.length, 2);
+        expect(captured.method, 'POST');
+        expect(captured.url.path, '/v1/wardrobe/wears');
+        expect(captured.headers['Authorization'], 'Bearer test-token');
+        expect(captured.headers['Idempotency-Key'], 'test-idemp-key');
 
-      expect(captured.method, 'POST');
-      expect(captured.url.path, '/v1/wardrobe/wears');
-      expect(captured.headers['Authorization'], 'Bearer test-token');
-      expect(captured.headers['Idempotency-Key'], 'test-idemp-key');
-
-      final body = jsonDecode(captured.body) as Map<String, dynamic>;
-      expect(body['itemIds'], [_itemA, _itemB]);
-    });
+        final body = jsonDecode(captured.body) as Map<String, dynamic>;
+        expect(body['itemIds'], [_itemA, _itemB]);
+      },
+    );
 
     test('parses idempotent replay with created = false', () async {
       final mock = MockClient((request) async {
@@ -239,16 +252,19 @@ void main() {
       expect(resp!.created, isFalse);
     });
 
-    test('returns null on 404/409/422/500 API errors without throwing', () async {
-      for (final code in [401, 404, 409, 422, 500]) {
-        final mock = MockClient((request) async {
-          return http.Response(jsonEncode({'error': 'failed'}), code);
-        });
-        final client = WardrobeClient(client: mock);
-        final resp = await client.logEnsembleWear(itemIds: const [_itemA]);
-        expect(resp, isNull);
-      }
-    });
+    test(
+      'returns null on 404/409/422/500 API errors without throwing',
+      () async {
+        for (final code in [401, 404, 409, 422, 500]) {
+          final mock = MockClient((request) async {
+            return http.Response(jsonEncode({'error': 'failed'}), code);
+          });
+          final client = WardrobeClient(client: mock);
+          final resp = await client.logEnsembleWear(itemIds: const [_itemA]);
+          expect(resp, isNull);
+        }
+      },
+    );
   });
 
   group('WardrobeRepositoryImpl.logEnsembleWear', () {
@@ -284,21 +300,26 @@ void main() {
       expect(called, isFalse);
     });
 
-    test('rejects non-UUID items (zero fabrication) without network call', () async {
-      var called = false;
-      final mock = MockClient((request) async {
-        called = true;
-        return http.Response('{}', 200);
-      });
+    test(
+      'rejects non-UUID items (zero fabrication) without network call',
+      () async {
+        var called = false;
+        final mock = MockClient((request) async {
+          called = true;
+          return http.Response('{}', 200);
+        });
 
-      final repo = WardrobeRepositoryImpl(client: WardrobeClient(client: mock));
-      final resp = await repo.logEnsembleWear(
-        itemIds: const [_itemA, '12', 'fake-item'],
-      );
+        final repo = WardrobeRepositoryImpl(
+          client: WardrobeClient(client: mock),
+        );
+        final resp = await repo.logEnsembleWear(
+          itemIds: const [_itemA, '12', 'fake-item'],
+        );
 
-      expect(resp, isNull);
-      expect(called, isFalse);
-    });
+        expect(resp, isNull);
+        expect(called, isFalse);
+      },
+    );
 
     test('rejects lists exceeding 10 canonical items', () async {
       var called = false;
@@ -424,50 +445,58 @@ void main() {
       expect(repo.logCallCount, 0);
     });
 
-    testWidgets('renders error view with retry on failure, preserving idempotency key', (
-      WidgetTester tester,
-    ) async {
-      final repo = _MockScriptedWardrobeRepository()
-        ..nextResponse = null; // failure
+    testWidgets(
+      'renders error view with retry on failure, preserving idempotency key',
+      (WidgetTester tester) async {
+        final repo = _MockScriptedWardrobeRepository()
+          ..nextResponse = null; // failure
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: EnsembleWearConfirmationSheet(
-              outfitTitle: 'Tailored Ensemble',
-              garments: const [
-                EnsembleWearGarment(
-                  id: _itemA,
-                  name: 'Merino Blazer',
-                  category: 'outerwear',
-                ),
-              ],
-              wardrobeRepository: repo,
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EnsembleWearConfirmationSheet(
+                outfitTitle: 'Tailored Ensemble',
+                garments: const [
+                  EnsembleWearGarment(
+                    id: _itemA,
+                    name: 'Merino Blazer',
+                    category: 'outerwear',
+                  ),
+                ],
+                wardrobeRepository: repo,
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('confirm_wear_button')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('confirm_wear_button')));
+        await tester.pumpAndSettle();
 
-      expect(repo.logCallCount, 1);
-      final firstKey = repo.lastIdempotencyKey;
-      expect(find.text("Couldn't Record Wear"), findsOneWidget);
+        expect(repo.logCallCount, 1);
+        final firstKey = repo.lastIdempotencyKey;
+        expect(find.text("Couldn't Record Wear"), findsOneWidget);
 
-      // Set up success for retry
-      repo.nextResponse = WearEventLogResponse.fromJson(_wearResponseJson(items: [_itemA]));
+        // Set up success for retry
+        repo.nextResponse = WearEventLogResponse.fromJson(
+          _wearResponseJson(items: [_itemA]),
+        );
 
-      await tester.tap(find.byKey(const Key('wear_error_retry_button')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('wear_error_retry_button')));
+        await tester.pumpAndSettle();
 
-      expect(repo.logCallCount, 2);
-      expect(repo.lastIdempotencyKey, firstKey); // Idempotency key preserved across retry
-      expect(find.text('Outfit Recorded!'), findsOneWidget);
-    });
+        expect(repo.logCallCount, 2);
+        expect(
+          repo.lastIdempotencyKey,
+          firstKey,
+        ); // Idempotency key preserved across retry
+        expect(find.text('Outfit Recorded!'), findsOneWidget);
+      },
+    );
 
-    testWidgets('enforces guest authentication boundary', (WidgetTester tester) async {
+    testWidgets('enforces guest authentication boundary', (
+      WidgetTester tester,
+    ) async {
       AuthSession.resetForTest();
       await AuthSession.clearSession();
       LocalStorage.savedLocally = true;
@@ -510,7 +539,10 @@ void main() {
       // Zero backend calls made
       expect(repo.logCallCount, 0);
       // Guest sign-in prompted
-      expect(find.text('Sign in to log wears. Browsing stays free.'), findsOneWidget);
+      expect(
+        find.text('Sign in to log wears. Browsing stays free.'),
+        findsOneWidget,
+      );
     });
   });
 
@@ -561,7 +593,9 @@ void main() {
       expect(find.text('Worn Today'), findsOneWidget);
     });
 
-    testWidgets('prevents wear logging when guest user', (WidgetTester tester) async {
+    testWidgets('prevents wear logging when guest user', (
+      WidgetTester tester,
+    ) async {
       AuthSession.resetForTest();
       await AuthSession.clearSession();
       LocalStorage.savedLocally = true;
@@ -636,7 +670,9 @@ void main() {
       expect(find.text('Worn Today'), findsOneWidget);
     });
 
-    testWidgets('prompts sign in when guest taps Log Wear Today', (WidgetTester tester) async {
+    testWidgets('prompts sign in when guest taps Log Wear Today', (
+      WidgetTester tester,
+    ) async {
       AuthSession.resetForTest();
       await AuthSession.clearSession();
       LocalStorage.savedLocally = true;
@@ -677,7 +713,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(wardrobeRepo.logCallCount, 0);
-      expect(find.text('Sign in to log wears. Browsing stays free.'), findsOneWidget);
+      expect(
+        find.text('Sign in to log wears. Browsing stays free.'),
+        findsOneWidget,
+      );
       expect(find.text('sign-in-screen'), findsOneWidget);
     });
   });

@@ -39,10 +39,11 @@ class SavedLooksClient {
   Future<SavedLookListPage?> listSavedLooks({
     int page = 1,
     int pageSize = 20,
+    bool includeItems = true,
   }) async {
     try {
       final uri = Uri.parse(
-        '$baseUrl/v1/looks/saved?page=$page&page_size=$pageSize',
+        '$baseUrl/v1/looks/saved?page=$page&page_size=$pageSize&include_items=$includeItems',
       );
       final response = await _client
           .get(uri, headers: {'Authorization': 'Bearer $_devToken'})
@@ -57,6 +58,34 @@ class SavedLooksClient {
       );
     } catch (error) {
       debugPrint('Saved looks backend unreachable during list: $error');
+    }
+    return null;
+  }
+
+  /// Fetches one owned saved look (endpoint `GET /v1/looks/saved/{saved_look_id}`).
+  ///
+  /// Returns the decoded [SavedLookItem] on 200, or null when unreachable or 404.
+  Future<SavedLookItem?> getSavedLook({
+    required String id,
+    bool includeItems = true,
+  }) async {
+    try {
+      final uri = Uri.parse(
+        '$baseUrl/v1/looks/saved/$id?include_items=$includeItems',
+      );
+      final response = await _client
+          .get(uri, headers: {'Authorization': 'Bearer $_devToken'})
+          .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return SavedLookItem.fromJson(decoded);
+      }
+      debugPrint(
+        'Saved look detail responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Saved look detail backend unreachable: $error');
     }
     return null;
   }
