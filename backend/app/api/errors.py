@@ -149,6 +149,100 @@ def internal_error() -> ApiError:
     )
 
 
+# ---------------------------------------------------------------------------
+# Scheduler Error Helpers (Sub-Batch 3.1)
+# ---------------------------------------------------------------------------
+
+
+def gpu_queue_saturated(retry_after_s: int = 5) -> ApiError:
+    """HTTP 429 when GPU Tier 1 queue exceeds capacity."""
+    try:
+        retry = max(1, int(retry_after_s))
+    except (TypeError, ValueError):
+        retry = 5
+    return ApiError(
+        status_code=429,
+        code="RATE_LIMITED",
+        message="The AI processing queue is currently at maximum capacity. Please retry shortly.",
+        details={"reason": "gpu_queue_saturated", "retry_after": retry},
+        headers={"Retry-After": str(retry)},
+    )
+
+
+def gpu_lease_timeout(
+    phase: str = "acquisition",
+    retry_after_s: int = 5,
+) -> ApiError:
+    """HTTP 504 for GPU lease acquisition or execution timeout.
+
+    Clearly distinguishes between acquisition timeout (waiting in queue / for lock)
+    and execution timeout (Ollama inference running). Advisory Retry-After header
+    included for acquisition phase without guaranteeing availability.
+    """
+    try:
+        retry = max(1, int(retry_after_s))
+    except (TypeError, ValueError):
+        retry = 5
+
+    if phase == "acquisition":
+        return ApiError(
+            status_code=504,
+            code="TIMEOUT",
+            message="The request timed out waiting for an available AI processing slot.",
+            details={"phase": "acquisition", "retry_after": retry},
+            headers={"Retry-After": str(retry)},
+        )
+    return ApiError(
+        status_code=504,
+        code="TIMEOUT",
+        message="The AI model timed out while processing your request.",
+        details={"phase": "execution"},
+    )
+
+
+def gpu_quarantined(retry_after_s: int = 15) -> ApiError:
+    """HTTP 503 when GPU is quarantined due to unconfirmed workload or fault."""
+    try:
+        retry = max(1, int(retry_after_s))
+    except (TypeError, ValueError):
+        retry = 15
+    return ApiError(
+        status_code=503,
+        code="AI_FAILURE",
+        message="The style service is temporarily unavailable. Automated recovery in progress.",
+        details={"reason": "gpu_quarantined", "retry_after": retry},
+        headers={"Retry-After": str(retry)},
+    )
+
+
+def map_scheduler_error_to_api_error(exc: Exception) -> ApiError:
+    """Centralized mapper converting scheduler exceptions to standard ApiError instances."""
+    from app.ai.manager.types import (
+        GPUResourceQuarantinedError,
+        SchedulerQueueFullError,
+        SchedulerShutdownError,
+        SchedulerTimeoutError,
+        WorkloadUncertainError,
+    )
+
+    if isinstance(exc, SchedulerQueueFullError):
+        return gpu_queue_saturated()
+    if isinstance(exc, SchedulerTimeoutError):
+        phase = getattr(exc, "phase", "acquisition")
+        return gpu_lease_timeout(phase=phase)
+    if isinstance(exc, (GPUResourceQuarantinedError, WorkloadUncertainError)):
+        return gpu_quarantined()
+    if isinstance(exc, SchedulerShutdownError):
+        return ApiError(
+            status_code=503,
+            code="AI_FAILURE",
+            message="The service is currently shutting down.",
+            details={"reason": "service_shutdown"},
+        )
+    return ai_failure()
+
+
+
 def _request_id(request: Request) -> str:
     """Resolve and cache correlation ID for the lifetime of this request."""
     state = getattr(request, "state", None)

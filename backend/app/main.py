@@ -24,8 +24,20 @@ from sqlalchemy.orm import Session
 
 from app.ai import engine
 from app.ai.lifecycle import OllamaLifecycleManager
+from app.ai.manager.scheduler import GPUResourceScheduler, get_gpu_scheduler
+from app.ai.manager.types import (
+    GPUResourceQuarantinedError,
+    SchedulerQueueFullError,
+    SchedulerShutdownError,
+    SchedulerTimeoutError,
+    WorkloadType,
+)
 from app.api import errors
-from app.api.deps import get_current_user_id, get_lifecycle_manager
+from app.api.deps import (
+    get_current_user_id,
+    get_gpu_scheduler as deps_get_gpu_scheduler,
+    get_lifecycle_manager,
+)
 from app.api.errors import ApiError, database_failure
 from app.api.routers import (
     analysis,
@@ -72,20 +84,82 @@ logger = logging.getLogger("fansivibe.main")
 settings = get_settings()
 
 
+async def _run_startup_warmup(
+    scheduler: GPUResourceScheduler,
+    lifecycle: OllamaLifecycleManager,
+) -> None:
+    """Execute opportunistic Priority 3 startup warmup under scheduler lease (Sub-Batch 3.1).
+
+    Invariants (Batch 3.0.2 Architecture):
+    - Priority 3 (Background Warmup).
+    - Short bounded acquisition timeout (0.5s): skips cleanly if GPU is held or contended.
+    - Bounded execution timeout (10.0s).
+    - Synchronous HTTP call executes in worker thread via asyncio.to_thread to avoid blocking event loop.
+    - Unconfirmed termination or timeout preserves kernel lock descriptor and enters quarantine.
+    - Zero flag files or cooperative preemption files.
+    """
+    try:
+        async with scheduler.acquire_lease(
+            model_id=lifecycle.model,
+            workload_type=WorkloadType.REASONING_VISION,
+            priority=3,
+            timeout_s=10.0,
+            acquisition_timeout_s=0.5,
+        ) as lease:
+            logger.info(
+                "Acquired Priority 3 GPU lease (%s) for startup warmup of '%s'",
+                lease.lease_id,
+                lifecycle.model,
+            )
+            success = await asyncio.to_thread(lifecycle.warmup, 10.0)
+            if not success:
+                logger.warning(
+                    "Startup warmup for '%s' completed with non-success status",
+                    lifecycle.model,
+                )
+    except SchedulerTimeoutError as exc:
+        if getattr(exc, "phase", None) == "acquisition":
+            logger.info(
+                "GPU currently busy or held by another worker; skipping startup warmup (phase=acquisition)"
+            )
+        else:
+            logger.warning("Startup warmup timed out during execution: %s", exc)
+    except SchedulerQueueFullError:
+        logger.info("GPU scheduler queue full; skipping startup warmup")
+    except GPUResourceQuarantinedError:
+        logger.warning("GPU is quarantined; skipping startup warmup")
+    except SchedulerShutdownError:
+        logger.info("Scheduler shutting down; startup warmup aborted")
+    except Exception as exc:
+        logger.warning("Startup warmup encountered unexpected error: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan: background model warmup & probe on startup."""
+    """Application lifespan: background model warmup & probe on startup, graceful shutdown."""
     current_settings = get_settings()
+    scheduler_provider = app.dependency_overrides.get(
+        deps_get_gpu_scheduler, get_gpu_scheduler
+    )
+    scheduler = scheduler_provider()
+    app.state.gpu_scheduler = scheduler
+
+    warmup_task: Optional[asyncio.Task] = None
     if not current_settings.disable_reasoning:
         try:
-            lifecycle = OllamaLifecycleManager()
+            lifecycle_provider = app.dependency_overrides.get(
+                get_lifecycle_manager, OllamaLifecycleManager
+            )
+            lifecycle = lifecycle_provider()
             status = lifecycle.check_availability(timeout_s=2.0)
             if status.available and status.model_present:
                 logger.info(
                     "Ollama model '%s' available. Starting background warmup...",
                     status.model_name,
                 )
-                asyncio.create_task(asyncio.to_thread(lifecycle.warmup, 25.0))
+                warmup_task = asyncio.create_task(
+                    _run_startup_warmup(scheduler, lifecycle)
+                )
             else:
                 logger.warning(
                     "Ollama probe on startup: %s",
@@ -93,7 +167,21 @@ async def lifespan(app: FastAPI):
                 )
         except Exception as exc:
             logger.warning("Ollama startup probe failed: %s", exc)
-    yield
+    try:
+        yield
+    finally:
+        # Graceful scheduler shutdown: drains/cancels queue and waits up to 5.0s for active lease
+        try:
+            await scheduler.shutdown(timeout_s=5.0)
+        except Exception as exc:
+            logger.warning("Error during scheduler shutdown: %s", exc)
+        if warmup_task is not None and not warmup_task.done():
+            warmup_task.cancel()
+            try:
+                await warmup_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
 
 
 app = FastAPI(

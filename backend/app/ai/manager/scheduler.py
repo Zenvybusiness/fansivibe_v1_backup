@@ -1362,3 +1362,57 @@ class GPUResourceScheduler:
     def on_quarantine_cleared(self, evidence: Optional[dict[str, Any]]) -> None:
         """Telemetry hook: invoked when GPU quarantine is cleared."""
         logger.info("GPU RESOURCE QUARANTINE CLEARED: %s", evidence)
+
+
+# ---------------------------------------------------------------------------
+# Process-Local Singleton Seam (Sub-Batch 3.1)
+# ---------------------------------------------------------------------------
+
+_gpu_scheduler_instance: Optional[GPUResourceScheduler] = None
+_gpu_scheduler_lock = threading.Lock()
+
+
+def get_gpu_scheduler(
+    *,
+    lockfile_path: Optional[str] = None,
+    metadata_path: Optional[str] = None,
+    quarantine_path: Optional[str] = None,
+    max_queue_depth: Optional[int] = None,
+    default_timeout_s: Optional[float] = None,
+    poll_interval_s: Optional[float] = None,
+    grace_period_s: Optional[float] = None,
+) -> GPUResourceScheduler:
+    """Return the process-local, thread-safe singleton GPUResourceScheduler.
+
+    Guarantees that all in-process consumers receive the exact same scheduler
+    instance, preserving Tier 1 in-memory priority queue coordination and
+    Tier 2 cross-process kernel flock coordination without duplicate instances.
+    """
+    global _gpu_scheduler_instance
+    if _gpu_scheduler_instance is None:
+        with _gpu_scheduler_lock:
+            if _gpu_scheduler_instance is None:
+                kwargs: dict[str, Any] = {}
+                if lockfile_path is not None:
+                    kwargs["lockfile_path"] = lockfile_path
+                if metadata_path is not None:
+                    kwargs["metadata_path"] = metadata_path
+                if quarantine_path is not None:
+                    kwargs["quarantine_path"] = quarantine_path
+                if max_queue_depth is not None:
+                    kwargs["max_queue_depth"] = max_queue_depth
+                if default_timeout_s is not None:
+                    kwargs["default_timeout_s"] = default_timeout_s
+                if poll_interval_s is not None:
+                    kwargs["poll_interval_s"] = poll_interval_s
+                if grace_period_s is not None:
+                    kwargs["grace_period_s"] = grace_period_s
+                _gpu_scheduler_instance = GPUResourceScheduler(**kwargs)
+    return _gpu_scheduler_instance
+
+
+def reset_gpu_scheduler_for_tests() -> None:
+    """Reset the process-local GPUResourceScheduler singleton for isolated tests."""
+    global _gpu_scheduler_instance
+    with _gpu_scheduler_lock:
+        _gpu_scheduler_instance = None

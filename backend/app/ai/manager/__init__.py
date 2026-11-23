@@ -37,6 +37,8 @@ from app.ai.manager.scheduler import (
     DEFAULT_POLL_INTERVAL_S,
     DEFAULT_QUARANTINE_PATH,
     GPUResourceScheduler,
+    get_gpu_scheduler,
+    reset_gpu_scheduler_for_tests,
 )
 from app.ai.manager.storage import (
     DEFAULT_STORAGE_HEADROOM_BYTES,
@@ -108,6 +110,8 @@ __all__ = [
     "StorageManager",
     # Scheduler
     "GPUResourceScheduler",
+    "get_gpu_scheduler",
+    "reset_gpu_scheduler_for_tests",
     # Adapters
     "OllamaModelAdapter",
     # Constants

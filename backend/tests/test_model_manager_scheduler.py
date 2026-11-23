@@ -1382,3 +1382,378 @@ async def test_f07_operator_recovery_procedure_full_lifecycle(tmp_path):
     async with scheduler.acquire_lease("recovered-model") as lease:
         assert lease.state == LeaseState.RUNNING
 
+
+# ---------------------------------------------------------------------------
+# 15. Sub-Batch 3.1: Singleton Seam, Lifespan Lifecycle, Warmup & Error Helpers
+# ---------------------------------------------------------------------------
+
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import MagicMock
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.ai.lifecycle import ModelStatus, OllamaLifecycleManager
+from app.ai.manager.scheduler import get_gpu_scheduler, reset_gpu_scheduler_for_tests
+from app.api.deps import get_gpu_scheduler as deps_get_gpu_scheduler, get_lifecycle_manager
+from app.api.errors import (
+    gpu_lease_timeout,
+    gpu_queue_saturated,
+    gpu_quarantined,
+    map_scheduler_error_to_api_error,
+    register_error_handlers,
+)
+from app.main import _run_startup_warmup, lifespan
+
+
+def test_gpu_scheduler_singleton_thread_safety(tmp_path):
+    """Concurrent threads requesting the scheduler receive the exact same singleton instance."""
+    reset_gpu_scheduler_for_tests()
+    try:
+        lockfile = str(tmp_path / "singleton.lock")
+        metadata = str(tmp_path / "singleton_lease.json")
+        quarantine = str(tmp_path / "singleton_quarantine.json")
+
+        def _get():
+            return get_gpu_scheduler(
+                lockfile_path=lockfile,
+                metadata_path=metadata,
+                quarantine_path=quarantine,
+            )
+
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = [executor.submit(_get) for _ in range(20)]
+            instances = [f.result() for f in futures]
+
+        assert len(instances) == 20
+        first_instance = instances[0]
+        assert all(inst is first_instance for inst in instances), "Multiple scheduler instances created!"
+        assert first_instance.lockfile_path == lockfile
+    finally:
+        reset_gpu_scheduler_for_tests()
+
+
+def test_gpu_scheduler_reset_for_tests(tmp_path):
+    """reset_gpu_scheduler_for_tests allows creating a fresh instance in tests."""
+    reset_gpu_scheduler_for_tests()
+    try:
+        s1 = get_gpu_scheduler(lockfile_path=str(tmp_path / "s1.lock"))
+        reset_gpu_scheduler_for_tests()
+        s2 = get_gpu_scheduler(lockfile_path=str(tmp_path / "s2.lock"))
+        assert s1 is not s2
+        assert s2.lockfile_path == str(tmp_path / "s2.lock")
+    finally:
+        reset_gpu_scheduler_for_tests()
+
+
+def test_deps_get_gpu_scheduler_returns_same_instance():
+    """Dependency provider returns the process-local singleton scheduler instance."""
+    reset_gpu_scheduler_for_tests()
+    try:
+        inst_direct = get_gpu_scheduler()
+        inst_dep = deps_get_gpu_scheduler()
+        assert inst_dep is inst_direct
+    finally:
+        reset_gpu_scheduler_for_tests()
+
+
+def test_error_helpers_contracts_and_retry_after():
+    """Standard error helpers produce correct status, error codes, and advisory Retry-After headers."""
+    # 1. Queue Saturated (429)
+    err_429 = gpu_queue_saturated(retry_after_s=5)
+    assert err_429.status_code == 429
+    assert err_429.code == "RATE_LIMITED"
+    assert "maximum capacity" in err_429.message
+    assert err_429.details == {"reason": "gpu_queue_saturated", "retry_after": 5}
+    assert err_429.headers.get("Retry-After") == "5"
+
+    # 2. Acquisition Timeout (504)
+    err_504_acq = gpu_lease_timeout(phase="acquisition", retry_after_s=5)
+    assert err_504_acq.status_code == 504
+    assert err_504_acq.code == "TIMEOUT"
+    assert "waiting for an available AI processing slot" in err_504_acq.message
+    assert err_504_acq.details == {"phase": "acquisition", "retry_after": 5}
+    assert err_504_acq.headers.get("Retry-After") == "5"
+
+    # 3. Execution Timeout (504)
+    err_504_exec = gpu_lease_timeout(phase="execution")
+    assert err_504_exec.status_code == 504
+    assert err_504_exec.code == "TIMEOUT"
+    assert "timed out while processing your request" in err_504_exec.message
+    assert err_504_exec.details == {"phase": "execution"}
+    assert "Retry-After" not in err_504_exec.headers
+
+    # 4. Quarantined (503)
+    err_503 = gpu_quarantined(retry_after_s=15)
+    assert err_503.status_code == 503
+    assert err_503.code == "AI_FAILURE"
+    assert "temporarily unavailable" in err_503.message
+    assert err_503.details == {"reason": "gpu_quarantined", "retry_after": 15}
+    assert err_503.headers.get("Retry-After") == "15"
+
+
+def test_map_scheduler_error_to_api_error():
+    """Centralized error mapping converts scheduler exceptions to standard API errors."""
+    from app.ai.manager.types import (
+        GPUResourceQuarantinedError,
+        SchedulerQueueFullError,
+        SchedulerShutdownError,
+        SchedulerTimeoutError,
+        WorkloadUncertainError,
+    )
+
+    err1 = map_scheduler_error_to_api_error(SchedulerQueueFullError("Queue full"))
+    assert err1.status_code == 429
+    assert err1.code == "RATE_LIMITED"
+    assert err1.details.get("reason") == "gpu_queue_saturated"
+
+    err2 = map_scheduler_error_to_api_error(SchedulerTimeoutError("Timeout", phase="acquisition"))
+    assert err2.status_code == 504
+    assert err2.details.get("phase") == "acquisition"
+
+    err3 = map_scheduler_error_to_api_error(SchedulerTimeoutError("Timeout", phase="execution"))
+    assert err3.status_code == 504
+    assert err3.details.get("phase") == "execution"
+
+    err4 = map_scheduler_error_to_api_error(GPUResourceQuarantinedError("Quarantined"))
+    assert err4.status_code == 503
+    assert err4.code == "AI_FAILURE"
+    assert err4.details.get("reason") == "gpu_quarantined"
+
+    err5 = map_scheduler_error_to_api_error(WorkloadUncertainError("Uncertain"))
+    assert err5.status_code == 503
+    assert err5.code == "AI_FAILURE"
+    assert err5.details.get("reason") == "gpu_quarantined"
+
+    err6 = map_scheduler_error_to_api_error(SchedulerShutdownError("Shutdown"))
+    assert err6.status_code == 503
+    assert err6.details.get("reason") == "service_shutdown"
+
+
+@pytest.mark.anyio
+async def test_lifespan_initializes_and_shuts_down_scheduler(tmp_path):
+    """FastAPI lifespan initializes scheduler, attaches to app.state, and shuts down safely."""
+    scheduler = _make_scheduler(tmp_path)
+    lifecycle_mock = MagicMock(spec=OllamaLifecycleManager)
+    lifecycle_mock.check_availability.return_value = ModelStatus(
+        available=False,
+        model_present=False,
+        model_name="mock",
+        host="http://localhost:11434",
+        latency_ms=1.0,
+        error="disabled",
+    )
+
+    test_app = FastAPI(lifespan=lifespan)
+    test_app.dependency_overrides[deps_get_gpu_scheduler] = lambda: scheduler
+    test_app.dependency_overrides[get_lifecycle_manager] = lambda: lifecycle_mock
+
+    assert scheduler._is_shutting_down is False
+
+    async with lifespan(test_app):
+        assert test_app.state.gpu_scheduler is scheduler
+        assert scheduler._is_shutting_down is False
+
+    assert scheduler._is_shutting_down is True
+
+
+@pytest.mark.anyio
+async def test_lifespan_shutdown_with_active_lease_does_not_release_lock_prematurely(tmp_path):
+    """Shutdown with an active unconfirmed lease does NOT release kernel lock descriptor prematurely."""
+    scheduler = _make_scheduler(tmp_path, grace_period_s=0.1, poll_interval_s=0.01)
+
+    # Acquire lease via context manager without exiting (simulates in-flight running workload)
+    cm = scheduler.acquire_lease("test-model", priority=1)
+    lease = await cm.__aenter__()
+    assert lease.state == LeaseState.RUNNING
+    assert lease._lock_fd is not None
+    assert scheduler.is_quarantined() is False
+
+    # Execute scheduler shutdown with small timeout while lease workload is uncompleted
+    await scheduler.shutdown(timeout_s=0.05)
+
+    # Invariant F-06: Unconfirmed workload at shutdown MUST transition to QUARANTINED
+    # and MUST NOT release the kernel lock descriptor!
+    assert scheduler.is_quarantined() is True
+    assert lease.state == LeaseState.QUARANTINED
+    # Lock fd is preserved (not None) to keep the kernel flock held
+    assert lease._lock_fd is not None
+
+    # Clear quarantine for clean cleanup
+    scheduler.clear_quarantine(operator_override=True, operator_reason="test teardown")
+
+
+@pytest.mark.anyio
+async def test_startup_warmup_acquires_priority3_and_completes(tmp_path):
+    """Opportunistic startup warmup acquires a Priority 3 lease and finishes cleanly."""
+    scheduler = _make_scheduler(tmp_path)
+    lifecycle_mock = MagicMock(spec=OllamaLifecycleManager)
+    lifecycle_mock.model = "qwen3-vl:4b-instruct"
+    lifecycle_mock.warmup.return_value = True
+
+    acquired_priorities = []
+    original_on_acquired = scheduler.on_lease_acquired
+
+    def _track(lease):
+        acquired_priorities.append(lease.priority)
+        original_on_acquired(lease)
+
+    scheduler.on_lease_acquired = _track
+
+    await _run_startup_warmup(scheduler, lifecycle_mock)
+
+    assert lifecycle_mock.warmup.called
+    assert 3 in acquired_priorities
+    assert scheduler.is_quarantined() is False
+    assert scheduler._active_lease is None
+
+
+@pytest.mark.anyio
+async def test_startup_warmup_skips_when_acquisition_times_out(tmp_path):
+    """When lock is contended or held, warmup skips cleanly after 0.5s without error or quarantine."""
+    scheduler = _make_scheduler(tmp_path, poll_interval_s=0.01)
+
+    # Hold a lease simulating another worker or interactive query
+    async with scheduler.acquire_lease("interactive-model", priority=1) as active_lease:
+        assert active_lease.state == LeaseState.RUNNING
+
+        lifecycle_mock = MagicMock(spec=OllamaLifecycleManager)
+        lifecycle_mock.model = "qwen3-vl:4b-instruct"
+
+        t0 = time.monotonic()
+        # Should attempt to acquire with acquisition_timeout_s=0.5, then skip cleanly
+        await _run_startup_warmup(scheduler, lifecycle_mock)
+        elapsed = time.monotonic() - t0
+
+        # Skipped cleanly
+        lifecycle_mock.warmup.assert_not_called()
+        assert elapsed >= 0.45, f"Warmup did not respect 0.5s acquisition timeout (elapsed: {elapsed:.3f}s)"
+        # GPU was never touched -> zero quarantine!
+        assert scheduler.is_quarantined() is False
+
+
+@pytest.mark.anyio
+async def test_startup_warmup_no_second_scheduler_and_no_flag_file(tmp_path):
+    """Warmup uses the single passed scheduler instance and creates zero flag files."""
+    scheduler = _make_scheduler(tmp_path)
+    lifecycle_mock = MagicMock(spec=OllamaLifecycleManager)
+    lifecycle_mock.model = "qwen3-vl:4b-instruct"
+    lifecycle_mock.warmup.return_value = True
+
+    flag_path = "/tmp/fansivibe_gpu_p1_pending.flag"
+    if os.path.exists(flag_path):
+        os.unlink(flag_path)
+
+    await _run_startup_warmup(scheduler, lifecycle_mock)
+
+    # Assert flag file was NOT created
+    assert not os.path.exists(flag_path)
+
+
+@pytest.mark.anyio
+async def test_startup_warmup_execution_timeout_watchdog_quarantine_retains_lock(tmp_path):
+    """Warmup execution timeout without confirmed cessation triggers quarantine and retains lock."""
+    scheduler = _make_scheduler(tmp_path, grace_period_s=0.1, poll_interval_s=0.01)
+
+    # Simulate warmup execution that exceeds execution timeout
+    with pytest.raises(TimeoutError):
+        async with scheduler.acquire_lease(
+            model_id="warmup-model",
+            priority=3,
+            timeout_s=0.05,
+            is_workload_stopped=lambda: False,  # Workload unconfirmed
+        ) as lease:
+            await asyncio.sleep(0.2)
+
+    # Watchdog failed to confirm termination -> Quarantine & lock retained!
+    assert scheduler.is_quarantined() is True
+    evidence = scheduler.get_quarantine_evidence()
+    assert evidence is not None
+    assert "Workload termination unconfirmed" in evidence.get("reason", "")
+
+    scheduler.clear_quarantine(operator_override=True, operator_reason="test teardown")
+
+
+@pytest.mark.anyio
+async def test_startup_warmup_uncertain_termination_quarantines_and_retains_lock(tmp_path):
+    """Uncertain workload termination in warmup transitions to QUARANTINED and retains lock."""
+    scheduler = _make_scheduler(tmp_path, grace_period_s=0.1, poll_interval_s=0.01)
+
+    with pytest.raises(RuntimeError):
+        async with scheduler.acquire_lease(
+            model_id="warmup-model",
+            priority=3,
+            timeout_s=2.0,
+            is_workload_stopped=None,  # No termination confirmation check
+        ) as lease:
+            raise RuntimeError("Ollama process crashed or connection reset mid-warmup")
+
+    assert scheduler.is_quarantined() is True
+    assert scheduler.get_quarantine_evidence() is not None
+
+    scheduler.clear_quarantine(operator_override=True, operator_reason="test teardown")
+
+
+def test_api_error_response_format_compatibility():
+    """Verify standard error helper responses through FastAPI match frozen error contracts."""
+    app = FastAPI()
+    register_error_handlers(app)
+
+    @app.get("/test-429")
+    def _test_429():
+        raise gpu_queue_saturated(retry_after_s=5)
+
+    @app.get("/test-504-acq")
+    def _test_504_acq():
+        raise gpu_lease_timeout(phase="acquisition", retry_after_s=5)
+
+    @app.get("/test-504-exec")
+    def _test_504_exec():
+        raise gpu_lease_timeout(phase="execution")
+
+    @app.get("/test-503-quar")
+    def _test_503_quar():
+        raise gpu_quarantined(retry_after_s=15)
+
+    client = TestClient(app, raise_server_exceptions=False)
+
+    # 1. Test 429
+    r1 = client.get("/test-429")
+    assert r1.status_code == 429
+    assert r1.headers.get("Retry-After") == "5"
+    assert "X-Request-Id" in r1.headers
+    body1 = r1.json()
+    assert body1["error"]["code"] == "RATE_LIMITED"
+    assert body1["error"]["details"]["reason"] == "gpu_queue_saturated"
+    assert body1["error"]["details"]["retry_after"] == 5
+
+    # 2. Test 504 acquisition
+    r2 = client.get("/test-504-acq")
+    assert r2.status_code == 504
+    assert r2.headers.get("Retry-After") == "5"
+    assert "X-Request-Id" in r2.headers
+    body2 = r2.json()
+    assert body2["error"]["code"] == "TIMEOUT"
+    assert body2["error"]["details"]["phase"] == "acquisition"
+    assert body2["error"]["details"]["retry_after"] == 5
+    assert "request_id" in body2["error"]["details"]
+
+    # 3. Test 504 execution
+    r3 = client.get("/test-504-exec")
+    assert r3.status_code == 504
+    assert "Retry-After" not in r3.headers
+    assert "X-Request-Id" in r3.headers
+    body3 = r3.json()
+    assert body3["error"]["code"] == "TIMEOUT"
+    assert body3["error"]["details"]["phase"] == "execution"
+    assert "request_id" in body3["error"]["details"]
+
+    # 4. Test 503 quarantine
+    r4 = client.get("/test-503-quar")
+    assert r4.status_code == 503
+    assert r4.headers.get("Retry-After") == "15"
+    assert "X-Request-Id" in r4.headers
+    body4 = r4.json()
+    assert body4["error"]["code"] == "AI_FAILURE"
+    assert body4["error"]["details"]["reason"] == "gpu_quarantined"
+    assert body4["error"]["details"]["retry_after"] == 15
+    assert "request_id" in body4["error"]["details"]

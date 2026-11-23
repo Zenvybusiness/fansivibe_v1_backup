@@ -196,3 +196,13 @@ def get_weather_provider() -> Optional[WeatherProvider]:
     return get_default_weather_provider(get_settings())
 
 
+def get_gpu_scheduler():
+    """Dependency provider for GPUResourceScheduler (Sub-Batch 3.1).
+
+    Returns the process-local thread-safe singleton GPU scheduler.
+    Tests override this via app.dependency_overrides[get_gpu_scheduler].
+    """
+    from app.ai.manager.scheduler import get_gpu_scheduler as _get_gpu_scheduler
+
+    return _get_gpu_scheduler()
+
