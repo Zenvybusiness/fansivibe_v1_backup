@@ -90,6 +90,9 @@ def derive_canonical_outfit_recommendation(
     color_palette: Optional[str] = None,
     mood: Optional[str] = None,
     seed: Optional[str] = None,
+    weather_context: Optional[str] = None,
+    slot_to_swap: Optional[str] = None,
+    include_alternatives: bool = False,
 ) -> tuple[List[SuggestionCard], OutfitIntelligence]:
     """Derive canonical outfit recommendation and synchronize SuggestionCard and OutfitIntelligence.
 
@@ -115,7 +118,7 @@ def derive_canonical_outfit_recommendation(
             if isinstance(o, str) and o.strip()
         ]
 
-    if clean_occasion is None:
+    if clean_occasion is None or clean_occasion == "today":
         if resolved_occasions:
             clean_occasion = resolved_occasions[0]
         else:
@@ -128,6 +131,11 @@ def derive_canonical_outfit_recommendation(
     pref_item_ids: list[str] = []
     if preferred_item_ids is not None:
         pref_item_ids = [str(i) for i in preferred_item_ids if i is not None]
+
+    # Slot swap variant seed if user asked to swap a slot
+    effective_seed = seed
+    if slot_to_swap and not effective_seed:
+        effective_seed = f"swap_{slot_to_swap}_alt"
 
     # Resolve GenerateOutfit use case and user_id
     exec_user_id: Optional[UUID] = None
@@ -166,7 +174,7 @@ def derive_canonical_outfit_recommendation(
             mood=clean_mood,
             fit=clean_fit,
             color_palette=clean_palette,
-            seed=seed,
+            seed=effective_seed,
             preferred_item_ids=pref_item_ids or None,
         )
     except Exception as exc:
@@ -268,16 +276,10 @@ def derive_canonical_outfit_recommendation(
     else:
         card_subtitle = rec.occasion_match or f"Assembled for a {clean_occasion} occasion."
 
-    items = [f"{c.name} - {c.category.title()}" for c in rec.components]
+    if weather_context:
+        card_subtitle = f"{card_subtitle} (Weather: {weather_context})"
 
-    card = SuggestionCard(
-        kind="outfit",
-        title=rec.title,
-        subtitle=card_subtitle,
-        score=card_score,
-        items=items,
-        action="open_outfit",
-    )
+    items = [f"{c.name} - {c.category.title()}" for c in rec.components]
 
     # Categorize components
     top_ids = [
@@ -301,6 +303,15 @@ def derive_canonical_outfit_recommendation(
         if c.category.lower() in ("accessory", "accessories", "hat", "belt", "watch", "tie", "scarf")
     ]
 
+    card = SuggestionCard(
+        kind="outfit",
+        title=rec.title,
+        subtitle=card_subtitle,
+        score=card_score,
+        items=items,
+        action="open_outfit",
+    )
+
     comp = OutfitComposition(
         topIds=top_ids,
         bottomIds=bottom_ids,
@@ -323,7 +334,36 @@ def derive_canonical_outfit_recommendation(
         status="success",
     )
 
-    return [card], oi
+    cards = [card]
+
+    # If alternatives were specifically requested, generate runner-up alternatives
+    if include_alternatives:
+        for seed_idx, alt_seed in enumerate(["alt_look_1", "alt_look_2"], start=1):
+            try:
+                alt_rec, _ = use_case.derive_with_reason(
+                    user_id=exec_user_id,
+                    occasion=clean_occasion,
+                    mood=clean_mood,
+                    fit=clean_fit,
+                    color_palette=clean_palette,
+                    seed=alt_seed,
+                )
+                if alt_rec and alt_rec.components:
+                    alt_items = [f"{c.name} - {c.category.title()}" for c in alt_rec.components]
+                    cards.append(
+                        SuggestionCard(
+                            kind="outfit",
+                            title=f"Alternative {seed_idx}: {alt_rec.title}",
+                            subtitle=f"{alt_rec.match_score:.0%} match • {alt_rec.occasion_match or 'Alternative ensemble'}",
+                            score=int(round(alt_rec.match_score * 100)),
+                            items=alt_items,
+                            action="open_outfit",
+                        )
+                    )
+            except Exception:
+                pass
+
+    return cards, oi
 
 
 def recommend_outfit(

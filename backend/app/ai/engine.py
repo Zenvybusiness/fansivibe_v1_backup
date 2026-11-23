@@ -145,22 +145,9 @@ def handle(
     color_palette: Optional[str] = None,
     mood: Optional[str] = None,
     seed: Optional[str] = None,
+    weather_context: Optional[str] = None,
 ) -> AssistantReply:
-    """Handle one assistant turn.
-
-    ``preferred_occasions`` carries the already-resolved occasions list:
-    STEP 11.10 lets the entry point prefer the server-persisted list while
-    callers that pass ``None`` keep the historical client-driven behavior
-    (``request.user.preferredOccasions``). The engine itself stays free of
-    database concerns.
-
-    ``preferred_item_ids`` carries the already-resolved saved-outfit wardrobe
-    IDs (STEP 11.17: ``resolve_preferred_item_ids`` over the owner's
-    ``saved_looks`` at the entry point). Callers that pass ``None`` (or an
-    empty list) keep the exact pre-11.17 behavior. The INTENT_WARDROBE and
-    INTENT_OUTFIT (STEP 13.13) paths consume it; every other intent is
-    untouched.
-    """
+    """Handle one assistant turn with multi-turn conversation and weather context."""
     messages = request.messages
     user = request.user
     request_occasions = (
@@ -179,11 +166,60 @@ def handle(
     it = intent.classify(user_text)
     occasion = intent.detect_occasion(user_text)
 
+    # Multi-turn context resolution
+    effective_preferred_items = list(preferred_item_ids or [])
+    unowned_garment_query: Optional[str] = None
+    slot_to_swap = intent.detect_swap_slot(user_text)
+    formality_dir = intent.detect_formality_change(user_text)
+    include_alternatives = intent.detect_alternatives_request(user_text)
+
+    # 1. Recover prior occasion from conversation history if not specified in current turn
+    if occasion is None and len(messages) > 1:
+        for m in reversed(messages[:-1]):
+            prior_occ = intent.detect_occasion(m.content)
+            if prior_occ:
+                occasion = prior_occ
+                break
+
+    # 2. Formality shift
+    if formality_dir == "more_formal":
+        occasion = "formal"
+        mood = "formal"
+        it = intent.INTENT_OUTFIT
+    elif formality_dir == "more_casual":
+        occasion = "casual"
+        mood = "casual"
+        it = intent.INTENT_OUTFIT
+
+    # 3. Slot swap or alternatives request sets outfit intent
+    if slot_to_swap or include_alternatives:
+        it = intent.INTENT_OUTFIT
+        if occasion is None:
+            occasion = request_occasions[0] if request_occasions else "casual"
+
+    # 4. Check for mentioned garment (e.g. "style my black trousers" / "what can I wear with my white shirt")
+    garment_query = intent.extract_target_garment_query(user_text)
+    if garment_query:
+        it = intent.INTENT_OUTFIT
+        wardrobe_list = user.wardrobe if user and user.wardrobe else []
+        matched_item, garment_name = intent.match_wardrobe_item(garment_query, wardrobe_list)
+        if matched_item is not None:
+            effective_preferred_items.append(str(matched_item.id))
+        else:
+            unowned_garment_query = garment_query
+        if occasion is None:
+            occasion = request_occasions[0] if request_occasions else "casual"
+
+    # 5. Handle "today" queries ("What should I wear today?")
+    if occasion == "today" or (occasion is None and "today" in user_text.lower() and it == intent.INTENT_OUTFIT):
+        occasion = request_occasions[0] if request_occasions else "casual"
+
     # A bare occasion reply (e.g. "date" or "office") is an outfit request.
     if occasion is not None and it in (intent.INTENT_CLARIFY, intent.INTENT_UNKNOWN):
         it = intent.INTENT_OUTFIT
 
     # --- Dialogue policy ----------------------------------------------------
+    already_enriched = False
     if it == intent.INTENT_GREETING:
         reply = AssistantReply(intent=it, text=tools.greeting_reply())
     elif it == intent.INTENT_THANKS:
@@ -224,7 +260,7 @@ def handle(
                 user,
                 user_id=user_id,
                 preferred_occasions=request_occasions,
-                preferred_item_ids=preferred_item_ids,
+                preferred_item_ids=effective_preferred_items,
                 generate_outfit=generate_outfit,
                 wardrobe_items=wardrobe_items,
                 user_state=user_state,
@@ -232,12 +268,15 @@ def handle(
                 color_palette=color_palette,
                 mood=mood,
                 seed=seed,
+                weather_context=weather_context,
+                slot_to_swap=slot_to_swap,
+                include_alternatives=include_alternatives,
             )
             if score_outfit_candidate is not analysis_rules.score_outfit_candidate:
                 wardrobe_list = user.wardrobe if user and user.wardrobe else []
                 items_by_id = {item.id: item for item in wardrobe_list if getattr(item, "id", None)}
                 for cand in generate_outfit_candidates(wardrobe_list):
-                    score_outfit_candidate(cand, items_by_id, frozenset(preferred_item_ids or []), request_occasions)
+                    score_outfit_candidate(cand, items_by_id, frozenset(effective_preferred_items or []), request_occasions)
         else:
             cards = _cards_from(
                 [it],
@@ -245,7 +284,7 @@ def handle(
                 occasion,
                 user_id=user_id,
                 preferred_occasions=request_occasions,
-                preferred_item_ids=preferred_item_ids,
+                preferred_item_ids=effective_preferred_items,
                 generate_outfit=generate_outfit,
                 wardrobe_items=wardrobe_items,
                 user_state=user_state,
@@ -255,11 +294,47 @@ def handle(
                 seed=seed,
             )
         if it == intent.INTENT_OUTFIT:
-            text = (
+            base_text = (
                 f"For {occasion}, I'd go with the {cards[0].title} — "
                 + (cards[0].subtitle or "")
                 + " Tap the card to build it."
             )
+            text = base_text
+            # Live AI Stylist LLM reasoning enrichment
+            if llm_backend.is_available() and cards and cards[0].kind == "outfit":
+                wardrobe_items_list = user.wardrobe if user and user.wardrobe else []
+                item_by_id = {str(item.id): item for item in wardrobe_items_list if getattr(item, "id", None)}
+                selected_components_data = []
+                if outfit_intel:
+                    for i_id in outfit_intel.selectedItemIds:
+                        item = item_by_id.get(str(i_id))
+                        if item:
+                            selected_components_data.append({
+                                "name": getattr(item, "name", ""),
+                                "category": getattr(item, "category", ""),
+                                "color": getattr(item, "color", ""),
+                                "material": getattr(item, "material", "") or "",
+                            })
+
+                missing_cats = []
+                comp = outfit_intel.outfitComposition if outfit_intel else None
+                if comp:
+                    if not comp.footwearIds:
+                        missing_cats.append("Footwear (e.g. minimalist sneakers or leather loafers)")
+                    if not comp.outerwearIds and occasion in ("formal", "office", "travel"):
+                        missing_cats.append("Outerwear (e.g. structured blazer or tailored coat)")
+
+                text = llm_backend.enrich_stylist_recommendation(
+                    user_query=user_text,
+                    occasion=occasion or "casual",
+                    selected_components=selected_components_data,
+                    missing_categories=missing_cats if missing_cats else None,
+                    weather_context=weather_context,
+                    unowned_garment_query=unowned_garment_query,
+                    base_text=base_text,
+                    conversation_history=[{"role": m.role, "content": m.content} for m in messages[:-1]],
+                )
+                already_enriched = True
         elif it == intent.INTENT_HAIRSTYLE:
             text = (
                 f"Your top pick is the {cards[0].title} ({cards[0].score}% match). "
@@ -526,7 +601,7 @@ def handle(
         )
 
     # --- Optional LLM enrichment (server-side, never changes structure) ----
-    if llm_backend.is_available() and reply.text:
+    if not already_enriched and llm_backend.is_available() and reply.text:
         reply.text = llm_backend.enrich_reply(reply.intent, reply.text, _context_summary(user))
 
     return reply

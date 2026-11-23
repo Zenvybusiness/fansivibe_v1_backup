@@ -27,6 +27,8 @@ from app.api.schemas.outfits import (
     OutfitCandidatesRequest,
     OutfitCandidatesResponse,
     OutfitCandidateItem,
+    OutfitCompositionRequest,
+    OutfitCompositionResponse,
 )
 from app.api.schemas.saved_looks import SaveLookRequest, SavedLook
 from app.application.outfits import (
@@ -36,6 +38,7 @@ from app.application.outfits import (
     SaveOutfit,
     SwapOutfitSlot,
     GetOutfitCandidates,
+    ComposeOutfits,
 )
 from app.domain.ports.repositories import OutfitRecommendation as OutfitRecord
 from app.domain.ports.storage import ObjectStoragePort
@@ -329,3 +332,74 @@ async def get_outfit_candidates(
         slot=canonical_slot,
         candidates=candidates,
     )
+
+
+@router.post(
+    "/compose",
+    response_model=OutfitCompositionResponse,
+    response_model_exclude_none=True,
+    responses={
+        401: {"model": dict},
+        422: {"model": dict},
+        429: {"model": dict},
+        503: {"model": dict},
+    },
+)
+async def compose_outfits(
+    request: OutfitCompositionRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
+) -> Response | OutfitCompositionResponse:
+    """Phase 3: Generate multiple complete outfit combinations from the authenticated user's digital wardrobe.
+
+    Supports natural language requests, weather and formality awareness, role assignment,
+    color harmony explanation, practical styling tips, and clearly labeled missing pieces.
+    """
+    use_case = ComposeOutfits(
+        wardrobe_items=WardrobeItemRepositorySQL(db),
+        user_state=UserStateRepositorySQL(db),
+        feedback=FeedbackRepositorySQL(db),
+        saved_looks=SavedLookRepositorySQL(db),
+        wears=WearEventRepositorySQL(db),
+        storage=storage,
+    )
+    result, empty_reason = await use_case.execute(
+        user_id=user_id,
+        occasion=request.occasion,
+        mood=request.mood,
+        fit=request.fit,
+        color_palette=request.colorPalette,
+        query=request.query,
+        preferred_item_ids=request.preferredItemIds,
+        limit=request.limit,
+        seed=request.seed,
+        weather_context=request.weatherContext,
+    )
+    if result is None:
+        return Response(
+            status_code=204,
+            headers={EMPTY_OUTFIT_REASON_HEADER: empty_reason or NO_LEGAL_CANDIDATE},
+        )
+    return result
+
+
+@router.post(
+    "/generate-multi",
+    response_model=OutfitCompositionResponse,
+    response_model_exclude_none=True,
+    include_in_schema=False,
+)
+async def generate_multiple_outfits(
+    request: OutfitCompositionRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
+) -> Response | OutfitCompositionResponse:
+    return await compose_outfits(
+        request=request,
+        user_id=user_id,
+        db=db,
+        storage=storage,
+    )
+

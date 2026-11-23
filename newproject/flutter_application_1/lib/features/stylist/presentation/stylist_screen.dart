@@ -267,7 +267,11 @@ class _StylistScreenState extends State<StylistScreen> {
                       children: [
                         // 1. Editorial Branding & Header
                         _buildHeader(context),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 20),
+
+                        // Interactive AI Stylist Conversation Hero
+                        _buildAskStylistHero(context),
+                        const SizedBox(height: 20),
 
                         // 2. Primary Action: Scan My Outfit
                         _buildScanOutfitHero(context),
@@ -446,6 +450,126 @@ class _StylistScreenState extends State<StylistScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  // ── ASK AI STYLIST HERO ───────────────────────────────────────────────────
+
+  Widget _buildAskStylistHero(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Ask AI Stylist',
+      child: InkWell(
+        onTap: () => context.pushNamed(RouteNames.assistant),
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1B1B1E),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: FansivibeColors.accentGold.withValues(alpha: 0.35),
+              width: 1.0,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: FansivibeColors.accentGold.withValues(alpha: 0.15),
+                    ),
+                    child: const Icon(
+                      Icons.auto_awesome_rounded,
+                      color: FansivibeColors.accentGold,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Ask AI Stylist',
+                          style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w700,
+                            color: FansivibeColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Chat for custom outfits, event styling & advice',
+                          style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                            fontSize: 12,
+                            color: FansivibeColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.arrow_forward_rounded,
+                    size: 20,
+                    color: FansivibeColors.accentGold,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _buildQuickPromptChip(context, 'What should I wear today?'),
+                  _buildQuickPromptChip(context, 'Wedding outfit'),
+                  _buildQuickPromptChip(context, 'Style my pieces'),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickPromptChip(BuildContext context, String prompt) {
+    return InkWell(
+      onTap: () => context.pushNamed(
+        RouteNames.assistant,
+        extra: {'initialQuery': prompt},
+      ),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.1),
+          ),
+        ),
+        child: Text(
+          prompt,
+          style: FansivibeTypography.labelSmallWithFamily.copyWith(
+            color: FansivibeColors.onSurface.withValues(alpha: 0.85),
+            fontSize: 11.5,
+          ),
+        ),
+      ),
     );
   }
 

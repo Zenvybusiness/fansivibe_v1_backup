@@ -23,7 +23,7 @@ abstract final class TryOnOutfitSource {
 
 /// Mock job lifecycle: submitted as `processing`, `completed` once the
 /// mock SVG renders. `failed` is reserved for the real-provider stage.
-enum TryOnJobState { processing, completed, failed, unknown }
+enum TryOnJobState { queued, processing, completed, failed, cancelled, unknown }
 
 enum TryOnFailure {
   unauthorized,
@@ -64,6 +64,10 @@ class TryOnJob {
         return TryOnJobState.completed;
       case 'failed':
         return TryOnJobState.failed;
+      case 'cancelled':
+        return TryOnJobState.cancelled;
+      case 'queued':
+        return TryOnJobState.queued;
       case 'processing':
         return TryOnJobState.processing;
       default:
@@ -80,22 +84,33 @@ class TryOnJobStatus {
     required this.state,
     required this.progress,
     required this.isMock,
+    this.errorMessage,
+    this.retryCount = 0,
+    this.garmentIds = const [],
   });
 
   final String jobId;
   final TryOnJobState state;
   final int progress;
   final bool isMock;
+  final String? errorMessage;
+  final int retryCount;
+  final List<String> garmentIds;
 
   static TryOnJobStatus? fromJson(Map<String, dynamic> json) {
     final jobId = json['job_id'];
     if (jobId is! String || jobId.isEmpty) return null;
     final progress = json['progress'];
+    final rawGarments = json['garment_ids'];
+    final garments = rawGarments is List ? rawGarments.whereType<String>().toList() : const <String>[];
     return TryOnJobStatus(
       jobId: jobId,
       state: TryOnJob._stateOf(json['status']),
       progress: progress is int ? progress : 0,
       isMock: json['is_mock'] != false,
+      errorMessage: json['error_message'] as String?,
+      retryCount: json['retry_count'] is int ? json['retry_count'] as int : 0,
+      garmentIds: garments,
     );
   }
 }

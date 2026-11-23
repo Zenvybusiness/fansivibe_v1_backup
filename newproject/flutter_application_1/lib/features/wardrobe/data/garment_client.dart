@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
 import 'package:fansivibe/core/config/app_config.dart';
+import 'package:fansivibe/features/media/domain/image_pipeline.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 
 /// One polled garment-analysis run (`GET /v1/analysis/runs/{run_id}`).
@@ -101,7 +102,7 @@ class GarmentClient {
           'image',
           bytes,
           filename: filename,
-          contentType: MediaType.parse(_contentTypeFor(filename)),
+          contentType: MediaType.parse(_contentTypeFor(filename, bytes)),
         ),
       );
       final streamed = await _client.send(request).timeout(_timeout);
@@ -174,7 +175,11 @@ class GarmentClient {
     return null;
   }
 
-  static String _contentTypeFor(String filename) {
+  static String _contentTypeFor(String filename, [Uint8List? bytes]) {
+    if (bytes != null && bytes.length >= 12) {
+      final detected = detectImageMimeType(bytes);
+      if (detected != null) return detected;
+    }
     final lower = filename.toLowerCase();
     if (lower.endsWith('.png')) return 'image/png';
     if (lower.endsWith('.webp')) return 'image/webp';
@@ -207,7 +212,7 @@ class GarmentClient {
           'image',
           bytes,
           filename: filename,
-          contentType: MediaType.parse(_contentTypeFor(filename)),
+          contentType: MediaType.parse(_contentTypeFor(filename, bytes)),
         ),
       );
       final streamed = await _client.send(request).timeout(_timeout);

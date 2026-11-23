@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
-from fastapi import Depends, Header
+from fastapi import Depends, Header, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -101,14 +101,29 @@ def get_trend_repository(db: Session = Depends(get_db)) -> TrendRepository:
     return TrendRepositorySQL(db)
 
 
-def get_fashion_reasoner():
-    """Dependency provider for the fashion reasoning service (Phase 3AJ).
+def get_gpu_scheduler():
+    """Dependency provider for GPUResourceScheduler (Sub-Batch 3.1).
 
-    Instantiates the OllamaFashionReasoner adapter configured from Settings,
-    allowing tests and mocks to override via FastAPI's `app.dependency_overrides`.
+    Returns the process-local thread-safe singleton GPU scheduler.
+    Tests override this via app.dependency_overrides[get_gpu_scheduler].
+    """
+    from app.ai.manager.scheduler import get_gpu_scheduler as _get_gpu_scheduler
+
+    return _get_gpu_scheduler()
+
+
+def get_fashion_reasoner(
+    scheduler: Any = Depends(get_gpu_scheduler),
+):
+    """Dependency provider for the fashion reasoning service (Phase 3AJ / Phase 2 Batch 3.2).
+
+    Instantiates the OllamaFashionReasoner adapter configured from Settings
+    and the shared GPUResourceScheduler singleton, allowing tests and mocks
+    to override via FastAPI's `app.dependency_overrides`.
     """
     from app.ai.ollama_reasoner import OllamaFashionReasoner, ReasoningConfig
     from app.config.settings import get_settings
+    from fastapi.params import Depends as DependsType
 
     settings = get_settings()
     config = ReasoningConfig.from_env(
@@ -119,7 +134,8 @@ def get_fashion_reasoner():
         max_retries=settings.reasoning_max_retries,
         keep_alive=settings.reasoning_keep_alive,
     )
-    return OllamaFashionReasoner(config=config)
+    sched = get_gpu_scheduler() if isinstance(scheduler, DependsType) else scheduler
+    return OllamaFashionReasoner(config=config, scheduler=sched)
 
 
 def get_lifecycle_manager():
@@ -171,6 +187,70 @@ def get_discovery_event_repository(db: Session = Depends(get_db)):
     return DiscoveryEventRepositorySQL(db)
 
 
+def get_tryon_repository(request: Request) -> Any:
+    """Try-on job repository dependency seam (Phase 5C).
+
+    Resolves to TryOnJobRepositorySQL when database is available, or
+    falls back cleanly to in-memory repository when database is absent/disabled.
+    """
+    override = request.app.dependency_overrides.get(get_tryon_repository)
+    if override:
+        return override()
+
+    db_override = request.app.dependency_overrides.get(get_db)
+    if db_override:
+        try:
+            res = db_override()
+            db = next(res) if hasattr(res, "__next__") else res
+            from app.infrastructure.db.repositories import TryOnJobRepositorySQL
+
+            return TryOnJobRepositorySQL(db)
+        except (AssertionError, Exception):
+            from app.application.tryon import _IN_MEMORY_REPO
+
+            return _IN_MEMORY_REPO
+
+    try:
+        from app.infrastructure.db.repositories import TryOnJobRepositorySQL
+        from app.infrastructure.db.session import SessionLocal
+
+        db = SessionLocal()
+        return TryOnJobRepositorySQL(db)
+    except Exception:
+        from app.application.tryon import _IN_MEMORY_REPO
+
+        return _IN_MEMORY_REPO
+
+
+def get_tryon_wardrobe_repository(request: Request) -> Any:
+    """Wardrobe repository resolver for try-on (handles _no_db test mode cleanly)."""
+    override = request.app.dependency_overrides.get(get_wardrobe_repository)
+    if override:
+        return override()
+
+    db_override = request.app.dependency_overrides.get(get_db)
+    if db_override:
+        try:
+            res = db_override()
+            db = next(res) if hasattr(res, "__next__") else res
+            from app.infrastructure.db.repositories import WardrobeItemRepositorySQL
+
+            return WardrobeItemRepositorySQL(db)
+        except (AssertionError, Exception):
+            return None
+
+    try:
+        from app.infrastructure.db.repositories import WardrobeItemRepositorySQL
+        from app.infrastructure.db.session import SessionLocal
+
+        db = SessionLocal()
+        return WardrobeItemRepositorySQL(db)
+    except Exception:
+        return None
+
+
+
+
 def get_storage_adapter():
     """Dependency provider for object storage port (Stage 2 P0-4 / M16).
 
@@ -194,15 +274,3 @@ def get_weather_provider() -> Optional[WeatherProvider]:
     from app.infrastructure.external.weather import get_default_weather_provider
 
     return get_default_weather_provider(get_settings())
-
-
-def get_gpu_scheduler():
-    """Dependency provider for GPUResourceScheduler (Sub-Batch 3.1).
-
-    Returns the process-local thread-safe singleton GPU scheduler.
-    Tests override this via app.dependency_overrides[get_gpu_scheduler].
-    """
-    from app.ai.manager.scheduler import get_gpu_scheduler as _get_gpu_scheduler
-
-    return _get_gpu_scheduler()
-

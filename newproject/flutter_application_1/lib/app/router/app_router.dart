@@ -61,6 +61,7 @@ import 'package:fansivibe/features/wardrobe/data/garment_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_category_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/add_wardrobe_item_screen.dart';
+import 'package:fansivibe/features/wardrobe/presentation/wardrobe_extraction_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_item_details_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_screen.dart';
 
@@ -165,7 +166,12 @@ final List<RouteBase> appRoutes = [
   GoRoute(
     path: '/assistant',
     name: RouteNames.assistant,
-    builder: (context, state) => const AssistantScreen(),
+    builder: (context, state) {
+      final extra = state.extra as Map<String, dynamic>?;
+      final query =
+          extra?['initialQuery'] as String? ?? state.uri.queryParameters['query'];
+      return AssistantScreen(initialQuery: query);
+    },
   ),
   GoRoute(
     path: '/reasoning',
@@ -328,10 +334,23 @@ final List<RouteBase> appRoutes = [
                               'Missing outfit recommendation.',
                             );
                           }
+                          final rawCandidates =
+                              data?['candidates'] as List<dynamic>?;
+                          List<OutfitCandidate>? parsedCandidates;
+                          if (rawCandidates != null) {
+                            parsedCandidates = rawCandidates
+                                .map(
+                                  (e) => OutfitCandidate.fromJson(
+                                    Map<String, dynamic>.from(e as Map),
+                                  ),
+                                )
+                                .toList();
+                          }
                           return OutfitRecommendationScreen(
                             recommendation: OutfitRecommendation.fromJson(
                               Map<String, dynamic>.from(recJson),
                             ),
+                            candidates: parsedCandidates,
                             request: OutfitGenerateRequest.fromJson(
                               Map<String, dynamic>.from(reqJson),
                             ),
@@ -548,6 +567,17 @@ final List<RouteBase> appRoutes = [
                   return itemId != null
                       ? WardrobeItemDetailsScreen(itemId: itemId)
                       : _missingDataScreen();
+                },
+              ),
+              GoRoute(
+                path: 'extraction',
+                name: RouteNames.wardrobeExtraction,
+                builder: (context, state) {
+                  final extra = state.extra as Map<String, dynamic>?;
+                  return WardrobeExtractionScreen(
+                    initialImageBytes: extra?['imageBytes'] as Uint8List?,
+                    initialFilename: extra?['filename'] as String?,
+                  );
                 },
               ),
             ],

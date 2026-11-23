@@ -120,11 +120,36 @@ String _topCategoryLine(Map<String, int> byCategory, int total) {
 /// Backend `wardrobe_categories`/`colors`/`materials` are lowercase
 /// snake_case (`light_blue`); the add-item UI offers display labels
 /// (`Light Blue`). Already-canonical codes pass through unchanged.
-// ponytail: case/space mapping only; labels outside backend vocab still
-// 422 truthfully — add when backend publishes aliases or UI reads
-// GET /v1/knowledge/* vocab.
-String _vocabCode(String value) =>
-    value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+String _vocabCode(String value) {
+  final clean = value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+  const aliases = {
+    'blue': 'navy',
+    'dark_blue': 'navy',
+    'navy_blue': 'navy',
+    'gray': 'grey',
+    'dark_grey': 'charcoal',
+    'dark_gray': 'charcoal',
+    'charcoal_grey': 'charcoal',
+    'charcoal_gray': 'charcoal',
+    'brown': 'tan',
+    'dark_brown': 'tan',
+    'red': 'burgundy',
+    'maroon': 'burgundy',
+    'wine': 'burgundy',
+    'green': 'olive',
+    'dark_green': 'olive',
+    'olive_green': 'olive',
+    'emerald': 'olive',
+    'pink': 'blush',
+    'yellow': 'cream',
+    'purple': 'indigo',
+    'sand': 'beige',
+    'camel': 'beige',
+    'shoes': 'footwear',
+    'layers': 'outerwear',
+  };
+  return aliases[clean] ?? clean;
+}
 
 /// Abstract contract for wardrobe data operations.
 ///

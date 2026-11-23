@@ -1398,3 +1398,131 @@ class DiscoveryEventRepository(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class TryOnJobRecord:
+    """A `tryon_jobs` row (OW-1 owner-scoped)."""
+
+    id: UUID
+    user_id: UUID
+    outfit_source: str
+    garment_id: Optional[UUID]
+    garment_ids: tuple[str, ...]
+    provider: str
+    status: str
+    consent_version: str
+    consent_accepted_at: datetime
+    created_at: datetime
+    updated_at: datetime
+    person_media_ref: Optional[dict[str, Any]] = None
+    result_media_ref: Optional[dict[str, Any]] = None
+    idempotency_key: Optional[str] = None
+    request_fingerprint: Optional[str] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+    retry_count: int = 0
+    retry_of_job_id: Optional[UUID] = None
+    processing_started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    image_bytes: Optional[bytes] = None
+
+
+class TryOnJobRepository(Protocol):
+    """Repository port for durable virtual try-on jobs (Phase 5C)."""
+
+    def create(
+        self,
+        *,
+        job_id: UUID,
+        user_id: UUID,
+        outfit_source: str,
+        garment_id: Optional[UUID],
+        garment_ids: list[str],
+        provider: str,
+        status: str,
+        consent_version: str,
+        consent_accepted_at: datetime,
+        person_media_ref: Optional[dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
+        request_fingerprint: Optional[str] = None,
+    ) -> TryOnJobRecord:
+        ...
+
+    def get_by_id(
+        self,
+        *,
+        user_id: UUID,
+        job_id: UUID,
+    ) -> Optional[TryOnJobRecord]:
+        ...
+
+    def update_status(
+        self,
+        *,
+        job_id: UUID,
+        status: str,
+        processing_started_at: Optional[datetime] = None,
+        completed_at: Optional[datetime] = None,
+    ) -> Optional[TryOnJobRecord]:
+        ...
+
+    def update_result(
+        self,
+        *,
+        job_id: UUID,
+        result_media_ref: dict[str, Any],
+        completed_at: datetime,
+    ) -> Optional[TryOnJobRecord]:
+        ...
+
+    def update_failure(
+        self,
+        *,
+        job_id: UUID,
+        error_code: str,
+        error_message: str,
+        completed_at: datetime,
+    ) -> Optional[TryOnJobRecord]:
+        ...
+
+    def update_retry(
+        self,
+        *,
+        job_id: UUID,
+        retry_count: int,
+        status: str = "queued",
+    ) -> Optional[TryOnJobRecord]:
+        ...
+
+    def delete(
+        self,
+        *,
+        user_id: UUID,
+        job_id: UUID,
+    ) -> bool:
+        ...
+
+    def find_by_idempotency_key(
+        self,
+        *,
+        user_id: UUID,
+        idempotency_key: str,
+    ) -> Optional[TryOnJobRecord]:
+        ...
+
+    def find_by_status(
+        self,
+        *,
+        status: str,
+    ) -> list[TryOnJobRecord]:
+        ...
+
+    def count_today_jobs(
+        self,
+        *,
+        user_id: UUID,
+        day: date,
+    ) -> int:
+        ...
+
+
+

@@ -54,6 +54,9 @@ class OutfitComponent(BaseModel):
     color: str
     material: Optional[str] = None
     reason: str
+    role: Optional[str] = None
+    imageUrl: Optional[str] = None
+    imageRef: Optional[dict] = None
 
 
 class OutfitRecommendation(BaseModel):
@@ -128,3 +131,74 @@ class OutfitCandidatesResponse(BaseModel):
 
     slot: str
     candidates: list[OutfitCandidateItem]
+
+
+class ScoreBreakdown(BaseModel):
+    """Documented calculation breakdown for outfit match score."""
+
+    totalScore: float = Field(ge=0, le=1)
+    occasionMatch: float = 0.0
+    paletteMatch: float = 0.0
+    fitMatch: float = 0.0
+    preferenceBonus: float = 0.0
+    feedbackBonus: float = 0.0
+    wearAdjustment: float = 0.0
+    calculation: str = ""
+
+
+class MissingPieceSuggestion(BaseModel):
+    """Suggested unowned addition to complete an outfit (clearly labeled as unowned)."""
+
+    category: str
+    role: str
+    suggestion: str
+    isOwned: bool = False
+
+
+class OutfitCandidateResponse(BaseModel):
+    """Full candidate representation for multi-outfit generation."""
+
+    id: str
+    title: str
+    occasion: str
+    styleDescription: str
+    matchScore: float = Field(ge=0, le=1)
+    scoreBreakdown: Optional[ScoreBreakdown] = None
+    components: list[OutfitComponent]
+    reasons: list[str]
+    stylingRationale: str
+    colorHarmony: str
+    stylingTips: list[str]
+    missingPieces: list[MissingPieceSuggestion] = Field(default_factory=list)
+    selectedOccasion: str
+    selectedMood: str
+    selectedColorPalette: str
+    snapshot: dict
+
+
+class OutfitCompositionRequest(BaseModel):
+    """Request payload for multi-candidate outfit composition."""
+
+    occasion: Optional[str] = Field(default=None, max_length=200)
+    mood: Optional[str] = Field(default=None, max_length=200)
+    fit: Optional[str] = Field(default=None, max_length=200)
+    colorPalette: Optional[str] = Field(default=None, max_length=200)
+    query: Optional[str] = Field(default=None, max_length=500)
+    preferredItemIds: Optional[list[UUID]] = None
+    limit: int = Field(default=3, ge=1, le=10)
+    seed: Optional[str] = Field(default=None, max_length=200)
+    weatherContext: Optional[str] = Field(default=None, max_length=200)
+
+
+class OutfitCompositionResponse(BaseModel):
+    """Response containing multiple complete outfit combinations."""
+
+    candidates: list[OutfitCandidateResponse]
+    totalCandidates: int
+    occasion: str
+    mood: str
+    fit: str
+    colorPalette: str
+    query: Optional[str] = None
+    weatherContext: Optional[str] = None
+

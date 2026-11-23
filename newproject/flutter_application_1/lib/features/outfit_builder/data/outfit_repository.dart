@@ -48,6 +48,19 @@ abstract class OutfitBuilderRepository {
   Future<OutfitSlotSwapResponse?> swapSlot({
     required OutfitSlotSwapRequest request,
   }) async => null;
+
+  /// Composes multiple complete outfit combinations from user's digital wardrobe (Phase 3).
+  Future<OutfitCompositionResult> composeOutfits({
+    String? occasion,
+    String? mood,
+    String? fit,
+    String? colorPalette,
+    String? query,
+    List<String>? preferredItemIds,
+    int limit = 3,
+    String? seed,
+    String? weatherContext,
+  }) async => const OutfitCompositionResult.noneAvailable();
 }
 
 /// Backend implementation of [OutfitBuilderRepository].
@@ -58,6 +71,31 @@ class OutfitBuilderRepositoryImpl implements OutfitBuilderRepository {
     : _client = client ?? OutfitBuilderClient();
 
   final OutfitBuilderClient _client;
+
+  @override
+  Future<OutfitCompositionResult> composeOutfits({
+    String? occasion,
+    String? mood,
+    String? fit,
+    String? colorPalette,
+    String? query,
+    List<String>? preferredItemIds,
+    int limit = 3,
+    String? seed,
+    String? weatherContext,
+  }) {
+    return _client.composeOutfits(
+      occasion: occasion,
+      mood: mood,
+      fit: fit,
+      colorPalette: colorPalette,
+      query: query,
+      preferredItemIds: preferredItemIds,
+      limit: limit,
+      seed: seed,
+      weatherContext: weatherContext,
+    );
+  }
 
   @override
   Future<OutfitResult> generateOutfit({

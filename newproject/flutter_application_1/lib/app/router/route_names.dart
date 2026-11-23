@@ -48,6 +48,7 @@ abstract final class RouteNames {
 
   static const wardrobeAddCategory = 'wardrobe-add-category';
   static const wardrobeAddItem = 'wardrobe-add-item';
+  static const wardrobeExtraction = 'wardrobe-extraction';
   static const wardrobeItemDetails = 'wardrobe-item-details';
 
   static const profilePreferences = 'profile-preferences';

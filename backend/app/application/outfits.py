@@ -36,6 +36,14 @@ from typing import Optional, Sequence
 from uuid import UUID
 
 from app.api.errors import ApiError, ai_failure, not_found
+from app.ai import intent, llm_backend
+from app.api.schemas.outfits import (
+    MissingPieceSuggestion,
+    OutfitCandidateResponse,
+    OutfitComponent as OutfitComponentSchema,
+    OutfitCompositionResponse,
+    ScoreBreakdown,
+)
 from app.application.saved_looks import SaveRecommendation
 from app.domain.ports.external import KnowledgeSource
 from app.domain.ports.repositories import (
@@ -941,3 +949,442 @@ class GetOutfitCandidates:
         )
         candidates = [item for item in items if item.id not in exclude_ids]
         return canonical_slot, candidates[:limit]
+
+
+class ComposeOutfits:
+    """Phase 3: Multi-candidate outfit composition engine with natural language parsing,
+    wardrobe authority, canonical scoring, diverse candidate generation, and AI reasoning.
+    """
+
+    def __init__(
+        self,
+        *,
+        wardrobe_items: WardrobeItemRepository,
+        user_state: UserStateRepository,
+        feedback: Optional[FeedbackRepository] = None,
+        saved_looks: Optional[SavedLookRepository] = None,
+        wears: Optional[WearEventRepository] = None,
+        storage: Optional[ObjectStoragePort] = None,
+    ) -> None:
+        self._wardrobe_items = wardrobe_items
+        self._user_state = user_state
+        self._feedback = feedback
+        self._saved_looks = saved_looks
+        self._wears = wears
+        self._storage = storage
+
+    async def execute(
+        self,
+        *,
+        user_id: UUID,
+        occasion: Optional[str] = None,
+        mood: Optional[str] = None,
+        fit: Optional[str] = None,
+        color_palette: Optional[str] = None,
+        query: Optional[str] = None,
+        preferred_item_ids: Optional[Sequence[UUID]] = None,
+        limit: int = 3,
+        seed: Optional[str] = None,
+        weather_context: Optional[str] = None,
+    ) -> tuple[Optional[OutfitCompositionResponse], Optional[str]]:
+        # 1. Natural language query normalization & detection
+        clean_query = query.strip() if isinstance(query, str) and query.strip() else None
+        effective_occasion = occasion.strip() if isinstance(occasion, str) and occasion.strip() else None
+        effective_mood = mood.strip() if isinstance(mood, str) and mood.strip() else None
+        effective_fit = fit.strip() if isinstance(fit, str) and fit.strip() else None
+        effective_palette = color_palette.strip() if isinstance(color_palette, str) and color_palette.strip() else None
+        effective_weather = weather_context.strip() if isinstance(weather_context, str) and weather_context.strip() else None
+
+        preferred_ids_set = set(preferred_item_ids or ())
+
+        if clean_query:
+            low_query = clean_query.lower()
+            # Detect occasion from natural language
+            detected_occ = intent.detect_occasion(clean_query)
+            if detected_occ and not effective_occasion:
+                effective_occasion = detected_occ
+
+            # Detect formality / mood
+            formality = intent.detect_formality_change(clean_query)
+            if formality == "more_formal":
+                effective_mood = effective_mood or "sharp"
+                effective_occasion = effective_occasion or "formal"
+            elif formality == "more_casual":
+                effective_mood = effective_mood or "relaxed"
+                effective_occasion = effective_occasion or "casual"
+
+            # Detect weather cues
+            if not effective_weather:
+                if any(w in low_query for w in ("cold", "chilly", "winter", "freezing")):
+                    effective_weather = "Chilly weather"
+                elif any(w in low_query for w in ("rain", "rainy", "storm", "wet")):
+                    effective_weather = "Rainy weather"
+                elif any(w in low_query for w in ("warm", "hot", "summer", "sunny")):
+                    effective_weather = "Warm weather"
+
+            # Detect palette cues
+            if not effective_palette:
+                if "monochrome" in low_query or "black and white" in low_query:
+                    effective_palette = "monochrome"
+                elif any(w in low_query for w in ("earth", "brown", "olive", "tan")):
+                    effective_palette = "earth tones"
+                elif "pastel" in low_query:
+                    effective_palette = "pastel"
+                elif "contrast" in low_query:
+                    effective_palette = "high contrast"
+
+        # Defaults if still unspecified
+        effective_occasion = effective_occasion or "casual"
+        effective_mood = effective_mood or "confident"
+        effective_fit = effective_fit or "regular"
+        effective_palette = effective_palette or "monochrome"
+
+        # 2. Load authenticated user's PostgreSQL wardrobe (OW-1 authority)
+        wardrobe = _load_owner_wardrobe(wardrobe_items=self._wardrobe_items, user_id=user_id)
+        if not wardrobe:
+            return None, EMPTY_WARDROBE
+
+        # Match garment query from natural language against owned items
+        if clean_query:
+            target_garment_query = intent.extract_target_garment_query(clean_query)
+            if target_garment_query:
+                matched_item, _ = intent.match_wardrobe_item(target_garment_query, wardrobe)
+                if matched_item and hasattr(matched_item, "id"):
+                    preferred_ids_set.add(matched_item.id)
+
+        # 3. Category requirements validation
+        categories = {item.category for item in wardrobe}
+        if "tops" not in categories or "bottoms" not in categories:
+            return None, MISSING_REQUIRED_CATEGORY
+
+        adapted = [
+            SimpleNamespace(
+                id=str(record.id),
+                category=record.category,
+                color=record.color,
+                material=record.material,
+                is_favorite=record.is_favorite,
+                fit=record.fit,
+                fit_confidence=record.fit_confidence,
+            )
+            for record in wardrobe
+        ]
+        items_by_id = {item.id: item for item in adapted}
+        by_record = {str(record.id): record for record in wardrobe}
+
+        occasions = [effective_occasion]
+        occasions.extend(
+            item
+            for item in _preferred_occasions(user_state=self._user_state, user_id=user_id)
+            if isinstance(item, str) and item not in occasions
+        )
+
+        feedback_context = build_feedback_context(
+            user_id=user_id,
+            feedback=self._feedback,
+            saved_looks=self._saved_looks,
+            wears=self._wears,
+        )
+
+        preferred_norm = frozenset(str(pid) for pid in preferred_ids_set)
+
+        # 4. Generate candidate combinations
+        raw_candidates = generate_outfit_candidates(adapted)
+        if not raw_candidates:
+            return None, NO_LEGAL_CANDIDATE
+
+        # 5. Canonical scoring
+        scored_candidates = [
+            score_outfit_candidate(
+                candidate,
+                items_by_id,
+                preferred_norm,
+                occasions,
+                preferred_palette=effective_palette,
+                preferred_fit=effective_fit,
+                feedback_context=feedback_context,
+            )
+            for candidate in raw_candidates
+        ]
+        ranked = rank_outfit_candidates(scored_candidates)
+        if not ranked:
+            return None, NO_LEGAL_CANDIDATE
+
+        # 6. Diverse candidate selection: guarantee genuinely different combinations
+        selected_scored = []
+        seen_pairs = set()
+
+        start_idx = _select_index(len(ranked), seed) if seed else 0
+        ordered_ranked = ranked[start_idx:] + ranked[:start_idx] if start_idx > 0 else ranked
+
+        # Prioritize candidates that contain user-preferred / requested target pieces
+        if preferred_norm:
+            preferred_ranked = [
+                c for c in ordered_ranked
+                if preferred_norm.intersection(set(c.top_ids + c.bottom_ids + c.outerwear_ids + c.footwear_ids + c.accessory_ids))
+            ]
+            other_ranked = [
+                c for c in ordered_ranked
+                if not preferred_norm.intersection(set(c.top_ids + c.bottom_ids + c.outerwear_ids + c.footwear_ids + c.accessory_ids))
+            ]
+            ordered_ranked = preferred_ranked + other_ranked
+
+        for c in ordered_ranked:
+            pair = (tuple(sorted(c.top_ids)), tuple(sorted(c.bottom_ids)))
+            if pair not in seen_pairs:
+                seen_pairs.add(pair)
+                selected_scored.append(c)
+                if len(selected_scored) >= limit:
+                    break
+
+        if len(selected_scored) < limit:
+            full_seen = {
+                (
+                    tuple(sorted(c.top_ids)),
+                    tuple(sorted(c.bottom_ids)),
+                    tuple(sorted(c.outerwear_ids)),
+                    tuple(sorted(c.footwear_ids)),
+                    tuple(sorted(c.accessory_ids)),
+                )
+                for c in selected_scored
+            }
+            for c in ordered_ranked:
+                fsig = (
+                    tuple(sorted(c.top_ids)),
+                    tuple(sorted(c.bottom_ids)),
+                    tuple(sorted(c.outerwear_ids)),
+                    tuple(sorted(c.footwear_ids)),
+                    tuple(sorted(c.accessory_ids)),
+                )
+                if fsig not in full_seen:
+                    full_seen.add(fsig)
+                    selected_scored.append(c)
+                    if len(selected_scored) >= limit:
+                        break
+
+        # 7. Build rich response candidates
+        role_map = {
+            "tops": "top",
+            "bottoms": "bottom",
+            "outerwear": "outerwear",
+            "footwear": "footwear",
+            "accessories": "accessory",
+        }
+
+        candidate_responses: list[OutfitCandidateResponse] = []
+        titles_pool = [
+            f"{effective_occasion.title()} Essential Look",
+            f"Elevated {effective_occasion.title()} Ensemble",
+            f"Relaxed {effective_occasion.title()} Coordination",
+            f"Refined {effective_occasion.title()} Style",
+            f"Modern {effective_occasion.title()} Ensemble",
+        ]
+
+        for idx, candidate in enumerate(selected_scored):
+            cand_id = f"outfit-cand-{idx + 1}-{hashlib.md5(f'{candidate.top_ids}_{candidate.bottom_ids}_{seed}'.encode()).hexdigest()[:8]}"
+            title = titles_pool[idx % len(titles_pool)]
+
+            components: list[OutfitComponentSchema] = []
+            component_dicts: list[dict] = []
+            covered_categories: list[str] = []
+
+            for cat in _OUTFIT_SLOT_ORDER:
+                cat_ids = getattr(candidate, _SLOT_ATTRS[cat], ())
+                if cat_ids:
+                    covered_categories.append(cat)
+                for item_id in cat_ids:
+                    record = by_record.get(str(item_id))
+                    if record is None:
+                        continue
+
+                    # Presigned image URL resolution
+                    image_url: Optional[str] = None
+                    image_ref = record.image_ref
+                    if image_ref and isinstance(image_ref, dict):
+                        key = (
+                            image_ref.get("objectKey")
+                            or image_ref.get("object_key")
+                            or image_ref.get("canonical_key")
+                            or image_ref.get("key")
+                        )
+                        if key and self._storage is not None:
+                            try:
+                                image_url = await self._storage.generate_presigned_get_url(key=key, expires_in_s=900)
+                                image_ref = {**image_ref, "downloadUrl": image_url, "url": image_url}
+                            except Exception:
+                                pass
+
+                    comp = OutfitComponentSchema(
+                        id=str(record.id),
+                        name=record.name,
+                        category=cat,
+                        role=role_map.get(cat, cat),
+                        color=record.color,
+                        material=record.material,
+                        reason=f"Selected {role_map.get(cat, cat)} piece for {effective_occasion} styling",
+                        imageUrl=image_url,
+                        imageRef=image_ref,
+                    )
+                    components.append(comp)
+                    component_dicts.append({
+                        "id": str(record.id),
+                        "name": record.name,
+                        "category": cat,
+                        "role": role_map.get(cat, cat),
+                        "color": record.color,
+                        "material": record.material,
+                    })
+
+            # Sub-score calculations
+            try:
+                _members = _candidate_members(candidate, by_record)
+            except Exception:
+                _members = []
+            palette_pts = _palette_points(_members, effective_palette)
+            fit_pts = _fit_points(_members, effective_fit)
+            occasion_pts = _occasion_points(_members, occasions)
+            pref_pts = float(getattr(candidate, "preference", 0.0) or 0.0)
+            fb_pts = float(getattr(candidate, "feedback", 0.0) or 0.0)
+            wear_pts = float(getattr(candidate, "wear", 0.0) or 0.0)
+
+            match_score = round(candidate.score / 100, 4)
+
+            score_breakdown = ScoreBreakdown(
+                totalScore=match_score,
+                occasionMatch=round(occasion_pts, 2),
+                paletteMatch=round(palette_pts, 2),
+                fitMatch=round(fit_pts, 2),
+                preferenceBonus=round(pref_pts, 2),
+                feedbackBonus=round(fb_pts, 2),
+                wearAdjustment=round(wear_pts, 2),
+                calculation=f"Overall compatibility {int(round(candidate.score))}% based on occasion alignment ({int(occasion_pts*100)}%), palette harmony ({int(palette_pts*100)}%), silhouette fit ({int(fit_pts*100)}%), and preference weights.",
+            )
+
+            # Grounded styling rationale & tips
+            color_names = list(dict.fromkeys(c.color for c in components if c.color))
+            color_harmony = f"{effective_palette.title()} harmony with {', '.join(color_names)} tones providing clean visual balance."
+            style_desc = f"Complete {effective_occasion} outfit tailored for a {effective_fit} silhouette in {effective_palette} tones."
+
+            reasons = [
+                f"Curated for {effective_occasion.title()} settings",
+                f"Harmonious {effective_palette} color balance across {len(components)} items",
+            ]
+            if palette_pts > 0:
+                reasons.append("Matches your chosen palette")
+            if fit_pts > 0:
+                reasons.append(f"Structured for a {effective_fit} profile")
+            if pref_pts > 0:
+                reasons.append("Incorporates your selected wardrobe preferences")
+
+            styling_tips = [
+                f"Color balance: The {', '.join(color_names)} combination maintains a clean focal point.",
+                f"Proportions: Balanced for a {effective_fit} silhouette; consider tucking or rolling the cuffs to emphasize waist or ankle lines.",
+            ]
+            if candidate.outerwear_ids:
+                styling_tips.append("Outerwear: Wear the layer open to create an elongating vertical line.")
+            elif effective_weather and "cold" in effective_weather.lower():
+                styling_tips.append("Temperature tip: Bring a structured layer for cooler indoor temperatures.")
+
+            # Missing pieces suggestions
+            missing_pieces: list[MissingPieceSuggestion] = []
+            if not candidate.footwear_ids:
+                missing_pieces.append(
+                    MissingPieceSuggestion(
+                        category="footwear",
+                        role="footwear",
+                        suggestion="Clean leather sneakers or dress loafers would ground this ensemble",
+                        isOwned=False,
+                    )
+                )
+            if not candidate.outerwear_ids:
+                missing_pieces.append(
+                    MissingPieceSuggestion(
+                        category="outerwear",
+                        role="outerwear",
+                        suggestion="A structured blazer, field jacket, or overcoat would add layered depth",
+                        isOwned=False,
+                    )
+                )
+            if not candidate.accessory_ids:
+                missing_pieces.append(
+                    MissingPieceSuggestion(
+                        category="accessories",
+                        role="accessory",
+                        suggestion="A minimal leather belt or understated watch would provide finishing polish",
+                        isOwned=False,
+                    )
+                )
+
+            styling_rationale = (
+                f"This {effective_occasion} ensemble brings together your {', '.join(c.name for c in components)}. "
+                f"The {effective_palette} tones complement each other without competing, while the {effective_fit} cut creates a deliberate, well-proportioned silhouette."
+            )
+
+            # AI reasoning enrichment for top candidate if model available
+            if idx == 0 and llm_backend.is_available():
+                try:
+                    missing_cat_names = [mp.category for mp in missing_pieces]
+                    enriched = llm_backend.enrich_stylist_recommendation(
+                        user_query=clean_query or f"{effective_occasion} outfit",
+                        occasion=effective_occasion,
+                        selected_components=component_dicts,
+                        missing_categories=missing_cat_names if missing_cat_names else None,
+                        weather_context=effective_weather,
+                        base_text=styling_rationale,
+                    )
+                    if enriched and enriched != styling_rationale:
+                        styling_rationale = enriched
+                except Exception:
+                    pass
+
+            snapshot = {
+                "title": title,
+                "matchScore": match_score,
+                "components": [c.model_dump(exclude_none=True) for c in components],
+                "selectedItemIds": [c.id for c in components],
+                "reasons": reasons,
+                "colorHarmony": color_harmony,
+                "bodyFit": f"Assembled for a {effective_fit} fit.",
+                "occasionMatch": f"Matched for {effective_occasion.title()}.",
+                "styleScoreImpact": f"{int(round(candidate.score))}% match from owned pieces.",
+                "improvementSuggestion": "Full coverage across core pieces." if not missing_pieces else f"Consider adding {missing_pieces[0].category} to elevate the ensemble.",
+                "selectedOccasion": effective_occasion,
+                "selectedMood": effective_mood,
+                "selectedColorPalette": effective_palette,
+            }
+
+            candidate_responses.append(
+                OutfitCandidateResponse(
+                    id=cand_id,
+                    title=title,
+                    occasion=effective_occasion,
+                    styleDescription=style_desc,
+                    matchScore=match_score,
+                    scoreBreakdown=score_breakdown,
+                    components=components,
+                    reasons=reasons,
+                    stylingRationale=styling_rationale,
+                    colorHarmony=color_harmony,
+                    stylingTips=styling_tips,
+                    missingPieces=missing_pieces,
+                    selectedOccasion=effective_occasion,
+                    selectedMood=effective_mood,
+                    selectedColorPalette=effective_palette,
+                    snapshot=snapshot,
+                )
+            )
+
+        return (
+            OutfitCompositionResponse(
+                candidates=candidate_responses,
+                totalCandidates=len(candidate_responses),
+                occasion=effective_occasion,
+                mood=effective_mood,
+                fit=effective_fit,
+                colorPalette=effective_palette,
+                query=clean_query,
+                weatherContext=effective_weather,
+            ),
+            None,
+        )
+

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/presentation/wardrobe_extraction_screen.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
@@ -43,6 +44,65 @@ class AddWardrobeCategoryScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 8),
+                        // AI Extraction Banner
+                        InkWell(
+                          onTap: () => _onAiExtractionTapped(context),
+                          borderRadius: FansivibeRadius.baseBorder,
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: FansivibeColors.surfaceContainerHigh,
+                              borderRadius: FansivibeRadius.baseBorder,
+                              border: Border.all(
+                                color: FansivibeColors.accentGold.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: FansivibeColors.primary.withValues(alpha: 0.15),
+                                    borderRadius: FansivibeRadius.smBorder,
+                                  ),
+                                  child: const Icon(
+                                    Icons.auto_awesome_rounded,
+                                    color: FansivibeColors.accentGold,
+                                    size: 24,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Extract Clothing with AI',
+                                        style: theme.textTheme.titleSmall?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: FansivibeColors.textPrimary,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Upload or take a photo to identify garments automatically',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: FansivibeColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: FansivibeColors.textSecondary,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
                         Text(
                           'Select a Category',
                           style: theme.textTheme.bodyLarge?.copyWith(
@@ -81,6 +141,17 @@ class AddWardrobeCategoryScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  void _onAiExtractionTapped(BuildContext context) async {
+    final dynamic result = await Navigator.of(context).push(
+      MaterialPageRoute<dynamic>(
+        builder: (_) => const WardrobeExtractionScreen(),
+      ),
+    );
+    if (result != null && context.mounted) {
+      Navigator.pop(context, result);
+    }
   }
 
   void _onCategorySelected(

@@ -280,6 +280,76 @@ class MessageBubble extends StatelessWidget {
                     ? () => onCardAction!(outfitCard)
                     : null,
               ),
+              const SizedBox(height: FansivibeSpacing.sm),
+              Wrap(
+                spacing: FansivibeSpacing.xs,
+                runSpacing: FansivibeSpacing.xs,
+                children: [
+                  ActionChip(
+                    avatar: const Icon(
+                      Icons.tune_rounded,
+                      size: 14,
+                      color: FansivibeColors.accentGold,
+                    ),
+                    label: const Text(
+                      'Make it more formal',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    backgroundColor: FansivibeColors.surfaceContainerHigh,
+                    side: BorderSide(
+                      color: FansivibeColors.primary.withValues(alpha: 0.3),
+                    ),
+                    onPressed: () => onClarification?.call(
+                      const ClarificationOption(
+                        label: 'Make it more formal',
+                        value: 'Make it more formal',
+                      ),
+                    ),
+                  ),
+                  ActionChip(
+                    avatar: const Icon(
+                      Icons.sync_alt_rounded,
+                      size: 14,
+                      color: FansivibeColors.accentGold,
+                    ),
+                    label: const Text(
+                      'Replace shoes',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    backgroundColor: FansivibeColors.surfaceContainerHigh,
+                    side: BorderSide(
+                      color: FansivibeColors.primary.withValues(alpha: 0.3),
+                    ),
+                    onPressed: () => onClarification?.call(
+                      const ClarificationOption(
+                        label: 'Replace shoes',
+                        value: 'Replace the shoes',
+                      ),
+                    ),
+                  ),
+                  ActionChip(
+                    avatar: const Icon(
+                      Icons.auto_awesome_outlined,
+                      size: 14,
+                      color: FansivibeColors.accentGold,
+                    ),
+                    label: const Text(
+                      'Show alternatives',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    backgroundColor: FansivibeColors.surfaceContainerHigh,
+                    side: BorderSide(
+                      color: FansivibeColors.primary.withValues(alpha: 0.3),
+                    ),
+                    onPressed: () => onClarification?.call(
+                      const ClarificationOption(
+                        label: 'Show alternatives',
+                        value: 'Suggest three outfits from my wardrobe',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ],
         ),

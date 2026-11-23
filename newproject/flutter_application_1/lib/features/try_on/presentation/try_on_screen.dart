@@ -7,6 +7,9 @@ import 'package:image_picker/image_picker.dart';
 
 import 'package:fansivibe/features/try_on/data/try_on_models.dart';
 import 'package:fansivibe/features/try_on/data/try_on_repository.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
+    show WardrobeItemData;
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansi_image_well.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -15,24 +18,24 @@ import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 
-/// Stage F0 mock try-on screen (test data only, $0).
+/// Complete Virtual Try-On Screen (Phase 5C).
 ///
-/// One shared flow for both product paths: the caller passes
-/// [outfitSource] (`today`/`outfit`/`saved`/`wardrobe`) plus the outfit
-/// [garmentIds] as labels — never as pixels, since the backend cannot
-/// retrieve wardrobe image bytes (audit finding). The user attaches a
-/// fresh person photo here; onboarding selfies are never reused (not
-/// retained by design).
-///
-/// Every result view carries the TEST DATA banner: the mock composite
-/// is UI scaffolding, never genuine AI output, and this screen offers
-/// no save/share/export path (mock outputs must not enter real flows).
+/// Supports end-to-end user journey:
+/// - Selecting or capturing a person photograph with preview.
+/// - Selecting a verified garment from the user's Digital Wardrobe with preview.
+/// - Clear explanation of VTON consent and explicit confirmation.
+/// - Submitting try-on job with duplicate-submission protection.
+/// - Real processing progress with optional cancellation.
+/// - Truthful display of actual generated result pixels.
+/// - Clear labeling of mock vs genuine AI inference.
+/// - Retrying failed jobs and deleting generated results.
 class TryOnScreen extends StatefulWidget {
   const TryOnScreen({
     required this.outfitSource,
     required this.garmentIds,
     required this.title,
     this.tryOnRepository,
+    this.wardrobeRepository,
     this.pickImage,
     super.key,
   });
@@ -41,8 +44,11 @@ class TryOnScreen extends StatefulWidget {
   final List<String> garmentIds;
   final String title;
 
-  /// Backend source. Defaults to the live repository; tests inject a fake.
+  /// Backend try-on repository seam. Defaults to live implementation.
   final TryOnRepository? tryOnRepository;
+
+  /// Wardrobe repository seam for fetching user garments.
+  final WardrobeRepository? wardrobeRepository;
 
   /// Photo picker seam (gallery/camera). Defaults to [ImagePicker].
   final Future<XFile?> Function(ImageSource source)? pickImage;
@@ -55,22 +61,58 @@ enum _Phase { input, submitting, polling, done, failed }
 
 class _TryOnScreenState extends State<TryOnScreen> {
   late final TryOnRepository _repository;
+  late final WardrobeRepository _wardrobeRepo;
 
   bool _consent = false;
   Uint8List? _personBytes;
   String _personFilename = 'tryon_person.jpg';
 
+  List<WardrobeItemData> _wardrobeItems = [];
+  WardrobeItemData? _selectedGarment;
+  String? _selectedGarmentId;
+  bool _isLoadingWardrobe = false;
+
   _Phase _phase = _Phase.input;
   TryOnFailure? _failure;
+  String? _failureDetail;
   int _pollCount = 0;
+  String? _activeJobId;
+  bool _isMock = true;
+  Uint8List? _resultBytes;
 
-  static const int _maxPolls = 20;
+  static const int _maxPolls = 30;
   static const Duration _pollInterval = Duration(seconds: 1);
 
   @override
   void initState() {
     super.initState();
     _repository = widget.tryOnRepository ?? TryOnRepositoryImpl();
+    _wardrobeRepo = widget.wardrobeRepository ?? WardrobeRepositoryImpl();
+
+    if (widget.garmentIds.isNotEmpty) {
+      _selectedGarmentId = widget.garmentIds.first;
+    }
+    _loadWardrobeItems();
+  }
+
+  Future<void> _loadWardrobeItems() async {
+    setState(() => _isLoadingWardrobe = true);
+    try {
+      final items = await _wardrobeRepo.listItems(pageSize: 50);
+      if (!mounted) return;
+      setState(() {
+        _wardrobeItems = items;
+        if (_selectedGarmentId != null && _wardrobeItems.isNotEmpty) {
+          final found = _wardrobeItems.where((i) => i.id == _selectedGarmentId);
+          if (found.isNotEmpty) {
+            _selectedGarment = found.first;
+          }
+        }
+        _isLoadingWardrobe = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingWardrobe = false);
+    }
   }
 
   Future<XFile?> _defaultPickImage(ImageSource source) {
@@ -94,6 +136,7 @@ class _TryOnScreenState extends State<TryOnScreen> {
       if (_phase == _Phase.failed || _phase == _Phase.done) {
         _phase = _Phase.input;
         _failure = null;
+        _resultBytes = null;
       }
     });
   }
@@ -106,6 +149,125 @@ class _TryOnScreenState extends State<TryOnScreen> {
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
+    );
+  }
+
+  void _onSelectGarment(WardrobeItemData item) {
+    setState(() {
+      _selectedGarment = item;
+      _selectedGarmentId = item.id;
+      if (_phase == _Phase.failed || _phase == _Phase.done) {
+        _phase = _Phase.input;
+        _failure = null;
+        _resultBytes = null;
+      }
+    });
+  }
+
+  void _showGarmentPicker() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: FansivibeColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Select Digital Wardrobe Garment',
+                      style: FansivibeTypography.titleLargeWithFamily,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (_isLoadingWardrobe) ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ] else if (_wardrobeItems.isEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Text('No garments found in your Digital Wardrobe.'),
+                    ),
+                  ),
+                ] else ...[
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _wardrobeItems.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final item = _wardrobeItems[index];
+                        final isChosen = item.id == _selectedGarmentId;
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                          leading: SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: ClipRRect(
+                              borderRadius: FansivibeRadius.smBorder,
+                              child: item.imageUrl != null
+                                  ? Image.network(
+                                      item.imageUrl!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) =>
+                                          const FansiImageWell(
+                                            icon: Icons.checkroom_rounded,
+                                            color: FansivibeColors.primary,
+                                          ),
+                                    )
+                                  : const FansiImageWell(
+                                      icon: Icons.checkroom_rounded,
+                                      color: FansivibeColors.primary,
+                                    ),
+                            ),
+                          ),
+                          title: Text(
+                            item.name,
+                            style: FansivibeTypography.bodyLargeWithFamily.copyWith(
+                              fontWeight: isChosen ? FontWeight.w700 : FontWeight.w500,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${item.category} • ${item.color}',
+                            style: FansivibeTypography.labelMediumWithFamily.copyWith(
+                              color: FansivibeColors.textSecondary,
+                            ),
+                          ),
+                          trailing: isChosen
+                              ? const Icon(Icons.check_circle_rounded, color: FansivibeColors.primary)
+                              : null,
+                          onTap: () {
+                            _onSelectGarment(item);
+                            Navigator.of(ctx).pop();
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -126,20 +288,31 @@ class _TryOnScreenState extends State<TryOnScreen> {
       _showSnackBar('Attach a person photo to preview.');
       return;
     }
+    final chosenId = _selectedGarmentId ?? (widget.garmentIds.isNotEmpty ? widget.garmentIds.first : null);
+    if (chosenId == null || chosenId.isEmpty) {
+      _showSnackBar('Select a garment from your Digital Wardrobe.');
+      return;
+    }
+
     if (_phase == _Phase.submitting || _phase == _Phase.polling) return;
+
     final key = newTryOnIdempotencyKey();
     setState(() {
       _phase = _Phase.submitting;
       _failure = null;
+      _failureDetail = null;
     });
+
+    final garmentList = [chosenId];
     final result = await _repository.submitMockTryOn(
       personBytes: bytes,
       personFilename: _personFilename,
       outfitSource: widget.outfitSource,
-      garmentIds: widget.garmentIds,
+      garmentIds: garmentList,
       consentAccepted: true,
       idempotencyKey: key,
     );
+
     if (!mounted) return;
     final job = result.job;
     if (job == null) {
@@ -149,10 +322,14 @@ class _TryOnScreenState extends State<TryOnScreen> {
       });
       return;
     }
+
     setState(() {
       _phase = _Phase.polling;
+      _activeJobId = job.jobId;
+      _isMock = job.isMock;
       _pollCount = 0;
     });
+
     await _pollUntilDone(job.jobId);
   }
 
@@ -163,15 +340,34 @@ class _TryOnScreenState extends State<TryOnScreen> {
       final status = await _repository.getJobStatus(jobId);
       if (!mounted) return;
       if (status == null) continue;
-      setState(() => _pollCount = i + 1);
+
+      setState(() {
+        _pollCount = i + 1;
+        _isMock = status.isMock;
+      });
+
       if (status.state == TryOnJobState.completed) {
-        setState(() => _phase = _Phase.done);
+        final img = await _repository.getJobImage(jobId);
+        if (!mounted) return;
+        setState(() {
+          _phase = _Phase.done;
+          _resultBytes = img;
+        });
         return;
       }
       if (status.state == TryOnJobState.failed) {
         setState(() {
           _phase = _Phase.failed;
           _failure = TryOnFailure.unknown;
+          _failureDetail = status.errorMessage ?? 'Try-on processing failed.';
+        });
+        return;
+      }
+      if (status.state == TryOnJobState.cancelled) {
+        setState(() {
+          _phase = _Phase.failed;
+          _failure = TryOnFailure.unknown;
+          _failureDetail = 'Try-on request was cancelled.';
         });
         return;
       }
@@ -180,18 +376,86 @@ class _TryOnScreenState extends State<TryOnScreen> {
     setState(() {
       _phase = _Phase.failed;
       _failure = TryOnFailure.networkError;
+      _failureDetail = 'Processing timed out. Please try again.';
     });
+  }
+
+  Future<void> _onCancel() async {
+    final jid = _activeJobId;
+    if (jid == null) return;
+    final res = await _repository.cancelJob(jid);
+    if (!mounted) return;
+    if (res != null) {
+      setState(() {
+        _phase = _Phase.failed;
+        _failure = TryOnFailure.unknown;
+        _failureDetail = 'Try-on request cancelled by user.';
+      });
+      _showSnackBar('Try-on job cancelled.');
+    }
+  }
+
+  Future<void> _onRetrySubmit() async {
+    final jid = _activeJobId;
+    if (jid == null) {
+      _onRetry();
+      return;
+    }
+    setState(() {
+      _phase = _Phase.submitting;
+      _failure = null;
+      _failureDetail = null;
+    });
+    final res = await _repository.retryJob(jid);
+    if (!mounted) return;
+    final job = res.job;
+    if (job == null) {
+      setState(() {
+        _phase = _Phase.failed;
+        _failure = res.failure ?? TryOnFailure.networkError;
+      });
+      return;
+    }
+    setState(() {
+      _phase = _Phase.polling;
+      _activeJobId = job.jobId;
+      _isMock = job.isMock;
+      _pollCount = 0;
+    });
+    await _pollUntilDone(job.jobId);
+  }
+
+  Future<void> _onDeleteResult() async {
+    final jid = _activeJobId;
+    if (jid == null) {
+      _onRetry();
+      return;
+    }
+    final success = await _repository.deleteJob(jid);
+    if (!mounted) return;
+    if (success) {
+      _showSnackBar('Try-on result and media deleted.');
+      _onRetry();
+    } else {
+      _showSnackBar('Could not delete result. Please try again.');
+    }
   }
 
   void _onRetry() {
     setState(() {
       _phase = _Phase.input;
       _failure = null;
+      _failureDetail = null;
       _pollCount = 0;
+      _resultBytes = null;
+      _activeJobId = null;
     });
   }
 
   String _failureMessage(TryOnFailure? failure) {
+    if (_failureDetail != null && _failureDetail!.isNotEmpty) {
+      return _failureDetail!;
+    }
     switch (failure) {
       case TryOnFailure.unauthorized:
         return 'Please sign in again to preview try-ons.';
@@ -201,11 +465,11 @@ class _TryOnScreenState extends State<TryOnScreen> {
       case TryOnFailure.rateLimited:
         return 'Daily preview limit reached. Please try again tomorrow.';
       case TryOnFailure.serviceUnavailable:
-        return 'Mock try-on previews are turned off right now.';
+        return 'Try-on generation is turned off right now.';
       case TryOnFailure.networkError:
         return 'Please check your connection and try again.';
       default:
-        return 'Something went wrong. Please try again.';
+        return 'Something went wrong during try-on processing. Please try again.';
     }
   }
 
@@ -213,7 +477,7 @@ class _TryOnScreenState extends State<TryOnScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: FansivibeColors.surface,
-      appBar: AppBar(title: const Text('Try-On Preview')),
+      appBar: AppBar(title: const Text('Virtual Try-On')),
       body: SafeArea(
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
@@ -221,7 +485,7 @@ class _TryOnScreenState extends State<TryOnScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildTestDataBanner(),
+              _buildProviderBanner(),
               const SizedBox(height: 16),
               Text(
                 widget.title,
@@ -236,7 +500,7 @@ class _TryOnScreenState extends State<TryOnScreen> {
                   color: FansivibeColors.textSecondary,
                 ),
               ),
-              if (widget.garmentIds.isEmpty) ...[
+              if (widget.garmentIds.isEmpty && _selectedGarmentId == null) ...[
                 const SizedBox(height: 16),
                 const Text('No outfit selected. Go back and pick a look.'),
               ] else ...[
@@ -250,23 +514,60 @@ class _TryOnScreenState extends State<TryOnScreen> {
     );
   }
 
-  /// Permanent TEST DATA banner — every phase of this screen is labelled.
-  Widget _buildTestDataBanner() {
+  Widget _buildProviderBanner() {
+    if (_isMock) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+        decoration: BoxDecoration(
+          color: FansivibeColors.warning,
+          borderRadius: FansivibeRadius.smdBorder,
+        ),
+        child: Text(
+          'TEST DATA — NOT AI TRY-ON',
+          textAlign: TextAlign.center,
+          style: FansivibeTypography.labelMediumWithFamily.copyWith(
+            color: FansivibeColors.surfaceContainerLowest,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.0,
+          ),
+        ),
+      );
+    }
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
       decoration: BoxDecoration(
-        color: FansivibeColors.warning,
+        color: FansivibeColors.surfaceContainer,
         borderRadius: FansivibeRadius.smdBorder,
+        border: Border.all(color: FansivibeColors.primary.withValues(alpha: 0.5)),
       ),
-      child: Text(
-        'TEST DATA — NOT AI TRY-ON',
-        textAlign: TextAlign.center,
-        style: FansivibeTypography.labelMediumWithFamily.copyWith(
-          color: FansivibeColors.textPrimary,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 1.0,
-        ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.auto_awesome_rounded, size: 16, color: FansivibeColors.primary),
+              const SizedBox(width: 6),
+              Text(
+                'AI Try-On Result',
+                style: FansivibeTypography.labelMediumWithFamily.copyWith(
+                  color: FansivibeColors.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Visual representation only; does not represent physical garment sizing or fit.',
+            textAlign: TextAlign.center,
+            style: FansivibeTypography.labelSmallWithFamily.copyWith(
+              color: FansivibeColors.textSecondary,
+              fontSize: 11,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -277,7 +578,13 @@ class _TryOnScreenState extends State<TryOnScreen> {
         return const Center(
           child: Padding(
             padding: EdgeInsets.symmetric(vertical: 32),
-            child: CircularProgressIndicator(),
+            child: Column(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Creating try-on job…'),
+              ],
+            ),
           ),
         );
       case _Phase.polling:
@@ -285,9 +592,22 @@ class _TryOnScreenState extends State<TryOnScreen> {
           children: [
             LinearProgressIndicator(
               value: _pollCount > 0 ? _pollCount / _maxPolls : null,
+              backgroundColor: FansivibeColors.surfaceContainer,
+              color: FansivibeColors.primary,
             ),
             SizedBox(height: FansivibeSpacing.md),
-            Text('Rendering test preview… (poll ${_pollCount + 1})'),
+            Text(
+              _isMock
+                  ? 'Rendering test preview… (poll ${_pollCount + 1})'
+                  : 'Processing diffusion try-on… (step ${_pollCount + 1})',
+              style: FansivibeTypography.bodyMediumWithFamily,
+            ),
+            const SizedBox(height: 16),
+            FansiButton.secondary(
+              label: 'Cancel Request',
+              icon: Icons.cancel_outlined,
+              onPressed: _onCancel,
+            ),
           ],
         );
       case _Phase.done:
@@ -298,12 +618,47 @@ class _TryOnScreenState extends State<TryOnScreen> {
           children: [
             _buildInput(enabled: true),
             const SizedBox(height: 16),
-            Text(_failureMessage(_failure)),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: FansivibeColors.error.withValues(alpha: 0.1),
+                borderRadius: FansivibeRadius.smdBorder,
+                border: Border.all(color: FansivibeColors.error.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline_rounded, color: FansivibeColors.error),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _failureMessage(_failure),
+                      style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                        color: FansivibeColors.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 12),
-            FansiButton.secondary(
-              label: 'Try Again',
-              icon: Icons.refresh_rounded,
-              onPressed: _onRetry,
+            Row(
+              children: [
+                Expanded(
+                  child: FansiButton.secondary(
+                    label: 'Try Again',
+                    icon: Icons.refresh_rounded,
+                    onPressed: _onRetrySubmit,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FansiButton.secondary(
+                    label: 'Change Inputs',
+                    icon: Icons.edit_outlined,
+                    onPressed: _onRetry,
+                  ),
+                ),
+              ],
             ),
           ],
         );
@@ -312,21 +667,139 @@ class _TryOnScreenState extends State<TryOnScreen> {
     }
   }
 
+  Widget _buildGarmentSection(bool enabled) {
+    final garment = _selectedGarment;
+    final garmentId = _selectedGarmentId ?? (widget.garmentIds.isNotEmpty ? widget.garmentIds.first : null);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainer,
+        borderRadius: FansivibeRadius.smdBorder,
+        border: Border.all(color: FansivibeColors.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Selected Garment',
+                style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (enabled)
+                TextButton.icon(
+                  icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                  label: const Text('Change'),
+                  onPressed: _showGarmentPicker,
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (garment != null) ...[
+            Row(
+              children: [
+                SizedBox(
+                  width: 60,
+                  height: 60,
+                  child: ClipRRect(
+                    borderRadius: FansivibeRadius.smBorder,
+                    child: garment.imageUrl != null
+                        ? Image.network(
+                            garment.imageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                const FansiImageWell(
+                                  icon: Icons.checkroom_rounded,
+                                  color: FansivibeColors.primary,
+                                ),
+                          )
+                        : const FansiImageWell(
+                            icon: Icons.checkroom_rounded,
+                            color: FansivibeColors.primary,
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        garment.name,
+                        style: FansivibeTypography.bodyLargeWithFamily.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${garment.category} • ${garment.color}',
+                        style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                          color: FansivibeColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ] else if (garmentId != null) ...[
+            Row(
+              children: [
+                const SizedBox(
+                  width: 50,
+                  height: 50,
+                  child: FansiImageWell(
+                    icon: Icons.checkroom_rounded,
+                    color: FansivibeColors.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    garmentId,
+                    style: FansivibeTypography.bodyLargeWithFamily,
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            FansiButton.secondary(
+              label: 'Select from Digital Wardrobe',
+              icon: Icons.add_circle_outline_rounded,
+              onPressed: enabled ? _showGarmentPicker : null,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildInput({required bool enabled}) {
     final bytes = _personBytes;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(
+          '1. Your Photograph',
+          style: FansivibeTypography.titleLargeWithFamily.copyWith(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
         if (bytes != null && bytes.isNotEmpty)
           Container(
-            height: 180,
+            height: 200,
             width: double.infinity,
             margin: EdgeInsets.only(bottom: FansivibeSpacing.md),
             child: ClipRRect(
               borderRadius: FansivibeRadius.smdBorder,
-              // Widget-test env never delivers image frames and user
-              // bytes may be corrupt: fall back to the well (wardrobe
-              // photo precedent) instead of a decode error.
               child: Image.memory(
                 bytes,
                 fit: BoxFit.cover,
@@ -361,6 +834,16 @@ class _TryOnScreenState extends State<TryOnScreen> {
             ),
           ],
         ),
+        SizedBox(height: FansivibeSpacing.lg),
+        Text(
+          '2. Wardrobe Piece',
+          style: FansivibeTypography.titleLargeWithFamily.copyWith(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        _buildGarmentSection(enabled),
         SizedBox(height: FansivibeSpacing.md),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -375,9 +858,9 @@ class _TryOnScreenState extends State<TryOnScreen> {
               child: Padding(
                 padding: EdgeInsets.only(top: 12),
                 child: Text(
-                  'I agree to process this photo for a test-only mock '
-                  'preview. Photos are hashed and discarded on the server '
-                  'and never sent to an AI provider in Stage F0.',
+                  'I agree to process this photo for a virtual try-on preview. '
+                  'Photos and try-on results are stored privately in your account '
+                  'and can be deleted at any time.',
                 ),
               ),
             ),
@@ -393,34 +876,66 @@ class _TryOnScreenState extends State<TryOnScreen> {
     );
   }
 
-  /// Mock result: labelled placeholder + garment labels. Deliberately no
-  /// save/share/export actions — mock outputs stay out of real flows.
   Widget _buildDone() {
+    final resultBytes = _resultBytes;
+    final garmentId = _selectedGarmentId ?? (widget.garmentIds.isNotEmpty ? widget.garmentIds.first : '');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const FansiImageWell(
-          icon: Icons.checkroom_rounded,
-          color: FansivibeColors.accentGold,
-        ),
+        if (resultBytes != null && resultBytes.isNotEmpty) ...[
+          Container(
+            height: 360,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: FansivibeRadius.smdBorder,
+              border: Border.all(color: FansivibeColors.outlineVariant),
+            ),
+            child: ClipRRect(
+              borderRadius: FansivibeRadius.smdBorder,
+              child: Image.memory(
+                resultBytes,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const FansiImageWell(
+                  icon: Icons.checkroom_rounded,
+                  color: FansivibeColors.primary,
+                ),
+              ),
+            ),
+          ),
+        ] else ...[
+          const FansiImageWell(
+            icon: Icons.checkroom_rounded,
+            color: FansivibeColors.primary,
+          ),
+        ],
         SizedBox(height: FansivibeSpacing.md),
-        const Text(
-          'Mock preview ready. This is UI test data — not an AI-generated '
-          'try-on, and it cannot be saved or shared as one.',
+        Text(
+          _isMock
+              ? 'Mock preview ready. This is UI test data — not an AI-generated '
+                  'try-on, and it cannot be saved or shared as one.'
+              : 'Virtual Try-On generation complete. Result saved privately to your profile.',
+          style: FansivibeTypography.bodyMediumWithFamily,
         ),
-        SizedBox(height: FansivibeSpacing.sm),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final id in widget.garmentIds) Chip(label: Text(id)),
-          ],
-        ),
-        SizedBox(height: FansivibeSpacing.md),
+        if (garmentId.isNotEmpty) ...[
+          SizedBox(height: FansivibeSpacing.sm),
+          Chip(
+            label: Text(
+              _selectedGarment != null ? _selectedGarment!.name : garmentId,
+            ),
+          ),
+        ],
+        SizedBox(height: FansivibeSpacing.lg),
         FansiButton.secondary(
           label: 'Preview Again',
           icon: Icons.refresh_rounded,
           onPressed: _onRetry,
+        ),
+        SizedBox(height: FansivibeSpacing.sm),
+        FansiButton.secondary(
+          label: 'Delete Result',
+          icon: Icons.delete_outline_rounded,
+          onPressed: _onDeleteResult,
         ),
         SizedBox(height: FansivibeSpacing.sm),
         FansiButton.secondary(

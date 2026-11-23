@@ -92,6 +92,7 @@ class ScriptedOutfitRepository implements OutfitBuilderRepository {
 
   Future<OutfitResult> Function()? genHandler;
   Future<SavedOutfit?> Function()? saveHandler;
+  Future<OutfitCompositionResult> Function()? composeHandler;
 
   int genCalls = 0;
   int saveCalls = 0;
@@ -100,6 +101,48 @@ class ScriptedOutfitRepository implements OutfitBuilderRepository {
   final List<String> saveTitles = [];
   final List<Map<String, dynamic>> saveSnapshots = [];
   final List<String> saveKeys = [];
+
+  @override
+  Future<OutfitCompositionResult> composeOutfits({
+    String? occasion,
+    String? mood,
+    String? fit,
+    String? colorPalette,
+    String? query,
+    List<String>? preferredItemIds,
+    int limit = 3,
+    String? seed,
+    String? weatherContext,
+  }) async {
+    if (composeHandler != null) {
+      return composeHandler!();
+    }
+    if (genHandler != null) {
+      genCalls += 1;
+      genSeeds.add(seed);
+      genPreferredIds.add(preferredItemIds);
+      final r = await genHandler!();
+      if (r.available && r.outfit != null) {
+        return OutfitCompositionResult.available(
+          OutfitCompositionResponse(
+            occasion: occasion ?? '',
+            mood: mood ?? '',
+            fit: fit ?? '',
+            colorPalette: colorPalette ?? '',
+            totalCandidates: 1,
+            candidates: [r.outfit!.toCandidate()],
+          ),
+        );
+      } else if (r.noneAvailable) {
+        return OutfitCompositionResult.noneAvailable(emptyReason: r.emptyReason);
+      } else {
+        return OutfitCompositionResult.failure(
+          r.failure ?? OutfitFailure.serviceUnavailable,
+        );
+      }
+    }
+    return const OutfitCompositionResult.noneAvailable();
+  }
 
   @override
   Future<OutfitResult> generateOutfit({
@@ -349,6 +392,7 @@ void main() {
       await tester.pumpWidget(_freshApp());
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(find.text('Build Outfit'), 200);
       await tester.tap(find.text('Build Outfit'));
       await tester.pumpAndSettle();
 

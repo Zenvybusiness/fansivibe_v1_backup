@@ -318,6 +318,22 @@ class _CountingOutfitRepository implements OutfitBuilderRepository {
   int genCalls = 0;
 
   @override
+  Future<OutfitCompositionResult> composeOutfits({
+    String? occasion,
+    String? mood,
+    String? fit,
+    String? colorPalette,
+    String? query,
+    List<String>? preferredItemIds,
+    int limit = 3,
+    String? seed,
+    String? weatherContext,
+  }) async {
+    genCalls++;
+    throw StateError('must not be called for guests');
+  }
+
+  @override
   Future<OutfitResult> generateOutfit({
     required String occasion,
     required String mood,

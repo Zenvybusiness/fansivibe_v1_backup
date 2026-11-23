@@ -160,8 +160,7 @@ class TryOnClient {
     return null;
   }
 
-  /// Fetches the mock composite bytes (completed jobs only). The bytes
-  /// are a labelled SVG — test data, never AI output.
+  /// Fetches the composite image bytes (completed jobs only).
   Future<Uint8List?> getJobImage(String jobId) async {
     if (jobId.isEmpty) return null;
     try {
@@ -179,5 +178,77 @@ class TryOnClient {
       debugPrint('TryOn backend unreachable during image fetch: $error');
     }
     return null;
+  }
+
+  /// Retries an eligible failed try-on job.
+  Future<TryOnSubmitResult> retryJob(String jobId) async {
+    if (jobId.isEmpty) return const TryOnSubmitResult(failure: TryOnFailure.invalidInput);
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/tryon/jobs/$jobId/retry'),
+            headers: _authHeaders,
+          )
+          .timeout(_submitTimeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 202) {
+        final decoded = jsonDecode(response.body);
+        final job = decoded is Map<String, dynamic>
+            ? TryOnJob.fromJson(decoded)
+            : null;
+        if (job != null) return TryOnSubmitResult(job: job);
+        return const TryOnSubmitResult(failure: TryOnFailure.unknown);
+      }
+      if (response.statusCode == 401) AuthSession.notifyUnauthorized();
+      return TryOnSubmitResult(failure: _failureOf(response.statusCode));
+    } catch (error) {
+      debugPrint('TryOn backend unreachable during retry: $error');
+      return const TryOnSubmitResult();
+    }
+  }
+
+  /// Cancels an in-progress try-on job.
+  Future<TryOnJobStatus?> cancelJob(String jobId) async {
+    if (jobId.isEmpty) return null;
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/tryon/jobs/$jobId/cancel'),
+            headers: _authHeaders,
+          )
+          .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          return TryOnJobStatus.fromJson(decoded);
+        }
+      }
+      if (response.statusCode == 401) AuthSession.notifyUnauthorized();
+    } catch (error) {
+      debugPrint('TryOn backend unreachable during cancel: $error');
+    }
+    return null;
+  }
+
+  /// Deletes a try-on job and associated media.
+  Future<bool> deleteJob(String jobId) async {
+    if (jobId.isEmpty) return false;
+    try {
+      final response = await _client
+          .delete(
+            Uri.parse('$baseUrl/v1/tryon/jobs/$jobId'),
+            headers: _authHeaders,
+          )
+          .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 204 || response.statusCode == 200) {
+        return true;
+      }
+      if (response.statusCode == 401) AuthSession.notifyUnauthorized();
+    } catch (error) {
+      debugPrint('TryOn backend unreachable during delete: $error');
+    }
+    return false;
   }
 }

@@ -34,6 +34,9 @@ class BuildOutfitScreen extends StatefulWidget {
 }
 
 class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
+  final TextEditingController _naturalLanguageController =
+      TextEditingController();
+  bool _showNaturalLanguage = false;
   String? _selectedOccasion;
   String? _selectedMood;
   String? _selectedFit;
@@ -51,14 +54,23 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    _naturalLanguageController.dispose();
+    super.dispose();
+  }
+
   bool get _allSelected =>
       _selectedOccasion != null &&
       _selectedMood != null &&
       _selectedFit != null &&
       _selectedColorPalette != null;
 
+  bool get _canBuild =>
+      _allSelected || _naturalLanguageController.text.trim().isNotEmpty;
+
   void _buildOutfit() {
-    if (!_allSelected) return;
+    if (!_canBuild) return;
     // Phase 2 guests: deriving an outfit (POST /v1/outfits/generate)
     // is account-only — prompt at the button instead of pushing into
     // a 401-backed generation screen.
@@ -69,13 +81,20 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
       );
       return;
     }
+    final occ = _selectedOccasion ?? 'casual';
+    final mood = _selectedMood ?? 'confident';
+    final fit = _selectedFit ?? 'regular';
+    final pal = _selectedColorPalette ?? 'monochrome';
+    final queryText = _naturalLanguageController.text.trim();
+
     context.pushNamed(
       RouteNames.outfitGeneration,
       extra: <String, String>{
-        'occasion': _selectedOccasion!,
-        'mood': _selectedMood!,
-        'fit': _selectedFit!,
-        'colorPalette': _selectedColorPalette!,
+        'occasion': occ,
+        'mood': mood,
+        'fit': fit,
+        'colorPalette': pal,
+        if (queryText.isNotEmpty) 'query': queryText,
         if (widget.eventId != null) 'eventId': widget.eventId!,
         if (widget.eventTitle != null) 'eventTitle': widget.eventTitle!,
         if (widget.preferredItemId != null)
@@ -117,6 +136,171 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildNaturalLanguageCard(BuildContext context) {
+    if (!_showNaturalLanguage && _naturalLanguageController.text.trim().isEmpty) {
+      return InkWell(
+        key: const Key('btn_toggle_natural_language'),
+        onTap: () => setState(() => _showNaturalLanguage = true),
+        borderRadius: FansivibeRadius.smdBorder,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: FansivibeColors.surfaceContainerLow,
+            borderRadius: FansivibeRadius.smdBorder,
+            border: Border.all(
+              color: FansivibeColors.accentGold.withValues(alpha: 0.25),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.auto_awesome_rounded,
+                size: 18,
+                color: FansivibeColors.accentGold,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Describe what you want in natural language…',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: FansivibeColors.accentGold,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Icon(
+                Icons.keyboard_arrow_down_rounded,
+                size: 20,
+                color: FansivibeColors.accentGold,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    const quickPrompts = [
+      'Casual dinner date',
+      'Smart casual office',
+      'Weekend hangout',
+      'Cold evening dinner',
+    ];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.mdBorder,
+        border: Border.all(
+          color: FansivibeColors.accentGold.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.auto_awesome_rounded,
+                size: 18,
+                color: FansivibeColors.accentGold,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Natural Language Styling',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: FansivibeColors.textPrimary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close_rounded, size: 18),
+                color: FansivibeColors.textSecondary,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () {
+                  setState(() {
+                    _naturalLanguageController.clear();
+                    _showNaturalLanguage = false;
+                  });
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Describe an occasion, vibe, or piece in plain words:',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: FansivibeColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('input_outfit_natural_language'),
+            controller: _naturalLanguageController,
+            style: const TextStyle(color: FansivibeColors.textPrimary, fontSize: 14),
+            decoration: InputDecoration(
+              hintText: 'e.g., Dinner date at a cozy bistro on a chilly evening',
+              hintStyle: TextStyle(
+                color: FansivibeColors.textSecondary.withValues(alpha: 0.6),
+                fontSize: 13,
+              ),
+              filled: true,
+              fillColor: FansivibeColors.surfaceContainer,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: FansivibeRadius.smdBorder,
+                borderSide: BorderSide(color: FansivibeColors.outlineVariant),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: FansivibeRadius.smdBorder,
+                borderSide: BorderSide(color: FansivibeColors.outlineVariant),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: FansivibeRadius.smdBorder,
+                borderSide: BorderSide(color: FansivibeColors.accentGold),
+              ),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: quickPrompts.map((prompt) {
+              return InkWell(
+                onTap: () {
+                  _naturalLanguageController.text = prompt;
+                  setState(() {});
+                },
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: FansivibeColors.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: FansivibeColors.accentGold.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Text(
+                    prompt,
+                    style: const TextStyle(
+                      color: FansivibeColors.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ),
     );
   }
@@ -178,6 +362,17 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
           ),
           onPressed: () => Navigator.of(context).pop(),
         ),
+        actions: [
+          IconButton(
+            key: const Key('btn_view_saved_outfits'),
+            icon: const Icon(
+              Icons.bookmark_outline_rounded,
+              color: FansivibeColors.accentGold,
+            ),
+            tooltip: 'Saved Outfits',
+            onPressed: () => context.pushNamed(RouteNames.profileSavedLooks),
+          ),
+        ],
       ),
       body: SafeArea(
         child: LayoutBuilder(
@@ -221,6 +416,10 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
 
                         if (widget.eventTitle != null)
                           _buildEventChip(context),
+
+                        // Natural Language Prompt Card
+                        _buildNaturalLanguageCard(context),
+                        const SizedBox(height: 24),
 
                         // Occasion
                         OptionSection(
@@ -274,7 +473,7 @@ class _BuildOutfitScreenState extends State<BuildOutfitScreen> {
                         FansiButton.primary(
                           label: 'Build Outfit',
                           icon: Icons.checkroom_rounded,
-                          onPressed: _allSelected ? _buildOutfit : null,
+                          onPressed: _canBuild ? _buildOutfit : null,
                         ),
 
                         const SizedBox(height: 32),

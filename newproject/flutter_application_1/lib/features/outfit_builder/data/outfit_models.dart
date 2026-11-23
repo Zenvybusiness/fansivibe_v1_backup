@@ -26,6 +26,9 @@ class OutfitComponent {
     required this.color,
     required this.reason,
     this.material,
+    this.role,
+    this.imageUrl,
+    this.imageRef,
   });
 
   /// Backend wardrobe UUID (verbatim — never resolved against local IDs).
@@ -46,6 +49,15 @@ class OutfitComponent {
   /// Wardrobe material code, when the item carries one.
   final String? material;
 
+  /// Garment role in the outfit (top, bottom, footwear, outerwear, accessory).
+  final String? role;
+
+  /// Presigned image URL when available.
+  final String? imageUrl;
+
+  /// Raw media reference dictionary.
+  final Map<String, dynamic>? imageRef;
+
   factory OutfitComponent.fromJson(Map<String, dynamic> json) =>
       OutfitComponent(
         id: json['id'] as String,
@@ -54,6 +66,9 @@ class OutfitComponent {
         color: json['color'] as String,
         reason: json['reason'] as String,
         material: json['material'] as String?,
+        role: json['role'] as String?,
+        imageUrl: json['imageUrl'] as String?,
+        imageRef: json['imageRef'] as Map<String, dynamic>?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -62,7 +77,10 @@ class OutfitComponent {
     'category': category,
     'color': color,
     'reason': reason,
-    'material': material,
+    if (material != null) 'material': material,
+    if (role != null) 'role': role,
+    if (imageUrl != null) 'imageUrl': imageUrl,
+    if (imageRef != null) 'imageRef': imageRef,
   };
 }
 
@@ -142,6 +160,24 @@ class OutfitRecommendation {
     'selectedMood': selectedMood,
     'selectedColorPalette': selectedColorPalette,
   };
+
+  OutfitCandidate toCandidate({String? id}) => OutfitCandidate(
+    id: id ?? 'cand-${title.hashCode.abs()}',
+    title: title,
+    occasion: selectedOccasion,
+    styleDescription: '$selectedOccasion outfit in $selectedColorPalette',
+    matchScore: matchScore,
+    components: components,
+    reasons: reasons,
+    stylingRationale: reasons.isNotEmpty ? reasons.join('. ') : 'Coordinated pieces.',
+    colorHarmony: colorHarmony,
+    stylingTips: const [],
+    missingPieces: const [],
+    selectedOccasion: selectedOccasion,
+    selectedMood: selectedMood,
+    selectedColorPalette: selectedColorPalette,
+    snapshot: snapshot,
+  );
 }
 
 /// Preference selections for one outfit derivation (#41).
@@ -430,3 +466,238 @@ class OutfitSlotSwapResponse {
             const [],
       );
 }
+
+/// Documented calculation breakdown for outfit match score.
+class ScoreBreakdown {
+  const ScoreBreakdown({
+    required this.totalScore,
+    this.occasionMatch = 0.0,
+    this.paletteMatch = 0.0,
+    this.fitMatch = 0.0,
+    this.preferenceBonus = 0.0,
+    this.feedbackBonus = 0.0,
+    this.wearAdjustment = 0.0,
+    this.calculation = '',
+  });
+
+  final double totalScore;
+  final double occasionMatch;
+  final double paletteMatch;
+  final double fitMatch;
+  final double preferenceBonus;
+  final double feedbackBonus;
+  final double wearAdjustment;
+  final String calculation;
+
+  factory ScoreBreakdown.fromJson(Map<String, dynamic> json) => ScoreBreakdown(
+    totalScore: (json['totalScore'] as num).toDouble(),
+    occasionMatch: ((json['occasionMatch'] as num?) ?? 0.0).toDouble(),
+    paletteMatch: ((json['paletteMatch'] as num?) ?? 0.0).toDouble(),
+    fitMatch: ((json['fitMatch'] as num?) ?? 0.0).toDouble(),
+    preferenceBonus: ((json['preferenceBonus'] as num?) ?? 0.0).toDouble(),
+    feedbackBonus: ((json['feedbackBonus'] as num?) ?? 0.0).toDouble(),
+    wearAdjustment: ((json['wearAdjustment'] as num?) ?? 0.0).toDouble(),
+    calculation: (json['calculation'] as String?) ?? '',
+  );
+
+  Map<String, dynamic> toJson() => {
+    'totalScore': totalScore,
+    'occasionMatch': occasionMatch,
+    'paletteMatch': paletteMatch,
+    'fitMatch': fitMatch,
+    'preferenceBonus': preferenceBonus,
+    'feedbackBonus': feedbackBonus,
+    'wearAdjustment': wearAdjustment,
+    'calculation': calculation,
+  };
+}
+
+/// Suggested addition to complete an outfit (clearly labeled as unowned).
+class MissingPieceSuggestion {
+  const MissingPieceSuggestion({
+    required this.category,
+    required this.role,
+    required this.suggestion,
+    this.isOwned = false,
+  });
+
+  final String category;
+  final String role;
+  final String suggestion;
+  final bool isOwned;
+
+  factory MissingPieceSuggestion.fromJson(Map<String, dynamic> json) =>
+      MissingPieceSuggestion(
+        category: json['category'] as String,
+        role: (json['role'] as String?) ?? (json['category'] as String),
+        suggestion: json['suggestion'] as String,
+        isOwned: (json['isOwned'] as bool?) ?? false,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'category': category,
+    'role': role,
+    'suggestion': suggestion,
+    'isOwned': isOwned,
+  };
+}
+
+/// Full candidate representation for multi-outfit generation.
+class OutfitCandidate {
+  const OutfitCandidate({
+    required this.id,
+    required this.title,
+    required this.occasion,
+    required this.styleDescription,
+    required this.matchScore,
+    required this.components,
+    required this.reasons,
+    required this.stylingRationale,
+    required this.colorHarmony,
+    required this.stylingTips,
+    required this.selectedOccasion,
+    required this.selectedMood,
+    required this.selectedColorPalette,
+    required this.snapshot,
+    this.scoreBreakdown,
+    this.missingPieces = const [],
+  });
+
+  final String id;
+  final String title;
+  final String occasion;
+  final String styleDescription;
+  final double matchScore;
+  final ScoreBreakdown? scoreBreakdown;
+  final List<OutfitComponent> components;
+  final List<String> reasons;
+  final String stylingRationale;
+  final String colorHarmony;
+  final List<String> stylingTips;
+  final List<MissingPieceSuggestion> missingPieces;
+  final String selectedOccasion;
+  final String selectedMood;
+  final String selectedColorPalette;
+  final Map<String, dynamic> snapshot;
+
+  factory OutfitCandidate.fromJson(Map<String, dynamic> json) =>
+      OutfitCandidate(
+        id: json['id'] as String,
+        title: json['title'] as String,
+        occasion: json['occasion'] as String,
+        styleDescription: (json['styleDescription'] as String?) ?? '',
+        matchScore: (json['matchScore'] as num).toDouble(),
+        scoreBreakdown: json['scoreBreakdown'] != null
+            ? ScoreBreakdown.fromJson(
+                json['scoreBreakdown'] as Map<String, dynamic>,
+              )
+            : null,
+        components: (json['components'] as List<dynamic>)
+            .map((e) => OutfitComponent.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        reasons: (json['reasons'] as List<dynamic>)
+            .map((e) => e as String)
+            .toList(),
+        stylingRationale: (json['stylingRationale'] as String?) ?? '',
+        colorHarmony: (json['colorHarmony'] as String?) ?? '',
+        stylingTips: (json['stylingTips'] as List<dynamic>?)
+                ?.map((e) => e as String)
+                .toList() ??
+            const [],
+        missingPieces: (json['missingPieces'] as List<dynamic>?)
+                ?.map(
+                  (e) =>
+                      MissingPieceSuggestion.fromJson(e as Map<String, dynamic>),
+                )
+                .toList() ??
+            const [],
+        selectedOccasion: (json['selectedOccasion'] as String?) ?? '',
+        selectedMood: (json['selectedMood'] as String?) ?? '',
+        selectedColorPalette: (json['selectedColorPalette'] as String?) ?? '',
+        snapshot: (json['snapshot'] as Map<String, dynamic>?) ?? json,
+      );
+
+  OutfitRecommendation toRecommendation() => OutfitRecommendation(
+    title: title,
+    matchScore: matchScore,
+    components: components,
+    reasons: reasons,
+    colorHarmony: colorHarmony,
+    bodyFit: 'Assembled for a $selectedMood and $occasion fit.',
+    occasionMatch: 'Matched for $occasion.',
+    styleScoreImpact: '${(matchScore * 100).round()}% match from owned pieces.',
+    improvementSuggestion: missingPieces.isNotEmpty
+        ? missingPieces.first.suggestion
+        : 'Full coverage across core pieces.',
+    selectedOccasion: selectedOccasion,
+    selectedMood: selectedMood,
+    selectedColorPalette: selectedColorPalette,
+    snapshot: snapshot,
+  );
+}
+
+/// Response payload from multi-outfit composition.
+class OutfitCompositionResponse {
+  const OutfitCompositionResponse({
+    required this.candidates,
+    required this.totalCandidates,
+    required this.occasion,
+    required this.mood,
+    required this.fit,
+    required this.colorPalette,
+    this.query,
+    this.weatherContext,
+  });
+
+  final List<OutfitCandidate> candidates;
+  final int totalCandidates;
+  final String occasion;
+  final String mood;
+  final String fit;
+  final String colorPalette;
+  final String? query;
+  final String? weatherContext;
+
+  factory OutfitCompositionResponse.fromJson(Map<String, dynamic> json) =>
+      OutfitCompositionResponse(
+        candidates: (json['candidates'] as List<dynamic>)
+            .map((e) => OutfitCandidate.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        totalCandidates: (json['totalCandidates'] as num).toInt(),
+        occasion: json['occasion'] as String,
+        mood: json['mood'] as String,
+        fit: json['fit'] as String,
+        colorPalette: json['colorPalette'] as String,
+        query: json['query'] as String?,
+        weatherContext: json['weatherContext'] as String?,
+      );
+}
+
+/// Outcome of `POST /v1/outfits/compose`.
+class OutfitCompositionResult {
+  const OutfitCompositionResult._({
+    this.composition,
+    this.failure,
+    this.emptyReason,
+  })  : available = composition != null,
+        noneAvailable = composition == null && failure == null;
+
+  const OutfitCompositionResult.available(OutfitCompositionResponse composition)
+      : this._(composition: composition);
+
+  const OutfitCompositionResult.noneAvailable({this.emptyReason})
+      : composition = null,
+        failure = null,
+        available = false,
+        noneAvailable = true;
+
+  const OutfitCompositionResult.failure(OutfitFailure failure)
+      : this._(failure: failure);
+
+  final bool available;
+  final bool noneAvailable;
+  final OutfitCompositionResponse? composition;
+  final OutfitFailure? failure;
+  final String? emptyReason;
+}
+

@@ -103,19 +103,55 @@ class GarmentProfile:
     confidence: float = 0.0
     needs_review: bool = True
     sourceRunId: str = ""
+    candidates: tuple[dict, ...] = ()
+    secondary_colors: tuple[str, ...] = ()
+    sleeve_type: str | None = None
+    neckline: str | None = None
+    length: str | None = None
+    condition: str | None = None
+    description: str | None = None
 
     def to_snapshot(self) -> dict:
+        candidates_list = list(self.candidates)
+        if not candidates_list and (self.category or self.subcategory or self.color):
+            candidates_list = [
+                {
+                    "id": "cand_1",
+                    "category": self.category,
+                    "subcategory": self.subcategory,
+                    "color": self.color,
+                    "secondary_colors": list(self.secondary_colors) if self.secondary_colors else None,
+                    "pattern": self.pattern,
+                    "material": self.material,
+                    "style": self.style,
+                    "fit": self.fit,
+                    "sleeve_type": self.sleeve_type,
+                    "neckline": self.neckline,
+                    "length": self.length,
+                    "condition": self.condition,
+                    "description": self.description,
+                    "confidence": self.confidence,
+                    "needs_review": self.needs_review,
+                }
+            ]
         return {
             "category": self.category,
             "subcategory": self.subcategory,
             "color": self.color,
+            "secondary_colors": list(self.secondary_colors) if self.secondary_colors else None,
             "pattern": self.pattern,
             "material": self.material,
             "style": self.style,
             "fit": self.fit,
+            "sleeve_type": self.sleeve_type,
+            "neckline": self.neckline,
+            "length": self.length,
+            "condition": self.condition,
+            "description": self.description,
             "confidence": self.confidence,
             "needs_review": self.needs_review,
             "sourceRunId": self.sourceRunId,
+            "candidates": candidates_list,
         }
 
 

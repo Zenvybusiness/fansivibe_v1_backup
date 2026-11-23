@@ -278,12 +278,27 @@ class OutfitComponentCard extends StatelessWidget {
               borderRadius: FansivibeRadius.smdBorder,
               border: Border.all(color: tint.withValues(alpha: 0.3)),
             ),
-            child: Center(
-              child: Icon(
-                _categoryIcon(component.category),
-                size: 20,
-                color: tint,
-              ),
+            child: ClipRRect(
+              borderRadius: FansivibeRadius.smdBorder,
+              child: component.imageUrl != null && component.imageUrl!.isNotEmpty
+                  ? Image.network(
+                      component.imageUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Center(
+                        child: Icon(
+                          _categoryIcon(component.category),
+                          size: 20,
+                          color: tint,
+                        ),
+                      ),
+                    )
+                  : Center(
+                      child: Icon(
+                        _categoryIcon(component.category),
+                        size: 20,
+                        color: tint,
+                      ),
+                    ),
             ),
           ),
           const SizedBox(width: 12),
@@ -293,6 +308,30 @@ class OutfitComponentCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
+                    if (component.role != null && component.role!.isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: FansivibeColors.accentGold.withValues(
+                            alpha: 0.15,
+                          ),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          component.role!.toUpperCase(),
+                          style: const TextStyle(
+                            color: FansivibeColors.accentGold,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
                     Expanded(
                       child: Text(
                         component.name,
@@ -396,5 +435,203 @@ class OutfitComponentCard extends StatelessWidget {
       default:
         return Icons.category_rounded;
     }
+  }
+}
+
+class ScoreBreakdownCard extends StatelessWidget {
+  const ScoreBreakdownCard({
+    required this.breakdown,
+    super.key,
+  });
+
+  final ScoreBreakdown breakdown;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: FansivibeRadius.mdBorder,
+        border: Border.all(
+          color: FansivibeColors.accentGold.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.analytics_outlined,
+                size: 18,
+                color: FansivibeColors.accentGold,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Compatibility Score Calculation',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: FansivibeColors.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildRow('Occasion Match', breakdown.occasionMatch),
+          _buildRow('Color Harmony', breakdown.paletteMatch),
+          _buildRow('Silhouette Fit', breakdown.fitMatch),
+          if (breakdown.preferenceBonus > 0)
+            _buildRow('Wardrobe Preference Bonus', breakdown.preferenceBonus),
+          if (breakdown.feedbackBonus != 0)
+            _buildRow('Feedback Learning Adjustment', breakdown.feedbackBonus),
+          const Divider(color: FansivibeColors.outlineVariant, height: 16),
+          Text(
+            breakdown.calculation.isNotEmpty
+                ? breakdown.calculation
+                : 'Deterministic multi-term score calculated from occasion alignment, color harmony, and fit profile.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: FansivibeColors.textSecondary,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRow(String label, double points) {
+    final percent = (points * 100).round();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: FansivibeColors.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+          Text(
+            '+$percent%',
+            style: const TextStyle(
+              color: FansivibeColors.accentGold,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class MissingPiecesSection extends StatelessWidget {
+  const MissingPiecesSection({
+    required this.missingPieces,
+    super.key,
+  });
+
+  final List<MissingPieceSuggestion> missingPieces;
+
+  @override
+  Widget build(BuildContext context) {
+    if (missingPieces.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              Icons.add_shopping_cart_rounded,
+              size: 20,
+              color: FansivibeColors.accentGold,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Suggested Additions',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: FansivibeColors.textPrimary,
+                fontSize: 20,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Unowned pieces that would elevate this combination (suggestions only)',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: FansivibeColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 12),
+        ...missingPieces.map(
+          (piece) => Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: FansivibeColors.surfaceContainerLow,
+              borderRadius: FansivibeRadius.smdBorder,
+              border: Border.all(
+                color: FansivibeColors.accentGold.withValues(alpha: 0.2),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: FansivibeColors.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    piece.role.toUpperCase(),
+                    style: const TextStyle(
+                      color: FansivibeColors.accentGold,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        piece.suggestion,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: FansivibeColors.textPrimary,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'Not in wardrobe — suggested item',
+                        style: TextStyle(
+                          color: FansivibeColors.textSecondary,
+                          fontSize: 10,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

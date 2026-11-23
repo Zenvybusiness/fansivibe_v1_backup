@@ -64,6 +64,19 @@ class _TestOutfitRepository implements OutfitBuilderRepository {
   OutfitSlotSwapRequest? lastSwapRequest;
 
   @override
+  Future<OutfitCompositionResult> composeOutfits({
+    String? occasion,
+    String? mood,
+    String? fit,
+    String? colorPalette,
+    String? query,
+    List<String>? preferredItemIds,
+    int limit = 3,
+    String? seed,
+    String? weatherContext,
+  }) async => const OutfitCompositionResult.noneAvailable();
+
+  @override
   Future<OutfitResult> generateOutfit({
     required String occasion,
     required String mood,

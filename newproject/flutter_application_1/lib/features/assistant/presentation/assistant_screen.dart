@@ -23,7 +23,12 @@ import 'package:fansivibe/shared/utils/guest_mode.dart';
 /// right screen. Grounded in the user model; falls back to the offline rules
 /// assistant when the backend is unreachable.
 class AssistantScreen extends StatefulWidget {
-  const AssistantScreen({super.key, this.service, this.pickImage});
+  const AssistantScreen({
+    super.key,
+    this.service,
+    this.pickImage,
+    this.initialQuery,
+  });
 
   /// Injectable for tests; when null the screen owns its own service.
   final AssistantService? service;
@@ -31,6 +36,9 @@ class AssistantScreen extends StatefulWidget {
   /// Injectable gallery/camera picker (defaults to [ImagePicker]); tests
   /// supply a fake. Mirrors the outfit-scan precedent.
   final Future<XFile?> Function(ImageSource source)? pickImage;
+
+  /// Optional initial query (e.g. from the AI Stylist quick ask bar).
+  final String? initialQuery;
 
   @override
   State<AssistantScreen> createState() => _AssistantScreenState();
@@ -58,6 +66,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
         widget.service ??
         (AssistantService()..attachLearning(LearningService.instance));
     _service.addListener(_onServiceChanged);
+
+    if (widget.initialQuery != null && widget.initialQuery!.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _service.send(widget.initialQuery!.trim());
+        }
+      });
+    }
   }
 
   void _onServiceChanged() {
@@ -430,9 +446,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
   Widget _buildEmptyState() {
     final suggestions = [
       'What should I wear to a date?',
+      'Show my wardrobe',
+      'What should I wear today?',
+      'Suggest an outfit for a wedding',
       'Best hairstyle for me?',
       'Grooming tips',
-      'Show my wardrobe',
       'Open my wardrobe',
     ];
     return Center(

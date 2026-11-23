@@ -113,6 +113,65 @@ class OutfitBuilderClient {
     }
   }
 
+  /// Composes multiple complete outfit combinations from user's digital wardrobe (Phase 3).
+  Future<OutfitCompositionResult> composeOutfits({
+    String? occasion,
+    String? mood,
+    String? fit,
+    String? colorPalette,
+    String? query,
+    List<String>? preferredItemIds,
+    int limit = 3,
+    String? seed,
+    String? weatherContext,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        if (occasion != null && occasion.isNotEmpty) 'occasion': occasion,
+        if (mood != null && mood.isNotEmpty) 'mood': mood,
+        if (fit != null && fit.isNotEmpty) 'fit': fit,
+        if (colorPalette != null && colorPalette.isNotEmpty) 'colorPalette': colorPalette,
+        if (query != null && query.isNotEmpty) 'query': query,
+        if (preferredItemIds != null && preferredItemIds.isNotEmpty)
+          'preferredItemIds': preferredItemIds,
+        'limit': limit,
+        if (seed != null) 'seed': seed,
+        if (weatherContext != null && weatherContext.isNotEmpty)
+          'weatherContext': weatherContext,
+      };
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/outfits/compose'),
+            headers: _jsonHeaders,
+            body: jsonEncode(payload),
+          )
+          .timeout(_timeout);
+      if (response.statusCode == 200) {
+        try {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+          return OutfitCompositionResult.available(
+            OutfitCompositionResponse.fromJson(decoded),
+          );
+        } catch (error) {
+          debugPrint('Outfit compose: malformed 200 body: $error');
+          return const OutfitCompositionResult.failure(OutfitFailure.unknown);
+        }
+      }
+      if (response.statusCode == 204) {
+        return OutfitCompositionResult.noneAvailable(
+          emptyReason: response.headers['x-outfit-empty-reason'],
+        );
+      }
+      debugPrint(
+        'Outfit compose responded ${response.statusCode}: ${response.body}',
+      );
+      return OutfitCompositionResult.failure(_failureFor(response.statusCode));
+    } catch (error) {
+      debugPrint('Outfit backend unreachable during compose: $error');
+      return const OutfitCompositionResult.failure(OutfitFailure.networkError);
+    }
+  }
+
   /// Freezes one derived outfit (#42 `POST /v1/outfits/saved`, via M7).
   ///
   /// Sends `sourceContext: "outfit"` (always — never parameterized),

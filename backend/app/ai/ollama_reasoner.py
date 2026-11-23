@@ -23,11 +23,22 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
+if TYPE_CHECKING:
+    from app.ai.manager.scheduler import GPUResourceScheduler
+
+from app.ai.manager.types import (
+    GPUSchedulerLease,
+    LeaseState,
+    WorkloadType,
+    WorkloadUncertainError,
+)
 from app.ai.reasoning_prompt import build_system_prompt, build_user_prompt
 from app.domain.services.conclusion_admission import MISSING_RECORD, apply_admission
 from app.domain.services.ffo_ref_selector import select_refs
@@ -42,6 +53,7 @@ from app.domain.services.ffo_reasoning import (
 logger = logging.getLogger("fansivibe.ai.reasoning")
 
 _CHAT_PATH = "/api/chat"
+_thread_local = threading.local()
 
 
 class ReasoningExecutionError(Exception):
@@ -53,9 +65,15 @@ class ReasoningExecutionError(Exception):
     events, not content problems.
     """
 
-    def __init__(self, category: str, message: str) -> None:
+    def __init__(
+        self,
+        category: str,
+        message: str,
+        uncertain_termination: bool = False,
+    ) -> None:
         super().__init__(message)
         self.category = category
+        self.uncertain_termination = uncertain_termination
 
 
 @dataclass(frozen=True)
@@ -108,9 +126,15 @@ class _RetryableTransport(Exception):
     failure (timeout/unavailable/http_error), never a generic error.
     """
 
-    def __init__(self, category: str, message: str) -> None:
+    def __init__(
+        self,
+        category: str,
+        message: str,
+        uncertain_termination: bool = False,
+    ) -> None:
         super().__init__(message)
         self.category = category
+        self.uncertain_termination = uncertain_termination
 
 
 def _strip_fences(text: str) -> str:
@@ -134,9 +158,11 @@ class OllamaFashionReasoner:
         self,
         config: ReasoningConfig | None = None,
         http_client: httpx.Client | None = None,
+        scheduler: GPUResourceScheduler | None = None,
     ) -> None:
         self._config = config or ReasoningConfig.from_env()
         self._client = http_client
+        self._scheduler = scheduler
 
     def describe(self) -> dict:
         """Model configuration for evaluation metadata (no secrets)."""
@@ -181,22 +207,70 @@ class OllamaFashionReasoner:
         with httpx.Client(timeout=timeout) as client:
             return client.post(url, json=payload)
 
-    def _attempt(self, reasoning_input: FashionReasoningInput) -> dict:
+    def _attempt(
+        self,
+        reasoning_input: FashionReasoningInput,
+        lease: GPUSchedulerLease | None = None,
+    ) -> dict:
+        request_submitted = False
+        if lease is not None:
+            lease.register_termination_check(lambda: not request_submitted)
+
         try:
+            request_submitted = True
             response = self._post(self._payload(reasoning_input))
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            request_submitted = False
+            raise _RetryableTransport(
+                "unavailable",
+                f"ollama connection failed before request submission: {exc}",
+                uncertain_termination=False,
+            ) from exc
         except httpx.TimeoutException as exc:
             raise _RetryableTransport(
-                "timeout", f"ollama timeout after {self._config.timeout_s}s"
+                "timeout",
+                f"ollama timeout after {self._config.timeout_s}s",
+                uncertain_termination=True,
             ) from exc
         except httpx.TransportError as exc:
-            raise _RetryableTransport("unavailable", f"ollama unreachable: {exc}") from exc
+            raise _RetryableTransport(
+                "unavailable",
+                f"ollama unreachable: {exc}",
+                uncertain_termination=True,
+            ) from exc
         except httpx.HTTPError as exc:
-            raise ReasoningExecutionError("unavailable", f"ollama request failed: {exc}") from exc
+            raise ReasoningExecutionError(
+                "unavailable",
+                f"ollama request failed: {exc}",
+                uncertain_termination=True,
+            ) from exc
+
         status = response.status_code
         if status >= 500:
-            raise _RetryableTransport("http_error", f"ollama HTTP {status}")
+            raise _RetryableTransport(
+                "http_error",
+                f"ollama HTTP {status}",
+                uncertain_termination=True,
+            )
         if status != 200:
-            raise ReasoningExecutionError("http_error", f"ollama HTTP {status}")
+            raise ReasoningExecutionError(
+                "http_error",
+                f"ollama HTTP {status}",
+                uncertain_termination=True,
+            )
+
+        try:
+            _ = response.content
+        except Exception as exc:
+            raise _RetryableTransport(
+                "unavailable",
+                f"ollama response body interrupted: {exc}",
+                uncertain_termination=True,
+            ) from exc
+
+        if lease is not None:
+            lease.mark_workload_completed()
+
         try:
             body = response.json()
         except ValueError as exc:
@@ -335,13 +409,57 @@ class OllamaFashionReasoner:
         return replace(output, conclusions=tuple(conclusions))
 
     def reason(self, reasoning_input: FashionReasoningInput) -> FashionReasoningOutput:
-        """Execute one reasoning call; typed errors, max 1+max_retries attempts."""
+        """Execute one reasoning call; typed errors, max 1+max_retries attempts.
+
+        Under scheduler coordination (when scheduler is configured), acquires
+        exactly one Priority 1 GPU lease for the duration of inference.
+        """
+        if getattr(_thread_local, "in_reasoning_lease", False):
+            raise RuntimeError("Nested or duplicate GPU lease acquisition is not permitted")
+
+        if self._scheduler is not None:
+            attempts = 1 + max(0, self._config.max_retries)
+            per_attempt_timeout = self._config.connect_timeout_s + self._config.timeout_s
+            total_execution_timeout = per_attempt_timeout * attempts
+            acq_timeout = self._config.timeout_s
+
+            _thread_local.in_reasoning_lease = True
+            try:
+                cm = self._scheduler.acquire_lease_sync(
+                    model_id=self._config.model,
+                    workload_type=WorkloadType.REASONING_VISION,
+                    priority=1,
+                    timeout_s=total_execution_timeout,
+                    acquisition_timeout_s=acq_timeout,
+                )
+                with cm as lease:
+                    return self._execute_reasoning(reasoning_input, lease=lease)
+            except ReasoningExecutionError as exc:
+                if cm.lease is not None and cm.lease.state == LeaseState.QUARANTINED:
+                    raise WorkloadUncertainError(
+                        f"Reasoning inference failed with uncertain workload termination: {exc}",
+                        lease_id=cm.lease.lease_id,
+                    ) from exc
+                raise
+            finally:
+                _thread_local.in_reasoning_lease = False
+        else:
+            return self._execute_reasoning(reasoning_input, lease=None)
+
+    def _execute_reasoning(
+        self,
+        reasoning_input: FashionReasoningInput,
+        lease: GPUSchedulerLease | None = None,
+    ) -> FashionReasoningOutput:
         started = time.perf_counter()
         attempts = 1 + max(0, self._config.max_retries)
         last_error: Exception | None = None
+
         for attempt in range(1, attempts + 1):
+            if lease is not None:
+                lease._workload_completed = False
             try:
-                parsed = self._attempt(reasoning_input)
+                parsed = self._attempt(reasoning_input, lease=lease)
                 try:
                     output = validate_output(parsed, input=reasoning_input)
                 except ReasoningContractError as exc:
@@ -369,7 +487,11 @@ class OllamaFashionReasoner:
             "reasoning failed model=%s category=%s latency=%.2fs",
             self._config.model, last_error.category, time.perf_counter() - started,
         )
-        raise ReasoningExecutionError(last_error.category, str(last_error)) from last_error
+        raise ReasoningExecutionError(
+            last_error.category,
+            str(last_error),
+            uncertain_termination=getattr(last_error, "uncertain_termination", False),
+        ) from last_error
 
 
 __all__ = [

@@ -26,6 +26,8 @@ class OutfitGenerationScreen extends StatefulWidget {
     required this.mood,
     required this.fit,
     required this.colorPalette,
+    this.query,
+    this.weatherContext,
     this.eventId,
     this.eventTitle,
     this.preferredItemId,
@@ -37,6 +39,8 @@ class OutfitGenerationScreen extends StatefulWidget {
   final String mood;
   final String fit;
   final String colorPalette;
+  final String? query;
+  final String? weatherContext;
 
   /// Optional event context from the event flow (display only — the
   /// backend derive call stays prefs-only until it accepts an event).
@@ -76,14 +80,75 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
     final preferredItemId = widget.preferredItemId;
     setState(() {
       _forwarded = false;
-      _generationFuture = _repository.generateOutfit(
-        occasion: widget.occasion,
-        mood: widget.mood,
-        fit: widget.fit,
-        colorPalette: widget.colorPalette,
-        preferredItemIds: preferredItemId == null || preferredItemId.isEmpty
-            ? null
-            : [preferredItemId],
+      _generationFuture = _fetchOutfits(preferredItemId);
+    });
+  }
+
+  Future<OutfitResult> _fetchOutfits(String? preferredItemId) async {
+    final compResult = await _repository.composeOutfits(
+      occasion: widget.occasion,
+      mood: widget.mood,
+      fit: widget.fit,
+      colorPalette: widget.colorPalette,
+      query: widget.query,
+      preferredItemIds: preferredItemId == null || preferredItemId.isEmpty
+          ? null
+          : [preferredItemId],
+      weatherContext: widget.weatherContext,
+    );
+
+    if (compResult.available &&
+        compResult.composition != null &&
+        compResult.composition!.candidates.isNotEmpty) {
+      _forwardComposition(compResult.composition!);
+      return OutfitResult.available(
+        compResult.composition!.candidates.first.toRecommendation(),
+      );
+    }
+    if (compResult.noneAvailable) {
+      return OutfitResult.noneAvailable(emptyReason: compResult.emptyReason);
+    }
+    if (compResult.failure != null) {
+      return OutfitResult.failure(compResult.failure!);
+    }
+    // Fallback to single generateOutfit for test doubles that only stub generateOutfit
+    final singleResult = await _repository.generateOutfit(
+      occasion: widget.occasion,
+      mood: widget.mood,
+      fit: widget.fit,
+      colorPalette: widget.colorPalette,
+      preferredItemIds: preferredItemId == null || preferredItemId.isEmpty
+          ? null
+          : [preferredItemId],
+    );
+    if (singleResult.available && singleResult.outfit != null) {
+      _forward(singleResult.outfit!);
+    }
+    return singleResult;
+  }
+
+  void _forwardComposition(OutfitCompositionResponse composition) {
+    if (_forwarded || !mounted) return;
+    _forwarded = true;
+    final preferredItemId = widget.preferredItemId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.replaceNamed(
+        RouteNames.outfitRecommendation,
+        extra: <String, dynamic>{
+          'recommendation': composition.candidates.first.snapshot,
+          'candidates': composition.candidates.map((c) => c.snapshot).toList(),
+          'request': <String, dynamic>{
+            'occasion': widget.occasion,
+            'mood': widget.mood,
+            'fit': widget.fit,
+            'colorPalette': widget.colorPalette,
+            if (widget.query != null && widget.query!.isNotEmpty)
+              'query': widget.query,
+            if (preferredItemId != null && preferredItemId.isNotEmpty)
+              'preferredItemIds': [preferredItemId],
+          },
+        },
       );
     });
   }
@@ -103,6 +168,8 @@ class _OutfitGenerationScreenState extends State<OutfitGenerationScreen> {
             'mood': widget.mood,
             'fit': widget.fit,
             'colorPalette': widget.colorPalette,
+            if (widget.query != null && widget.query!.isNotEmpty)
+              'query': widget.query,
             if (preferredItemId != null && preferredItemId.isNotEmpty)
               'preferredItemIds': [preferredItemId],
           },

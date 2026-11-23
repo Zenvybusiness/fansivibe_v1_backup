@@ -34,6 +34,7 @@ class OutfitRecommendationScreen extends StatefulWidget {
   const OutfitRecommendationScreen({
     required this.recommendation,
     required this.request,
+    this.candidates,
     this.outfitRepository,
     this.wardrobeRepository,
     super.key,
@@ -41,6 +42,9 @@ class OutfitRecommendationScreen extends StatefulWidget {
 
   /// Backend-derived outfit to render (verbatim server data).
   final OutfitRecommendation recommendation;
+
+  /// Optional list of multiple candidate outfits (Phase 3).
+  final List<OutfitCandidate>? candidates;
 
   /// Step-1 prefs backing Regenerate (ids verbatim).
   final OutfitGenerateRequest request;
@@ -63,6 +67,8 @@ class _OutfitRecommendationScreenState
   late final OutfitBuilderRepository _repository;
   late final WardrobeRepository _wardrobeRepository;
   late OutfitRecommendation _rec;
+  late List<OutfitCandidate> _candidates;
+  int _selectedCandidateIndex = 0;
 
   bool _regenerating = false;
   int _regenCount = 0;
@@ -81,6 +87,16 @@ class _OutfitRecommendationScreenState
         _pinnedGarmentIds.add(garmentId);
         _showSnackBar('Piece pinned (preserved during swaps)');
       }
+    });
+  }
+
+  void _selectCandidate(int index) {
+    if (index < 0 || index >= _candidates.length) return;
+    setState(() {
+      _selectedCandidateIndex = index;
+      _rec = _candidates[index].toRecommendation();
+      _saved = false;
+      _worn = false;
     });
   }
 
@@ -105,6 +121,11 @@ class _OutfitRecommendationScreenState
 
     setState(() {
       _rec = updatedOutfit;
+      if (_selectedCandidateIndex < _candidates.length) {
+        _candidates[_selectedCandidateIndex] = updatedOutfit.toCandidate(
+          id: _candidates[_selectedCandidateIndex].id,
+        );
+      }
       _saved = false;
       _worn = false;
     });
@@ -117,9 +138,15 @@ class _OutfitRecommendationScreenState
     _repository = widget.outfitRepository ?? OutfitBuilderRepositoryImpl();
     _wardrobeRepository = widget.wardrobeRepository ?? WardrobeRepositoryImpl();
     _rec = widget.recommendation;
+    if (widget.candidates != null && widget.candidates!.isNotEmpty) {
+      _candidates = List.from(widget.candidates!);
+    } else {
+      _candidates = [_rec.toCandidate()];
+    }
+    _selectedCandidateIndex = 0;
   }
 
-  /// Regenerates via `POST /v1/outfits/generate` with the same prefs and
+  /// Regenerates via `POST /v1/outfits/compose` or `POST /v1/outfits/generate` with the same prefs and
   /// the next deterministic seed. Guarded while any request is pending;
   /// the UI only updates when the response arrives (never
   /// optimistically). A failed regeneration keeps the current outfit
@@ -128,6 +155,33 @@ class _OutfitRecommendationScreenState
     if (_regenerating || _saving) return;
     setState(() => _regenerating = true);
     _regenCount += 1;
+
+    // Try multi-candidate composition first
+    final compResult = await _repository.composeOutfits(
+      occasion: widget.request.occasion,
+      mood: widget.request.mood,
+      fit: widget.request.fit,
+      colorPalette: widget.request.colorPalette,
+      seed: 'outfit-$_regenCount',
+      preferredItemIds: widget.request.preferredItemIds,
+    );
+
+    if (!mounted) return;
+    if (compResult.available &&
+        compResult.composition != null &&
+        compResult.composition!.candidates.isNotEmpty) {
+      setState(() {
+        _candidates = compResult.composition!.candidates;
+        _selectedCandidateIndex = 0;
+        _rec = _candidates[0].toRecommendation();
+        _regenerating = false;
+        _saved = false;
+        _worn = false;
+      });
+      return;
+    }
+
+    // Fallback to single generateOutfit (for test doubles that only stub generateOutfit)
     final result = await _repository.generateOutfit(
       occasion: widget.request.occasion,
       mood: widget.request.mood,
@@ -137,9 +191,11 @@ class _OutfitRecommendationScreenState
       preferredItemIds: widget.request.preferredItemIds,
     );
     if (!mounted) return;
-    if (result.available) {
+    if (result.available && result.outfit != null) {
       setState(() {
         _rec = result.outfit!;
+        _candidates = [_rec.toCandidate()];
+        _selectedCandidateIndex = 0;
         _regenerating = false;
         _saved = false;
         _worn = false;
@@ -273,6 +329,17 @@ class _OutfitRecommendationScreenState
           ),
           onPressed: () => Navigator.of(context).pop(),
         ),
+        actions: [
+          IconButton(
+            key: const Key('btn_view_saved_outfits_nav'),
+            icon: const Icon(
+              Icons.bookmark_outline_rounded,
+              color: FansivibeColors.accentGold,
+            ),
+            tooltip: 'Saved Outfits',
+            onPressed: () => context.pushNamed(RouteNames.profileSavedLooks),
+          ),
+        ],
       ),
       body: SafeArea(
         child: LayoutBuilder(
@@ -280,6 +347,9 @@ class _OutfitRecommendationScreenState
             final maxWidth = constraints.maxWidth;
             final horizontalPadding = maxWidth > 600 ? 48.0 : 20.0;
             final contentMaxWidth = maxWidth > 600 ? 560.0 : double.infinity;
+            final activeCand = _selectedCandidateIndex < _candidates.length
+                ? _candidates[_selectedCandidateIndex]
+                : null;
 
             return SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
@@ -294,6 +364,9 @@ class _OutfitRecommendationScreenState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 8),
+
+                        // Multiple Candidates Selector
+                        _buildCandidateSelector(context),
 
                         // Header hero card
                         FansiHeroCard(
@@ -315,15 +388,40 @@ class _OutfitRecommendationScreenState
                             label: 'Match Score',
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 16),
+
+                        // Documented score breakdown calculation
+                        if (activeCand?.scoreBreakdown != null) ...[
+                          ScoreBreakdownCard(
+                            breakdown: activeCand!.scoreBreakdown!,
+                          ),
+                          const SizedBox(height: 24),
+                        ],
 
                         // Outfit Components
                         _buildComponentsSection(context, rec),
                         const SizedBox(height: 24),
 
+                        // Missing pieces / suggested additions
+                        if (activeCand != null &&
+                            activeCand.missingPieces.isNotEmpty) ...[
+                          MissingPiecesSection(
+                            missingPieces: activeCand.missingPieces,
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+
                         // Recommendation Reasons
                         _buildReasonsSection(context, rec),
                         const SizedBox(height: 24),
+
+                        // Styling Rationale & Tips
+                        if (activeCand != null) ...[
+                          _buildStylingRationaleSection(context, activeCand),
+                          const SizedBox(height: 24),
+                          _buildStylingTipsSection(context, activeCand),
+                          const SizedBox(height: 24),
+                        ],
 
                         // Metrics
                         _buildMetricsSection(context, rec),
@@ -349,6 +447,147 @@ class _OutfitRecommendationScreenState
           },
         ),
       ),
+    );
+  }
+
+  Widget _buildCandidateSelector(BuildContext context) {
+    if (_candidates.length <= 1) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: FansivibeColors.accentGold.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        children: List.generate(_candidates.length, (index) {
+          final isSelected = index == _selectedCandidateIndex;
+          final cand = _candidates[index];
+          final pct = (cand.matchScore * 100).round();
+          return Expanded(
+            child: InkWell(
+              key: Key('candidate_tab_$index'),
+              onTap: () => _selectCandidate(index),
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? FansivibeColors.accentGold.withValues(alpha: 0.15)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  border: isSelected
+                      ? Border.all(
+                          color: FansivibeColors.accentGold.withValues(alpha: 0.6),
+                        )
+                      : null,
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'Look ${index + 1}',
+                      style: TextStyle(
+                        color: isSelected
+                            ? FansivibeColors.accentGold
+                            : FansivibeColors.textSecondary,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.w500,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$pct% match',
+                      style: TextStyle(
+                        color: isSelected
+                            ? FansivibeColors.textPrimary
+                            : FansivibeColors.textSecondary.withValues(alpha: 0.6),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildStylingRationaleSection(
+    BuildContext context,
+    OutfitCandidate cand,
+  ) {
+    if (cand.stylingRationale.isEmpty) return const SizedBox.shrink();
+    return FansiInsightCard(
+      icon: Icons.lightbulb_rounded,
+      title: 'Styling Rationale',
+      body: cand.stylingRationale,
+      accentColor: FansivibeColors.accentGold,
+    );
+  }
+
+  Widget _buildStylingTipsSection(
+    BuildContext context,
+    OutfitCandidate cand,
+  ) {
+    if (cand.stylingTips.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              Icons.style_outlined,
+              size: 20,
+              color: FansivibeColors.accentGold,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Practical Styling Tips',
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: FansivibeColors.textPrimary,
+                  fontSize: 20,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...cand.stylingTips.map(
+          (tip) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.arrow_right_rounded,
+                  size: 20,
+                  color: FansivibeColors.accentGold,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    tip,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: FansivibeColors.textSecondary,
+                      height: 1.4,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -506,6 +745,12 @@ class _OutfitRecommendationScreenState
           label: _regenerating ? 'Regenerating…' : 'Regenerate',
           icon: Icons.refresh_rounded,
           onPressed: busy ? null : _handleRegenerate,
+        ),
+        const SizedBox(height: 12),
+        FansiButton.secondary(
+          label: 'View Saved Outfits',
+          icon: Icons.bookmark_outline_rounded,
+          onPressed: () => context.pushNamed(RouteNames.profileSavedLooks),
         ),
         const SizedBox(height: 12),
         // Stage F0 mock try-on preview (Path B): component UUIDs travel

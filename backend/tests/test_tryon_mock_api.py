@@ -248,3 +248,18 @@ def test_provider_off_is_503(monkeypatch):
 def test_provider_disabled_flag_is_503(monkeypatch):
     disabled = _settings(tryon_enabled=False)
     assert _post(_client(monkeypatch, settings=disabled)).status_code == 503
+
+
+def test_provider_catvton_selection(monkeypatch):
+    """Verify CatVTON provider selection sets is_mock=False."""
+    catvton_cfg = _settings(tryon_provider="catvton")
+    client = _client(monkeypatch, settings=catvton_cfg)
+    resp = _post(client, key="catvton-1")
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["is_mock"] is False
+
+    job_id = body["job_id"]
+    poll_resp = client.get(f"/v1/tryon/jobs/{job_id}").json()
+    assert poll_resp["is_mock"] is False
+

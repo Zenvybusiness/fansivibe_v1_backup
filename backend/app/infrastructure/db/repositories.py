@@ -32,6 +32,7 @@ from app.domain.ports.repositories import (
     SavedLookCoverage,
     SavedLookRecord,
     SearchInterestEvidence,
+    TryOnJobRecord,
     UserEventRecord,
     UserProfileRecord,
     VocabularyRecord,
@@ -72,6 +73,7 @@ from app.infrastructure.db.models import (
     RawSourceRecord,
     SavedLooks,
     SearchInterestObservation as SearchInterestObservationModel,
+    TryOnJobModel,
     UserEvent,
     UserSession,
     UserState,
@@ -3227,5 +3229,236 @@ class DiscoveryEventRepositorySQL:
                 return updated_results
 
         return results
+
+
+class TryOnJobRepositorySQL:
+    """SQLAlchemy implementation of TryOnJobRepository (OW-1 owner-scoped)."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def _to_record(self, row: TryOnJobModel) -> TryOnJobRecord:
+        gids = tuple(row.garment_ids) if isinstance(row.garment_ids, (list, tuple)) else ()
+        return TryOnJobRecord(
+            id=row.id,
+            user_id=row.user_id,
+            outfit_source=row.outfit_source,
+            garment_id=row.garment_id,
+            garment_ids=gids,
+            provider=row.provider,
+            status=row.status,
+            consent_version=row.consent_version,
+            consent_accepted_at=row.consent_accepted_at,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            person_media_ref=row.person_media_ref,
+            result_media_ref=row.result_media_ref,
+            idempotency_key=row.idempotency_key,
+            request_fingerprint=row.request_fingerprint,
+            error_code=row.error_code,
+            error_message=row.error_message,
+            retry_count=row.retry_count,
+            retry_of_job_id=row.retry_of_job_id,
+            processing_started_at=row.processing_started_at,
+            completed_at=row.completed_at,
+        )
+
+    def create(
+        self,
+        *,
+        job_id: UUID,
+        user_id: UUID,
+        outfit_source: str,
+        garment_id: Optional[UUID],
+        garment_ids: list[str],
+        provider: str,
+        status: str,
+        consent_version: str,
+        consent_accepted_at: datetime,
+        person_media_ref: Optional[dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
+        request_fingerprint: Optional[str] = None,
+    ) -> TryOnJobRecord:
+        row = TryOnJobModel(
+            id=job_id,
+            user_id=user_id,
+            outfit_source=outfit_source,
+            garment_id=garment_id,
+            garment_ids=garment_ids,
+            provider=provider,
+            status=status,
+            consent_version=consent_version,
+            consent_accepted_at=consent_accepted_at,
+            person_media_ref=person_media_ref,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+        )
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return self._to_record(row)
+
+    def get_by_id(
+        self,
+        *,
+        user_id: UUID,
+        job_id: UUID,
+    ) -> Optional[TryOnJobRecord]:
+        row = self._session.execute(
+            select(TryOnJobModel).where(
+                TryOnJobModel.id == job_id,
+                TryOnJobModel.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        return self._to_record(row) if row else None
+
+    def update_status(
+        self,
+        *,
+        job_id: UUID,
+        status: str,
+        processing_started_at: Optional[datetime] = None,
+        completed_at: Optional[datetime] = None,
+    ) -> Optional[TryOnJobRecord]:
+        row = self._session.execute(
+            select(TryOnJobModel).where(TryOnJobModel.id == job_id)
+        ).scalar_one_or_none()
+        if not row:
+            return None
+        row.status = status
+        if processing_started_at is not None:
+            row.processing_started_at = processing_started_at
+        if completed_at is not None:
+            row.completed_at = completed_at
+        self._session.commit()
+        self._session.refresh(row)
+        return self._to_record(row)
+
+    def update_result(
+        self,
+        *,
+        job_id: UUID,
+        result_media_ref: dict[str, Any],
+        completed_at: datetime,
+    ) -> Optional[TryOnJobRecord]:
+        row = self._session.execute(
+            select(TryOnJobModel).where(TryOnJobModel.id == job_id)
+        ).scalar_one_or_none()
+        if not row:
+            return None
+        row.status = "completed"
+        row.result_media_ref = result_media_ref
+        row.completed_at = completed_at
+        self._session.commit()
+        self._session.refresh(row)
+        return self._to_record(row)
+
+    def update_failure(
+        self,
+        *,
+        job_id: UUID,
+        error_code: str,
+        error_message: str,
+        completed_at: datetime,
+    ) -> Optional[TryOnJobRecord]:
+        row = self._session.execute(
+            select(TryOnJobModel).where(TryOnJobModel.id == job_id)
+        ).scalar_one_or_none()
+        if not row:
+            return None
+        row.status = "failed"
+        row.error_code = error_code
+        row.error_message = error_message
+        row.completed_at = completed_at
+        self._session.commit()
+        self._session.refresh(row)
+        return self._to_record(row)
+
+    def update_retry(
+        self,
+        *,
+        job_id: UUID,
+        retry_count: int,
+        status: str = "queued",
+    ) -> Optional[TryOnJobRecord]:
+        row = self._session.execute(
+            select(TryOnJobModel).where(TryOnJobModel.id == job_id)
+        ).scalar_one_or_none()
+        if not row:
+            return None
+        row.retry_count = retry_count
+        row.status = status
+        row.error_code = None
+        row.error_message = None
+        row.processing_started_at = None
+        row.completed_at = None
+        self._session.commit()
+        self._session.refresh(row)
+        return self._to_record(row)
+
+    def delete(
+        self,
+        *,
+        user_id: UUID,
+        job_id: UUID,
+    ) -> bool:
+        row = self._session.execute(
+            select(TryOnJobModel).where(
+                TryOnJobModel.id == job_id,
+                TryOnJobModel.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if not row:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+    def find_by_idempotency_key(
+        self,
+        *,
+        user_id: UUID,
+        idempotency_key: str,
+    ) -> Optional[TryOnJobRecord]:
+        row = self._session.execute(
+            select(TryOnJobModel).where(
+                TryOnJobModel.user_id == user_id,
+                TryOnJobModel.idempotency_key == idempotency_key,
+            )
+        ).scalar_one_or_none()
+        return self._to_record(row) if row else None
+
+    def find_by_status(
+        self,
+        *,
+        status: str,
+    ) -> list[TryOnJobRecord]:
+        rows = (
+            self._session.execute(
+                select(TryOnJobModel).where(TryOnJobModel.status == status)
+            )
+            .scalars()
+            .all()
+        )
+        return [self._to_record(row) for row in rows]
+
+    def count_today_jobs(
+        self,
+        *,
+        user_id: UUID,
+        day: date,
+    ) -> int:
+        from datetime import time, timezone
+        start = datetime.combine(day, time.min, tzinfo=timezone.utc)
+        end = datetime.combine(day, time.max, tzinfo=timezone.utc)
+        count = self._session.execute(
+            select(func.count()).select_from(TryOnJobModel).where(
+                TryOnJobModel.user_id == user_id,
+                TryOnJobModel.created_at >= start,
+                TryOnJobModel.created_at <= end,
+            )
+        ).scalar_one()
+        return int(count)
+
 
 

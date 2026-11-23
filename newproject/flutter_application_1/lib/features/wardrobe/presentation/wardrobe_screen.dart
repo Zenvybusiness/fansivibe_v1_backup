@@ -8,6 +8,7 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_item_photo.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/presentation/wardrobe_extraction_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/first_time_wardrobe_view.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
@@ -438,32 +439,101 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   }
 
   void _handleAddItem(BuildContext context) async {
-    final result = await context.pushNamed<WardrobeItemData>(
+    final dynamic result = await context.pushNamed(
       RouteNames.wardrobeAddCategory,
     );
     if (result != null && context.mounted) {
-      // Guests already persisted through the local repository in the
-      // add flow — re-adding here would duplicate the row.
-      if (!isGuestUser) {
-        LearningService.instance.addItem(_toEntry(result));
-      }
-      UserSession.hasSavedWardrobeItem = true;
-      _loadItems();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${result.name} added to wardrobe'),
-          backgroundColor: FansivibeColors.accentGold,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: FansivibeRadius.smdBorder,
+      if (result is List<WardrobeItemData>) {
+        for (final item in result) {
+          if (!isGuestUser) {
+            LearningService.instance.addItem(_toEntry(item));
+          }
+        }
+        UserSession.hasSavedWardrobeItem = true;
+        _loadItems();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.length == 1
+                  ? '${result.first.name} added to wardrobe'
+                  : '${result.length} items added to wardrobe',
+            ),
+            backgroundColor: FansivibeColors.accentGold,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: FansivibeRadius.smdBorder,
+            ),
           ),
-        ),
-      );
+        );
+      } else if (result is WardrobeItemData) {
+        if (!isGuestUser) {
+          LearningService.instance.addItem(_toEntry(result));
+        }
+        UserSession.hasSavedWardrobeItem = true;
+        _loadItems();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${result.name} added to wardrobe'),
+            backgroundColor: FansivibeColors.accentGold,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: FansivibeRadius.smdBorder,
+            ),
+          ),
+        );
+      }
     }
   }
 
-  void _handleImportFromPhotos(BuildContext context) {
-    _handleAddItem(context);
+  void _handleImportFromPhotos(BuildContext context) async {
+    final dynamic result = await Navigator.of(context).push(
+      MaterialPageRoute<dynamic>(
+        builder: (_) => WardrobeExtractionScreen(
+          repository: _repository,
+        ),
+      ),
+    );
+    if (result != null && context.mounted) {
+      if (result is List<WardrobeItemData>) {
+        for (final item in result) {
+          if (!isGuestUser) {
+            LearningService.instance.addItem(_toEntry(item));
+          }
+        }
+        UserSession.hasSavedWardrobeItem = true;
+        _loadItems();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.length == 1
+                  ? '${result.first.name} added to wardrobe'
+                  : '${result.length} items added to wardrobe',
+            ),
+            backgroundColor: FansivibeColors.accentGold,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: FansivibeRadius.smdBorder,
+            ),
+          ),
+        );
+      } else if (result is WardrobeItemData) {
+        if (!isGuestUser) {
+          LearningService.instance.addItem(_toEntry(result));
+        }
+        UserSession.hasSavedWardrobeItem = true;
+        _loadItems();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${result.name} added to wardrobe'),
+            backgroundColor: FansivibeColors.accentGold,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: FansivibeRadius.smdBorder,
+            ),
+          ),
+        );
+      }
+    }
   }
 
   void _handleItemTap(BuildContext context, WardrobeItemData item) async {

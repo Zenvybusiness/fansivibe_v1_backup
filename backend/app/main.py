@@ -37,6 +37,7 @@ from app.api.deps import (
     get_current_user_id,
     get_gpu_scheduler as deps_get_gpu_scheduler,
     get_lifecycle_manager,
+    get_weather_provider,
 )
 from app.api.errors import ApiError, database_failure
 from app.api.routers import (
@@ -143,6 +144,23 @@ async def lifespan(app: FastAPI):
     )
     scheduler = scheduler_provider()
     app.state.gpu_scheduler = scheduler
+
+    # Recover interrupted try-on jobs on startup to ensure durability invariants
+    try:
+        from app.application.tryon import recover_interrupted_jobs
+        from app.infrastructure.db.repositories import TryOnJobRepositorySQL
+        from app.infrastructure.db.session import SessionLocal
+
+        with SessionLocal() as db_session:
+            job_sql_repo = TryOnJobRepositorySQL(db_session)
+            recovered_count = recover_interrupted_jobs(job_sql_repo)
+            if recovered_count > 0:
+                logger.info(
+                    "Recovered %d interrupted try-on jobs on startup.",
+                    recovered_count,
+                )
+    except Exception as exc:
+        logger.debug("Try-on startup recovery skipped: %s", exc)
 
     warmup_task: Optional[asyncio.Task] = None
     if not current_settings.disable_reasoning:
@@ -553,6 +571,7 @@ def assistant_chat(
     request: AssistantRequest,
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
+    weather_provider = Depends(get_weather_provider),
 ) -> AssistantReply:
     """Chat with the assistant.
 
@@ -593,6 +612,20 @@ def assistant_chat(
         saved_looks_repo, user_id=user_id, db=db
     )
 
+    weather_summary: Optional[str] = None
+    if weather_provider is not None:
+        try:
+            from app.application.today import resolve_weather_location
+            weather_loc = resolve_weather_location(user_state=user_state_repo, user_id=user_id)
+            if weather_loc:
+                ctx = weather_provider.get_weather(weather_loc)
+                if ctx and ctx.current:
+                    cond = ctx.current.condition_code or "fair"
+                    temp = f"{ctx.current.temperature_c:.0f}°C" if ctx.current.temperature_c is not None else ""
+                    weather_summary = f"{cond}, {temp}".strip(", ")
+        except Exception as exc:
+            logger.debug("Weather resolution fail-open in assistant_chat: %s", exc)
+
     auth_context = UserContext(
         wardrobe=wardrobe,
         face=face,
@@ -618,6 +651,7 @@ def assistant_chat(
         generate_outfit=generate_outfit,
         wardrobe_items=wardrobe_repo,
         user_state=user_state_repo,
+        weather_context=weather_summary,
     )
 
 

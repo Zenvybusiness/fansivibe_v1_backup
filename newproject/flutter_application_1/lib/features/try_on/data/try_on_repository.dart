@@ -22,6 +22,12 @@ abstract class TryOnRepository {
   Future<TryOnJobStatus?> getJobStatus(String jobId);
 
   Future<Uint8List?> getJobImage(String jobId);
+
+  Future<TryOnSubmitResult> retryJob(String jobId);
+
+  Future<TryOnJobStatus?> cancelJob(String jobId);
+
+  Future<bool> deleteJob(String jobId);
 }
 
 class TryOnRepositoryImpl implements TryOnRepository {
@@ -56,5 +62,20 @@ class TryOnRepositoryImpl implements TryOnRepository {
   @override
   Future<Uint8List?> getJobImage(String jobId) {
     return _client.getJobImage(jobId);
+  }
+
+  @override
+  Future<TryOnSubmitResult> retryJob(String jobId) {
+    return _client.retryJob(jobId);
+  }
+
+  @override
+  Future<TryOnJobStatus?> cancelJob(String jobId) {
+    return _client.cancelJob(jobId);
+  }
+
+  @override
+  Future<bool> deleteJob(String jobId) {
+    return _client.deleteJob(jobId);
   }
 }

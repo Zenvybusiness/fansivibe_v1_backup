@@ -1725,4 +1725,89 @@ class MediaUploadAuthorization(Base):
     )
 
 
+class TryOnJobModel(Base):
+    """Durable Virtual Try-On jobs ledger (Phase 5C, Migration 0037)."""
+
+    __tablename__ = "tryon_jobs"
+    __table_args__ = (
+        Index("ix_tryon_jobs_user_created", "user_id", "created_at"),
+        Index("ix_tryon_jobs_status", "status"),
+        Index("ix_tryon_jobs_user_idempotency", "user_id", "idempotency_key"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_tryon_jobs_user_id"),
+        nullable=False,
+    )
+    outfit_source: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="wardrobe"
+    )
+    garment_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("wardrobe_items.id", ondelete="SET NULL", name="fk_tryon_jobs_garment_id"),
+        nullable=True,
+    )
+    garment_ids: Mapped[Optional[list[Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
+    provider: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="mock"
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="queued"
+    )
+    person_media_ref: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
+    result_media_ref: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
+    consent_version: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    consent_accepted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    idempotency_key: Mapped[Optional[str]] = mapped_column(
+        String(128), nullable=True
+    )
+    request_fingerprint: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    error_code: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    error_message: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
+    retry_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    retry_of_job_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("tryon_jobs.id", ondelete="SET NULL", name="fk_tryon_jobs_retry_of_job_id"),
+        nullable=True,
+    )
+    processing_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+
 

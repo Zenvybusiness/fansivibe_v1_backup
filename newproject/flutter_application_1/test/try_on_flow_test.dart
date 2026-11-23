@@ -7,6 +7,81 @@ import 'package:image_picker/image_picker.dart';
 import 'package:fansivibe/features/try_on/data/try_on_models.dart';
 import 'package:fansivibe/features/try_on/data/try_on_repository.dart';
 import 'package:fansivibe/features/try_on/presentation/try_on_screen.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
+    show WardrobeInsightData, WardrobeItemData;
+import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart'
+    show MediaRef, WearSummary, WearEventLogResponse;
+
+class FakeWardrobeRepository implements WardrobeRepository {
+  @override
+  Future<List<WardrobeItemData>> listItems({
+    String? category,
+    String? color,
+    String? sortBy,
+    String? order,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    return const [
+      WardrobeItemData(
+        id: 'wardrobe-1',
+        name: 'Navy Blazer',
+        category: 'tops',
+        color: 'navy',
+      ),
+    ];
+  }
+
+  @override
+  Future<WardrobeItemData?> getItem({required String itemId}) async => null;
+
+  @override
+  Future<WardrobeItemData?> createItem({
+    required String name,
+    required String category,
+    required String color,
+    String? material,
+    MediaRef? imageRef,
+    String? fit,
+    double? fitConfidence,
+  }) async => null;
+
+  @override
+  Future<WardrobeItemData?> updateItem({
+    required String itemId,
+    String? name,
+    String? category,
+    String? color,
+    String? material,
+    bool? isFavorite,
+    String? fit,
+    double? fitConfidence,
+  }) async => null;
+
+  @override
+  Future<bool?> deleteItem({required String itemId}) async => true;
+
+  @override
+  Future<WardrobeInsightData?> getInsight() async => null;
+
+  @override
+  Future<WearSummary?> getWearSummary() async => null;
+
+  @override
+  Future<WearEventLogResponse?> logWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) async => null;
+
+  @override
+  Future<WearEventLogResponse?> logEnsembleWear({
+    required List<String> itemIds,
+    DateTime? wornAt,
+    String? idempotencyKey,
+  }) async => null;
+}
 
 class FakeTryOnRepository implements TryOnRepository {
   FakeTryOnRepository({
@@ -44,6 +119,33 @@ class FakeTryOnRepository implements TryOnRepository {
   @override
   Future<Uint8List?> getJobImage(String jobId) async =>
       Uint8List.fromList(<int>[1, 2, 3]);
+
+  int retries = 0;
+  int cancels = 0;
+  int deletes = 0;
+
+  @override
+  Future<TryOnSubmitResult> retryJob(String jobId) async {
+    retries++;
+    return submitResult;
+  }
+
+  @override
+  Future<TryOnJobStatus?> cancelJob(String jobId) async {
+    cancels++;
+    return const TryOnJobStatus(
+      jobId: 'job-1',
+      state: TryOnJobState.cancelled,
+      progress: 0,
+      isMock: true,
+    );
+  }
+
+  @override
+  Future<bool> deleteJob(String jobId) async {
+    deletes++;
+    return true;
+  }
 }
 
 Future<XFile?> fakePickImage(ImageSource source) async {
@@ -57,6 +159,7 @@ Future<XFile?> fakePickImage(ImageSource source) async {
 Future<void> pumpScreen(
   WidgetTester tester, {
   required FakeTryOnRepository repository,
+  WardrobeRepository? wardrobeRepository,
   List<String> garmentIds = const <String>['wardrobe-1'],
 }) async {
   await tester.pumpWidget(
@@ -66,6 +169,7 @@ Future<void> pumpScreen(
         garmentIds: garmentIds,
         title: 'Test Look',
         tryOnRepository: repository,
+        wardrobeRepository: wardrobeRepository ?? FakeWardrobeRepository(),
         pickImage: fakePickImage,
       ),
     ),
@@ -105,12 +209,11 @@ void main() {
       await pumpScreen(tester, repository: FakeTryOnRepository());
       await tester.tap(find.text('Choose Photo'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(Checkbox));
-      await tester.pumpAndSettle();
+      await tapVisible(tester, find.byType(Checkbox));
       await tapVisible(tester, find.text('Preview Try-On (Test Data)'));
       expect(find.text('TEST DATA — NOT AI TRY-ON'), findsOneWidget);
       expect(find.textContaining('not an AI-generated'), findsOneWidget);
-      expect(find.text('wardrobe-1'), findsOneWidget);
+      expect(find.text('Navy Blazer'), findsOneWidget);
       // No save/share/export path exists for mock output.
       expect(find.text('Save Look'), findsNothing);
       expect(find.text('Share'), findsNothing);
@@ -125,8 +228,7 @@ void main() {
       await pumpScreen(tester, repository: repository);
       await tester.tap(find.text('Choose Photo'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(Checkbox));
-      await tester.pumpAndSettle();
+      await tapVisible(tester, find.byType(Checkbox));
       await tapVisible(tester, find.text('Preview Try-On (Test Data)'));
       expect(find.text('Daily preview limit reached. Please try again tomorrow.'), findsOneWidget);
       expect(find.text('Try Again'), findsOneWidget);
@@ -141,6 +243,67 @@ void main() {
       );
       expect(find.text('No outfit selected. Go back and pick a look.'), findsOneWidget);
       expect(find.text('Preview Try-On (Test Data)'), findsNothing);
+    });
+
+    testWidgets('done state displays delete result button and calls deleteJob', (tester) async {
+      final repository = FakeTryOnRepository();
+      await pumpScreen(tester, repository: repository);
+      await tester.tap(find.text('Choose Photo'));
+      await tester.pumpAndSettle();
+      await tapVisible(tester, find.byType(Checkbox));
+      await tapVisible(tester, find.text('Preview Try-On (Test Data)'));
+
+      expect(find.text('Delete Result'), findsOneWidget);
+      await tapVisible(tester, find.text('Delete Result'));
+      expect(repository.deletes, 1);
+    });
+
+    testWidgets('non-mock completed job displays truthful AI banner', (tester) async {
+      final repository = FakeTryOnRepository(
+        submitResult: const TryOnSubmitResult(
+          job: TryOnJob(jobId: 'job-real', state: TryOnJobState.processing, isMock: false),
+        ),
+        pollResult: const TryOnJobStatus(
+          jobId: 'job-real',
+          state: TryOnJobState.completed,
+          progress: 100,
+          isMock: false,
+        ),
+      );
+      await pumpScreen(tester, repository: repository);
+      await tester.tap(find.text('Choose Photo'));
+      await tester.pumpAndSettle();
+      await tapVisible(tester, find.byType(Checkbox));
+      await tapVisible(tester, find.text('Preview Try-On (Test Data)'));
+
+      expect(find.text('AI Try-On Result'), findsOneWidget);
+      expect(find.textContaining('does not represent physical garment sizing'), findsOneWidget);
+    });
+
+    testWidgets('retry button in failure state triggers repository retryJob', (tester) async {
+      final repository = FakeTryOnRepository(
+        submitResult: const TryOnSubmitResult(
+          job: TryOnJob(jobId: 'job-f', state: TryOnJobState.processing, isMock: true),
+        ),
+        pollResult: const TryOnJobStatus(
+          jobId: 'job-f',
+          state: TryOnJobState.failed,
+          progress: 0,
+          isMock: true,
+          errorMessage: 'CUDA out of memory',
+        ),
+      );
+      await pumpScreen(tester, repository: repository);
+      await tester.tap(find.text('Choose Photo'));
+      await tester.pumpAndSettle();
+      await tapVisible(tester, find.byType(Checkbox));
+      await tapVisible(tester, find.text('Preview Try-On (Test Data)'));
+
+      expect(find.text('CUDA out of memory'), findsOneWidget);
+      expect(find.text('Try Again'), findsOneWidget);
+
+      await tapVisible(tester, find.text('Try Again'));
+      expect(repository.retries, 1);
     });
   });
 }

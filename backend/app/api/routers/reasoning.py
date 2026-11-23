@@ -18,9 +18,21 @@ import time
 
 from fastapi import APIRouter, Depends, Header, Request
 
+from app.ai.manager.types import (
+    GPUResourceQuarantinedError,
+    SchedulerQueueFullError,
+    SchedulerShutdownError,
+    SchedulerTimeoutError,
+    WorkloadUncertainError,
+)
 from app.ai.ollama_reasoner import ReasoningExecutionError
 from app.api.deps import get_fashion_reasoner
-from app.api.errors import ApiError, validation, _request_id
+from app.api.errors import (
+    ApiError,
+    map_scheduler_error_to_api_error,
+    validation,
+    _request_id,
+)
 from app.api.rate_limit import (
     get_reasoning_concurrency_limiter,
     reasoning_rate_limit,
@@ -168,6 +180,16 @@ def reason_fashion_query(
                 max_conclusions=request.max_conclusions or 3,
                 evidence_only=request.evidence_only if request.evidence_only is not None else True,
             )
+        except (
+            SchedulerQueueFullError,
+            SchedulerTimeoutError,
+            GPUResourceQuarantinedError,
+            SchedulerShutdownError,
+            WorkloadUncertainError,
+        ) as exc:
+            duration_s = time.monotonic() - t0
+            collector.record_reasoning_query(status="scheduler_error", duration_s=duration_s)
+            raise map_scheduler_error_to_api_error(exc) from exc
         except ReasoningContractError as exc:
             collector.record_reasoning_query(status="contract_error", duration_s=time.monotonic() - t0)
             raise validation([{"field": "query", "error": str(exc)}])

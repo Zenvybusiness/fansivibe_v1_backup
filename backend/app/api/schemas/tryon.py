@@ -17,3 +17,11 @@ class TryOnJobStatus(BaseModel):
     progress: int
     is_mock: bool = True
     outfit_source: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    retry_count: int = 0
+    created_at: str | None = None
+    completed_at: str | None = None
+    garment_ids: list[str] = []
+    result_media_ref: dict | None = None
+

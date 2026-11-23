@@ -146,42 +146,47 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
     MediaRef? cloudMediaRef = _buildImageRef();
 
     // Authenticated upload pipeline (Gate 6.1 / Gate 8.1: only authenticated sessions upload)
-    if (AuthSession.isAuthenticated && !isGuestUser && photoBytes != null && photoBytes.isNotEmpty && cloudMediaRef?.uploadId == null) {
+    final uploadBytes = _photoBytes ?? photoBytes;
+    if (AuthSession.isAuthenticated && !isGuestUser && uploadBytes != null && uploadBytes.isNotEmpty && cloudMediaRef?.uploadId == null) {
       try {
-        final clientSha = sha256Hex(photoBytes);
-        final dims = await getImageDimensions(photoBytes);
-        final idempotencyKey = 'add_${clientSha.substring(0, 16)}_${DateTime.now().millisecondsSinceEpoch}';
+        final detectedMime = detectImageMimeType(uploadBytes) ?? 'image/jpeg';
+        if (uploadBytes.length <= 2 * 1024 * 1024 &&
+            (detectedMime == 'image/jpeg' || detectedMime == 'image/webp')) {
+          final clientSha = sha256Hex(uploadBytes);
+          final dims = await getImageDimensions(uploadBytes);
+          final idempotencyKey = 'add_${clientSha.substring(0, 16)}_${DateTime.now().millisecondsSinceEpoch}';
 
-        final authRes = await _mediaClient.authorizeUpload(
-          clientSizeBytes: photoBytes.length,
-          clientSha256: clientSha,
-          idempotencyKey: idempotencyKey,
-          mimeType: 'image/webp',
-          clientDeclaredWidth: dims?.$1,
-          clientDeclaredHeight: dims?.$2,
-        );
-
-        if (authRes != null) {
-          final uploaded = await _mediaClient.uploadBytesDirect(
-            presignedPutUrl: authRes.presignedPutUrl,
-            bytes: photoBytes,
-            contentType: 'image/webp',
+          final authRes = await _mediaClient.authorizeUpload(
+            clientSizeBytes: uploadBytes.length,
+            clientSha256: clientSha,
+            idempotencyKey: idempotencyKey,
+            mimeType: detectedMime,
+            clientDeclaredWidth: dims?.$1,
+            clientDeclaredHeight: dims?.$2,
           );
 
-          if (uploaded) {
-            final pubRes = await _mediaClient.completeUpload(
-              uploadId: authRes.uploadId,
+          if (authRes != null) {
+            final uploaded = await _mediaClient.uploadBytesDirect(
+              presignedPutUrl: authRes.presignedPutUrl,
+              bytes: uploadBytes,
+              contentType: detectedMime,
             );
-            if (pubRes != null && pubRes.status == 'published') {
-              cloudMediaRef = MediaRef(
-                objectKey: pubRes.canonicalKey,
-                mediaType: pubRes.mediaType,
-                uploadId: pubRes.uploadId,
-                width: pubRes.width,
-                height: pubRes.height,
-                sizeBytes: pubRes.sizeBytes,
-                contentHash: pubRes.sha256,
+
+            if (uploaded) {
+              final pubRes = await _mediaClient.completeUpload(
+                uploadId: authRes.uploadId,
               );
+              if (pubRes != null && pubRes.status == 'published') {
+                cloudMediaRef = MediaRef(
+                  objectKey: pubRes.canonicalKey,
+                  mediaType: pubRes.mediaType,
+                  uploadId: pubRes.uploadId,
+                  width: pubRes.width,
+                  height: pubRes.height,
+                  sizeBytes: pubRes.sizeBytes,
+                  contentHash: pubRes.sha256,
+                );
+              }
             }
           }
         }

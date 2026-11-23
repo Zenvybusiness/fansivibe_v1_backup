@@ -26,7 +26,11 @@ _DEV_AUTH_SECRET = "dev-only-insecure-auth-secret"
 class Settings(BaseSettings):
     """Configuration for the Fansivibe backend service."""
 
-    model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
+    model_config = SettingsConfigDict(
+        env_file=(".env", "backend/.env"),
+        extra="ignore",
+        populate_by_name=True,
+    )
 
     # Environment designation ('development', 'test', 'production', 'staging').
     environment: str = Field(default="development", alias="FANSIVIBE_ENV")
@@ -545,9 +549,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_invariants(self) -> typing.Self:
-        if self.tryon_provider not in ("mock", "off"):
+        if self.tryon_provider not in ("mock", "off", "catvton"):
             raise ValueError(
-                "FANSIVIBE_TRYON_PROVIDER must be 'mock' or 'off'."
+                "FANSIVIBE_TRYON_PROVIDER must be 'mock', 'off', or 'catvton'."
+            )
+        if self.tryon_provider == "catvton" and self.environment == "production":
+            raise ValueError(
+                "CatVTON is an experimental prototype and cannot be enabled in production."
             )
         if self.tryon_daily_quota_per_user < 1:
             raise ValueError(

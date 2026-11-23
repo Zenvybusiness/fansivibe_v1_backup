@@ -17,3 +17,15 @@ local.properties
 .venv/
 venv/
 *.log
+
+# Phase 5B — CatVTON experiment isolation
+experiments/vton_catvton/.venv/
+experiments/vton_catvton/checkpoints/
+experiments/vton_catvton/weights/
+experiments/vton_catvton/output/
+experiments/vton_catvton/outputs/
+experiments/vton_catvton/cache/
+*.safetensors
+*.pth
+*.pkl
+

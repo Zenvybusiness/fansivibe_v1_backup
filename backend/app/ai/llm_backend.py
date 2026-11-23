@@ -1,32 +1,63 @@
-"""Optional self-hosted LLM enrichment (Ollama).
+"""Self-hosted LLM fashion reasoning & enrichment (Ollama).
 
-The backend runs on the server, so phone hardware is irrelevant. Ollama serves
-a small open model (default `llama3.1:8b`). When Ollama is unreachable the
-engine falls back to our deterministic rules text — the structured contract
-never changes.
+The backend runs on the server, serving Ollama models (such as `qwen3-vl:4b-instruct`).
+When Ollama is unreachable, times out, or fails, the engine falls back cleanly
+to our deterministic rules text — the structured contract and wardrobe IDs
+are never lost or altered.
 
-Set `FANSIVIBE_OLLAMA_HOST` (default `http://localhost:11434`) and
-`FANSIVIBE_OLLAMA_MODEL` (default `llama3.1:8b`).
+Integrates with the two-tier GPU scheduler (Sub-Batch 3.2) for priority-1
+interactive inference leases.
 """
 
 from __future__ import annotations
 
+import logging
 import os
-from typing import Optional
+from contextlib import nullcontext
+from typing import Any, List, Optional
 
 import httpx
 
+logger = logging.getLogger("fansivibe.ai.llm")
+
 _HOST = os.environ.get("FANSIVIBE_OLLAMA_HOST", "http://localhost:11434")
-_MODEL = os.environ.get("FANSIVIBE_OLLAMA_MODEL", "llama3.1:8b")
-_TIMEOUT = 8.0
+_DEFAULT_MODEL = os.environ.get("FANSIVIBE_OLLAMA_MODEL", "qwen3-vl:4b-instruct")
+_TIMEOUT = 10.0
 
 
 def _system_prompt() -> str:
     return (
-        "You are Fansivibe's style assistant. Be warm, specific and respectful. "
-        "Never judge appearance. Reply in 2-3 short sentences, personalized to "
-        "the user's wardrobe and face data when provided. Do not use markdown."
+        "You are Fansivibe's AI Stylist. Be warm, specific, elegant, and helpful. "
+        "Never judge appearance or shame users. Ground all wardrobe recommendations "
+        "in the user's actual owned garments. Clearly distinguish between garments the user owns "
+        "and suggestions for items they do not own. Do not use markdown code fences or raw symbols."
     )
+
+
+def get_active_model() -> str:
+    """Return the model to use, dynamically checking Ollama tags if needed."""
+    env_model = os.environ.get("FANSIVIBE_OLLAMA_MODEL")
+    if env_model and env_model != "llama3.1:8b":
+        return env_model
+
+    try:
+        with httpx.Client(timeout=1.5) as client:
+            resp = client.get(f"{_HOST}/api/tags")
+            if resp.status_code == 200:
+                models = [m.get("name") for m in resp.json().get("models", [])]
+                if env_model in models:
+                    return env_model
+                if "qwen3-vl:4b-instruct" in models:
+                    return "qwen3-vl:4b-instruct"
+                for m in models:
+                    if m and ("qwen" in m or "llama" in m):
+                        return m
+                if models:
+                    return models[0]
+    except Exception:
+        pass
+
+    return _DEFAULT_MODEL
 
 
 def is_available() -> bool:
@@ -39,24 +70,170 @@ def is_available() -> bool:
         return False
 
 
-def enrich_reply(intent: str, base_text: str, context: str) -> str:
+def _acquire_gpu_lease_context(model_id: str):
+    """Acquire Priority 1 GPU lease context manager, or nullcontext if scheduler unavailable."""
+    try:
+        from app.ai.manager.scheduler import get_gpu_scheduler
+        from app.ai.manager.types import WorkloadType
+        scheduler = get_gpu_scheduler()
+        return scheduler.acquire_lease_sync(
+            model_id=model_id,
+            workload_type=WorkloadType.REASONING_VISION,
+            priority=1,
+            timeout_s=_TIMEOUT + 5.0,
+            acquisition_timeout_s=3.0,
+        )
+    except Exception as exc:
+        logger.debug("Scheduler lease acquisition unavailable: %s", exc)
+        return nullcontext(None)
+
+
+def _execute_chat_inference(
+    messages: list[dict],
+    model: str,
+    client: Optional[httpx.Client] = None,
+) -> Optional[str]:
+    """Execute Ollama chat inference under two-tier GPU scheduler lease coordination.
+
+    Complete request lifecycle:
+    1. Acquire the Priority 1 GPU lease (synchronous context manager).
+    2. Register termination check and submit inference request to Ollama.
+    3. Receive HTTP response and check status code.
+    4. Read the complete response body (_ = response.content).
+    5. Mark workload completion ONLY AFTER complete body is read.
+    6. Complete parsing and extract content.
+    7. Safely release GPU lease via context manager __exit__.
+    """
+    cm = _acquire_gpu_lease_context(model)
+
+    with cm as lease:
+        request_submitted = False
+        if lease is not None:
+            lease.register_termination_check(lambda: not request_submitted)
+
+        try:
+            request_submitted = True
+            payload = {
+                "model": model,
+                "stream": False,
+                "messages": messages,
+            }
+            if client is not None:
+                response = client.post(f"{_HOST}/api/chat", json=payload, timeout=_TIMEOUT)
+            else:
+                with httpx.Client(timeout=_TIMEOUT) as http_client:
+                    response = http_client.post(f"{_HOST}/api/chat", json=payload)
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            request_submitted = False
+            raise
+
+        response.raise_for_status()
+
+        # Critical requirement: receiving HTTP 200 headers alone must NOT mark inference
+        # as completed. The lease must remain active until the complete response body has been received.
+        _ = response.content
+
+        # Mark workload completion ONLY after confirmed receipt of full response body
+        if lease is not None:
+            lease.mark_workload_completed()
+
+        body = response.json()
+        content = (body.get("message") or {}).get("content", "")
+        return content.strip() if isinstance(content, str) and content.strip() else None
+
+
+def enrich_reply(
+    intent: str,
+    base_text: str,
+    context: str,
+    client: Optional[httpx.Client] = None,
+) -> str:
     """Return a personalized reply from the local model, or [base_text] on any failure."""
     try:
-        with httpx.Client(timeout=_TIMEOUT) as client:
-            response = client.post(
-                f"{_HOST}/api/chat",
-                json={
-                    "model": _MODEL,
-                    "stream": False,
-                    "messages": [
-                        {"role": "system", "content": _system_prompt()},
-                        {"role": "system", "content": f"User context:\n{context}"},
-                        {"role": "user", "content": base_text},
-                    ],
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
-            return (payload.get("message") or {}).get("content", "").strip() or base_text
-    except Exception:
+        model = get_active_model()
+        messages = [
+            {"role": "system", "content": _system_prompt()},
+            {"role": "system", "content": f"User context:\n{context}"},
+            {"role": "user", "content": base_text},
+        ]
+        content = _execute_chat_inference(messages, model, client=client)
+        return content or base_text
+    except Exception as exc:
+        logger.debug("Ollama enrichment fallback to base text: %s", exc)
         return base_text
+
+
+def enrich_stylist_recommendation(
+    *,
+    user_query: str,
+    occasion: str,
+    selected_components: List[dict],
+    missing_categories: Optional[List[str]] = None,
+    weather_context: Optional[str] = None,
+    unowned_garment_query: Optional[str] = None,
+    base_text: str,
+    conversation_history: Optional[List[dict]] = None,
+    client: Optional[httpx.Client] = None,
+) -> str:
+    """Generate an explainable AI Stylist natural language recommendation.
+
+    Strictly grounded in:
+    1. Real selected wardrobe components (names, colors, materials).
+    2. Explicit distinction for unowned garments or suggested additions.
+    3. Weather and occasion context when provided.
+    Falls back gracefully to [base_text] on any model failure, timeout, or network issue.
+    """
+    try:
+        model = get_active_model()
+
+        # Build structured context for the stylist reasoning
+        garment_lines = [
+            f"- {c.get('name', 'Garment')} ({c.get('category', 'piece')}, {c.get('color', '')}, {c.get('material', '') or 'fabric'})"
+            for c in selected_components
+        ]
+        garments_str = "\n".join(garment_lines) if garment_lines else "No specific pieces"
+
+        missing_str = ""
+        if missing_categories:
+            missing_str = f"Missing Categories (Not in user's wardrobe): {', '.join(missing_categories)}."
+
+        weather_str = f"Current Weather: {weather_context}." if weather_context else ""
+
+        unowned_note = ""
+        if unowned_garment_query:
+            unowned_note = (
+                f"Note: User specifically asked to style '{unowned_garment_query}', but they do NOT own it in their wardrobe. "
+                f"Acknowledge politely that '{unowned_garment_query}' isn't in their current collection, present this outfit from their available items, "
+                f"and mention how '{unowned_garment_query}' could be paired if acquired."
+            )
+
+        instructions = (
+            "You are Fansivibe's AI Stylist. Craft an encouraging, stylish, and concise recommendation (2-4 sentences).\n"
+            f"Occasion: {occasion}\n"
+            f"{weather_str}\n"
+            f"Owned Wardrobe Garments Selected for the Outfit:\n{garments_str}\n"
+            f"{missing_str}\n"
+            f"{unowned_note}\n\n"
+            "Requirements:\n"
+            "1. Explain why the owned garments coordinate well together (color harmony, fit, occasion appropriateness).\n"
+            "2. Never claim unowned garments are in their wardrobe. Clearly label any missing item suggestions as additions to look out for.\n"
+            "3. Offer 1 practical styling tip (e.g. cuffing, tucking, layering).\n"
+            "4. Output only clean text without markdown or symbols."
+        )
+
+        messages: list[dict] = [{"role": "system", "content": instructions}]
+        if conversation_history:
+            for turn in conversation_history[-4:]:
+                r = turn.get("role")
+                c = turn.get("content")
+                if r in ("user", "assistant") and isinstance(c, str) and c.strip():
+                    messages.append({"role": r, "content": c.strip()})
+
+        messages.append({"role": "user", "content": user_query or f"Recommend an outfit for {occasion}."})
+
+        content = _execute_chat_inference(messages, model, client=client)
+        return content or base_text
+    except Exception as exc:
+        logger.debug("Ollama stylist enrichment fallback: %s", exc)
+        return base_text
+
