@@ -43,6 +43,34 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Allowed MIME types for media storage
+_ALLOWED_MIME_TYPES = frozenset({
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/svg+xml",
+})
+
+
+def validate_scoped_object_key(key: str, *, user_id: str | None = None) -> None:
+    """Validate object key structure, preventing path traversal and enforcing scoping."""
+    if not key or not key.strip():
+        raise StoragePayloadError("Object key must not be empty", key=key)
+    if ".." in key or key.startswith("/") or "\\" in key or "\x00" in key:
+        raise StoragePayloadError(
+            f"Invalid object key path traversal detected: {key}", key=key
+        )
+    if user_id is not None:
+        u_str = str(user_id)
+        expected_user = f"users/{u_str}/"
+        expected_staging = f"staging/users/{u_str}/"
+        if not (key.startswith(expected_user) or key.startswith(expected_staging)):
+            raise StoragePermissionError(
+                f"Object key {key} is not scoped to user {u_str}",
+                key=key,
+            )
+
+
 # Patterns to sanitize from error messages and logs
 _SECRET_PATTERNS = [
     re.compile(r"X-Amz-Signature=[0-9a-fA-F]+"),
@@ -160,6 +188,12 @@ class CloudflareR2StorageAdapter(ObjectStoragePort):
         size_bytes: Optional[int] = None,
         expires_in_s: int = 900,
     ) -> str:
+        validate_scoped_object_key(key)
+        if content_type not in _ALLOWED_MIME_TYPES:
+            raise StoragePayloadError(
+                f"Unsupported content_type: {content_type}. Allowed: {sorted(_ALLOWED_MIME_TYPES)}",
+                key=key,
+            )
         params: dict[str, Any] = {
             "Bucket": self._bucket_name,
             "Key": key,
@@ -186,6 +220,7 @@ class CloudflareR2StorageAdapter(ObjectStoragePort):
         response_content_type: Optional[str] = None,
         response_content_disposition: Optional[str] = None,
     ) -> str:
+        validate_scoped_object_key(key)
         params: dict[str, Any] = {
             "Bucket": self._bucket_name,
             "Key": key,
@@ -298,14 +333,73 @@ class CloudflareR2StorageAdapter(ObjectStoragePort):
         return meta is not None
 
     async def delete_object(self, key: str) -> bool:
+        validate_scoped_object_key(key)
+
         def _delete():
-            return self._client.delete_object(Bucket=self._bucket_name, Key=key)
+            try:
+                return self._client.delete_object(Bucket=self._bucket_name, Key=key)
+            except ClientError as exc:
+                code = str(exc.response.get("Error", {}).get("Code", ""))
+                if code in ("404", "NoSuchKey", "NotFound"):
+                    return {}
+                raise
 
         try:
             await asyncio.to_thread(_delete)
             return True
         except Exception as exc:
             raise self._map_exception(exc, key=key)
+
+    async def delete_objects_safe(self, keys: list[str]) -> tuple[list[str], list[str]]:
+        """Safely delete multiple objects, tracking successes and failures without crashing."""
+        succeeded: list[str] = []
+        failed: list[str] = []
+        for k in keys:
+            try:
+                await self.delete_object(k)
+                succeeded.append(k)
+            except Exception as exc:
+                logger.warning("Safe deletion failed for key %s: %s", k, exc)
+                failed.append(k)
+        return succeeded, failed
+
+    async def check_health(self) -> dict[str, Any]:
+        """Verify Cloudflare R2 bucket connectivity, permissions, and responsiveness."""
+        import time
+
+        t0 = time.monotonic()
+
+        def _head_bucket():
+            return self._client.head_bucket(Bucket=self._bucket_name)
+
+        try:
+            await asyncio.to_thread(_head_bucket)
+            latency_ms = round((time.monotonic() - t0) * 1000, 2)
+            return {
+                "provider": "r2",
+                "status": "healthy",
+                "bucket": self._bucket_name,
+                "latency_ms": latency_ms,
+            }
+        except ClientError as exc:
+            latency_ms = round((time.monotonic() - t0) * 1000, 2)
+            code = str(exc.response.get("Error", {}).get("Code", "Unknown"))
+            return {
+                "provider": "r2",
+                "status": "unhealthy",
+                "bucket": self._bucket_name,
+                "latency_ms": latency_ms,
+                "error_code": code,
+            }
+        except Exception as exc:
+            latency_ms = round((time.monotonic() - t0) * 1000, 2)
+            return {
+                "provider": "r2",
+                "status": "unavailable",
+                "bucket": self._bucket_name,
+                "latency_ms": latency_ms,
+                "error": type(exc).__name__,
+            }
 
     async def copy_object(
         self,
@@ -315,6 +409,13 @@ class CloudflareR2StorageAdapter(ObjectStoragePort):
         content_type: Optional[str] = None,
         custom_metadata: Optional[dict[str, str]] = None,
     ) -> StorageObjectMetadata:
+        validate_scoped_object_key(source_key)
+        validate_scoped_object_key(destination_key)
+        if content_type and content_type not in _ALLOWED_MIME_TYPES:
+            raise StoragePayloadError(
+                f"Unsupported content_type: {content_type}. Allowed: {sorted(_ALLOWED_MIME_TYPES)}",
+                key=destination_key,
+            )
         def _copy():
             copy_source = {"Bucket": self._bucket_name, "Key": source_key}
             params: dict[str, Any] = {
@@ -350,6 +451,12 @@ class CloudflareR2StorageAdapter(ObjectStoragePort):
         content_type: str = "image/webp",
         custom_metadata: Optional[dict[str, str]] = None,
     ) -> StorageObjectMetadata:
+        validate_scoped_object_key(key)
+        if content_type not in _ALLOWED_MIME_TYPES:
+            raise StoragePayloadError(
+                f"Unsupported content_type: {content_type}. Allowed: {sorted(_ALLOWED_MIME_TYPES)}",
+                key=key,
+            )
         def _put():
             params: dict[str, Any] = {
                 "Bucket": self._bucket_name,

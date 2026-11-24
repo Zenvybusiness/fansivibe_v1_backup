@@ -237,3 +237,18 @@ Produce the standardized 15-point report:
 - **Flutter Tests:** 5/5 AI Stylist widget tests passed (2.0s); 137/137 assistant widget tests passed (5.0s).
 - **Flutter Analyzer:** 0 issues found (0.9s).
 - **Documented Limitations:** Live Ollama inference requires running Ollama daemon at `http://localhost:11434`; live R2 bucket requires cloud credentials; production VTON diffusion deferred to Phase 3.
+
+
+#### Phase 5D VTON Production Readiness and Commercial Provider Architecture (2026-11-23)
+- **Status:** COMPLETED & VERIFIED (Architecture Implemented; Commercial Provider Selection Pending Approval)
+- **Recommendation:** `PASS WITH DOCUMENTED LIMITATIONS`
+- **Commercial Provider Boundary:** Implemented `CommercialTryOnProvider` and `CommercialTryOnProviderConfig` with credential masking, correlation IDs, magic bytes validation, transient-only retries, health reporting, and zero logging of private image bytes or keys.
+- **Production Invariants:** CatVTON strictly rejected in production (`ValueError`); missing commercial URL/key rejected; timeout/quota bounds validated; mock fails closed with 503 at request time in production.
+- **Storage Hardening:** Hardened `CloudflareR2StorageAdapter` with `validate_scoped_object_key` (path traversal and ownership enforcement), content-type gating, idempotent deletion (404/NoSuchKey handled safely), and batch safe deletion. Live Cloudflare R2 credentials pending environment configuration.
+- **Job Reliability & Recovery:** Added composite uniqueness constraint on `(user_id, idempotency_key)` in migration 0038; verified on disposable DB; stale worker overwrites prevented; interrupted jobs recovered with distinct failure reasons without duplicate inference or billing.
+- **Privacy & Retention:** Implemented configurable retention policies for person photos (24h), results (72h), failed (24h), and cancelled (12h) jobs via `cleanup_retention_data`.
+- **Flutter UI:** Integrated provider unavailable, quota exceeded, concurrent limit, and timeout states with retry options and privacy retention consent copy, strictly preserving 65/35 cards and Digital Atelier tokens.
+- **Backend Tests:** 27/27 passed in `test_tryon_phase5d_commercial_and_reliability.py`; 111/111 passed across full try-on and storage suites; 57/57 passed in wider backend regression suite.
+- **Flutter Tests:** 13/13 passed in try-on suites; 51/51 passed across full Flutter regression suite; `flutter analyze` 0 issues found.
+- **PostgreSQL Database:** Verified on disposable DB `fansivibe_phase5d_disposable` (Alembic 0001 -> 0038); `fansivibe` (0036) and `fansivibe_test` (0032) completely untouched.
+- **Documented Limitations:** Live Cloudflare R2 bucket credentials not present in dev environment (R2 adapter verified with mock S3 clients and unit tests); live commercial provider selection pending user review and approval (no live commercial calls made without approval).

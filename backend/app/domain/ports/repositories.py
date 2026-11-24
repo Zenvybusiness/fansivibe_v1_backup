@@ -1524,5 +1524,38 @@ class TryOnJobRepository(Protocol):
     ) -> int:
         ...
 
+    def count_active_jobs(
+        self,
+        *,
+        user_id: UUID,
+    ) -> int:
+        """Count active (queued or processing) jobs for concurrent quota enforcement."""
+        ...
+
+    def find_expired_jobs(
+        self,
+        *,
+        status: str,
+        older_than: datetime,
+    ) -> list[TryOnJobRecord]:
+        """Find jobs with given status created or completed before older_than timestamp."""
+        ...
+
+    def find_jobs_with_unpurged_person_photo(
+        self,
+        *,
+        older_than: datetime,
+    ) -> list[TryOnJobRecord]:
+        """Find jobs that still hold person_media_ref older than threshold."""
+        ...
+
+    def clear_person_media_ref(
+        self,
+        *,
+        job_id: UUID,
+    ) -> bool:
+        """Clear person_media_ref after person photo retention expiry."""
+        ...
+
 
 

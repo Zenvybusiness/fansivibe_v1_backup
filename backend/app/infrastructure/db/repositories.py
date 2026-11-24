@@ -3325,6 +3325,9 @@ class TryOnJobRepositorySQL:
         ).scalar_one_or_none()
         if not row:
             return None
+        # Stale worker protection: terminal jobs cannot be moved back to queued or processing
+        if row.status in ("completed", "cancelled") and status in ("queued", "processing"):
+            return self._to_record(row)
         row.status = status
         if processing_started_at is not None:
             row.processing_started_at = processing_started_at
@@ -3346,6 +3349,9 @@ class TryOnJobRepositorySQL:
         ).scalar_one_or_none()
         if not row:
             return None
+        # Cancelled or failed jobs cannot later become completed (stale worker protection)
+        if row.status in ("cancelled", "completed", "failed"):
+            return self._to_record(row)
         row.status = "completed"
         row.result_media_ref = result_media_ref
         row.completed_at = completed_at
@@ -3366,6 +3372,9 @@ class TryOnJobRepositorySQL:
         ).scalar_one_or_none()
         if not row:
             return None
+        # Completed or cancelled jobs cannot be overwritten by delayed worker failures
+        if row.status in ("completed", "cancelled"):
+            return self._to_record(row)
         row.status = "failed"
         row.error_code = error_code
         row.error_message = error_message
@@ -3459,6 +3468,68 @@ class TryOnJobRepositorySQL:
             )
         ).scalar_one()
         return int(count)
+
+    def count_active_jobs(
+        self,
+        *,
+        user_id: UUID,
+    ) -> int:
+        count = self._session.execute(
+            select(func.count()).select_from(TryOnJobModel).where(
+                TryOnJobModel.user_id == user_id,
+                TryOnJobModel.status.in_(["queued", "processing"]),
+            )
+        ).scalar_one()
+        return int(count)
+
+    def find_expired_jobs(
+        self,
+        *,
+        status: str,
+        older_than: datetime,
+    ) -> list[TryOnJobRecord]:
+        rows = (
+            self._session.execute(
+                select(TryOnJobModel).where(
+                    TryOnJobModel.status == status,
+                    func.coalesce(TryOnJobModel.completed_at, TryOnJobModel.created_at) <= older_than,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [self._to_record(row) for row in rows]
+
+    def find_jobs_with_unpurged_person_photo(
+        self,
+        *,
+        older_than: datetime,
+    ) -> list[TryOnJobRecord]:
+        rows = (
+            self._session.execute(
+                select(TryOnJobModel).where(
+                    TryOnJobModel.person_media_ref.isnot(None),
+                    TryOnJobModel.created_at <= older_than,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [self._to_record(row) for row in rows]
+
+    def clear_person_media_ref(
+        self,
+        *,
+        job_id: UUID,
+    ) -> bool:
+        row = self._session.execute(
+            select(TryOnJobModel).where(TryOnJobModel.id == job_id)
+        ).scalar_one_or_none()
+        if not row:
+            return False
+        row.person_media_ref = None
+        self._session.commit()
+        return True
 
 
 

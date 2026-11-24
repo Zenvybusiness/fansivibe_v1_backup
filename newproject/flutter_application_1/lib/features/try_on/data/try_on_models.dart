@@ -32,6 +32,7 @@ enum TryOnFailure {
   quotaExceeded,
   serviceUnavailable,
   networkError,
+  timeout,
   unknown,
 }
 

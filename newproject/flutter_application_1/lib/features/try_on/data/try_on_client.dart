@@ -62,6 +62,8 @@ class TryOnClient {
         return TryOnFailure.quotaExceeded;
       case 503:
         return TryOnFailure.serviceUnavailable;
+      case 504:
+        return TryOnFailure.timeout;
       default:
         return TryOnFailure.unknown;
     }

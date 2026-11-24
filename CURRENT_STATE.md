@@ -17994,3 +17994,41 @@ Remaining issues:
 - **Validation**: new suite total `flutter test test/assistant_image_chat_test.dart` → 18/18 (4 new: camera forwards `ImageSource.camera` + stages preview; gallery forwards `ImageSource.gallery`; camera cancel keeps text; `PlatformException` → honest snackbar + text kept + nothing staged). `flutter analyze` on both touched files + `lib/features/assistant` → No issues. Regression batch (assistant screen/auth/guest/offline/labeling/card-feedback/save/routes) → 65/65. Backend `tests/test_assistant_chat_image_api.py` (unchanged code) → 12/12, confirming the `POST /v1/assistant/chat-with-image` contract healthy. A repo-wide `dart format` pass was reverted (Dart 3.11 tall-style churn across unrelated lines); final diff = 2 files only, hunks limited to the fix + new tests.
 - **Remaining / not verified**: no live device/emulator camera run, no running backend (`localhost:8000` refused) and no Ollama (`localhost:11434` refused) in this environment — steps 9–13 of the journey (real multipart upload → vision → rendered reply) verified at code + contract-test level only, NOT live; web-desktop "Take a photo" still yields a file picker by plugin design (needs a `camera`-plugin capture flow as a separate scoped feature if web-camera is required).
 - **Next**: review. No commit/push per repo rule.
+
+
+---
+
+## PHASE 5D — VTON PRODUCTION READINESS AND COMMERCIAL PROVIDER ARCHITECTURE (executed 2026-11-23, STATUS: DONE — Architecture Implemented & Verified; Commercial Provider Selection Pending Approval)
+
+- **Scope**: Production readiness architecture for Virtual Try-On without exposing experimental research CatVTON to production or treating Mock as real AI.
+- **Commercial Provider Architecture**:
+  - Defined strict typed production provider boundary `CommercialTryOnProvider` and `CommercialTryOnProviderConfig` in `backend/app/domain/ports/tryon_provider.py`.
+  - Secure credential handling: API keys masked in `__repr__`, never logged, zero private image bytes in logs/traces.
+  - Request correlation IDs (`X-Correlation-ID`) tracked through dispatch, headers, and logs.
+  - Strict input and output magic-byte validation (JPEG, PNG, WebP) rejecting corrupt/non-image payloads before and after provider invocation.
+  - Retry policy restricted to transient failures only (HTTP 502, 503, 504, 408, timeouts), fast-failing non-transient errors (400/422 payload errors, 401 auth errors, 429 quota errors).
+  - Provider health check `check_health()` returning latency and health status.
+  - Production invariants in `backend/app/config/settings.py`: CatVTON is blocked in production (`ValueError`); missing commercial URL/key or placeholder keys in production are rejected; timeouts and quotas strictly bounded.
+- **Cloudflare R2 Production Storage Readiness**:
+  - Hardened `CloudflareR2StorageAdapter` in `backend/app/infrastructure/external/storage.py` with strict key scoping `validate_scoped_object_key` rejecting path traversal (`..`, `\`, leading `/`, null bytes) and enforcing `users/{user_id}/` boundaries.
+  - Content-type validation against allowed MIME types (`image/jpeg`, `image/png`, `image/webp`, `image/svg+xml`).
+  - Idempotent object deletion safely handling 404/NoSuchKey. Safe batch deletion (`delete_objects_safe`) and storage health checks (`check_health`).
+- **Job Reliability & State Machine Protection**:
+  - Alembic migration `0038_tryon_jobs_idempotency_unique.py` added composite `UniqueConstraint("user_id", "idempotency_key", name="uq_tryon_jobs_user_idempotency")` on `tryon_jobs`.
+  - Stale worker protection: cancelled, completed, and failed jobs cannot be overwritten by delayed background workers.
+  - Cancellation during inference: outputs safely discarded and storage cleaned up.
+  - Interrupted job startup recovery (`recover_interrupted_jobs`): jobs interrupted while queued or during inference are marked `failed` with distinct reason messages and NOT re-inferred, preventing duplicate commercial billing.
+- **Privacy and Retention**:
+  - Configurable retention policies (`TRYON_RETENTION_PERSON_PHOTO_HOURS=24`, `TRYON_RETENTION_RESULT_HOURS=72`, `TRYON_RETENTION_FAILED_JOBS_HOURS=24`, `TRYON_RETENTION_CANCELLED_JOBS_HOURS=12`).
+  - Implemented `cleanup_retention_data` routine purging person photographs from storage while clearing DB references, and safely deleting expired jobs.
+  - Operational health endpoint `GET /v1/tryon/health` and retention maintenance endpoint `POST /v1/tryon/maintenance/retention-cleanup`.
+- **Flutter Integration**:
+  - Improved `TryOnScreen`, `try_on_models.dart`, and `try_on_client.dart` to support: provider unavailable failure state with retry option, quota exceeded failure state, concurrent job rate limit failure state, job timeout state (HTTP 504 mapped to timeout with retry), and documented privacy retention policy copy in consent text.
+  - Preserved 65/35 card proportions, Digital Atelier tokens, and surrounding layouts.
+- **Validation**:
+  - Backend: 27/27 passed in `backend/tests/test_tryon_phase5d_commercial_and_reliability.py`.
+  - TryOn & Storage suite: 111/111 passed across `test_tryon_mock_api.py`, `test_tryon_phase5c_e2e.py`, `test_tryon_reliability_and_security.py`, `test_storage_adapter.py`, `test_storage_config.py`.
+  - Wider regression suite: 57 passed / 4 skipped (live Ollama) in `test_digital_wardrobe_e2e.py`, `test_ai_stylist_e2e.py`, `test_outfit_generation_e2e.py`, `test_image_analysis_e2e.py`.
+  - Disposable database verification: Alembic upgrade 0001 -> 0038 executed with 100% success on disposable PostgreSQL database; composite uniqueness constraint verified; disposable DB cleanly dropped; `fansivibe` (0036) and `fansivibe_test` (0032) completely untouched.
+  - Flutter: 13/13 passed in `test/try_on_phase5d_test.dart` and `test/try_on_flow_test.dart`; 51/51 passed across full Flutter regression test suite; `flutter analyze` 0 issues found.
+- **Next**: Review and approval of commercial provider selection. No commit/push per repo rule.

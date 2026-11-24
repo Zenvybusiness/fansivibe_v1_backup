@@ -1732,7 +1732,7 @@ class TryOnJobModel(Base):
     __table_args__ = (
         Index("ix_tryon_jobs_user_created", "user_id", "created_at"),
         Index("ix_tryon_jobs_status", "status"),
-        Index("ix_tryon_jobs_user_idempotency", "user_id", "idempotency_key"),
+        UniqueConstraint("user_id", "idempotency_key", name="uq_tryon_jobs_user_idempotency"),
     )
 
     id: Mapped[UUID] = mapped_column(

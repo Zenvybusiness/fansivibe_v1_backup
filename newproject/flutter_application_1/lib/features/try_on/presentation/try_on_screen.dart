@@ -462,10 +462,13 @@ class _TryOnScreenState extends State<TryOnScreen> {
       case TryOnFailure.invalidInput:
         return 'That preview request was invalid. Check the photo and try again.';
       case TryOnFailure.quotaExceeded:
-      case TryOnFailure.rateLimited:
         return 'Daily preview limit reached. Please try again tomorrow.';
+      case TryOnFailure.rateLimited:
+        return 'Too many active try-on jobs. Please wait for in-progress jobs to finish.';
       case TryOnFailure.serviceUnavailable:
-        return 'Try-on generation is turned off right now.';
+        return 'Virtual Try-On is currently unavailable. Please try again later.';
+      case TryOnFailure.timeout:
+        return 'Try-on processing timed out. Please retry with the button below.';
       case TryOnFailure.networkError:
         return 'Please check your connection and try again.';
       default:
@@ -859,8 +862,8 @@ class _TryOnScreenState extends State<TryOnScreen> {
                 padding: EdgeInsets.only(top: 12),
                 child: Text(
                   'I agree to process this photo for a virtual try-on preview. '
-                  'Photos and try-on results are stored privately in your account '
-                  'and can be deleted at any time.',
+                  'Photos are stored privately and automatically deleted after 24 hours '
+                  '(results after 72 hours), and you can delete them at any time.',
                 ),
               ),
             ),

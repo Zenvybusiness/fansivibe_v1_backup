@@ -137,6 +137,46 @@ class Settings(BaseSettings):
     tryon_daily_quota_per_user: int = Field(
         default=20, alias="FANSIVIBE_TRYON_DAILY_QUOTA"
     )
+    tryon_max_concurrent_jobs_per_user: int = Field(
+        default=2, alias="FANSIVIBE_TRYON_MAX_CONCURRENT_JOBS"
+    )
+
+    # Commercial Virtual Try-On Provider Configuration (Phase 5D)
+    tryon_commercial_provider_name: str = Field(
+        default="generic_commercial", alias="TRYON_COMMERCIAL_PROVIDER_NAME"
+    )
+    tryon_commercial_api_key: str | None = Field(
+        default=None, alias="TRYON_COMMERCIAL_API_KEY", repr=False
+    )
+    tryon_commercial_endpoint_url: str | None = Field(
+        default=None, alias="TRYON_COMMERCIAL_ENDPOINT_URL"
+    )
+    tryon_commercial_connect_timeout_s: float = Field(
+        default=10.0, alias="TRYON_COMMERCIAL_CONNECT_TIMEOUT_S"
+    )
+    tryon_commercial_inference_timeout_s: float = Field(
+        default=60.0, alias="TRYON_COMMERCIAL_INFERENCE_TIMEOUT_S"
+    )
+    tryon_commercial_max_retries: int = Field(
+        default=2, alias="TRYON_COMMERCIAL_MAX_RETRIES"
+    )
+
+    # Privacy and Media Retention Policies (Phase 5D)
+    tryon_retention_enabled: bool = Field(
+        default=True, alias="TRYON_RETENTION_ENABLED"
+    )
+    tryon_retention_person_photo_hours: int = Field(
+        default=24, alias="TRYON_RETENTION_PERSON_PHOTO_HOURS"
+    )
+    tryon_retention_result_hours: int = Field(
+        default=72, alias="TRYON_RETENTION_RESULT_HOURS"
+    )
+    tryon_retention_failed_jobs_hours: int = Field(
+        default=24, alias="TRYON_RETENTION_FAILED_JOBS_HOURS"
+    )
+    tryon_retention_cancelled_jobs_hours: int = Field(
+        default=12, alias="TRYON_RETENTION_CANCELLED_JOBS_HOURS"
+    )
     log_level: str = Field(
         default="INFO", alias="FANSIVIBE_LOG_LEVEL"
     )
@@ -549,17 +589,62 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_invariants(self) -> typing.Self:
-        if self.tryon_provider not in ("mock", "off", "catvton"):
+        if self.tryon_provider not in ("mock", "off", "catvton", "commercial"):
             raise ValueError(
-                "FANSIVIBE_TRYON_PROVIDER must be 'mock', 'off', or 'catvton'."
+                "FANSIVIBE_TRYON_PROVIDER must be 'mock', 'off', 'catvton', or 'commercial'."
             )
         if self.tryon_provider == "catvton" and self.environment == "production":
             raise ValueError(
                 "CatVTON is an experimental prototype and cannot be enabled in production."
             )
+        if self.tryon_provider == "commercial":
+            if not self.tryon_commercial_endpoint_url:
+                raise ValueError(
+                    "Commercial try-on provider requires TRYON_COMMERCIAL_ENDPOINT_URL."
+                )
+            if not self.tryon_commercial_api_key:
+                raise ValueError(
+                    "Commercial try-on provider requires TRYON_COMMERCIAL_API_KEY."
+                )
+            if self.is_production and len(self.tryon_commercial_api_key) < 16:
+                raise ValueError(
+                    "Production requires a valid TRYON_COMMERCIAL_API_KEY (at least 16 characters)."
+                )
         if self.tryon_daily_quota_per_user < 1:
             raise ValueError(
                 "FANSIVIBE_TRYON_DAILY_QUOTA must be at least 1."
+            )
+        if self.tryon_max_concurrent_jobs_per_user < 1:
+            raise ValueError(
+                "FANSIVIBE_TRYON_MAX_CONCURRENT_JOBS must be at least 1."
+            )
+        if self.tryon_commercial_connect_timeout_s <= 0:
+            raise ValueError(
+                "TRYON_COMMERCIAL_CONNECT_TIMEOUT_S must be greater than 0."
+            )
+        if self.tryon_commercial_inference_timeout_s <= 0:
+            raise ValueError(
+                "TRYON_COMMERCIAL_INFERENCE_TIMEOUT_S must be greater than 0."
+            )
+        if self.tryon_commercial_max_retries < 0:
+            raise ValueError(
+                "TRYON_COMMERCIAL_MAX_RETRIES must be non-negative."
+            )
+        if self.tryon_retention_person_photo_hours < 1:
+            raise ValueError(
+                "TRYON_RETENTION_PERSON_PHOTO_HOURS must be at least 1."
+            )
+        if self.tryon_retention_result_hours < 1:
+            raise ValueError(
+                "TRYON_RETENTION_RESULT_HOURS must be at least 1."
+            )
+        if self.tryon_retention_failed_jobs_hours < 1:
+            raise ValueError(
+                "TRYON_RETENTION_FAILED_JOBS_HOURS must be at least 1."
+            )
+        if self.tryon_retention_cancelled_jobs_hours < 1:
+            raise ValueError(
+                "TRYON_RETENTION_CANCELLED_JOBS_HOURS must be at least 1."
             )
         if self.rate_limit_auth_per_minute < 1:
             raise ValueError(

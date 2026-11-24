@@ -13,14 +13,103 @@ presented as genuine AI output — callers serve it with
 
 from __future__ import annotations
 
-from typing import Protocol
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+import io
+import logging
+import time
+from typing import Any, Protocol, runtime_checkable
+from uuid import uuid4
 from xml.sax.saxutils import escape as _escape
 
 _MOCK_BANNER = "TEST DATA \u2014 NOT AI TRY-ON"
+logger = logging.getLogger("fansivibe.tryon.provider")
 
 
+# --- Provider Exception Hierarchy ---
+
+
+class TryOnProviderError(Exception):
+    """Base error for all virtual try-on provider operations."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider_id: str = "unknown",
+        correlation_id: str | None = None,
+        cause: Exception | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.provider_id = provider_id
+        self.correlation_id = correlation_id
+        self.cause = cause
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}(message={self.message!r}, "
+            f"provider_id={self.provider_id!r}, correlation_id={self.correlation_id!r})"
+        )
+
+
+class CommercialProviderConfigurationError(TryOnProviderError):
+    """Raised when commercial provider is missing required credentials or URL."""
+
+
+class ProviderTransientError(TryOnProviderError):
+    """Raised on retryable transient errors (502, 503, 504, 408, network timeouts)."""
+
+
+class ProviderPayloadError(TryOnProviderError):
+    """Raised on non-retryable invalid payload errors (400, 422)."""
+
+
+class ProviderAuthError(TryOnProviderError):
+    """Raised on non-retryable authentication/authorization errors (401, 403)."""
+
+
+class ProviderQuotaExceededError(TryOnProviderError):
+    """Raised when upstream commercial provider rate limit / quota is exhausted (429)."""
+
+
+# --- Commercial Provider Configuration ---
+
+
+@dataclass(frozen=True)
+class CommercialTryOnProviderConfig:
+    """Configuration for a separately licensed commercial VTON provider.
+
+    Secure credential handling:
+    - Secrets are never represented in logs or string representations.
+    - Configuration is strictly loaded from validated environment settings.
+    """
+
+    provider_name: str
+    api_key: str
+    endpoint_url: str
+    connect_timeout_s: float = 10.0
+    inference_timeout_s: float = 60.0
+    max_retries: int = 2
+    backoff_factor: float = 1.5
+
+    def __repr__(self) -> str:
+        masked = (
+            self.api_key[:4] + "..." + self.api_key[-4:]
+            if len(self.api_key) > 8
+            else "[REDACTED]"
+        )
+        return (
+            f"CommercialTryOnProviderConfig(provider_name={self.provider_name!r}, "
+            f"endpoint_url={self.endpoint_url!r}, api_key={masked!r}, "
+            f"inference_timeout_s={self.inference_timeout_s})"
+        )
+
+
+@runtime_checkable
 class TryOnProvider(Protocol):
-    """Sync render contract a real adapter will implement later."""
+    """Render contract implemented by try-on providers."""
 
     provider_id: str
 
@@ -31,8 +120,12 @@ class TryOnProvider(Protocol):
         garment_labels: list[str],
         seed: str,
         outfit_source: str,
+        person_bytes: bytes | None = None,
+        garment_bytes: bytes | None = None,
+        category: str = "upper",
+        correlation_id: str | None = None,
     ) -> bytes:
-        """Return deterministic result image bytes for the job."""
+        """Return result image bytes for the job."""
         ...  # pragma: no cover
 
 
@@ -53,6 +146,11 @@ class MockTryOnProvider:
         garment_labels: list[str],
         seed: str,
         outfit_source: str,
+        person_bytes: bytes | None = None,
+        garment_bytes: bytes | None = None,
+        category: str = "upper",
+        correlation_id: str | None = None,
+        **kwargs: Any,
     ) -> bytes:
         short = (person_digest or "")[:12]
         hue = int(short[:4], 16) % 360 if len(short) >= 4 else 280
@@ -120,6 +218,8 @@ class CatVTONTryOnProvider:
         person_bytes: bytes | None = None,
         garment_bytes: bytes | None = None,
         category: str = "upper",
+        correlation_id: str | None = None,
+        **kwargs: Any,
     ) -> bytes:
         import io
         import logging
@@ -310,4 +410,282 @@ class CatVTONTryOnProvider:
             lease.mark_workload_completed()
             logger.info("CatVTON diffusion workload marked completed successfully.")
             return result_bytes
+
+
+class CommercialTryOnProvider:
+    """Production virtual try-on provider boundary for a separately licensed commercial service.
+
+    Requirements:
+    - Provider-specific configuration through environment variables.
+    - Secure credential handling (never logged or exposed in traces).
+    - Connection timeout and inference timeout.
+    - Retry policy for transient failures only (502, 503, 504, 408, network timeouts).
+    - Safe error normalization without exposing secrets or private image bytes.
+    - Request correlation IDs attached to requests and traces.
+    - Provider health checks where supported.
+    - Image format and response validation (JPEG, PNG, WebP).
+    - No logging of private image bytes or credentials.
+    """
+
+    def __init__(
+        self,
+        config: CommercialTryOnProviderConfig,
+        *,
+        http_client: Any = None,
+    ) -> None:
+        if not config.api_key or not config.api_key.strip():
+            raise CommercialProviderConfigurationError(
+                "Commercial try-on provider requires a non-empty api_key",
+                provider_id=config.provider_name,
+            )
+        if not config.endpoint_url or not config.endpoint_url.strip():
+            raise CommercialProviderConfigurationError(
+                "Commercial try-on provider requires a non-empty endpoint_url",
+                provider_id=config.provider_name,
+            )
+        self.config = config
+        self.provider_id = config.provider_name
+        self._http_client = http_client
+
+    @staticmethod
+    def _validate_image_format(data: bytes, label: str, correlation_id: str) -> str:
+        """Validate image magic bytes without decompressing full image in RAM."""
+        if not data or len(data) < 12:
+            raise ProviderPayloadError(
+                f"{label} payload is empty or too short ({len(data) if data else 0} bytes)",
+                correlation_id=correlation_id,
+            )
+        if data[:3] == b"\xff\xd8\xff":
+            return "image/jpeg"
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            return "image/png"
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return "image/webp"
+        raise ProviderPayloadError(
+            f"{label} has unsupported or corrupt format (must be JPEG, PNG, or WebP)",
+            correlation_id=correlation_id,
+        )
+
+    def render(
+        self,
+        *,
+        person_digest: str,
+        garment_labels: list[str],
+        seed: str,
+        outfit_source: str,
+        person_bytes: bytes | None = None,
+        garment_bytes: bytes | None = None,
+        category: str = "upper",
+        correlation_id: str | None = None,
+        **kwargs: Any,
+    ) -> bytes:
+        import base64
+        import httpx
+
+        corr_id = correlation_id or str(uuid4())
+        if person_bytes is None or len(person_bytes) == 0:
+            raise ProviderPayloadError(
+                "Commercial try-on requires person image bytes",
+                provider_id=self.provider_id,
+                correlation_id=corr_id,
+            )
+
+        person_mime = self._validate_image_format(person_bytes, "Person image", corr_id)
+        garment_mime = (
+            self._validate_image_format(garment_bytes, "Garment image", corr_id)
+            if garment_bytes
+            else None
+        )
+
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "X-Correlation-ID": corr_id,
+            "Accept": "image/*, application/json",
+        }
+
+        json_payload: dict[str, Any] = {
+            "correlation_id": corr_id,
+            "category": category,
+            "seed": seed,
+            "outfit_source": outfit_source,
+            "garment_labels": garment_labels,
+            "person_image": {
+                "content_type": person_mime,
+                "data": base64.b64encode(person_bytes).decode("ascii"),
+                "digest": person_digest,
+            },
+        }
+        if garment_bytes and garment_mime:
+            json_payload["garment_image"] = {
+                "content_type": garment_mime,
+                "data": base64.b64encode(garment_bytes).decode("ascii"),
+            }
+
+        logger.info(
+            "Dispatching commercial VTON inference (provider=%s, correlation_id=%s, person_bytes=%d, garment_bytes=%d)...",
+            self.provider_id,
+            corr_id,
+            len(person_bytes),
+            len(garment_bytes) if garment_bytes else 0,
+        )
+
+        timeout = httpx.Timeout(
+            timeout=self.config.inference_timeout_s,
+            connect=self.config.connect_timeout_s,
+        )
+
+        attempts = 0
+        last_error: Exception | None = None
+
+        while attempts <= self.config.max_retries:
+            attempts += 1
+            try:
+                if self._http_client is not None:
+                    resp = self._http_client.post(
+                        self.config.endpoint_url,
+                        json=json_payload,
+                        headers=headers,
+                        timeout=timeout,
+                    )
+                else:
+                    with httpx.Client(timeout=timeout) as client:
+                        resp = client.post(
+                            self.config.endpoint_url,
+                            json=json_payload,
+                            headers=headers,
+                        )
+
+                status_code = resp.status_code
+                if status_code in (200, 201):
+                    content_type = resp.headers.get("content-type", "")
+                    if "application/json" in content_type:
+                        data = resp.json()
+                        if "image_base64" in data:
+                            raw_out = base64.b64decode(data["image_base64"])
+                        elif "image_bytes" in data:
+                            raw_out = base64.b64decode(data["image_bytes"])
+                        else:
+                            raise ProviderPayloadError(
+                                "Commercial provider JSON response missing image payload",
+                                provider_id=self.provider_id,
+                                correlation_id=corr_id,
+                            )
+                    else:
+                        raw_out = resp.content
+
+                    out_mime = self._validate_image_format(raw_out, "Result image", corr_id)
+                    logger.info(
+                        "Commercial VTON inference succeeded (provider=%s, correlation_id=%s, output_bytes=%d, mime=%s).",
+                        self.provider_id,
+                        corr_id,
+                        len(raw_out),
+                        out_mime,
+                    )
+                    return raw_out
+
+                if status_code in (400, 422):
+                    raise ProviderPayloadError(
+                        f"Commercial provider rejected payload (HTTP {status_code})",
+                        provider_id=self.provider_id,
+                        correlation_id=corr_id,
+                    )
+                if status_code in (401, 403):
+                    raise ProviderAuthError(
+                        f"Commercial provider authentication failed (HTTP {status_code})",
+                        provider_id=self.provider_id,
+                        correlation_id=corr_id,
+                    )
+                if status_code == 429:
+                    raise ProviderQuotaExceededError(
+                        "Commercial provider rate limit or quota exceeded (HTTP 429)",
+                        provider_id=self.provider_id,
+                        correlation_id=corr_id,
+                    )
+                if status_code in (408, 500, 502, 503, 504):
+                    raise ProviderTransientError(
+                        f"Commercial provider transient server error (HTTP {status_code})",
+                        provider_id=self.provider_id,
+                        correlation_id=corr_id,
+                    )
+
+                raise TryOnProviderError(
+                    f"Commercial provider returned unexpected HTTP {status_code}",
+                    provider_id=self.provider_id,
+                    correlation_id=corr_id,
+                )
+
+            except (ProviderPayloadError, ProviderAuthError, ProviderQuotaExceededError):
+                raise
+            except (ProviderTransientError, httpx.TimeoutException, httpx.NetworkError) as exc:
+                last_error = exc
+                if attempts <= self.config.max_retries:
+                    delay = self.config.backoff_factor ** attempts
+                    logger.warning(
+                        "Transient failure from commercial VTON provider (%s); retrying %d/%d in %.1fs: %s",
+                        self.provider_id,
+                        attempts,
+                        self.config.max_retries,
+                        delay,
+                        type(exc).__name__,
+                    )
+                    time.sleep(delay)
+                else:
+                    break
+            except Exception as exc:
+                raise TryOnProviderError(
+                    f"Unexpected commercial provider execution error: {type(exc).__name__}",
+                    provider_id=self.provider_id,
+                    correlation_id=corr_id,
+                    cause=exc,
+                )
+
+        raise ProviderTransientError(
+            f"Commercial provider failed after {attempts} attempts: {type(last_error).__name__}",
+            provider_id=self.provider_id,
+            correlation_id=corr_id,
+            cause=last_error,
+        )
+
+    def check_health(self) -> dict[str, Any]:
+        """Perform provider health check where supported."""
+        import httpx
+
+        timeout = httpx.Timeout(timeout=5.0, connect=3.0)
+        t0 = time.monotonic()
+        try:
+            health_url = self.config.endpoint_url.rstrip("/") + "/health"
+            headers = {
+                "Authorization": f"Bearer {self.config.api_key}",
+                "X-Correlation-ID": str(uuid4()),
+            }
+            if self._http_client is not None:
+                resp = self._http_client.get(health_url, headers=headers, timeout=timeout)
+            else:
+                with httpx.Client(timeout=timeout) as client:
+                    resp = client.get(health_url, headers=headers)
+            duration_ms = round((time.monotonic() - t0) * 1000, 2)
+            if resp.status_code in (200, 204):
+                return {
+                    "provider": self.provider_id,
+                    "status": "healthy",
+                    "latency_ms": duration_ms,
+                    "endpoint": self.config.endpoint_url,
+                }
+            return {
+                "provider": self.provider_id,
+                "status": "degraded",
+                "latency_ms": duration_ms,
+                "endpoint": self.config.endpoint_url,
+                "http_status": resp.status_code,
+            }
+        except Exception as exc:
+            duration_ms = round((time.monotonic() - t0) * 1000, 2)
+            return {
+                "provider": self.provider_id,
+                "status": "unavailable",
+                "latency_ms": duration_ms,
+                "endpoint": self.config.endpoint_url,
+                "error": type(exc).__name__,
+            }
+
 

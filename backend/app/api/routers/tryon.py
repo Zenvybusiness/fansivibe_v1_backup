@@ -11,9 +11,11 @@ Authenticated endpoints for durable virtual try-on jobs:
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import asdict
 import json
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, Response, UploadFile, status
 
@@ -90,7 +92,7 @@ def submit_tryon_job(
     )
 
     settings = tryon_app.get_settings()
-    is_mock = (getattr(settings, "tryon_provider", "mock") != "catvton")
+    is_mock = (getattr(settings, "tryon_provider", "mock") == "mock")
 
     if created:
         background_tasks.add_task(
@@ -132,7 +134,7 @@ def get_tryon_job(
 
     # In mock mode, advance lifecycle deterministically
     settings = tryon_app.get_settings()
-    is_mock = (getattr(settings, "tryon_provider", "mock") != "catvton")
+    is_mock = (getattr(settings, "tryon_provider", "mock") == "mock")
     if is_mock and job.status != "completed":
         job = tryon_app.poll_job(job, job_repo=job_repo)
 
@@ -222,7 +224,7 @@ def retry_tryon_job(
         wardrobe_repo=wardrobe_repo,
     )
 
-    is_mock = (get_settings().tryon_provider != "catvton")
+    is_mock = (get_settings().tryon_provider == "mock")
     return TryOnJobSubmitted(job_id=str(job.id), status=job.status, is_mock=is_mock)
 
 
@@ -243,7 +245,7 @@ def cancel_tryon_job(
 ) -> TryOnJobStatus:
     """Cancel an active queued or processing try-on job."""
     job = tryon_app.cancel_job(user_id=str(user_id), job_id=job_id, job_repo=job_repo)
-    is_mock = (job.provider != "catvton")
+    is_mock = (job.provider == "mock")
     return TryOnJobStatus(
         job_id=str(job.id),
         status=job.status,
@@ -284,3 +286,121 @@ async def delete_tryon_job(
     if not deleted:
         raise not_found()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/health",
+    status_code=status.HTTP_200_OK,
+    responses={200: {"model": dict}},
+)
+async def get_tryon_health(
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
+) -> dict[str, Any]:
+    """Operational health status for configured virtual try-on provider and object storage."""
+    settings = get_settings()
+    provider_name = settings.tryon_provider
+    env = settings.environment
+
+    provider_status: dict[str, Any]
+    if provider_name == "commercial":
+        config = tryon_app.CommercialTryOnProviderConfig(
+            provider_name=settings.tryon_commercial_provider_name,
+            api_key=settings.tryon_commercial_api_key or "",
+            endpoint_url=settings.tryon_commercial_endpoint_url or "",
+            connect_timeout_s=settings.tryon_commercial_connect_timeout_s,
+            inference_timeout_s=settings.tryon_commercial_inference_timeout_s,
+            max_retries=settings.tryon_commercial_max_retries,
+        )
+        try:
+            provider = tryon_app.CommercialTryOnProvider(config)
+            provider_status = await asyncio.to_thread(provider.check_health)
+        except Exception as exc:
+            provider_status = {
+                "provider": provider_name,
+                "status": "unavailable",
+                "error": type(exc).__name__,
+            }
+    elif provider_name == "catvton":
+        provider_status = {
+            "provider": "catvton",
+            "status": "healthy" if env != "production" else "blocked_in_production",
+            "environment": env,
+            "mode": "local_research",
+        }
+    elif provider_name == "mock":
+        provider_status = {
+            "provider": "mock",
+            "status": "healthy" if env != "production" else "unsupported_in_production",
+            "mode": "test_data",
+        }
+    else:
+        provider_status = {
+            "provider": provider_name,
+            "status": "disabled",
+        }
+
+    storage_status: dict[str, Any]
+    check_fn = getattr(storage, "check_health", None)
+    if callable(check_fn):
+        try:
+            if asyncio.iscoroutinefunction(check_fn):
+                storage_status = await check_fn()
+            else:
+                storage_status = await asyncio.to_thread(check_fn)
+        except Exception as exc:
+            storage_status = {
+                "provider": settings.media_storage_provider,
+                "status": "unavailable",
+                "error": str(exc),
+            }
+    else:
+        storage_status = {
+            "provider": settings.media_storage_provider,
+            "status": "healthy",
+        }
+
+    overall = "healthy"
+    if provider_status.get("status") in (
+        "unavailable",
+        "blocked_in_production",
+        "unsupported_in_production",
+        "degraded",
+    ):
+        overall = "degraded"
+    if storage_status.get("status") in ("unhealthy", "unavailable"):
+        overall = "degraded"
+
+    return {
+        "status": overall,
+        "environment": env,
+        "provider": provider_status,
+        "storage": storage_status,
+        "retention_enabled": settings.tryon_retention_enabled,
+        "retention_policies": {
+            "person_photo_hours": settings.tryon_retention_person_photo_hours,
+            "result_hours": settings.tryon_retention_result_hours,
+            "failed_jobs_hours": settings.tryon_retention_failed_jobs_hours,
+            "cancelled_jobs_hours": settings.tryon_retention_cancelled_jobs_hours,
+        },
+        "quotas": {
+            "daily_per_user": settings.tryon_daily_quota_per_user,
+            "max_concurrent_per_user": settings.tryon_max_concurrent_jobs_per_user,
+        },
+    }
+
+
+@router.post(
+    "/maintenance/retention-cleanup",
+    status_code=status.HTTP_200_OK,
+    responses={200: {"model": dict}},
+)
+async def run_retention_cleanup(
+    job_repo: Any = Depends(get_tryon_repository),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
+) -> dict[str, Any]:
+    """Execute retention policy cleanup across storage and database."""
+    summary = await tryon_app.cleanup_retention_data(
+        job_repo=job_repo,
+        storage=storage,
+    )
+    return asdict(summary)

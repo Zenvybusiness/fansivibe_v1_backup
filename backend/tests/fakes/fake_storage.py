@@ -171,6 +171,26 @@ class FakeStorageAdapter(ObjectStoragePort):
         self._objects.pop(key, None)
         return True
 
+    async def delete_objects_safe(self, keys: list[str]) -> tuple[list[str], list[str]]:
+        succeeded: list[str] = []
+        failed: list[str] = []
+        for k in keys:
+            try:
+                await self.delete_object(k)
+                succeeded.append(k)
+            except Exception:
+                failed.append(k)
+        return succeeded, failed
+
+    async def check_health(self) -> dict[str, Any]:
+        self._check_simulation()
+        return {
+            "provider": "fake",
+            "status": "healthy",
+            "bucket": self.bucket_name,
+            "latency_ms": 0.5,
+        }
+
     async def copy_object(
         self,
         *,
