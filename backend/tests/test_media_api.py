@@ -1120,10 +1120,16 @@ class TestMigration0033Metadata:
         config.set_main_option("script_location", str(backend / "alembic"))
         script = ScriptDirectory.from_config(config)
 
-        # Single head assertion
+        # Single head assertion (0033-0036 media lifecycle, extended by 0037-0038 tryon_jobs)
         heads = script.get_heads()
         assert len(heads) == 1
-        assert heads[0] in ("0033", "0034", "0035", "0036")
+        assert heads[0] in ("0033", "0034", "0035", "0036", "0037", "0038")
+
+        # Linear ancestry check: 0033 lies on the single chain from 0032 to head
+        chain_revisions = [
+            rev.revision for rev in script.walk_revisions(base="0032", head=heads[0])
+        ]
+        assert "0033" in chain_revisions
 
         # Parent assertion
         rev33 = script.get_revision("0033")

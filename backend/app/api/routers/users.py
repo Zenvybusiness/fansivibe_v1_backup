@@ -16,12 +16,13 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user_id
+from app.api.deps import get_current_user_id, get_storage_adapter
 from app.api.rate_limit import auth_rate_limit
 from app.api.schemas.users import ProfileView, StyleProfile, UpdatePreferencesRequest
-from app.application.auth import DeleteAccount
+from app.application.auth import EraseAccount
 from app.application.users import GetProfile, UpdatePreferences
 from app.domain.ports.repositories import UserProfileRecord
+from app.domain.ports.storage import ObjectStoragePort
 from app.infrastructure.db.repositories import AuthRepositorySQL, SavedLookRepositorySQL, UserStateRepositorySQL
 from app.infrastructure.db.session import get_db
 
@@ -150,20 +151,24 @@ def update_me(
         401: {"model": dict},
         404: {"model": dict},
         429: {"model": dict},
+        503: {"model": dict},
     },
 )
-def delete_me(
+async def delete_me(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
     _: None = Depends(auth_rate_limit),
 ) -> Response:
-    """Erase the caller's own account (O-6, TRX-8 cascade, 204).
+    """Erase the caller's own account, R2 media, and Genlook references (O-6, TRX-8, 204).
 
     Owner-only (OW-1): only the authenticated account is deleted, never
-    another's. Already-gone account → 404 (idempotent); a retried call
-    whose session died with the account answers 401 like any dead token.
+    another's. External storage/provider cleanup runs before deleting the
+    user row so transient external failures are safely retryable.
+    Already-gone account → 404; a retried call whose session died with
+    the account answers 401 like any dead token.
     """
-    DeleteAccount(auth=AuthRepositorySQL(db))(user_id=user_id)
+    await EraseAccount(auth=AuthRepositorySQL(db), storage=storage)(user_id=user_id)
     return Response(status_code=204)
 
 

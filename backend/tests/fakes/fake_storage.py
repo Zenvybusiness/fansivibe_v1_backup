@@ -182,6 +182,10 @@ class FakeStorageAdapter(ObjectStoragePort):
                 failed.append(k)
         return succeeded, failed
 
+    async def list_keys(self, prefix: str) -> list[str]:
+        self._check_simulation(prefix)
+        return sorted(k for k in self._objects.keys() if k.startswith(prefix))
+
     async def check_health(self) -> dict[str, Any]:
         self._check_simulation()
         return {

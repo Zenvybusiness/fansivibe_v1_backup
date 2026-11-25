@@ -1447,6 +1447,27 @@ class TryOnJobRepository(Protocol):
     ) -> TryOnJobRecord:
         ...
 
+    def create_with_quota(
+        self,
+        *,
+        job_id: UUID,
+        user_id: UUID,
+        outfit_source: str,
+        garment_id: Optional[UUID],
+        garment_ids: list[str],
+        provider: str,
+        status: str,
+        consent_version: str,
+        consent_accepted_at: datetime,
+        person_media_ref: Optional[dict[str, Any]] = None,
+        idempotency_key: str,
+        request_fingerprint: str,
+        day: date,
+        daily_quota: int,
+        concurrent_limit: int,
+    ) -> tuple[TryOnJobRecord, bool]:
+        ...
+
     def get_by_id(
         self,
         *,
@@ -1555,6 +1576,27 @@ class TryOnJobRepository(Protocol):
         job_id: UUID,
     ) -> bool:
         """Clear person_media_ref after person photo retention expiry."""
+        ...
+
+    def update_person_media_ref(
+        self,
+        *,
+        job_id: UUID,
+        person_media_ref: dict[str, Any],
+    ) -> Optional[TryOnJobRecord]:
+        """Update person_media_ref metadata (e.g. Genlook imageId/generationId) on a job."""
+        ...
+
+    def find_reusable_genlook_image_id(
+        self,
+        *,
+        user_id: UUID,
+        person_digest: str,
+        consent_version: str,
+        min_created_at: datetime,
+        now: datetime,
+    ) -> Optional[str]:
+        """Find a valid non-expired Genlook imageId owned by the same user with matching consent & digest."""
         ...
 
 

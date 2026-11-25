@@ -23,19 +23,26 @@ _DB_URL_PASSWORD_REGEX = re.compile(r"(://[^:]+:)([^@]+)(@)")
 _BEARER_REGEX = re.compile(r"Bearer\s+[A-Za-z0-9_\-\.]+", re.IGNORECASE)
 _JWT_REGEX = re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+")
 _PARAM_SECRET_REGEX = re.compile(
-    r"(password|secret|token|access_token|refresh_token|api_key)=([^&\s]+)",
+    r"(password|secret|token|access_token|refresh_token|api_key|x-api-key)=([^&\s]+)",
+    re.IGNORECASE,
+)
+_GENLOOK_KEY_REGEX = re.compile(r"\bgk_[A-Za-z0-9_\-\.]{6,}\b")
+_SIGV4_SECRET_REGEX = re.compile(
+    r"(X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|AWSAccessKeyId)=([^&\s]+)",
     re.IGNORECASE,
 )
 
 
 def _sanitize_log_message(msg: str) -> str:
-    """Scrub database passwords, Bearer tokens, JWTs, and credential params from log messages."""
+    """Scrub database passwords, Bearer tokens, JWTs, SigV4 signatures, and credential params from log messages."""
     if not msg:
         return msg
     s = _DB_URL_PASSWORD_REGEX.sub(r"\1[REDACTED]\3", msg)
     s = _BEARER_REGEX.sub("Bearer [REDACTED]", s)
     s = _JWT_REGEX.sub("[REDACTED_JWT]", s)
     s = _PARAM_SECRET_REGEX.sub(r"\1=[REDACTED]", s)
+    s = _GENLOOK_KEY_REGEX.sub("[REDACTED_API_KEY]", s)
+    s = _SIGV4_SECRET_REGEX.sub(r"\1=[REDACTED]", s)
     return s
 
 

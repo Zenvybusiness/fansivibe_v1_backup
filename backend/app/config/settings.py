@@ -161,6 +161,35 @@ class Settings(BaseSettings):
         default=2, alias="TRYON_COMMERCIAL_MAX_RETRIES"
     )
 
+    # Genlook Commercial Virtual Try-On API Configuration (Phase 5F)
+    genlook_api_key: str | None = Field(
+        default=None, alias="GENLOOK_API_KEY", repr=False
+    )
+    genlook_api_base_url: str = Field(
+        default="https://api.genlook.app/tryon/v1", alias="GENLOOK_API_BASE_URL"
+    )
+    genlook_connect_timeout_s: float = Field(
+        default=10.0, alias="GENLOOK_CONNECT_TIMEOUT_S"
+    )
+    genlook_request_timeout_s: float = Field(
+        default=30.0, alias="GENLOOK_REQUEST_TIMEOUT_S"
+    )
+    genlook_poll_interval_s: float = Field(
+        default=1.0, alias="GENLOOK_POLL_INTERVAL_S"
+    )
+    genlook_poll_timeout_s: float = Field(
+        default=120.0, alias="GENLOOK_POLL_TIMEOUT_S"
+    )
+    genlook_max_retries: int = Field(
+        default=2, alias="GENLOOK_MAX_RETRIES"
+    )
+    genlook_keep_for_days: int = Field(
+        default=1, alias="GENLOOK_KEEP_FOR_DAYS"
+    )
+    genlook_ai_label: bool = Field(
+        default=True, alias="GENLOOK_AI_LABEL"
+    )
+
     # Operator / Cron Maintenance Authentication (Phase 5E.1)
     operator_api_key: str | None = Field(
         default=None, alias="FANSIVIBE_OPERATOR_API_KEY", repr=False
@@ -332,6 +361,14 @@ class Settings(BaseSettings):
         if self.r2_endpoint_url:
             return self.r2_endpoint_url.rstrip("/")
         if self.r2_account_id:
+            if self.r2_account_id.startswith(("http://", "https://")):
+                from urllib.parse import urlparse
+
+                parsed = urlparse(self.r2_account_id)
+                if parsed.scheme and parsed.netloc:
+                    return f"{parsed.scheme}://{parsed.netloc}"
+            if self.r2_account_id.endswith(".r2.cloudflarestorage.com"):
+                return f"https://{self.r2_account_id.rstrip('/')}"
             return f"https://{self.r2_account_id}.r2.cloudflarestorage.com"
         return None
 
@@ -452,6 +489,16 @@ class Settings(BaseSettings):
     @field_validator("operator_api_key", mode="before")
     @classmethod
     def _sanitize_operator_api_key(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            val = v.strip()
+            return val if val else None
+        return v
+
+    @field_validator("genlook_api_key", mode="before")
+    @classmethod
+    def _sanitize_genlook_api_key(cls, v: Any) -> str | None:
         if v is None:
             return None
         if isinstance(v, str):
@@ -604,9 +651,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_invariants(self) -> typing.Self:
-        if self.tryon_provider not in ("mock", "off", "catvton", "commercial"):
+        if self.tryon_provider not in ("mock", "off", "catvton", "commercial", "genlook"):
             raise ValueError(
-                "FANSIVIBE_TRYON_PROVIDER must be 'mock', 'off', 'catvton', or 'commercial'."
+                "FANSIVIBE_TRYON_PROVIDER must be 'mock', 'off', 'catvton', 'commercial', or 'genlook'."
             )
         if self.tryon_provider == "catvton" and self.environment == "production":
             raise ValueError(
@@ -625,6 +672,36 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "Production requires a valid TRYON_COMMERCIAL_API_KEY (at least 16 characters)."
                 )
+        if self.tryon_provider == "genlook":
+            if not self.genlook_api_key:
+                raise ValueError(
+                    "Genlook try-on provider requires GENLOOK_API_KEY."
+                )
+            if not self.genlook_api_base_url or not self.genlook_api_base_url.strip():
+                raise ValueError(
+                    "Genlook try-on provider requires GENLOOK_API_BASE_URL."
+                )
+            if self.is_production:
+                if len(self.genlook_api_key) < 16:
+                    raise ValueError(
+                        "Production requires a valid GENLOOK_API_KEY (at least 16 characters)."
+                    )
+                if not self.genlook_api_base_url.strip().lower().startswith("https://"):
+                    raise ValueError(
+                        "Production requires GENLOOK_API_BASE_URL to use HTTPS."
+                    )
+        if self.genlook_connect_timeout_s <= 0:
+            raise ValueError("GENLOOK_CONNECT_TIMEOUT_S must be greater than 0.")
+        if self.genlook_request_timeout_s <= 0:
+            raise ValueError("GENLOOK_REQUEST_TIMEOUT_S must be greater than 0.")
+        if self.genlook_poll_interval_s <= 0:
+            raise ValueError("GENLOOK_POLL_INTERVAL_S must be greater than 0.")
+        if self.genlook_poll_timeout_s <= 0:
+            raise ValueError("GENLOOK_POLL_TIMEOUT_S must be greater than 0.")
+        if self.genlook_max_retries < 0:
+            raise ValueError("GENLOOK_MAX_RETRIES must be non-negative.")
+        if self.genlook_keep_for_days not in (1, 3, 7):
+            raise ValueError("GENLOOK_KEEP_FOR_DAYS must be 1, 3, or 7.")
         if self.tryon_daily_quota_per_user < 1:
             raise ValueError(
                 "FANSIVIBE_TRYON_DAILY_QUOTA must be at least 1."

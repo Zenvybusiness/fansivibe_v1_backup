@@ -151,8 +151,8 @@ class TestCentralizedPillowConfiguration:
     def test_concurrent_person_and_large_output_validation_thread_safe(self) -> None:
         configure_pillow_limits()
         person_jpeg = _make_jpeg_with_gps_and_orientation()
-        # 4096x4096 = 16,777,216 pixels (valid output ceiling > 12MP person ceiling)
-        large_output_png = _make_image_bytes("PNG", size=(4096, 4096), color=(10, 20, 30))
+        # 4000x3000 = 12,000,000 pixels (documented 12 MP ceiling across download/decode/storage/retrieval)
+        large_output_png = _make_image_bytes("PNG", size=(4000, 3000), color=(10, 20, 30))
 
         def _run_person() -> tuple[int, int]:
             sanitized, mime = tryon_app.validate_and_sanitize_person_image(
@@ -185,24 +185,31 @@ class TestCentralizedPillowConfiguration:
 
     def test_decompression_bombs_rejected_above_person_and_output_limits(self) -> None:
         configure_pillow_limits()
-        # 4000x3500 = 14MP > 12MP person limit
-        person_14mp = _make_image_bytes("PNG", size=(4000, 3500))
+        # 4000x3500 = 14MP > 12MP consistent person and output limit
+        bomb_14mp = _make_image_bytes("PNG", size=(4000, 3500))
         with pytest.raises(ApiError) as exc_info:
-            tryon_app.validate_and_sanitize_person_image(person_14mp, "image/png")
+            tryon_app.validate_and_sanitize_person_image(bomb_14mp, "image/png")
         assert exc_info.value.status_code == 422
-
-        # 5000x4000 = 20MP > 16.77MP central MAX_IMAGE_PIXELS (triggers DecompressionBombWarning -> error)
-        bomb_20mp = _make_image_bytes("PNG", size=(5000, 4000))
-        with pytest.raises(ApiError) as exc_bomb:
-            tryon_app.validate_and_sanitize_person_image(bomb_20mp, "image/png")
-        assert exc_bomb.value.status_code == 422
 
         with pytest.raises(ProviderPayloadError):
             tryon_app.validate_and_inspect_output_image(
-                bomb_20mp, allow_svg=False, provider_id="commercial"
+                bomb_14mp, allow_svg=False, provider_id="commercial"
             )
 
+        with pytest.raises(ProviderPayloadError):
+            validate_raster_image_bytes(bomb_14mp, "Output", provider_id="commercial")
+
+        # 4096x4096 = 16.77MP > 12MP central limit must also be rejected consistently
+        over_16mp = _make_image_bytes("PNG", size=(4096, 4096))
+        with pytest.raises(ProviderPayloadError):
+            tryon_app.validate_and_inspect_output_image(
+                over_16mp, allow_svg=False, provider_id="commercial"
+            )
+        with pytest.raises(ProviderPayloadError):
+            validate_raster_image_bytes(over_16mp, "Output", provider_id="commercial")
+
         assert MAX_PERSON_IMAGE_PIXELS == 12_000_000
+        assert MAX_OUTPUT_IMAGE_PIXELS == 12_000_000
         assert Image.MAX_IMAGE_PIXELS == MAX_PILLOW_IMAGE_PIXELS
 
 

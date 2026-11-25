@@ -28,7 +28,13 @@ from app.domain.ports.repositories import (
     TryOnJobRepository,
     WardrobeItemRepository,
 )
-from app.domain.ports.storage import ObjectStoragePort, StorageError, StorageNotFoundError
+from app.domain.ports.storage import (
+    ObjectStoragePort,
+    StorageError,
+    StorageNotFoundError,
+    resolve_wardrobe_image_key,
+    validate_scoped_object_key,
+)
 from app.domain.ports.tryon_provider import (
     CatVTONTryOnProvider,
     CommercialProviderConfigurationError,
@@ -41,6 +47,16 @@ from app.domain.ports.tryon_provider import (
     ProviderTransientError,
     TryOnProviderError,
     map_wardrobe_category_to_fashn,
+)
+from app.infrastructure.external.genlook_tryon import (
+    GENLOOK_DEFAULT_BASE_URL,
+    GENLOOK_MAX_IMAGE_BYTES,
+    GenlookCancelledError,
+    GenlookImageUploadResult,
+    GenlookTryOnConfig,
+    GenlookTryOnCreateResult,
+    GenlookTryOnProvider,
+    build_genlook_product_spec,
 )
 
 logger = logging.getLogger("fansivibe.tryon.application")
@@ -76,7 +92,7 @@ class InMemoryTryOnJobRepository:
     """
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._jobs: dict[UUID, TryOnJobRecord] = {}
         self._idempotency: dict[tuple[UUID, str], UUID] = {}
         self._images: dict[UUID, bytes] = {}
@@ -162,6 +178,68 @@ class InMemoryTryOnJobRepository:
             if idempotency_key:
                 self._idempotency[(user_id, idempotency_key)] = job_id
         return record
+
+    def create_with_quota(
+        self,
+        *,
+        job_id: UUID,
+        user_id: UUID,
+        outfit_source: str,
+        garment_id: Optional[UUID],
+        garment_ids: list[str],
+        provider: str,
+        status: str,
+        consent_version: str,
+        consent_accepted_at: datetime,
+        person_media_ref: Optional[dict[str, Any]] = None,
+        idempotency_key: str,
+        request_fingerprint: str,
+        day: date,
+        daily_quota: int,
+        concurrent_limit: int,
+    ) -> tuple[TryOnJobRecord, bool]:
+        """Atomically verify idempotency and quotas under in-memory lock."""
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            existing_id = self._idempotency.get((user_id, idempotency_key))
+            if existing_id is not None:
+                existing = self._jobs.get(existing_id)
+                if existing is not None:
+                    if existing.request_fingerprint != request_fingerprint:
+                        raise conflict(kind="idempotency_key_reuse")
+                    return existing, False
+
+            used = sum(
+                1
+                for j in self._jobs.values()
+                if j.user_id == user_id and j.created_at.date() == day
+            )
+            if used >= daily_quota:
+                raise rate_limited()
+
+            active = sum(
+                1
+                for j in self._jobs.values()
+                if j.user_id == user_id and j.status in ("queued", "processing")
+            )
+            if active >= concurrent_limit:
+                raise rate_limited()
+
+            record = self.create(
+                job_id=job_id,
+                user_id=user_id,
+                outfit_source=outfit_source,
+                garment_id=garment_id,
+                garment_ids=garment_ids,
+                provider=provider,
+                status=status,
+                consent_version=consent_version,
+                consent_accepted_at=consent_accepted_at,
+                person_media_ref=person_media_ref,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+            )
+            return record, True
 
     def get_by_id(
         self,
@@ -486,6 +564,85 @@ class InMemoryTryOnJobRepository:
             )
             return True
 
+    def update_person_media_ref(
+        self,
+        *,
+        job_id: UUID,
+        person_media_ref: dict[str, Any],
+    ) -> Optional[TryOnJobRecord]:
+        with self._lock:
+            old = self._jobs.get(job_id)
+            if not old:
+                return None
+            new_rec = TryOnJobRecord(
+                id=old.id,
+                user_id=old.user_id,
+                outfit_source=old.outfit_source,
+                garment_id=old.garment_id,
+                garment_ids=old.garment_ids,
+                provider=old.provider,
+                status=old.status,
+                consent_version=old.consent_version,
+                consent_accepted_at=old.consent_accepted_at,
+                created_at=old.created_at,
+                updated_at=datetime.now(timezone.utc),
+                person_media_ref=dict(person_media_ref),
+                result_media_ref=old.result_media_ref,
+                idempotency_key=old.idempotency_key,
+                request_fingerprint=old.request_fingerprint,
+                error_code=old.error_code,
+                error_message=old.error_message,
+                retry_count=old.retry_count,
+                retry_of_job_id=old.retry_of_job_id,
+                processing_started_at=old.processing_started_at,
+                completed_at=old.completed_at,
+                image_bytes=old.image_bytes,
+            )
+            self._jobs[job_id] = new_rec
+            return new_rec
+
+    def find_reusable_genlook_image_id(
+        self,
+        *,
+        user_id: UUID,
+        person_digest: str,
+        consent_version: str,
+        min_created_at: datetime,
+        now: datetime,
+    ) -> Optional[str]:
+        with self._lock:
+            candidates = [
+                j
+                for j in self._jobs.values()
+                if j.user_id == user_id
+                and j.provider == "genlook"
+                and j.consent_version == consent_version
+                and j.consent_accepted_at is not None
+                and j.person_media_ref is not None
+                and j.created_at >= min_created_at
+            ]
+            candidates.sort(key=lambda j: j.created_at, reverse=True)
+            for j in candidates:
+                ref = j.person_media_ref
+                if not isinstance(ref, dict) or ref.get("contentHash") != person_digest:
+                    continue
+                gl = ref.get("genlook")
+                if not isinstance(gl, dict):
+                    continue
+                image_id = gl.get("imageId")
+                expires_raw = gl.get("imageExpiresAt")
+                if not isinstance(image_id, str) or not image_id.strip() or not isinstance(expires_raw, str):
+                    continue
+                try:
+                    expires_at = datetime.fromisoformat(expires_raw)
+                    if expires_at.tzinfo is None:
+                        expires_at = expires_at.replace(tzinfo=timezone.utc)
+                    if expires_at > now:
+                        return image_id.strip()
+                except Exception:
+                    continue
+            return None
+
 
 # Default in-memory store for test/fallback usage
 _IN_MEMORY_REPO = InMemoryTryOnJobRepository()
@@ -727,6 +884,7 @@ async def create_confirmed_presigned_input_url(
     """Create a presigned GET URL only after confirming durable object persistence."""
     if not key or not key.strip():
         raise StorageNotFoundError("Input media key is missing", key=key)
+    validate_scoped_object_key(key)
     exists = await storage.object_exists(key)
     if not exists:
         raise StorageNotFoundError(
@@ -784,6 +942,9 @@ def submit_job(
         if provider_name == "mock":
             raise ai_failure()
 
+    if provider_name == "genlook" and not getattr(settings, "genlook_api_key", None):
+        raise ai_failure()
+
 
     if not (idempotency_key or "").strip():
         raise validation([{"field": "Idempotency-Key", "error": "is required"}])
@@ -818,9 +979,18 @@ def submit_job(
         if not isinstance(gid, str) or not gid.strip() or len(gid) > 200:
             raise validation([{"field": "garment_ids", "error": "ids must be 1..200 chars"}])
 
+    if provider_name == "genlook" and len(garment_ids) != 1:
+        raise validation(
+            [{"field": "garment_ids", "error": "Genlook try-on requires exactly 1 garment id"}]
+        )
+
     sanitized_bytes, canonical_content_type = validate_and_sanitize_person_image(
         person_bytes, person_content_type
     )
+    if provider_name == "genlook" and len(sanitized_bytes) > GENLOOK_MAX_IMAGE_BYTES:
+        raise validation(
+            [{"field": "person_image", "error": "must be at most 10 MB for Genlook"}]
+        )
 
     # User ID parsing
     try:
@@ -830,7 +1000,7 @@ def submit_job(
 
     # Digital Wardrobe garment validation & ownership check
     first_garment_uuid: Optional[UUID] = None
-    if outfit_source == "wardrobe":
+    if outfit_source == "wardrobe" or provider_name == "genlook":
         if not garment_ids:
             raise validation([{"field": "garment_ids", "error": "at least one garment id is required"}])
         for gid in garment_ids:
@@ -869,7 +1039,7 @@ def submit_job(
     )
     current_day = today or datetime.now(timezone.utc).date()
 
-    # Idempotency check
+    # Idempotency fast-path check
     existing = repo.find_by_idempotency_key(
         user_id=user_uuid, idempotency_key=idempotency_key
     )
@@ -878,17 +1048,8 @@ def submit_job(
             raise conflict(kind="idempotency_key_reuse")
         return existing, False
 
-    # Daily quota check
     daily_quota = getattr(settings, "tryon_daily_quota_per_user", 20)
-    used = repo.count_today_jobs(user_id=user_uuid, day=current_day)
-    if used >= daily_quota:
-        raise rate_limited()
-
-    # Concurrent active jobs limit check
     concurrent_limit = getattr(settings, "tryon_max_concurrent_jobs_per_user", 5)
-    active_count = repo.count_active_jobs(user_id=user_uuid)
-    if active_count >= concurrent_limit:
-        raise rate_limited()
 
     job_id = uuid4()
     person_ext = "webp" if "webp" in canonical_content_type else ("png" if "png" in canonical_content_type else "jpg")
@@ -901,10 +1062,42 @@ def submit_job(
         "uploadedAt": datetime.now(timezone.utc).isoformat(),
     }
 
+    initial_status = "processing" if settings.tryon_provider == "mock" else "queued"
+    create_atomic_fn = getattr(repo, "create_with_quota", None)
+
+    if callable(create_atomic_fn):
+        created_job, created = create_atomic_fn(
+            job_id=job_id,
+            user_id=user_uuid,
+            outfit_source=outfit_source,
+            garment_id=first_garment_uuid,
+            garment_ids=garment_ids,
+            provider=settings.tryon_provider,
+            status=initial_status,
+            consent_version=consent_version,
+            consent_accepted_at=datetime.now(timezone.utc),
+            person_media_ref=person_media_ref,
+            idempotency_key=idempotency_key,
+            request_fingerprint=digest,
+            day=current_day,
+            daily_quota=daily_quota,
+            concurrent_limit=concurrent_limit,
+        )
+        if created:
+            _BYTE_CACHE[str(job_id)] = (sanitized_bytes, canonical_content_type)
+        return created_job, created
+
+    # Fallback path for minimal custom repository test stubs without create_with_quota
+    used = repo.count_today_jobs(user_id=user_uuid, day=current_day)
+    if used >= daily_quota:
+        raise rate_limited()
+
+    active_count = repo.count_active_jobs(user_id=user_uuid)
+    if active_count >= concurrent_limit:
+        raise rate_limited()
+
     # Temporarily stage sanitized person bytes until durable storage persistence completes
     _BYTE_CACHE[str(job_id)] = (sanitized_bytes, canonical_content_type)
-
-    initial_status = "processing" if settings.tryon_provider == "mock" else "queued"
 
     try:
         created_job = repo.create(
@@ -1088,11 +1281,102 @@ async def _execute_tryon_inference_impl(
     now = datetime.now(timezone.utc)
     repo.update_status(job_id=job_id, status="processing", processing_started_at=now)
 
-    # Resolve garment bytes and validate category (fail closed on unsupported FASHN categories)
+    # Resolve garment bytes / signed URL and validate category
     garment_bytes: Optional[bytes] = None
     category = "tops" if provider_name == "commercial" else "upper"
     corr_id = str(uuid4())
-    if job.garment_id and wardrobe_repo is not None:
+    garment_item = None
+
+    if provider_name == "genlook":
+        if not getattr(settings, "genlook_api_key", None):
+            repo.update_failure(
+                job_id=job_id,
+                error_code="PROVIDER_CONFIG_ERROR",
+                error_message="Try-on provider configuration is incomplete.",
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
+        if len(job.garment_ids) != 1 or job.garment_id is None:
+            repo.update_failure(
+                job_id=job_id,
+                error_code="PAYLOAD_REJECTED",
+                error_message="Genlook try-on requires exactly 1 owned wardrobe garment.",
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
+        if wardrobe_repo is None:
+            repo.update_failure(
+                job_id=job_id,
+                error_code="PAYLOAD_REJECTED",
+                error_message="Wardrobe repository is unavailable for garment verification.",
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
+        try:
+            garment_item = wardrobe_repo.get_by_id(user_id=user_id, item_id=job.garment_id)
+        except Exception as e:
+            logger.warning("Could not query garment item for Genlook job %s: %s", job_id, e)
+            garment_item = None
+        if garment_item is None or garment_item.user_id != user_id:
+            repo.update_failure(
+                job_id=job_id,
+                error_code="PAYLOAD_REJECTED",
+                error_message="Selected garment was not found in your Digital Wardrobe.",
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
+        try:
+            resolved_garment_key = resolve_wardrobe_image_key(
+                garment_item.image_ref,
+                user_id=user_id,
+            ).key
+        except StorageError as e:
+            logger.warning(
+                "Invalid garment image_ref for Genlook job %s: %s",
+                job_id,
+                type(e).__name__,
+            )
+            repo.update_failure(
+                job_id=job_id,
+                error_code="PAYLOAD_REJECTED",
+                error_message="Selected garment does not have an available image in storage.",
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
+        if storage is None:
+            repo.update_failure(
+                job_id=job_id,
+                error_code="PAYLOAD_REJECTED",
+                error_message="Selected garment does not have an available image in storage.",
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
+        try:
+            garment_image_url = await create_confirmed_presigned_input_url(
+                storage=storage,
+                key=resolved_garment_key,
+                expires_in_s=300,
+            )
+        except Exception as e:
+            logger.warning("Failed to sign garment image URL for Genlook job %s: %s", job_id, type(e).__name__)
+            repo.update_failure(
+                job_id=job_id,
+                error_code="STORAGE_FAILURE",
+                error_message="Selected garment image could not be accessed from private storage.",
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
+
+        genlook_product_spec = build_genlook_product_spec(
+            item_id=str(garment_item.id),
+            name=garment_item.name,
+            category=garment_item.category,
+            color=garment_item.color,
+            material=garment_item.material,
+            fit=garment_item.fit,
+            image_url=garment_image_url,
+        )
+    elif job.garment_id and wardrobe_repo is not None:
         item = None
         try:
             item = wardrobe_repo.get_by_id(user_id=user_id, item_id=job.garment_id)
@@ -1139,17 +1423,169 @@ async def _execute_tryon_inference_impl(
                 elif item.category in ("dresses", "jumpsuits", "overall", "one-pieces"):
                     category = "overall"
 
-            if storage is not None and item.image_ref and "key" in item.image_ref:
+            if storage is not None and item.image_ref is not None:
                 try:
+                    garment_key = resolve_wardrobe_image_key(
+                        item.image_ref,
+                        user_id=user_id,
+                    ).key
                     garment_bytes = await storage.read_object(
-                        item.image_ref["key"], max_bytes=_MAX_PERSON_BYTES
+                        garment_key, max_bytes=_MAX_PERSON_BYTES
                     )
                 except Exception as e:
-                    logger.warning("Could not retrieve garment image for job %s: %s", job_id, e)
+                    logger.warning("Could not retrieve garment image for job %s: %s", job_id, type(e).__name__)
+
+    person_ref_copy = dict(job.person_media_ref or {})
+    genlook_meta = dict(person_ref_copy.get("genlook") or {})
+    attempt_seq = int(genlook_meta.get("attemptSeq", 0))
+
+    def _persist_genlook_meta(updates: dict[str, Any]) -> None:
+        genlook_meta.update(updates)
+        person_ref_copy["genlook"] = dict(genlook_meta)
+        update_fn = getattr(repo, "update_person_media_ref", None)
+        if callable(update_fn):
+            update_fn(job_id=job_id, person_media_ref=person_ref_copy)
 
     # Execute provider render
     try:
-        if provider_name == "commercial":
+        if provider_name == "genlook":
+            person_digest = person_ref_copy.get("contentHash") or (
+                sha256_hex(person_bytes) if person_bytes else ""
+            )
+            existing_generation_id: Optional[str] = None
+            raw_gen_id = genlook_meta.get("generationId")
+            if (
+                isinstance(raw_gen_id, str)
+                and raw_gen_id.strip()
+                and genlook_meta.get("generationStatus") != "FAILED"
+            ):
+                existing_generation_id = raw_gen_id.strip()
+
+            existing_image_id: Optional[str] = None
+            if existing_generation_id is None:
+                retention_hours = getattr(settings, "tryon_retention_person_photo_hours", 24)
+                min_created_at = now - timedelta(hours=retention_hours)
+                # 1) Reuse imageId on this same job if ownership, consent, digest, and retention hold
+                cur_img_id = genlook_meta.get("imageId")
+                cur_exp = genlook_meta.get("imageExpiresAt")
+                if (
+                    isinstance(cur_img_id, str)
+                    and cur_img_id.strip()
+                    and job.user_id == user_id
+                    and job.consent_accepted_at is not None
+                    and job.consent_version == settings.tryon_consent_version
+                    and person_ref_copy.get("contentHash") == person_digest
+                    and job.created_at >= min_created_at
+                    and isinstance(cur_exp, str)
+                ):
+                    try:
+                        exp_dt = datetime.fromisoformat(cur_exp)
+                        if exp_dt.tzinfo is None:
+                            exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                        if exp_dt > now:
+                            existing_image_id = cur_img_id.strip()
+                    except Exception:
+                        existing_image_id = None
+
+                # 2) Or reuse a recent valid imageId owned by the same user
+                if existing_image_id is None:
+                    find_fn = getattr(repo, "find_reusable_genlook_image_id", None)
+                    if callable(find_fn) and person_digest:
+                        existing_image_id = find_fn(
+                            user_id=user_id,
+                            person_digest=person_digest,
+                            consent_version=settings.tryon_consent_version,
+                            min_created_at=min_created_at,
+                            now=now,
+                        )
+
+                attempt_idem_key = genlook_meta.get("pendingIdempotencyKey")
+                if not isinstance(attempt_idem_key, str) or not attempt_idem_key.strip():
+                    attempt_idem_key = f"fv-tryon-{job_id}-a{attempt_seq}"
+                    _persist_genlook_meta(
+                        {
+                            "attemptSeq": attempt_seq,
+                            "pendingIdempotencyKey": attempt_idem_key,
+                            "productExternalId": str(garment_item.id),
+                            "creditsEstimated": 1,
+                        }
+                    )
+            else:
+                attempt_idem_key = f"fv-tryon-{job_id}-a{attempt_seq}"
+
+            def _on_genlook_image_uploaded(upload_res: GenlookImageUploadResult) -> None:
+                expires_at = datetime.now(timezone.utc) + timedelta(days=upload_res.keep_for_days)
+                _persist_genlook_meta(
+                    {
+                        "imageId": upload_res.image_id,
+                        "imageUploadedAt": datetime.now(timezone.utc).isoformat(),
+                        "imageExpiresAt": expires_at.isoformat(),
+                        "keepForDays": upload_res.keep_for_days,
+                        "uploadRequestId": upload_res.request_id,
+                    }
+                )
+
+            def _on_genlook_generation_created(create_res: GenlookTryOnCreateResult) -> None:
+                _persist_genlook_meta(
+                    {
+                        "generationId": create_res.generation_id,
+                        "generationStatus": create_res.status,
+                        "productExternalIds": list(create_res.product_external_ids),
+                        "createRequestId": create_res.request_id,
+                        "idempotencyReplayed": create_res.idempotency_replayed,
+                        "pendingIdempotencyKey": None,
+                        "creditsEstimated": 1,
+                    }
+                )
+
+            def _is_job_cancelled() -> bool:
+                cur = repo.get_by_id(user_id=user_id, job_id=job_id)
+                return cur is not None and cur.status == "cancelled"
+
+            if _is_job_cancelled():
+                logger.info("Genlook try-on job %s cancelled before provider dispatch.", job_id)
+                return
+
+            g_config = GenlookTryOnConfig(
+                api_key=settings.genlook_api_key or "",
+                base_url=getattr(settings, "genlook_api_base_url", GENLOOK_DEFAULT_BASE_URL),
+                connect_timeout_s=getattr(settings, "genlook_connect_timeout_s", 10.0),
+                request_timeout_s=getattr(settings, "genlook_request_timeout_s", 30.0),
+                poll_interval_s=getattr(settings, "genlook_poll_interval_s", 1.0),
+                poll_timeout_s=getattr(settings, "genlook_poll_timeout_s", 120.0),
+                max_retries=getattr(settings, "genlook_max_retries", 2),
+                keep_for_days=getattr(settings, "genlook_keep_for_days", 1),
+                ai_label=getattr(settings, "genlook_ai_label", True),
+            )
+            g_provider = GenlookTryOnProvider(g_config)
+            result_bytes = await asyncio.to_thread(
+                g_provider.render,
+                person_digest=person_digest,
+                garment_labels=list(job.garment_ids),
+                seed=seed,
+                outfit_source=job.outfit_source,
+                person_bytes=person_bytes,
+                category=garment_item.category,
+                correlation_id=corr_id,
+                job_id=str(job_id),
+                garment_image_url=garment_image_url,
+                is_cancelled_fn=_is_job_cancelled,
+                existing_generation_id=existing_generation_id,
+                existing_image_id=existing_image_id,
+                idempotency_key=attempt_idem_key,
+                external_user_id=str(user_id),
+                product_spec=genlook_product_spec,
+                on_image_uploaded=_on_genlook_image_uploaded,
+                on_generation_created=_on_genlook_generation_created,
+            )
+            _persist_genlook_meta(
+                {
+                    "generationStatus": "COMPLETED",
+                    "creditsCharged": 1,
+                    "refunded": False,
+                }
+            )
+        elif provider_name == "commercial":
             config = CommercialTryOnProviderConfig(
                 provider_name=settings.tryon_commercial_provider_name,
                 api_key=settings.tryon_commercial_api_key or "",
@@ -1190,7 +1626,36 @@ async def _execute_tryon_inference_impl(
                 seed=seed,
                 outfit_source=job.outfit_source,
             )
+    except GenlookCancelledError:
+        logger.info("Genlook try-on job %s cancelled during polling; preserving cancelled state.", job_id)
+        return
     except ProviderPayloadError as e:
+        if provider_name == "genlook":
+            err_code = getattr(e, "provider_error_code", None)
+            if err_code == "RESULT_DOWNLOAD_REJECTED" and genlook_meta.get("generationId"):
+                # Generation already COMPLETED on Genlook (1 credit charged).
+                # Preserve generationId so retry re-fetches GET /generations/{id} without double-charging.
+                _persist_genlook_meta(
+                    {
+                        "generationStatus": "COMPLETED",
+                        "pendingIdempotencyKey": None,
+                        "creditsCharged": 1,
+                        "refunded": False,
+                        "lastErrorCode": err_code,
+                    }
+                )
+            else:
+                _persist_genlook_meta(
+                    {
+                        "generationStatus": "FAILED" if genlook_meta.get("generationId") else genlook_meta.get("generationStatus"),
+                        "generationId": None,
+                        "pendingIdempotencyKey": None,
+                        "attemptSeq": attempt_seq + 1,
+                        "creditsCharged": 0,
+                        "refunded": bool(genlook_meta.get("generationId")),
+                        "lastErrorCode": err_code,
+                    }
+                )
         logger.warning("TryOn payload rejected for job %s: %s", job_id, e.message)
         repo.update_failure(
             job_id=job_id,
@@ -1200,6 +1665,15 @@ async def _execute_tryon_inference_impl(
         )
         return
     except ProviderAuthError as e:
+        if provider_name == "genlook":
+            _persist_genlook_meta(
+                {
+                    "pendingIdempotencyKey": None,
+                    "attemptSeq": attempt_seq + 1,
+                    "creditsCharged": 0,
+                    "lastErrorCode": getattr(e, "provider_error_code", None),
+                }
+            )
         logger.error("TryOn provider auth failure for job %s: %s", job_id, e.message)
         repo.update_failure(
             job_id=job_id,
@@ -1209,6 +1683,19 @@ async def _execute_tryon_inference_impl(
         )
         return
     except ProviderQuotaExceededError as e:
+        if provider_name == "genlook":
+            err_code = getattr(e, "provider_error_code", None)
+            _persist_genlook_meta(
+                {
+                    "generationStatus": "FAILED" if genlook_meta.get("generationId") else genlook_meta.get("generationStatus"),
+                    "generationId": None,
+                    "pendingIdempotencyKey": None,
+                    "attemptSeq": attempt_seq + 1,
+                    "creditsCharged": 0,
+                    "refunded": bool(genlook_meta.get("generationId")),
+                    "lastErrorCode": err_code,
+                }
+            )
         logger.warning("TryOn provider quota exceeded for job %s: %s", job_id, e.message)
         repo.update_failure(
             job_id=job_id,
@@ -1218,6 +1705,27 @@ async def _execute_tryon_inference_impl(
         )
         return
     except ProviderTransientError as e:
+        if provider_name == "genlook":
+            err_code = getattr(e, "provider_error_code", None)
+            # If Genlook explicitly marked generation FAILED (refunded), clear generationId so retry can re-submit;
+            # if poll timed out or POST /try-on response was lost, KEEP generationId / pendingIdempotencyKey!
+            if genlook_meta.get("generationId") and err_code in (
+                "GENERATION_FAILED",
+                "GENERATION_TIMEOUT",
+            ):
+                _persist_genlook_meta(
+                    {
+                        "generationStatus": "FAILED",
+                        "generationId": None,
+                        "pendingIdempotencyKey": None,
+                        "attemptSeq": attempt_seq + 1,
+                        "creditsCharged": 0,
+                        "refunded": True,
+                        "lastErrorCode": err_code,
+                    }
+                )
+            else:
+                _persist_genlook_meta({"lastErrorCode": err_code or "TRANSIENT_UNCERTAIN"})
         logger.warning("TryOn provider transient error for job %s: %s", job_id, e.message)
         repo.update_failure(
             job_id=job_id,
@@ -1271,14 +1779,19 @@ async def _execute_tryon_inference_impl(
 
     result_key = f"users/{user_id}/tryon/{job_id}/result.{result_ext}"
 
-    result_media_ref = {
+    result_media_ref: dict[str, Any] = {
         "key": result_key,
         "mediaType": result_content_type,
         "sizeBytes": len(result_bytes),
         "contentHash": sha256_hex(result_bytes),
         "completedAt": datetime.now(timezone.utc).isoformat(),
         "isMock": (provider_name == "mock"),
+        "provider": provider_name,
     }
+    if provider_name == "genlook":
+        if genlook_meta.get("generationId"):
+            result_media_ref["generationId"] = genlook_meta["generationId"]
+        result_media_ref["creditsCharged"] = genlook_meta.get("creditsCharged", 1)
 
     if storage is not None:
         # Clean up previous attempt output if extension changed on retry
@@ -1294,6 +1807,9 @@ async def _execute_tryon_inference_impl(
                 result_bytes,
                 content_type=result_content_type,
             )
+            exists = await storage.object_exists(result_key)
+            if not exists:
+                raise StorageError("Try-on result storage confirmation failed", key=result_key)
         except Exception as e:
             logger.error("Failed to store try-on result image for job %s: %s", job_id, e)
             repo.update_failure(
@@ -1430,6 +1946,9 @@ def poll_job(
     return job
 
 
+_MAX_TRYON_RETRIES = 3
+
+
 def retry_job(
     *,
     user_id: str,
@@ -1437,6 +1956,18 @@ def retry_job(
     job_repo: Optional[TryOnJobRepository] = None,
 ) -> TryOnJobRecord:
     """Retry an eligible failed or cancelled try-on job."""
+    settings = get_settings()
+    enabled = getattr(settings, "tryon_enabled", True)
+    provider_name = getattr(settings, "tryon_provider", "mock")
+    env = getattr(settings, "environment", "development")
+
+    if not enabled or provider_name == "off":
+        raise ai_failure()
+    if env == "production" and provider_name in ("mock", "catvton"):
+        raise ai_failure()
+    if provider_name == "genlook" and not getattr(settings, "genlook_api_key", None):
+        raise ai_failure()
+
     try:
         user_uuid = UUID(user_id)
         job_uuid = UUID(job_id)
@@ -1450,6 +1981,13 @@ def retry_job(
 
     if job.status not in ("failed", "cancelled"):
         raise conflict(kind="cannot_retry_completed_job")
+
+    if job.retry_count >= _MAX_TRYON_RETRIES:
+        raise conflict(kind="max_retries_exceeded")
+
+    concurrent_limit = getattr(settings, "tryon_max_concurrent_jobs_per_user", 5)
+    if repo.count_active_jobs(user_id=user_uuid) >= concurrent_limit:
+        raise rate_limited()
 
     updated = repo.update_retry(
         job_id=job_uuid,

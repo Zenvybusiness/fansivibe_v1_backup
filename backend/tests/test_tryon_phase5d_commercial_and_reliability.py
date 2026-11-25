@@ -835,16 +835,32 @@ class TestTryOnPhase5dApiEndpoints:
         app.dependency_overrides.clear()
         tryon_app.reset_for_tests()
 
-    def test_health_endpoint(self):
-        client = TestClient(app)
-        resp = client.get("/v1/tryon/health")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] in ("healthy", "degraded")
-        assert "provider" in data
-        assert "storage" in data
-        assert "retention_policies" in data
-        assert "quotas" in data
+    def test_health_endpoint(self, monkeypatch):
+        monkeypatch.setenv("FANSIVIBE_OPERATOR_API_KEY", "test-operator-maintenance-key-32chars!")
+        from app.config.settings import clear_settings_cache
+
+        clear_settings_cache()
+        try:
+            client = TestClient(app)
+            unauth = client.get("/v1/tryon/health")
+            assert unauth.status_code == 401
+
+            resp = client.get(
+                "/v1/tryon/health",
+                headers={"X-Operator-Key": "test-operator-maintenance-key-32chars!"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] in ("healthy", "degraded")
+            assert "local_backend" in data
+            assert "provider_config" in data
+            assert "provider" in data
+            assert "storage" in data
+            assert data["credits"]["checked"] is False
+            assert "retention_policies" in data
+            assert "quotas" in data
+        finally:
+            clear_settings_cache()
 
     def test_retention_cleanup_endpoint(self, monkeypatch):
         monkeypatch.setenv("FANSIVIBE_OPERATOR_API_KEY", "test-operator-maintenance-key-32chars!")

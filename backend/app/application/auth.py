@@ -29,8 +29,9 @@ Contract notes (authoritative-first):
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Callable, Optional
 from uuid import UUID, uuid4
 import logging
 
@@ -231,9 +232,6 @@ class DeleteAccount:
     One `DELETE users` cascades across all user-owned children at the FK
     (sessions, state, runs, saves, signals, feedback, wardrobe, wears,
     events, activity). Knowledge/vocabulary rows survive (no user FK).
-    No blobs exist to clean (bytes never stored, pointers only) and no
-    subscription table exists (R51 cancel-first has no triggers), so
-    both contract branches are documented no-ops, not silent skips.
     Retry-safe: a second call finds no account → 404, never another
     user's data. Completion is access-logged (owner id only, ER-4).
     """
@@ -248,6 +246,183 @@ class DeleteAccount:
             raise not_found()
         self._auth.commit()
         logger.info("Account erased [user_id=%s]", user_id)
+
+
+class EraseAccount:
+    """Complete account erasure across R2 storage, Genlook, and PostgreSQL.
+
+    Deletes external media objects and external provider customer references
+    BEFORE deleting the PostgreSQL `users` row so that any transient external
+    failure leaves the user's session and media references intact for safe,
+    idempotent retry without orphaned R2 objects.
+    """
+
+    def __init__(
+        self,
+        *,
+        auth: AuthRepository,
+        storage: Any = None,
+        genlook_eraser: Optional[Callable[[UUID], bool]] = None,
+    ) -> None:
+        self._auth = auth
+        self._storage = storage
+        self._genlook_eraser = genlook_eraser
+
+    async def __call__(self, *, user_id: UUID) -> dict[str, Any]:
+        exists_fn = getattr(self._auth, "account_exists", None)
+        if callable(exists_fn) and not exists_fn(user_id=user_id):
+            self._auth.rollback()
+            raise not_found()
+
+        db_keys: list[str] = []
+        tryon_job_ids: list[UUID] = []
+        collect_fn = getattr(self._auth, "collect_user_media_keys", None)
+        if callable(collect_fn):
+            db_keys, tryon_job_ids = collect_fn(user_id=user_id)
+
+        all_keys: set[str] = set(db_keys)
+        if self._storage is not None:
+            list_fn = getattr(self._storage, "list_keys", None)
+            if callable(list_fn):
+                for prefix in (f"users/{user_id}/", f"staging/users/{user_id}/"):
+                    try:
+                        listed = await list_fn(prefix)
+                        for key in listed or []:
+                            if isinstance(key, str) and (
+                                key.startswith(f"users/{user_id}/")
+                                or key.startswith(f"staging/users/{user_id}/")
+                            ):
+                                all_keys.add(key)
+                    except Exception as exc:
+                        self._auth.rollback()
+                        logger.warning(
+                            "Account erasure storage scan failed [user_id=%s, prefix=%s, err=%s]",
+                            user_id,
+                            prefix,
+                            type(exc).__name__,
+                        )
+                        raise ApiError(
+                            status_code=503,
+                            code="ERASURE_STORAGE_FAILURE",
+                            message="Unable to complete media erasure right now. Please retry.",
+                        )
+
+            sorted_keys = sorted(all_keys)
+            if sorted_keys:
+                delete_safe_fn = getattr(self._storage, "delete_objects_safe", None)
+                failed_keys: list[str] = []
+                if callable(delete_safe_fn):
+                    _, failed_keys = await delete_safe_fn(sorted_keys)
+                else:
+                    for key in sorted_keys:
+                        try:
+                            await self._storage.delete_object(key)
+                        except Exception:
+                            failed_keys.append(key)
+
+                if failed_keys:
+                    self._auth.rollback()
+                    logger.warning(
+                        "Account erasure incomplete in storage [user_id=%s, failed_count=%d]",
+                        user_id,
+                        len(failed_keys),
+                    )
+                    raise ApiError(
+                        status_code=503,
+                        code="ERASURE_STORAGE_FAILURE",
+                        message="Unable to erase all user media from storage. Please retry.",
+                    )
+
+        # Genlook customer erasure via official DELETE /customers/{externalUserId}
+        # Only executed when Genlook is active (or injected in tests); mock mode makes zero calls.
+        genlook_erased: bool | None = None
+        if self._genlook_eraser is not None:
+            try:
+                res = self._genlook_eraser(user_id)
+                if asyncio.iscoroutine(res):
+                    res = await res
+                genlook_erased = bool(res)
+            except Exception as exc:
+                self._auth.rollback()
+                logger.warning(
+                    "Account erasure external provider failure [user_id=%s, err=%s]",
+                    user_id,
+                    type(exc).__name__,
+                )
+                raise ApiError(
+                    status_code=503,
+                    code="ERASURE_EXTERNAL_FAILURE",
+                    message="Unable to erase external try-on references right now. Please retry.",
+                )
+        else:
+            from app.config.settings import get_settings
+
+            settings = get_settings()
+            if (
+                getattr(settings, "tryon_provider", "mock") == "genlook"
+                and getattr(settings, "genlook_api_key", None)
+            ):
+                from app.infrastructure.external.genlook_tryon import (
+                    GENLOOK_DEFAULT_BASE_URL,
+                    GenlookTryOnConfig,
+                    GenlookTryOnProvider,
+                )
+
+                try:
+                    g_config = GenlookTryOnConfig(
+                        api_key=settings.genlook_api_key or "",
+                        base_url=getattr(settings, "genlook_api_base_url", GENLOOK_DEFAULT_BASE_URL),
+                        connect_timeout_s=getattr(settings, "genlook_connect_timeout_s", 10.0),
+                        request_timeout_s=getattr(settings, "genlook_request_timeout_s", 30.0),
+                        poll_interval_s=getattr(settings, "genlook_poll_interval_s", 1.0),
+                        poll_timeout_s=getattr(settings, "genlook_poll_timeout_s", 120.0),
+                        max_retries=getattr(settings, "genlook_max_retries", 2),
+                        keep_for_days=getattr(settings, "genlook_keep_for_days", 1),
+                        ai_label=getattr(settings, "genlook_ai_label", True),
+                    )
+                    g_provider = GenlookTryOnProvider(g_config)
+                    genlook_erased = await asyncio.to_thread(
+                        g_provider.delete_customer, str(user_id)
+                    )
+                except Exception as exc:
+                    self._auth.rollback()
+                    logger.warning(
+                        "Account erasure Genlook deletion failed [user_id=%s, err=%s]",
+                        user_id,
+                        type(exc).__name__,
+                    )
+                    raise ApiError(
+                        status_code=503,
+                        code="ERASURE_EXTERNAL_FAILURE",
+                        message="Unable to erase external try-on references right now. Please retry.",
+                    )
+
+        deleted = self._auth.delete_account(user_id=user_id)
+        if not deleted:
+            self._auth.rollback()
+            raise not_found()
+        self._auth.commit()
+
+        if tryon_job_ids:
+            try:
+                from app.application.tryon import _BYTE_CACHE, _POLL_COUNTS
+
+                for jid in tryon_job_ids:
+                    _BYTE_CACHE.pop(str(jid), None)
+                    _POLL_COUNTS.pop(str(jid), None)
+            except Exception:
+                pass
+
+        logger.info(
+            "Account erased [user_id=%s, media_objects=%d, genlook_erased=%s]",
+            user_id,
+            len(all_keys),
+            genlook_erased,
+        )
+        return {
+            "media_objects_deleted": len(all_keys),
+            "genlook_erased": genlook_erased,
+        }
 
 
 def issue_session(

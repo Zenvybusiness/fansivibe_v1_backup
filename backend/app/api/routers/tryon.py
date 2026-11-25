@@ -228,6 +228,19 @@ async def submit_tryon_job(
 
 
 
+def _cancelled_notice_for_job(job: tryon_app.TryOnJobRecord) -> str | None:
+    if job.status != "cancelled":
+        return job.error_message
+    if job.error_message:
+        return job.error_message
+    if job.provider not in ("mock", "catvton"):
+        return (
+            "Cancelled locally. If the request was already submitted to the "
+            "try-on provider, it may still consume a credit."
+        )
+    return None
+
+
 @router.get(
     "/jobs/{job_id}",
     response_model=TryOnJobStatus,
@@ -244,10 +257,10 @@ async def get_tryon_job(
     if job is None:
         raise not_found()
 
-    # In mock mode, advance lifecycle deterministically
+    # In mock mode, advance lifecycle deterministically for mock jobs only
     settings = tryon_app.get_settings()
     is_mock = (getattr(settings, "tryon_provider", "mock") == "mock")
-    if is_mock and job.status != "completed":
+    if is_mock and job.provider == "mock" and job.status in ("queued", "processing"):
         prev_status = job.status
         job = tryon_app.poll_job(job, job_repo=job_repo)
         if (
@@ -276,7 +289,7 @@ async def get_tryon_job(
         is_mock=is_mock,
         outfit_source=job.outfit_source,
         error_code=job.error_code,
-        error_message=job.error_message,
+        error_message=_cancelled_notice_for_job(job),
         retry_count=job.retry_count,
         created_at=job.created_at.isoformat() if job.created_at else None,
         completed_at=job.completed_at.isoformat() if job.completed_at else None,
@@ -396,7 +409,7 @@ def cancel_tryon_job(
         is_mock=is_mock,
         outfit_source=job.outfit_source,
         error_code=job.error_code,
-        error_message=job.error_message,
+        error_message=_cancelled_notice_for_job(job),
         retry_count=job.retry_count,
         created_at=job.created_at.isoformat() if job.created_at else None,
         completed_at=job.completed_at.isoformat() if job.completed_at else None,
@@ -434,51 +447,111 @@ async def delete_tryon_job(
 @router.get(
     "/health",
     status_code=status.HTTP_200_OK,
-    responses={200: {"model": dict}},
+    dependencies=[Depends(require_operator_auth)],
+    include_in_schema=False,
+    responses={
+        200: {"model": dict},
+        401: {"model": dict},
+        403: {"model": dict},
+        503: {"model": dict},
+    },
 )
 async def get_tryon_health(
     storage: ObjectStoragePort = Depends(get_storage_adapter),
 ) -> dict[str, Any]:
-    """Operational health status for configured virtual try-on provider and object storage."""
+    """Operator-only health status separating local backend, storage, and provider config.
+
+    Never queries external provider account/credit endpoints.
+    Use ``GET /v1/tryon/health/credits`` for explicit external credit/account checks.
+    """
     settings = get_settings()
     provider_name = settings.tryon_provider
     env = settings.environment
 
-    provider_status: dict[str, Any]
+    local_backend_status: dict[str, Any] = {
+        "status": "healthy" if (settings.tryon_enabled and provider_name != "off") else "disabled",
+        "tryon_enabled": bool(settings.tryon_enabled),
+        "environment": env,
+    }
+
+    provider_config_status: dict[str, Any]
     if provider_name == "commercial":
-        config = tryon_app.CommercialTryOnProviderConfig(
-            provider_name=settings.tryon_commercial_provider_name,
-            api_key=settings.tryon_commercial_api_key or "",
-            endpoint_url=settings.tryon_commercial_endpoint_url or "",
-            connect_timeout_s=settings.tryon_commercial_connect_timeout_s,
-            inference_timeout_s=settings.tryon_commercial_inference_timeout_s,
-            max_retries=settings.tryon_commercial_max_retries,
-        )
         try:
-            provider = tryon_app.CommercialTryOnProvider(config)
-            provider_status = await asyncio.to_thread(provider.check_health)
-        except Exception as exc:
-            provider_status = {
+            config = tryon_app.CommercialTryOnProviderConfig(
+                provider_name=settings.tryon_commercial_provider_name,
+                api_key=settings.tryon_commercial_api_key or "",
+                endpoint_url=settings.tryon_commercial_endpoint_url or "",
+                connect_timeout_s=settings.tryon_commercial_connect_timeout_s,
+                inference_timeout_s=settings.tryon_commercial_inference_timeout_s,
+                max_retries=settings.tryon_commercial_max_retries,
+            )
+            tryon_app.CommercialTryOnProvider(config)
+            provider_config_status = {
                 "provider": provider_name,
+                "configured": True,
+                "status": "healthy",
+            }
+        except Exception as exc:
+            provider_config_status = {
+                "provider": provider_name,
+                "configured": False,
+                "status": "unavailable",
+                "error": type(exc).__name__,
+            }
+    elif provider_name == "genlook":
+        from app.infrastructure.external.genlook_tryon import (
+            GENLOOK_DEFAULT_BASE_URL,
+            GenlookTryOnConfig,
+            GenlookTryOnProvider,
+        )
+
+        try:
+            g_config = GenlookTryOnConfig(
+                api_key=settings.genlook_api_key or "",
+                base_url=getattr(settings, "genlook_api_base_url", GENLOOK_DEFAULT_BASE_URL),
+                connect_timeout_s=getattr(settings, "genlook_connect_timeout_s", 10.0),
+                request_timeout_s=getattr(settings, "genlook_request_timeout_s", 30.0),
+                poll_interval_s=getattr(settings, "genlook_poll_interval_s", 1.0),
+                poll_timeout_s=getattr(settings, "genlook_poll_timeout_s", 120.0),
+                max_retries=getattr(settings, "genlook_max_retries", 2),
+                keep_for_days=getattr(settings, "genlook_keep_for_days", 1),
+                ai_label=getattr(settings, "genlook_ai_label", True),
+            )
+            GenlookTryOnProvider(g_config)
+            provider_config_status = {
+                "provider": "genlook",
+                "configured": True,
+                "status": "healthy",
+                "keep_for_days": g_config.keep_for_days,
+                "ai_label": g_config.ai_label,
+                "poll_timeout_s": g_config.poll_timeout_s,
+            }
+        except Exception as exc:
+            provider_config_status = {
+                "provider": provider_name,
+                "configured": False,
                 "status": "unavailable",
                 "error": type(exc).__name__,
             }
     elif provider_name == "catvton":
-        provider_status = {
+        provider_config_status = {
             "provider": "catvton",
+            "configured": True,
             "status": "healthy" if env != "production" else "blocked_in_production",
             "environment": env,
             "mode": "local_research",
         }
     elif provider_name == "mock":
-        provider_status = {
+        provider_config_status = {
             "provider": "mock",
+            "configured": True,
             "status": "healthy" if env != "production" else "unsupported_in_production",
             "mode": "test_data",
         }
     else:
-        provider_status = {
+        provider_config_status = {
             "provider": provider_name,
+            "configured": False,
             "status": "disabled",
         }
 
@@ -494,7 +567,7 @@ async def get_tryon_health(
             storage_status = {
                 "provider": settings.media_storage_provider,
                 "status": "unavailable",
-                "error": str(exc),
+                "error": type(exc).__name__,
             }
     else:
         storage_status = {
@@ -503,7 +576,9 @@ async def get_tryon_health(
         }
 
     overall = "healthy"
-    if provider_status.get("status") in (
+    if local_backend_status.get("status") != "healthy":
+        overall = "degraded"
+    if provider_config_status.get("status") in (
         "unavailable",
         "blocked_in_production",
         "unsupported_in_production",
@@ -516,8 +591,14 @@ async def get_tryon_health(
     return {
         "status": overall,
         "environment": env,
-        "provider": provider_status,
+        "local_backend": local_backend_status,
+        "provider_config": provider_config_status,
+        "provider": provider_config_status,
         "storage": storage_status,
+        "credits": {
+            "checked": False,
+            "endpoint": "/v1/tryon/health/credits",
+        },
         "retention_enabled": settings.tryon_retention_enabled,
         "retention_policies": {
             "person_photo_hours": settings.tryon_retention_person_photo_hours,
@@ -529,6 +610,77 @@ async def get_tryon_health(
             "daily_per_user": settings.tryon_daily_quota_per_user,
             "max_concurrent_per_user": settings.tryon_max_concurrent_jobs_per_user,
         },
+    }
+
+
+@router.get(
+    "/health/credits",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_operator_auth)],
+    include_in_schema=False,
+    responses={
+        200: {"model": dict},
+        401: {"model": dict},
+        403: {"model": dict},
+        503: {"model": dict},
+    },
+)
+async def get_tryon_provider_credits() -> dict[str, Any]:
+    """Operator-only external provider account/credit check (separated from ordinary health)."""
+    settings = get_settings()
+    provider_name = settings.tryon_provider
+
+    if provider_name == "genlook":
+        from app.infrastructure.external.genlook_tryon import (
+            GENLOOK_DEFAULT_BASE_URL,
+            GenlookTryOnConfig,
+            GenlookTryOnProvider,
+        )
+
+        try:
+            g_config = GenlookTryOnConfig(
+                api_key=settings.genlook_api_key or "",
+                base_url=getattr(settings, "genlook_api_base_url", GENLOOK_DEFAULT_BASE_URL),
+                connect_timeout_s=getattr(settings, "genlook_connect_timeout_s", 10.0),
+                request_timeout_s=getattr(settings, "genlook_request_timeout_s", 30.0),
+                poll_interval_s=getattr(settings, "genlook_poll_interval_s", 1.0),
+                poll_timeout_s=getattr(settings, "genlook_poll_timeout_s", 120.0),
+                max_retries=getattr(settings, "genlook_max_retries", 2),
+                keep_for_days=getattr(settings, "genlook_keep_for_days", 1),
+                ai_label=getattr(settings, "genlook_ai_label", True),
+            )
+            g_provider = GenlookTryOnProvider(g_config)
+            return await asyncio.to_thread(g_provider.check_health)
+        except Exception as exc:
+            return {
+                "provider": provider_name,
+                "status": "unavailable",
+                "error": type(exc).__name__,
+            }
+
+    if provider_name == "commercial":
+        try:
+            config = tryon_app.CommercialTryOnProviderConfig(
+                provider_name=settings.tryon_commercial_provider_name,
+                api_key=settings.tryon_commercial_api_key or "",
+                endpoint_url=settings.tryon_commercial_endpoint_url or "",
+                connect_timeout_s=settings.tryon_commercial_connect_timeout_s,
+                inference_timeout_s=settings.tryon_commercial_inference_timeout_s,
+                max_retries=settings.tryon_commercial_max_retries,
+            )
+            provider = tryon_app.CommercialTryOnProvider(config)
+            return await asyncio.to_thread(provider.check_health)
+        except Exception as exc:
+            return {
+                "provider": provider_name,
+                "status": "unavailable",
+                "error": type(exc).__name__,
+            }
+
+    return {
+        "provider": provider_name,
+        "status": "not_applicable",
+        "credit_balance": None,
     }
 
 

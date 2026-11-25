@@ -7,13 +7,14 @@ All reads are owner-scoped (`user_id`) — OW-1. `complete` uses the server-side
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
+import hashlib
 from typing import Any, Optional
 from uuid import UUID
 
 from sqlalchemy import Boolean, and_, cast, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.domain.ports.repositories import (
@@ -1628,6 +1629,86 @@ class AuthRepositorySQL:
             .values(revoked_at=func.now())
         )
 
+    def account_exists(self, *, user_id: UUID) -> bool:
+        """Return True if the account row exists."""
+        row = self._session.execute(
+            select(Users.id).where(Users.id == user_id)
+        ).scalar_one_or_none()
+        return row is not None
+
+    def collect_user_media_keys(
+        self, *, user_id: UUID
+    ) -> tuple[list[str], list[UUID]]:
+        """Collect all user-owned storage keys and try-on job IDs prior to erasure."""
+        from app.infrastructure.db.models import MediaUploadAuthorization
+        from app.infrastructure.external.storage import validate_scoped_object_key
+
+        keys: set[str] = set()
+        user_str = str(user_id)
+
+        def _add_key(raw: object) -> None:
+            if not isinstance(raw, str):
+                return
+            cleaned = raw.strip()
+            if not cleaned:
+                return
+            try:
+                validate_scoped_object_key(cleaned, user_id=user_str)
+                keys.add(cleaned)
+            except Exception:
+                pass
+
+        def _extract_dict_keys(ref: object) -> None:
+            if not isinstance(ref, dict):
+                return
+            for field in (
+                "key",
+                "objectKey",
+                "object_key",
+                "canonical_key",
+                "canonicalKey",
+                "staging_key",
+                "stagingKey",
+            ):
+                _add_key(ref.get(field))
+
+        auth_rows = self._session.execute(
+            select(
+                MediaUploadAuthorization.staging_key,
+                MediaUploadAuthorization.canonical_key,
+            ).where(MediaUploadAuthorization.user_id == user_id)
+        ).all()
+        for staging_key, canonical_key in auth_rows:
+            _add_key(staging_key)
+            _add_key(canonical_key)
+
+        wardrobe_refs = self._session.execute(
+            select(WardrobeItems.image_ref).where(WardrobeItems.user_id == user_id)
+        ).scalars()
+        for image_ref in wardrobe_refs:
+            _extract_dict_keys(image_ref)
+
+        tryon_rows = self._session.execute(
+            select(
+                TryOnJobModel.id,
+                TryOnJobModel.person_media_ref,
+                TryOnJobModel.result_media_ref,
+            ).where(TryOnJobModel.user_id == user_id)
+        ).all()
+        tryon_job_ids: list[UUID] = []
+        for job_id, person_ref, result_ref in tryon_rows:
+            tryon_job_ids.append(job_id)
+            _extract_dict_keys(person_ref)
+            _extract_dict_keys(result_ref)
+
+        run_media = self._session.execute(
+            select(AnalysisRuns.input_media).where(AnalysisRuns.user_id == user_id)
+        ).scalars()
+        for input_media in run_media:
+            _extract_dict_keys(input_media)
+
+        return sorted(keys), tryon_job_ids
+
     def delete_account(self, *, user_id: UUID) -> bool:
         """Delete one account; DB CASCADE removes all user-owned rows (TRX-8).
 
@@ -3231,6 +3312,17 @@ class DiscoveryEventRepositorySQL:
         return results
 
 
+_TRYON_QUOTA_LOCK_NAMESPACE = "tryon_job_quota"
+
+
+def _get_tryon_quota_lock_key(user_id: UUID) -> int:
+    """Derive a stable namespaced signed 64-bit integer for per-user try-on quota locking."""
+    digest = hashlib.sha256(
+        f"{_TRYON_QUOTA_LOCK_NAMESPACE}:{user_id}".encode("utf-8")
+    ).digest()
+    return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+
 class TryOnJobRepositorySQL:
     """SQLAlchemy implementation of TryOnJobRepository (OW-1 owner-scoped)."""
 
@@ -3298,6 +3390,103 @@ class TryOnJobRepositorySQL:
         self._session.refresh(row)
         return self._to_record(row)
 
+    def create_with_quota(
+        self,
+        *,
+        job_id: UUID,
+        user_id: UUID,
+        outfit_source: str,
+        garment_id: Optional[UUID],
+        garment_ids: list[str],
+        provider: str,
+        status: str,
+        consent_version: str,
+        consent_accepted_at: datetime,
+        person_media_ref: Optional[dict[str, Any]] = None,
+        idempotency_key: str,
+        request_fingerprint: str,
+        day: date,
+        daily_quota: int,
+        concurrent_limit: int,
+    ) -> tuple[TryOnJobRecord, bool]:
+        """Atomically verify idempotency and daily/concurrent quotas under a per-user lock."""
+        from app.api.errors import conflict, rate_limited
+
+        is_postgres = False
+        try:
+            bind = self._session.get_bind()
+            if bind is not None and bind.dialect.name == "postgresql":
+                is_postgres = True
+        except Exception:
+            is_postgres = False
+
+        lock_key = _get_tryon_quota_lock_key(user_id)
+
+        try:
+            if is_postgres:
+                self._session.execute(text("SET LOCAL lock_timeout = '3s'"))
+                self._session.execute(
+                    text("SELECT pg_advisory_xact_lock(:lock_key)"),
+                    {"lock_key": lock_key},
+                )
+
+            existing = self.find_by_idempotency_key(
+                user_id=user_id,
+                idempotency_key=idempotency_key,
+            )
+            if existing is not None:
+                if existing.request_fingerprint != request_fingerprint:
+                    self._session.rollback()
+                    raise conflict(kind="idempotency_key_reuse")
+                self._session.rollback()
+                return existing, False
+
+            used = self.count_today_jobs(user_id=user_id, day=day)
+            if used >= daily_quota:
+                self._session.rollback()
+                raise rate_limited()
+
+            active_count = self.count_active_jobs(user_id=user_id)
+            if active_count >= concurrent_limit:
+                self._session.rollback()
+                raise rate_limited()
+
+            row = TryOnJobModel(
+                id=job_id,
+                user_id=user_id,
+                outfit_source=outfit_source,
+                garment_id=garment_id,
+                garment_ids=garment_ids,
+                provider=provider,
+                status=status,
+                consent_version=consent_version,
+                consent_accepted_at=consent_accepted_at,
+                person_media_ref=person_media_ref,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+            )
+            self._session.add(row)
+            self._session.commit()
+            self._session.refresh(row)
+            return self._to_record(row), True
+        except OperationalError as exc:
+            self._session.rollback()
+            pgcode = getattr(exc.orig, "pgcode", None) or getattr(exc.orig, "sqlstate", None)
+            if pgcode == "55P03" or "lock_timeout" in str(exc).lower():
+                raise rate_limited(retry_after_s=5)
+            raise
+        except IntegrityError:
+            self._session.rollback()
+            existing = self.find_by_idempotency_key(
+                user_id=user_id,
+                idempotency_key=idempotency_key,
+            )
+            if existing is not None:
+                if existing.request_fingerprint != request_fingerprint:
+                    raise conflict(kind="idempotency_key_reuse")
+                return existing, False
+            raise
+
     def get_by_id(
         self,
         *,
@@ -3305,10 +3494,12 @@ class TryOnJobRepositorySQL:
         job_id: UUID,
     ) -> Optional[TryOnJobRecord]:
         row = self._session.execute(
-            select(TryOnJobModel).where(
+            select(TryOnJobModel)
+            .where(
                 TryOnJobModel.id == job_id,
                 TryOnJobModel.user_id == user_id,
             )
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         return self._to_record(row) if row else None
 
@@ -3321,7 +3512,9 @@ class TryOnJobRepositorySQL:
         completed_at: Optional[datetime] = None,
     ) -> Optional[TryOnJobRecord]:
         row = self._session.execute(
-            select(TryOnJobModel).where(TryOnJobModel.id == job_id)
+            select(TryOnJobModel)
+            .where(TryOnJobModel.id == job_id)
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         if not row:
             return None
@@ -3345,7 +3538,9 @@ class TryOnJobRepositorySQL:
         completed_at: datetime,
     ) -> Optional[TryOnJobRecord]:
         row = self._session.execute(
-            select(TryOnJobModel).where(TryOnJobModel.id == job_id)
+            select(TryOnJobModel)
+            .where(TryOnJobModel.id == job_id)
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         if not row:
             return None
@@ -3368,7 +3563,9 @@ class TryOnJobRepositorySQL:
         completed_at: datetime,
     ) -> Optional[TryOnJobRecord]:
         row = self._session.execute(
-            select(TryOnJobModel).where(TryOnJobModel.id == job_id)
+            select(TryOnJobModel)
+            .where(TryOnJobModel.id == job_id)
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         if not row:
             return None
@@ -3391,7 +3588,9 @@ class TryOnJobRepositorySQL:
         status: str = "queued",
     ) -> Optional[TryOnJobRecord]:
         row = self._session.execute(
-            select(TryOnJobModel).where(TryOnJobModel.id == job_id)
+            select(TryOnJobModel)
+            .where(TryOnJobModel.id == job_id)
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         if not row:
             return None
@@ -3430,10 +3629,12 @@ class TryOnJobRepositorySQL:
         idempotency_key: str,
     ) -> Optional[TryOnJobRecord]:
         row = self._session.execute(
-            select(TryOnJobModel).where(
+            select(TryOnJobModel)
+            .where(
                 TryOnJobModel.user_id == user_id,
                 TryOnJobModel.idempotency_key == idempotency_key,
             )
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         return self._to_record(row) if row else None
 
@@ -3530,6 +3731,76 @@ class TryOnJobRepositorySQL:
         row.person_media_ref = None
         self._session.commit()
         return True
+
+    def update_person_media_ref(
+        self,
+        *,
+        job_id: UUID,
+        person_media_ref: dict[str, Any],
+    ) -> Optional[TryOnJobRecord]:
+        row = self._session.execute(
+            select(TryOnJobModel)
+            .where(TryOnJobModel.id == job_id)
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if not row:
+            return None
+        row.person_media_ref = dict(person_media_ref)
+        self._session.commit()
+        self._session.refresh(row)
+        return self._to_record(row)
+
+    def find_reusable_genlook_image_id(
+        self,
+        *,
+        user_id: UUID,
+        person_digest: str,
+        consent_version: str,
+        min_created_at: datetime,
+        now: datetime,
+    ) -> Optional[str]:
+        rows = (
+            self._session.execute(
+                select(TryOnJobModel)
+                .where(
+                    TryOnJobModel.user_id == user_id,
+                    TryOnJobModel.provider == "genlook",
+                    TryOnJobModel.consent_version == consent_version,
+                    TryOnJobModel.person_media_ref.isnot(None),
+                    TryOnJobModel.created_at >= min_created_at,
+                )
+                .order_by(TryOnJobModel.created_at.desc())
+                .limit(10)
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            if row.consent_accepted_at is None:
+                continue
+            ref = row.person_media_ref
+            if not isinstance(ref, dict):
+                continue
+            if ref.get("contentHash") != person_digest:
+                continue
+            gl = ref.get("genlook")
+            if not isinstance(gl, dict):
+                continue
+            image_id = gl.get("imageId")
+            expires_raw = gl.get("imageExpiresAt")
+            if not isinstance(image_id, str) or not image_id.strip():
+                continue
+            if not isinstance(expires_raw, str):
+                continue
+            try:
+                expires_at = datetime.fromisoformat(expires_raw)
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                if expires_at > now:
+                    return image_id.strip()
+            except Exception:
+                continue
+        return None
 
 
 

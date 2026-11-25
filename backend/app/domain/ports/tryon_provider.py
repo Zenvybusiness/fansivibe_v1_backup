@@ -151,7 +151,10 @@ FASHN_CATEGORY_MAP: dict[str, str] = {
 }
 
 
-_MAX_PROVIDER_IMAGE_PIXELS = 12_000_000
+from app.config.image import MAX_OUTPUT_IMAGE_PIXELS
+
+_MAX_PROVIDER_IMAGE_PIXELS = MAX_OUTPUT_IMAGE_PIXELS
+_MAX_PROVIDER_IMAGE_EDGE = 8192
 
 
 def validate_raster_image_bytes(
@@ -159,6 +162,8 @@ def validate_raster_image_bytes(
     label: str,
     correlation_id: str | None = None,
     provider_id: str = "unknown",
+    max_pixels: int = _MAX_PROVIDER_IMAGE_PIXELS,
+    max_edge: int = _MAX_PROVIDER_IMAGE_EDGE,
 ) -> str:
     """Validate raster image magic bytes and Pillow decoding (JPEG, PNG, WebP).
 
@@ -196,7 +201,7 @@ def validate_raster_image_bytes(
                     correlation_id=correlation_id,
                 )
             w, h = img.size
-            if w < 1 or h < 1 or w * h > _MAX_PROVIDER_IMAGE_PIXELS:
+            if w < 1 or h < 1 or w > max_edge or h > max_edge or w * h > max_pixels:
                 raise ProviderPayloadError(
                     f"{label} dimensions {w}x{h} exceed safety limits",
                     provider_id=provider_id,

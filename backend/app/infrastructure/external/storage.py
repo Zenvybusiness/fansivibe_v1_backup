@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
+import hashlib
 import logging
 import re
 from typing import TYPE_CHECKING, Any, Optional
@@ -24,6 +25,8 @@ from botocore.exceptions import (
     ClientError,
     ConnectTimeoutError,
     EndpointConnectionError,
+    NoCredentialsError,
+    PartialCredentialsError,
     ReadTimeoutError,
 )
 
@@ -36,6 +39,7 @@ from app.domain.ports.storage import (
     StoragePayloadError,
     StoragePermissionError,
     StorageTimeoutError,
+    validate_scoped_object_key,
 )
 
 if TYPE_CHECKING:
@@ -52,29 +56,11 @@ _ALLOWED_MIME_TYPES = frozenset({
 })
 
 
-def validate_scoped_object_key(key: str, *, user_id: str | None = None) -> None:
-    """Validate object key structure, preventing path traversal and enforcing scoping."""
-    if not key or not key.strip():
-        raise StoragePayloadError("Object key must not be empty", key=key)
-    if ".." in key or key.startswith("/") or "\\" in key or "\x00" in key:
-        raise StoragePayloadError(
-            f"Invalid object key path traversal detected: {key}", key=key
-        )
-    if user_id is not None:
-        u_str = str(user_id)
-        expected_user = f"users/{u_str}/"
-        expected_staging = f"staging/users/{u_str}/"
-        if not (key.startswith(expected_user) or key.startswith(expected_staging)):
-            raise StoragePermissionError(
-                f"Object key {key} is not scoped to user {u_str}",
-                key=key,
-            )
-
-
 # Patterns to sanitize from error messages and logs
 _SECRET_PATTERNS = [
     re.compile(r"X-Amz-Signature=[0-9a-fA-F]+"),
     re.compile(r"X-Amz-Credential=[^&\s]+"),
+    re.compile(r"X-Amz-Security-Token=[^&\s]+"),
     re.compile(r"AWSAccessKeyId=[^&\s]+"),
     re.compile(r"Signature=[^&\s]+"),
     re.compile(r"(?<=[?&]token=)[^&\s]+"),
@@ -150,12 +136,21 @@ class CloudflareR2StorageAdapter(ObjectStoragePort):
         raw_msg = str(error_dict.get("Message", "S3 operation failed"))
         safe_msg = _sanitize_message(raw_msg)
 
+        if code == "NoSuchBucket":
+            return StorageConfigurationError(
+                "Configured storage bucket does not exist",
+                key=key,
+                cause=exc,
+            )
         if code in ("404", "NoSuchKey", "NotFound"):
             return StorageNotFoundError(f"Object not found: {key}", key=key, cause=exc)
         if code in (
             "403",
             "AccessDenied",
+            "AccountProblem",
+            "ExpiredToken",
             "InvalidAccessKeyId",
+            "InvalidToken",
             "SignatureDoesNotMatch",
             "Unauthorized",
         ):
@@ -173,6 +168,12 @@ class CloudflareR2StorageAdapter(ObjectStoragePort):
             return exc
         if isinstance(exc, ClientError):
             return self._map_client_error(exc, key=key)
+        if isinstance(exc, (NoCredentialsError, PartialCredentialsError)):
+            return StoragePermissionError(
+                "Storage credentials are missing or invalid",
+                key=key,
+                cause=exc,
+            )
         if isinstance(exc, (ConnectTimeoutError, ReadTimeoutError, asyncio.TimeoutError)):
             return StorageTimeoutError("Storage operation timed out", key=key, cause=exc)
         if isinstance(exc, EndpointConnectionError):
@@ -189,6 +190,11 @@ class CloudflareR2StorageAdapter(ObjectStoragePort):
         expires_in_s: int = 900,
     ) -> str:
         validate_scoped_object_key(key)
+        if expires_in_s < 1 or expires_in_s > 604800:
+            raise StoragePayloadError(
+                "Presigned URL expiration must be between 1 and 604800 seconds",
+                key=key,
+            )
         if content_type not in _ALLOWED_MIME_TYPES:
             raise StoragePayloadError(
                 f"Unsupported content_type: {content_type}. Allowed: {sorted(_ALLOWED_MIME_TYPES)}",
@@ -221,6 +227,11 @@ class CloudflareR2StorageAdapter(ObjectStoragePort):
         response_content_disposition: Optional[str] = None,
     ) -> str:
         validate_scoped_object_key(key)
+        if expires_in_s < 1 or expires_in_s > 604800:
+            raise StoragePayloadError(
+                "Presigned URL expiration must be between 1 and 604800 seconds",
+                key=key,
+            )
         params: dict[str, Any] = {
             "Bucket": self._bucket_name,
             "Key": key,
@@ -359,9 +370,44 @@ class CloudflareR2StorageAdapter(ObjectStoragePort):
                 await self.delete_object(k)
                 succeeded.append(k)
             except Exception as exc:
-                logger.warning("Safe deletion failed for key %s: %s", k, exc)
+                logger.warning(
+                    "Safe deletion failed for key %s: %s",
+                    k,
+                    _sanitize_message(str(exc)),
+                )
                 failed.append(k)
         return succeeded, failed
+
+    async def list_keys(self, prefix: str) -> list[str]:
+        """List all object keys matching a validated user-scoped prefix."""
+        validate_scoped_object_key(prefix)
+
+        def _list_all() -> list[str]:
+            keys: list[str] = []
+            token: str | None = None
+            while True:
+                params: dict[str, Any] = {
+                    "Bucket": self._bucket_name,
+                    "Prefix": prefix,
+                }
+                if token is not None:
+                    params["ContinuationToken"] = token
+                resp = self._client.list_objects_v2(**params)
+                for item in resp.get("Contents") or []:
+                    key = item.get("Key")
+                    if isinstance(key, str) and key:
+                        keys.append(key)
+                if not resp.get("IsTruncated"):
+                    break
+                token = resp.get("NextContinuationToken")
+                if not token:
+                    break
+            return sorted(set(keys))
+
+        try:
+            return await asyncio.to_thread(_list_all)
+        except Exception as exc:
+            raise self._map_exception(exc, key=prefix)
 
     async def check_health(self) -> dict[str, Any]:
         """Verify Cloudflare R2 bucket connectivity, permissions, and responsiveness."""
@@ -452,6 +498,8 @@ class CloudflareR2StorageAdapter(ObjectStoragePort):
         custom_metadata: Optional[dict[str, str]] = None,
     ) -> StorageObjectMetadata:
         validate_scoped_object_key(key)
+        if not data:
+            raise StoragePayloadError("Object payload must not be empty", key=key)
         if content_type not in _ALLOWED_MIME_TYPES:
             raise StoragePayloadError(
                 f"Unsupported content_type: {content_type}. Allowed: {sorted(_ALLOWED_MIME_TYPES)}",
@@ -531,11 +579,19 @@ def create_storage_adapter(settings: Settings) -> ObjectStoragePort:
 def get_default_storage_adapter(settings: Settings) -> ObjectStoragePort:
     """Retrieve or initialize the process-wide storage adapter singleton."""
     global _adapter_instance, _adapter_config_fingerprint
+    access_hash = hashlib.sha256(
+        (settings.r2_access_key_id or "").encode("utf-8")
+    ).hexdigest()
+    secret_hash = hashlib.sha256(
+        (settings.r2_secret_access_key or "").encode("utf-8")
+    ).hexdigest()
     fingerprint = (
         settings.media_storage_provider,
         settings.r2_bucket_name,
         settings.effective_r2_endpoint_url,
         settings.r2_region,
+        access_hash,
+        secret_hash,
     )
     if _adapter_instance is None or _adapter_config_fingerprint != fingerprint:
         _adapter_instance = create_storage_adapter(settings)

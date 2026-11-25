@@ -86,6 +86,25 @@ class TestStorageConfiguration:
             == "https://cloudflare-account-abc.r2.cloudflarestorage.com"
         )
 
+    def test_derives_effective_endpoint_when_account_id_is_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("MEDIA_STORAGE_PROVIDER", "r2")
+        monkeypatch.setenv(
+            "R2_ACCOUNT_ID", "https://cloudflare-account-abc.r2.cloudflarestorage.com/"
+        )
+        monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-key-id")
+        monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret-key")
+        monkeypatch.setenv("R2_BUCKET_NAME", "my-wardrobe-bucket")
+        monkeypatch.delenv("R2_ENDPOINT_URL", raising=False)
+        clear_settings_cache()
+
+        settings = Settings()
+        assert (
+            settings.effective_r2_endpoint_url
+            == "https://cloudflare-account-abc.r2.cloudflarestorage.com"
+        )
+
     def test_loads_from_cloudflare_and_fansivibe_aliases(
         self, monkeypatch: pytest.MonkeyPatch
     ):

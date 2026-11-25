@@ -34,7 +34,7 @@ from app.domain.ports.repositories import (
     WardrobeItemRecord,
     WardrobeItemRepository,
 )
-from app.domain.ports.storage import ObjectStoragePort
+from app.domain.ports.storage import ObjectStoragePort, resolve_wardrobe_image_key
 
 
 _SOURCE_CONTEXTS = {"hairstyle", "grooming", "outfit", "daily"}
@@ -350,27 +350,18 @@ class HydrateSavedLookGarments:
         # 3. Pre-generate presigned GET URLs for all active items that have valid keys
         presigned_urls: dict[str, tuple[str, dict[str, Any]]] = {}
         if self._storage is not None:
-            user_prefix = f"users/{user_id}/"
             for gid, item in active_items.items():
                 image_ref = item.image_ref
                 if image_ref and isinstance(image_ref, dict):
-                    key = (
-                        image_ref.get("objectKey")
-                        or image_ref.get("object_key")
-                        or image_ref.get("canonical_key")
-                        or image_ref.get("canonicalKey")
-                        or image_ref.get("key")
-                    )
-                    # Verify key belongs to this user namespace (OW-1 defense)
-                    if key and isinstance(key, str) and (key.startswith(user_prefix) or str(user_id) in key):
-                        try:
-                            url = await self._storage.generate_presigned_get_url(
-                                key=key, expires_in_s=900
-                            )
-                            enriched_ref = {**image_ref, "downloadUrl": url, "url": url}
-                            presigned_urls[gid] = (url, enriched_ref)
-                        except Exception:
-                            pass
+                    try:
+                        key = resolve_wardrobe_image_key(image_ref, user_id=user_id).key
+                        url = await self._storage.generate_presigned_get_url(
+                            key=key, expires_in_s=900
+                        )
+                        enriched_ref = {**image_ref, "downloadUrl": url, "url": url}
+                        presigned_urls[gid] = (url, enriched_ref)
+                    except Exception:
+                        pass
 
         # 4. Construct HydratedGarmentItem list for each look
         for record in records:

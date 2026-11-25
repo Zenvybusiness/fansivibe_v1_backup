@@ -39,7 +39,7 @@ from app.application.wardrobe import (
     UpdateWardrobeItem,
     DeleteWardrobeItem,
 )
-from app.domain.ports.storage import ObjectStoragePort
+from app.domain.ports.storage import ObjectStoragePort, resolve_wardrobe_image_key
 from app.infrastructure.db.repositories import (
     LearningSignalRepositorySQL,
     SavedLookRepositorySQL,
@@ -56,20 +56,13 @@ async def _to_wire(record, storage: ObjectStoragePort | None = None) -> Wardrobe
     """Map a `WardrobeItemRecord` (domain `snake_case`) to the wire schema and enrich with presigned GET URL."""
     image_url: str | None = None
     image_ref = record.image_ref
-    if image_ref and isinstance(image_ref, dict):
-        key = (
-            image_ref.get("objectKey")
-            or image_ref.get("object_key")
-            or image_ref.get("canonical_key")
-            or image_ref.get("canonicalKey")
-            or image_ref.get("key")
-        )
-        if key and storage is not None:
-            try:
-                image_url = await storage.generate_presigned_get_url(key=key, expires_in_s=900)
-                image_ref = {**image_ref, "downloadUrl": image_url, "url": image_url}
-            except Exception:
-                pass
+    if image_ref and isinstance(image_ref, dict) and storage is not None:
+        try:
+            key = resolve_wardrobe_image_key(image_ref, user_id=record.user_id).key
+            image_url = await storage.generate_presigned_get_url(key=key, expires_in_s=900)
+            image_ref = {**image_ref, "downloadUrl": image_url, "url": image_url}
+        except Exception:
+            pass
     return WardrobeItem(
         id=record.id,
         name=record.name,

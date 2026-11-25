@@ -37,8 +37,14 @@ class TryOnScreen extends StatefulWidget {
     this.tryOnRepository,
     this.wardrobeRepository,
     this.pickImage,
+    this.pollInterval = defaultPollInterval,
+    this.maxPollDuration = defaultMaxPollDuration,
+    this.now,
     super.key,
   });
+
+  static const Duration defaultPollInterval = Duration(seconds: 1);
+  static const Duration defaultMaxPollDuration = Duration(seconds: 135);
 
   final String outfitSource;
   final List<String> garmentIds;
@@ -53,13 +59,22 @@ class TryOnScreen extends StatefulWidget {
   /// Photo picker seam (gallery/camera). Defaults to [ImagePicker].
   final Future<XFile?> Function(ImageSource source)? pickImage;
 
+  /// Interval between status polls.
+  final Duration pollInterval;
+
+  /// Maximum client polling window aligned with backend 120s timeout + headroom.
+  final Duration maxPollDuration;
+
+  /// Clock seam for deterministic elapsed-time testing.
+  final DateTime Function()? now;
+
   @override
   State<TryOnScreen> createState() => _TryOnScreenState();
 }
 
-enum _Phase { input, submitting, polling, done, failed }
+enum _Phase { input, submitting, polling, timedOut, done, failed }
 
-class _TryOnScreenState extends State<TryOnScreen> {
+class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
   late final TryOnRepository _repository;
   late final WardrobeRepository _wardrobeRepo;
 
@@ -77,15 +92,23 @@ class _TryOnScreenState extends State<TryOnScreen> {
   String? _failureDetail;
   int _pollCount = 0;
   String? _activeJobId;
+  String? _pendingIdempotencyKey;
+  TryOnJobState? _lastJobState;
+  int? _backendProgress;
   bool _isMock = true;
   Uint8List? _resultBytes;
 
-  static const int _maxPolls = 30;
-  static const Duration _pollInterval = Duration(seconds: 1);
+  DateTime? _pollingStartedAt;
+  bool _isAppBackgrounded = false;
+  bool _pollInFlight = false;
+  int _pollSessionToken = 0;
+
+  DateTime _currentTime() => (widget.now ?? DateTime.now)();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _repository = widget.tryOnRepository ?? TryOnRepositoryImpl();
     _wardrobeRepo = widget.wardrobeRepository ?? WardrobeRepositoryImpl();
 
@@ -93,6 +116,30 @@ class _TryOnScreenState extends State<TryOnScreen> {
       _selectedGarmentId = widget.garmentIds.first;
     }
     _loadWardrobeItems();
+  }
+
+  @override
+  void dispose() {
+    _pollSessionToken++;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _isAppBackgrounded = true;
+      return;
+    }
+    if (state == AppLifecycleState.resumed) {
+      _isAppBackgrounded = false;
+      final jobId = _activeJobId;
+      if (jobId != null && _phase == _Phase.polling) {
+        unawaited(_pollOnce(jobId, _pollSessionToken));
+      }
+    }
   }
 
   Future<void> _loadWardrobeItems() async {
@@ -133,7 +180,11 @@ class _TryOnScreenState extends State<TryOnScreen> {
     setState(() {
       _personBytes = bytes;
       _personFilename = picked.name.isNotEmpty ? picked.name : _personFilename;
-      if (_phase == _Phase.failed || _phase == _Phase.done) {
+      _pendingIdempotencyKey = null;
+      _activeJobId = null;
+      if (_phase == _Phase.failed ||
+          _phase == _Phase.done ||
+          _phase == _Phase.timedOut) {
         _phase = _Phase.input;
         _failure = null;
         _resultBytes = null;
@@ -156,7 +207,11 @@ class _TryOnScreenState extends State<TryOnScreen> {
     setState(() {
       _selectedGarment = item;
       _selectedGarmentId = item.id;
-      if (_phase == _Phase.failed || _phase == _Phase.done) {
+      _pendingIdempotencyKey = null;
+      _activeJobId = null;
+      if (_phase == _Phase.failed ||
+          _phase == _Phase.done ||
+          _phase == _Phase.timedOut) {
         _phase = _Phase.input;
         _failure = null;
         _resultBytes = null;
@@ -295,8 +350,24 @@ class _TryOnScreenState extends State<TryOnScreen> {
     }
 
     if (_phase == _Phase.submitting || _phase == _Phase.polling) return;
+    if (_activeJobId != null && _phase == _Phase.timedOut) {
+      await _onResumePolling();
+      return;
+    }
 
-    final key = newTryOnIdempotencyKey();
+    final key = _pendingIdempotencyKey ??= newTryOnIdempotencyKey();
+    await _submitWithKey(
+      bytes: bytes,
+      chosenId: chosenId,
+      idempotencyKey: key,
+    );
+  }
+
+  Future<void> _submitWithKey({
+    required Uint8List bytes,
+    required String chosenId,
+    required String idempotencyKey,
+  }) async {
     setState(() {
       _phase = _Phase.submitting;
       _failure = null;
@@ -310,7 +381,7 @@ class _TryOnScreenState extends State<TryOnScreen> {
       outfitSource: widget.outfitSource,
       garmentIds: garmentList,
       consentAccepted: true,
-      idempotencyKey: key,
+      idempotencyKey: idempotencyKey,
     );
 
     if (!mounted) return;
@@ -326,78 +397,163 @@ class _TryOnScreenState extends State<TryOnScreen> {
     setState(() {
       _phase = _Phase.polling;
       _activeJobId = job.jobId;
+      _lastJobState = job.state;
+      _backendProgress = job.state == TryOnJobState.completed ? 100 : 0;
       _isMock = job.isMock;
       _pollCount = 0;
+      _pollingStartedAt = _currentTime();
     });
 
     await _pollUntilDone(job.jobId);
   }
 
-  Future<void> _pollUntilDone(String jobId) async {
-    for (var i = 0; i < _maxPolls; i++) {
-      await Future<void>.delayed(_pollInterval);
-      if (!mounted) return;
+  Future<bool> _pollOnce(String jobId, int token) async {
+    if (!mounted || token != _pollSessionToken || _phase != _Phase.polling) {
+      return true;
+    }
+    if (_pollInFlight) {
+      return false;
+    }
+    _pollInFlight = true;
+    try {
       final status = await _repository.getJobStatus(jobId);
-      if (!mounted) return;
-      if (status == null) continue;
+      if (!mounted || token != _pollSessionToken || _phase != _Phase.polling) {
+        return true;
+      }
+      if (status == null) {
+        setState(() {
+          _pollCount++;
+        });
+        return false;
+      }
 
       setState(() {
-        _pollCount = i + 1;
+        _pollCount++;
         _isMock = status.isMock;
+        _lastJobState = status.state;
+        _backendProgress = status.progress;
       });
 
       if (status.state == TryOnJobState.completed) {
         final img = await _repository.getJobImage(jobId);
-        if (!mounted) return;
+        if (!mounted || token != _pollSessionToken) return true;
         setState(() {
           _phase = _Phase.done;
           _resultBytes = img;
+          _pendingIdempotencyKey = null;
         });
-        return;
+        return true;
       }
       if (status.state == TryOnJobState.failed) {
         setState(() {
           _phase = _Phase.failed;
           _failure = TryOnFailure.unknown;
           _failureDetail = status.errorMessage ?? 'Try-on processing failed.';
+          _pendingIdempotencyKey = null;
         });
-        return;
+        return true;
       }
       if (status.state == TryOnJobState.cancelled) {
         setState(() {
           _phase = _Phase.failed;
           _failure = TryOnFailure.unknown;
-          _failureDetail = 'Try-on request was cancelled.';
+          _failureDetail =
+              status.errorMessage ??
+              (!status.isMock
+                  ? 'Cancelled locally. An already-submitted remote generation may still consume a credit.'
+                  : 'Try-on request was cancelled.');
+          _pendingIdempotencyKey = null;
+        });
+        return true;
+      }
+      return false;
+    } finally {
+      _pollInFlight = false;
+    }
+  }
+
+  Future<void> _pollUntilDone(String jobId) async {
+    final token = ++_pollSessionToken;
+    _pollingStartedAt ??= _currentTime();
+
+    while (mounted && token == _pollSessionToken && _phase == _Phase.polling) {
+      await Future<void>.delayed(widget.pollInterval);
+      if (!mounted || token != _pollSessionToken || _phase != _Phase.polling) {
+        return;
+      }
+
+      if (!_isAppBackgrounded) {
+        final terminal = await _pollOnce(jobId, token);
+        if (terminal || !mounted || token != _pollSessionToken) {
+          return;
+        }
+      }
+
+      final elapsed = _currentTime().difference(_pollingStartedAt!);
+      if (elapsed >= widget.maxPollDuration) {
+        setState(() {
+          _phase = _Phase.timedOut;
         });
         return;
       }
     }
-    if (!mounted) return;
+  }
+
+  Future<void> _onResumePolling() async {
+    final jid = _activeJobId;
+    if (jid == null) return;
     setState(() {
-      _phase = _Phase.failed;
-      _failure = TryOnFailure.networkError;
-      _failureDetail = 'Processing timed out. Please try again.';
+      _phase = _Phase.polling;
+      _pollingStartedAt = _currentTime();
     });
+    await _pollUntilDone(jid);
   }
 
   Future<void> _onCancel() async {
     final jid = _activeJobId;
     if (jid == null) return;
+    _pollSessionToken++;
     final res = await _repository.cancelJob(jid);
     if (!mounted) return;
     if (res != null) {
       setState(() {
         _phase = _Phase.failed;
         _failure = TryOnFailure.unknown;
-        _failureDetail = 'Try-on request cancelled by user.';
+        _failureDetail =
+            res.errorMessage ??
+            (!res.isMock
+                ? 'Cancelled locally. An already-submitted remote generation may still consume a credit.'
+                : 'Try-on request cancelled by user.');
+        _pendingIdempotencyKey = null;
       });
-      _showSnackBar('Try-on job cancelled.');
+      _showSnackBar(
+        !res.isMock
+            ? 'Cancelled locally (submitted remote job may still use a credit).'
+            : 'Try-on job cancelled.',
+      );
     }
   }
 
   Future<void> _onRetrySubmit() async {
     final jid = _activeJobId;
     if (jid == null) {
+      final bytes = _personBytes;
+      final chosenId =
+          _selectedGarmentId ??
+          (widget.garmentIds.isNotEmpty ? widget.garmentIds.first : null);
+      final pendingKey = _pendingIdempotencyKey;
+      if (bytes != null &&
+          bytes.isNotEmpty &&
+          chosenId != null &&
+          chosenId.isNotEmpty &&
+          pendingKey != null) {
+        await _submitWithKey(
+          bytes: bytes,
+          chosenId: chosenId,
+          idempotencyKey: pendingKey,
+        );
+        return;
+      }
       _onRetry();
       return;
     }
@@ -419,8 +575,11 @@ class _TryOnScreenState extends State<TryOnScreen> {
     setState(() {
       _phase = _Phase.polling;
       _activeJobId = job.jobId;
+      _lastJobState = job.state;
+      _backendProgress = 0;
       _isMock = job.isMock;
       _pollCount = 0;
+      _pollingStartedAt = _currentTime();
     });
     await _pollUntilDone(job.jobId);
   }
@@ -442,6 +601,7 @@ class _TryOnScreenState extends State<TryOnScreen> {
   }
 
   void _onRetry() {
+    _pollSessionToken++;
     setState(() {
       _phase = _Phase.input;
       _failure = null;
@@ -449,6 +609,10 @@ class _TryOnScreenState extends State<TryOnScreen> {
       _pollCount = 0;
       _resultBytes = null;
       _activeJobId = null;
+      _pendingIdempotencyKey = null;
+      _lastJobState = null;
+      _backendProgress = null;
+      _pollingStartedAt = null;
     });
   }
 
@@ -591,18 +755,30 @@ class _TryOnScreenState extends State<TryOnScreen> {
           ),
         );
       case _Phase.polling:
+        final elapsedSeconds = _pollingStartedAt != null
+            ? _currentTime().difference(_pollingStartedAt!).inSeconds.clamp(0, widget.maxPollDuration.inSeconds)
+            : 0;
+        final totalSeconds = widget.maxPollDuration.inSeconds;
+        final progressValue = (_backendProgress != null && _backendProgress! > 0)
+            ? (_backendProgress! / 100.0).clamp(0.0, 1.0)
+            : (totalSeconds > 0 && elapsedSeconds > 0
+                  ? (elapsedSeconds / totalSeconds).clamp(0.0, 1.0)
+                  : null);
+        final statusLabel = _lastJobState == TryOnJobState.queued
+            ? 'Queued for virtual try-on…'
+            : (_isMock
+                  ? 'Rendering test preview… (poll ${_pollCount + 1})'
+                  : 'Generating virtual try-on… (${elapsedSeconds}s / ${totalSeconds}s)');
         return Column(
           children: [
             LinearProgressIndicator(
-              value: _pollCount > 0 ? _pollCount / _maxPolls : null,
+              value: progressValue,
               backgroundColor: FansivibeColors.surfaceContainer,
               color: FansivibeColors.primary,
             ),
             SizedBox(height: FansivibeSpacing.md),
             Text(
-              _isMock
-                  ? 'Rendering test preview… (poll ${_pollCount + 1})'
-                  : 'Processing diffusion try-on… (step ${_pollCount + 1})',
+              statusLabel,
               style: FansivibeTypography.bodyMediumWithFamily,
             ),
             const SizedBox(height: 16),
@@ -610,6 +786,78 @@ class _TryOnScreenState extends State<TryOnScreen> {
               label: 'Cancel Request',
               icon: Icons.cancel_outlined,
               onPressed: _onCancel,
+            ),
+          ],
+        );
+      case _Phase.timedOut:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: FansivibeColors.warning.withValues(alpha: 0.12),
+                borderRadius: FansivibeRadius.smdBorder,
+                border: Border.all(
+                  color: FansivibeColors.warning.withValues(alpha: 0.45),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.hourglass_top_rounded,
+                    color: FansivibeColors.warning,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Still processing',
+                          style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Your try-on is taking longer than expected, but it has not failed. '
+                          'Check status to continue waiting without starting a duplicate request.',
+                          style: FansivibeTypography.bodyMediumWithFamily,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            FansiButton.primary(
+              label: 'Check Status',
+              icon: Icons.sync_rounded,
+              onPressed: _onResumePolling,
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: FansiButton.secondary(
+                    label: 'Cancel Request',
+                    icon: Icons.cancel_outlined,
+                    onPressed: _onCancel,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FansiButton.secondary(
+                    label: 'Start Over',
+                    icon: Icons.restart_alt_rounded,
+                    onPressed: _onRetry,
+                  ),
+                ),
+              ],
             ),
           ],
         );
