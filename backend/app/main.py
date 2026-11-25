@@ -60,6 +60,7 @@ from app.api.routers import (
     wardrobe,
 )
 from app.application.outfits import GenerateOutfit
+from app.config.image import configure_pillow_limits
 from app.config.settings import get_settings
 from app.domain.ports.repositories import (
     SavedLookRepository,
@@ -138,6 +139,7 @@ async def _run_startup_warmup(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: background model warmup & probe on startup, graceful shutdown."""
+    configure_pillow_limits()
     current_settings = get_settings()
     scheduler_provider = app.dependency_overrides.get(
         deps_get_gpu_scheduler, get_gpu_scheduler
@@ -201,6 +203,8 @@ async def lifespan(app: FastAPI):
                 pass
 
 
+
+configure_pillow_limits()
 
 app = FastAPI(
     title="Fansivibe AI",

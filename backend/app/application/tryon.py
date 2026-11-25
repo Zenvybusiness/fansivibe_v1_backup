@@ -14,19 +14,21 @@ import logging
 import threading
 from typing import Any, Optional
 from uuid import UUID, uuid4
+import xml.etree.ElementTree as ET
 
 from fastapi import HTTPException
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.api.errors import ApiError, ai_failure, conflict, not_found, rate_limited, validation
 from app.application.media import sha256_hex
+from app.config.image import MAX_OUTPUT_IMAGE_PIXELS, MAX_PERSON_IMAGE_PIXELS
 from app.config.settings import Settings, get_settings
 from app.domain.ports.repositories import (
     TryOnJobRecord,
     TryOnJobRepository,
     WardrobeItemRepository,
 )
-from app.domain.ports.storage import ObjectStoragePort
+from app.domain.ports.storage import ObjectStoragePort, StorageError, StorageNotFoundError
 from app.domain.ports.tryon_provider import (
     CatVTONTryOnProvider,
     CommercialProviderConfigurationError,
@@ -38,13 +40,30 @@ from app.domain.ports.tryon_provider import (
     ProviderQuotaExceededError,
     ProviderTransientError,
     TryOnProviderError,
+    map_wardrobe_category_to_fashn,
 )
 
 logger = logging.getLogger("fansivibe.tryon.application")
 
 _OUTFIT_SOURCES = frozenset({"today", "outfit", "saved", "wardrobe"})
 _ALLOWED_IMAGE_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
+_MIME_TO_PIL_FORMAT = {
+    "image/jpeg": "JPEG",
+    "image/png": "PNG",
+    "image/webp": "WEBP",
+}
+_PIL_FORMAT_TO_MIME_EXT = {
+    "JPEG": ("image/jpeg", "jpg"),
+    "PNG": ("image/png", "png"),
+    "WEBP": ("image/webp", "webp"),
+}
 _MAX_PERSON_BYTES = 20 * 1024 * 1024
+_MAX_RESULT_BYTES = 20 * 1024 * 1024
+_MAX_PERSON_PIXELS = MAX_PERSON_IMAGE_PIXELS
+_MIN_PERSON_EDGE = 64
+_MAX_PERSON_EDGE = 4096
+_MAX_OUTPUT_PIXELS = MAX_OUTPUT_IMAGE_PIXELS
+_MAX_OUTPUT_EDGE = 8192
 _MAX_GARMENT_IDS = 8
 
 _POLLS_TO_COMPLETE = 1
@@ -474,6 +493,249 @@ _POLL_COUNTS: dict[str, int] = {}
 _BYTE_CACHE: dict[str, tuple[bytes, str]] = {}  # job_id -> (person_bytes, content_type)
 
 
+def _detect_magic_format(data: bytes) -> str | None:
+    """Identify image format strictly from leading file signature magic bytes."""
+    if len(data) >= 3 and data[:3] == b"\xff\xd8\xff":
+        return "JPEG"
+    if len(data) >= 8 and data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "PNG"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "WEBP"
+    return None
+
+
+def validate_and_sanitize_person_image(
+    person_bytes: bytes,
+    declared_content_type: str,
+) -> tuple[bytes, str]:
+    """Validate person image bytes with Pillow, preserve orientation, and strip EXIF/GPS.
+
+    Ensures:
+    - Content-Type is never trusted alone (magic bytes + Pillow img.format must agree).
+    - Decompression bombs and excessive dimensions are rejected.
+    - Orientation is baked into pixels via ImageOps.exif_transpose.
+    - All EXIF, GPS, XMP, ICC, and comment metadata is stripped via clean re-encoding.
+    - Returned bytes and MIME type agree strictly.
+    """
+    declared_mime = (declared_content_type or "").split(";")[0].strip().lower()
+    if declared_mime not in _ALLOWED_IMAGE_TYPES:
+        raise validation([{"field": "person_image", "error": "must be jpeg, png, or webp"}])
+
+    if not person_bytes or len(person_bytes) > _MAX_PERSON_BYTES:
+        raise validation(
+            [{"field": "person_image", "error": "must be non-empty, at most 20 MB"}]
+        )
+
+    expected_format = _MIME_TO_PIL_FORMAT[declared_mime]
+    magic_format = _detect_magic_format(person_bytes)
+    if magic_format is None:
+        raise validation(
+            [{"field": "person_image", "error": "invalid or unsupported image file"}]
+        )
+    if magic_format != expected_format:
+        raise validation(
+            [{"field": "person_image", "error": "image content does not match declared content type"}]
+        )
+
+    try:
+        with Image.open(io.BytesIO(person_bytes)) as img:
+            if img.format not in ("JPEG", "PNG", "WEBP"):
+                raise validation(
+                    [{"field": "person_image", "error": "unsupported image format"}]
+                )
+            if img.format != expected_format:
+                raise validation(
+                    [{"field": "person_image", "error": "image content does not match declared content type"}]
+                )
+            w, h = img.size
+            if w * h > _MAX_PERSON_PIXELS:
+                raise validation(
+                    [{"field": "person_image", "error": "image pixel count exceeds maximum allowed limit"}]
+                )
+            if w > _MAX_PERSON_EDGE or h > _MAX_PERSON_EDGE:
+                raise validation(
+                    [{"field": "person_image", "error": "image dimensions exceed maximum 4096x4096"}]
+                )
+            if w < _MIN_PERSON_EDGE or h < _MIN_PERSON_EDGE:
+                raise validation(
+                    [{"field": "person_image", "error": "image dimensions must be at least 64x64"}]
+                )
+
+            img.load()
+            oriented = ImageOps.exif_transpose(img)
+            ow, oh = oriented.size
+            if ow * oh > _MAX_PERSON_PIXELS or ow > _MAX_PERSON_EDGE or oh > _MAX_PERSON_EDGE:
+                raise validation(
+                    [{"field": "person_image", "error": "image dimensions exceed maximum 4096x4096"}]
+                )
+            if ow < _MIN_PERSON_EDGE or oh < _MIN_PERSON_EDGE:
+                raise validation(
+                    [{"field": "person_image", "error": "image dimensions must be at least 64x64"}]
+                )
+
+            if expected_format == "JPEG":
+                if oriented.mode != "RGB":
+                    oriented = oriented.convert("RGB")
+            else:
+                if oriented.mode in ("RGBA", "LA") or (
+                    oriented.mode == "P" and "transparency" in oriented.info
+                ):
+                    oriented = oriented.convert("RGBA")
+                elif oriented.mode != "RGB":
+                    oriented = oriented.convert("RGB")
+
+            # Reconstruct clean pixel buffer without EXIF, GPS, XMP, ICC, or info metadata
+            clean_img = Image.frombytes(oriented.mode, oriented.size, oriented.tobytes())
+            out_buf = io.BytesIO()
+            if expected_format == "JPEG":
+                clean_img.save(out_buf, format="JPEG", quality=92)
+            elif expected_format == "PNG":
+                clean_img.save(out_buf, format="PNG")
+            else:
+                clean_img.save(out_buf, format="WEBP", quality=90)
+            sanitized_bytes = out_buf.getvalue()
+
+        if not sanitized_bytes or len(sanitized_bytes) > _MAX_PERSON_BYTES:
+            raise validation(
+                [{"field": "person_image", "error": "sanitized image exceeds size limits"}]
+            )
+
+        with Image.open(io.BytesIO(sanitized_bytes)) as check_img:
+            if check_img.format != expected_format:
+                raise validation(
+                    [{"field": "person_image", "error": "re-encoded image format mismatch"}]
+                )
+            check_exif = check_img.getexif()
+            if check_exif and len(check_exif) > 0:
+                raise validation(
+                    [{"field": "person_image", "error": "failed to strip EXIF metadata"}]
+                )
+
+        return sanitized_bytes, declared_mime
+    except (HTTPException, ApiError):
+        raise
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+        raise validation(
+            [{"field": "person_image", "error": "image exceeds decompression safety limits"}]
+        )
+    except Exception:
+        raise validation(
+            [{"field": "person_image", "error": "invalid or unreadable image file"}]
+        )
+
+
+def validate_and_inspect_output_image(
+    result_bytes: bytes,
+    *,
+    allow_svg: bool = False,
+    provider_id: str = "unknown",
+    correlation_id: str | None = None,
+) -> tuple[str, str]:
+    """Validate provider output bytes and detect true MIME type and file extension.
+
+    Raises ProviderPayloadError for empty, malformed, unsupported, or bomb payloads.
+    SVG is permitted ONLY when allow_svg=True (mock provider).
+    """
+    if not result_bytes:
+        raise ProviderPayloadError(
+            "Provider returned empty image output",
+            provider_id=provider_id,
+            correlation_id=correlation_id,
+        )
+
+    stripped = result_bytes.lstrip()
+    if stripped.startswith(b"<svg") or (stripped.startswith(b"<?xml") and b"<svg" in stripped[:256]):
+        if not allow_svg:
+            raise ProviderPayloadError(
+                "Non-mock provider returned unsupported SVG output",
+                provider_id=provider_id,
+                correlation_id=correlation_id,
+            )
+        upper_head = stripped[:1024].upper()
+        if b"<!DOCTYPE" in upper_head or b"<!ENTITY" in upper_head:
+            raise ProviderPayloadError(
+                "Unsafe SVG output rejected",
+                provider_id=provider_id,
+                correlation_id=correlation_id,
+            )
+        try:
+            root = ET.fromstring(stripped.decode("utf-8"))
+        except Exception as exc:
+            raise ProviderPayloadError(
+                "Malformed SVG output from mock provider",
+                provider_id=provider_id,
+                correlation_id=correlation_id,
+                cause=exc,
+            )
+        if not (root.tag == "svg" or root.tag.endswith("}svg")):
+            raise ProviderPayloadError(
+                "Invalid SVG root element",
+                provider_id=provider_id,
+                correlation_id=correlation_id,
+            )
+        return "image/svg+xml", "svg"
+
+    magic_format = _detect_magic_format(result_bytes)
+    if magic_format is None:
+        raise ProviderPayloadError(
+            "Provider output has unsupported or corrupt format (must be JPEG, PNG, or WebP)",
+            provider_id=provider_id,
+            correlation_id=correlation_id,
+        )
+
+    try:
+        with Image.open(io.BytesIO(result_bytes)) as img:
+            if img.format not in _PIL_FORMAT_TO_MIME_EXT or img.format != magic_format:
+                raise ProviderPayloadError(
+                    f"Provider output format {img.format!r} does not match signature {magic_format!r}",
+                    provider_id=provider_id,
+                    correlation_id=correlation_id,
+                )
+            w, h = img.size
+            if w < 1 or h < 1 or w > _MAX_OUTPUT_EDGE or h > _MAX_OUTPUT_EDGE or (w * h > _MAX_OUTPUT_PIXELS):
+                raise ProviderPayloadError(
+                    f"Provider output dimensions {w}x{h} exceed safety limits",
+                    provider_id=provider_id,
+                    correlation_id=correlation_id,
+                )
+            img.load()
+            return _PIL_FORMAT_TO_MIME_EXT[img.format]
+    except ProviderPayloadError:
+        raise
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ProviderPayloadError(
+            "Provider output rejected as decompression bomb",
+            provider_id=provider_id,
+            correlation_id=correlation_id,
+            cause=exc,
+        )
+    except Exception as exc:
+        raise ProviderPayloadError(
+            "Provider output image is malformed or unreadable",
+            provider_id=provider_id,
+            correlation_id=correlation_id,
+            cause=exc,
+        )
+
+
+async def create_confirmed_presigned_input_url(
+    *,
+    storage: ObjectStoragePort,
+    key: str,
+    expires_in_s: int = 600,
+) -> str:
+    """Create a presigned GET URL only after confirming durable object persistence."""
+    if not key or not key.strip():
+        raise StorageNotFoundError("Input media key is missing", key=key)
+    exists = await storage.object_exists(key)
+    if not exists:
+        raise StorageNotFoundError(
+            "Cannot issue presigned input URL before durable storage confirmation",
+            key=key,
+        )
+    return await storage.generate_presigned_get_url(key=key, expires_in_s=expires_in_s)
+
+
 def _payload_digest(
     *,
     outfit_source: str,
@@ -556,34 +818,9 @@ def submit_job(
         if not isinstance(gid, str) or not gid.strip() or len(gid) > 200:
             raise validation([{"field": "garment_ids", "error": "ids must be 1..200 chars"}])
 
-    if person_content_type not in _ALLOWED_IMAGE_TYPES:
-        raise validation([{"field": "person_image", "error": "must be jpeg, png, or webp"}])
-
-    if not person_bytes or len(person_bytes) > _MAX_PERSON_BYTES:
-        raise validation(
-            [{"field": "person_image", "error": "must be non-empty, at most 20 MB"}]
-        )
-
-    # Validate image dimensions (min 64x64, max 4096x4096)
-    try:
-        with Image.open(io.BytesIO(person_bytes)) as img:
-            w, h = img.size
-            if w > 4096 or h > 4096:
-                raise validation([{"field": "person_image", "error": "image dimensions exceed maximum 4096x4096"}])
-            if w < 64 or h < 64:
-                raise validation([{"field": "person_image", "error": "image dimensions must be at least 64x64"}])
-    except Exception as exc:
-        if isinstance(exc, (HTTPException, ApiError)):
-            raise
-        # In non-production test environments, accept stub image payloads with valid magic bytes
-        if env != "production" and (
-            person_bytes.startswith(b"\xff\xd8")
-            or person_bytes.startswith(b"\x89PNG")
-            or person_bytes.startswith(b"RIFF")
-        ):
-            pass
-        else:
-            raise validation([{"field": "person_image", "error": "invalid or unreadable image file"}])
+    sanitized_bytes, canonical_content_type = validate_and_sanitize_person_image(
+        person_bytes, person_content_type
+    )
 
     # User ID parsing
     try:
@@ -623,14 +860,14 @@ def submit_job(
                 pass
 
     repo = job_repo or _IN_MEMORY_REPO
-    person_digest = sha256_hex(person_bytes)
+    person_digest = sha256_hex(sanitized_bytes)
     digest = _payload_digest(
         outfit_source=outfit_source,
         garment_ids=garment_ids,
         person_digest=person_digest,
         consent_version=consent_version,
     )
-    current_day = today or date.today()
+    current_day = today or datetime.now(timezone.utc).date()
 
     # Idempotency check
     existing = repo.find_by_idempotency_key(
@@ -654,18 +891,18 @@ def submit_job(
         raise rate_limited()
 
     job_id = uuid4()
-    person_ext = "webp" if "webp" in person_content_type else ("png" if "png" in person_content_type else "jpg")
+    person_ext = "webp" if "webp" in canonical_content_type else ("png" if "png" in canonical_content_type else "jpg")
     person_key = f"users/{user_uuid}/tryon/{job_id}/person.{person_ext}"
     person_media_ref = {
         "key": person_key,
-        "mediaType": person_content_type,
-        "sizeBytes": len(person_bytes),
+        "mediaType": canonical_content_type,
+        "sizeBytes": len(sanitized_bytes),
         "contentHash": person_digest,
         "uploadedAt": datetime.now(timezone.utc).isoformat(),
     }
 
-    # Store person bytes cache for fast retrieval in memory/background worker
-    _BYTE_CACHE[str(job_id)] = (person_bytes, person_content_type)
+    # Temporarily stage sanitized person bytes until durable storage persistence completes
+    _BYTE_CACHE[str(job_id)] = (sanitized_bytes, canonical_content_type)
 
     initial_status = "processing" if settings.tryon_provider == "mock" else "queued"
 
@@ -685,6 +922,7 @@ def submit_job(
             request_fingerprint=digest,
         )
     except Exception:
+        _BYTE_CACHE.pop(str(job_id), None)
         # Check if an idempotency race occurred
         existing = repo.find_by_idempotency_key(
             user_id=user_uuid, idempotency_key=idempotency_key
@@ -703,16 +941,70 @@ async def store_person_image_async(
     storage: ObjectStoragePort,
     user_id: UUID,
     job_id: UUID,
-    person_bytes: bytes,
-    content_type: str,
-) -> None:
-    """Safely and privately persists person image bytes to object storage."""
-    person_ext = "webp" if "webp" in content_type else ("png" if "png" in content_type else "jpg")
-    key = f"users/{user_id}/tryon/{job_id}/person.{person_ext}"
+    person_bytes: bytes | None = None,
+    content_type: str = "image/jpeg",
+    job_repo: Optional[TryOnJobRepository] = None,
+) -> str:
+    """Persist sanitized person image bytes to object storage and confirm durability.
+
+    Never swallows storage failures: marks job failed and re-raises on error,
+    and always evicts temporary in-memory person bytes once stored or failed.
+    """
     try:
-        await storage.put_object(key, person_bytes, content_type=content_type)
-    except Exception as e:
-        logger.warning("Failed to persist person image to storage for job %s: %s", job_id, e)
+        cached = _BYTE_CACHE.get(str(job_id))
+        if cached is not None:
+            effective_bytes, effective_ct = cached
+        else:
+            if not person_bytes:
+                if job_repo is not None:
+                    job_repo.update_failure(
+                        job_id=job_id,
+                        error_code="STORAGE_FAILURE",
+                        error_message="Missing person image bytes for storage.",
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                raise StorageError("Missing person image bytes for storage")
+            effective_bytes, effective_ct = validate_and_sanitize_person_image(
+                person_bytes, content_type
+            )
+
+        person_ext = "webp" if "webp" in effective_ct else ("png" if "png" in effective_ct else "jpg")
+        key = f"users/{user_id}/tryon/{job_id}/person.{person_ext}"
+
+        if job_repo is not None:
+            current = job_repo.get_by_id(user_id=user_id, job_id=job_id)
+            if current is not None and current.status == "cancelled":
+                return key
+
+        try:
+            await storage.put_object(key, effective_bytes, content_type=effective_ct)
+            exists = await storage.object_exists(key)
+            if not exists:
+                raise StorageError("Person image storage confirmation failed", key=key)
+        except Exception as e:
+            logger.error("Failed to persist person image to storage for job %s: %s", job_id, e)
+            if job_repo is not None:
+                job_repo.update_failure(
+                    job_id=job_id,
+                    error_code="STORAGE_FAILURE",
+                    error_message="Failed to securely store input person image.",
+                    completed_at=datetime.now(timezone.utc),
+                )
+            raise
+
+        # Check if cancelled concurrently while uploading; remove orphaned input object
+        if job_repo is not None:
+            latest = job_repo.get_by_id(user_id=user_id, job_id=job_id)
+            if latest is not None and latest.status == "cancelled":
+                try:
+                    await storage.delete_object(key)
+                except Exception as del_exc:
+                    logger.warning("Failed to delete cancelled input image %s: %s", key, del_exc)
+
+        return key
+    finally:
+        # Immediately evict person bytes from memory in all exit paths
+        _BYTE_CACHE.pop(str(job_id), None)
 
 
 async def execute_tryon_inference(
@@ -725,42 +1017,135 @@ async def execute_tryon_inference(
     seed: str = "mock-1",
 ) -> None:
     """Execute try-on inference in background, persist result privately, and update job status."""
+    try:
+        await _execute_tryon_inference_impl(
+            job_id=job_id,
+            user_id=user_id,
+            job_repo=job_repo,
+            storage=storage,
+            wardrobe_repo=wardrobe_repo,
+            seed=seed,
+        )
+    finally:
+        _BYTE_CACHE.pop(str(job_id), None)
+
+
+async def _execute_tryon_inference_impl(
+    *,
+    job_id: UUID,
+    user_id: UUID,
+    job_repo: Optional[TryOnJobRepository],
+    storage: Optional[ObjectStoragePort] = None,
+    wardrobe_repo: Optional[WardrobeItemRepository] = None,
+    seed: str = "mock-1",
+) -> None:
     repo = job_repo or _IN_MEMORY_REPO
     job = repo.get_by_id(user_id=user_id, job_id=job_id)
-    if job is None or job.status == "cancelled":
-        logger.info("TryOn job %s cancelled or absent; stopping execution.", job_id)
+    if job is None or job.status in ("cancelled", "completed", "failed"):
+        logger.info("TryOn job %s absent or terminal (%s); stopping execution.", job_id, getattr(job, "status", None))
         return
-
-    now = datetime.now(timezone.utc)
-    repo.update_status(job_id=job_id, status="processing", processing_started_at=now)
 
     settings = get_settings()
     provider_name = settings.tryon_provider
 
-    # Resolve person bytes
-    cached_person = _BYTE_CACHE.get(str(job_id))
-    person_bytes = cached_person[0] if cached_person else None
-    if person_bytes is None and storage is not None and job.person_media_ref:
+    # Enforce hard prerequisite: if job has a person_media_ref, person image MUST be durably stored
+    person_bytes: Optional[bytes] = None
+    if job.person_media_ref and "key" in job.person_media_ref:
+        person_key = job.person_media_ref["key"]
+        if storage is None:
+            logger.error("Storage unavailable for job %s with person_media_ref", job_id)
+            repo.update_failure(
+                job_id=job_id,
+                error_code="STORAGE_FAILURE",
+                error_message="Media storage is unavailable for person image retrieval.",
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
         try:
-            person_bytes = await storage.read_object(job.person_media_ref["key"])
+            if not await storage.object_exists(person_key):
+                logger.error("Person image missing from durable storage for job %s (key=%s)", job_id, person_key)
+                repo.update_failure(
+                    job_id=job_id,
+                    error_code="STORAGE_FAILURE",
+                    error_message="Input person image was not persisted in storage.",
+                    completed_at=datetime.now(timezone.utc),
+                )
+                return
+            person_bytes = await storage.read_object(person_key, max_bytes=_MAX_PERSON_BYTES)
         except Exception as e:
-            logger.warning("Could not read person image from storage for job %s: %s", job_id, e)
+            logger.error("Could not load person image from storage for job %s: %s", job_id, e)
+            repo.update_failure(
+                job_id=job_id,
+                error_code="STORAGE_FAILURE",
+                error_message="Failed to retrieve persisted person image from storage.",
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
+    else:
+        cached_person = _BYTE_CACHE.pop(str(job_id), None)
+        person_bytes = cached_person[0] if cached_person else None
 
-    # Resolve garment bytes if available
+    now = datetime.now(timezone.utc)
+    repo.update_status(job_id=job_id, status="processing", processing_started_at=now)
+
+    # Resolve garment bytes and validate category (fail closed on unsupported FASHN categories)
     garment_bytes: Optional[bytes] = None
-    category = "upper"
+    category = "tops" if provider_name == "commercial" else "upper"
+    corr_id = str(uuid4())
     if job.garment_id and wardrobe_repo is not None:
+        item = None
         try:
             item = wardrobe_repo.get_by_id(user_id=user_id, item_id=job.garment_id)
-            if item:
+        except Exception as e:
+            logger.warning("Could not query garment item for job %s: %s", job_id, e)
+
+        if item is not None:
+            if provider_name == "commercial":
+                try:
+                    category = map_wardrobe_category_to_fashn(
+                        item.category,
+                        correlation_id=corr_id,
+                        provider_id=settings.tryon_commercial_provider_name,
+                    )
+                except ProviderPayloadError as e:
+                    logger.warning("Unsupported garment category for job %s: %s", job_id, e.message)
+                    repo.update_failure(
+                        job_id=job_id,
+                        error_code="PAYLOAD_REJECTED",
+                        error_message="Selected garment category is not supported for virtual try-on.",
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                    return
+            elif provider_name == "catvton":
+                try:
+                    fashn_cat = map_wardrobe_category_to_fashn(
+                        item.category,
+                        correlation_id=corr_id,
+                        provider_id="catvton",
+                    )
+                except ProviderPayloadError as e:
+                    logger.warning("Unsupported garment category for CatVTON job %s: %s", job_id, e.message)
+                    repo.update_failure(
+                        job_id=job_id,
+                        error_code="PAYLOAD_REJECTED",
+                        error_message="Selected garment category is not supported for virtual try-on.",
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                    return
+                category = {"tops": "upper", "bottoms": "lower", "one-pieces": "overall"}[fashn_cat]
+            else:
                 if item.category in ("bottoms", "pants", "jeans", "skirts", "shorts"):
                     category = "lower"
-                elif item.category in ("dresses", "jumpsuits", "overall"):
+                elif item.category in ("dresses", "jumpsuits", "overall", "one-pieces"):
                     category = "overall"
-                if storage is not None and item.image_ref and "key" in item.image_ref:
-                    garment_bytes = await storage.read_object(item.image_ref["key"])
-        except Exception as e:
-            logger.warning("Could not retrieve garment image for job %s: %s", job_id, e)
+
+            if storage is not None and item.image_ref and "key" in item.image_ref:
+                try:
+                    garment_bytes = await storage.read_object(
+                        item.image_ref["key"], max_bytes=_MAX_PERSON_BYTES
+                    )
+                except Exception as e:
+                    logger.warning("Could not retrieve garment image for job %s: %s", job_id, e)
 
     # Execute provider render
     try:
@@ -774,7 +1159,6 @@ async def execute_tryon_inference(
                 max_retries=settings.tryon_commercial_max_retries,
             )
             provider = CommercialTryOnProvider(config)
-            corr_id = str(uuid4())
             result_bytes = await asyncio.to_thread(
                 provider.render,
                 person_digest=job.person_media_ref.get("contentHash") if job.person_media_ref else "",
@@ -861,16 +1245,30 @@ async def execute_tryon_inference(
         )
         return
 
-    # Check for cancellation before persisting
+    # Check for cancellation before validating/persisting
     latest = repo.get_by_id(user_id=user_id, job_id=job_id)
     if latest is not None and latest.status == "cancelled":
         logger.info("Job %s was cancelled during inference; discarding result.", job_id)
         return
 
-    # Persist generated result privately
-    is_svg = result_bytes.startswith(b"<svg")
-    result_ext = "svg" if is_svg else "jpg"
-    result_content_type = "image/svg+xml" if is_svg else "image/jpeg"
+    # Validate provider output bytes and detect true format/MIME
+    try:
+        result_content_type, result_ext = validate_and_inspect_output_image(
+            result_bytes,
+            allow_svg=(provider_name == "mock"),
+            provider_id=provider_name,
+            correlation_id=corr_id,
+        )
+    except ProviderPayloadError as e:
+        logger.warning("TryOn provider returned invalid output for job %s: %s", job_id, e.message)
+        repo.update_failure(
+            job_id=job_id,
+            error_code="INVALID_PROVIDER_OUTPUT",
+            error_message="The try-on provider returned an invalid or unsupported image.",
+            completed_at=datetime.now(timezone.utc),
+        )
+        return
+
     result_key = f"users/{user_id}/tryon/{job_id}/result.{result_ext}"
 
     result_media_ref = {
@@ -883,6 +1281,13 @@ async def execute_tryon_inference(
     }
 
     if storage is not None:
+        # Clean up previous attempt output if extension changed on retry
+        prev_key = job.result_media_ref.get("key") if job.result_media_ref else None
+        if prev_key and prev_key != result_key:
+            try:
+                await storage.delete_object(prev_key)
+            except Exception:
+                pass
         try:
             await storage.put_object(
                 result_key,
@@ -910,10 +1315,9 @@ async def execute_tryon_inference(
                 pass
         return
 
-    # Cache result bytes for in-memory / fast responses
+    # Cache result bytes only for in-memory test repository
     if isinstance(repo, InMemoryTryOnJobRepository):
         repo.set_image_bytes(job_id, result_bytes)
-    _IN_MEMORY_REPO.set_image_bytes(job_id, result_bytes)
 
     # Complete job
     updated = repo.update_result(
@@ -921,8 +1325,8 @@ async def execute_tryon_inference(
         result_media_ref=result_media_ref,
         completed_at=datetime.now(timezone.utc),
     )
-    if updated is not None and updated.status == "cancelled":
-        logger.info("Job %s was cancelled at update_result boundary; deleting result.", job_id)
+    if updated is None or updated.status != "completed":
+        logger.info("Job %s was %s at update_result boundary; deleting orphaned result.", job_id, getattr(updated, "status", "missing"))
         if storage is not None:
             try:
                 await storage.delete_object(result_key)
@@ -972,14 +1376,18 @@ def poll_job(
             seed="mock-1",
             outfit_source=job.outfit_source,
         )
+        result_ct, result_ext = validate_and_inspect_output_image(
+            rendered,
+            allow_svg=(settings.tryon_provider != "catvton"),
+            provider_id=settings.tryon_provider,
+        )
         if isinstance(repo, InMemoryTryOnJobRepository):
             repo.set_image_bytes(job.id, rendered)
-        _IN_MEMORY_REPO.set_image_bytes(job.id, rendered)
 
         now = datetime.now(timezone.utc)
         result_media_ref = {
-            "key": f"users/{job.user_id}/tryon/{job.id}/result.svg",
-            "mediaType": "image/svg+xml",
+            "key": f"users/{job.user_id}/tryon/{job.id}/result.{result_ext}",
+            "mediaType": result_ct,
             "sizeBytes": len(rendered),
             "contentHash": sha256_hex(rendered),
             "completedAt": now.isoformat(),
@@ -990,7 +1398,34 @@ def poll_job(
             result_media_ref=result_media_ref,
             completed_at=now,
         )
+        _POLL_COUNTS.pop(key, None)
+        _BYTE_CACHE.pop(key, None)
         if updated:
+            if not isinstance(repo, InMemoryTryOnJobRepository):
+                return TryOnJobRecord(
+                    id=updated.id,
+                    user_id=updated.user_id,
+                    outfit_source=updated.outfit_source,
+                    garment_id=updated.garment_id,
+                    garment_ids=updated.garment_ids,
+                    provider=updated.provider,
+                    status=updated.status,
+                    consent_version=updated.consent_version,
+                    consent_accepted_at=updated.consent_accepted_at,
+                    created_at=updated.created_at,
+                    updated_at=updated.updated_at,
+                    person_media_ref=updated.person_media_ref,
+                    result_media_ref=updated.result_media_ref,
+                    idempotency_key=updated.idempotency_key,
+                    request_fingerprint=updated.request_fingerprint,
+                    error_code=updated.error_code,
+                    error_message=updated.error_message,
+                    retry_count=updated.retry_count,
+                    retry_of_job_id=updated.retry_of_job_id,
+                    processing_started_at=updated.processing_started_at,
+                    completed_at=updated.completed_at,
+                    image_bytes=rendered,
+                )
             return updated
     return job
 
@@ -1052,6 +1487,8 @@ def cancel_job(
         status="cancelled",
         completed_at=datetime.now(timezone.utc),
     )
+    _BYTE_CACHE.pop(str(job_uuid), None)
+    _POLL_COUNTS.pop(str(job_uuid), None)
     if not updated:
         raise not_found()
     return updated
@@ -1134,6 +1571,8 @@ def recover_interrupted_jobs(
                 error_message=msg,
                 completed_at=now,
             )
+            _BYTE_CACHE.pop(str(job.id), None)
+            _POLL_COUNTS.pop(str(job.id), None)
             count += 1
     return count
 

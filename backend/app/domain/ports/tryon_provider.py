@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 import io
 import logging
 import time
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 from uuid import uuid4
 from xml.sax.saxutils import escape as _escape
 
@@ -107,6 +107,144 @@ class CommercialTryOnProviderConfig:
         )
 
 
+FASHN_CATEGORIES: frozenset[str] = frozenset({"tops", "bottoms", "one-pieces"})
+
+FASHN_CATEGORY_MAP: dict[str, str] = {
+    "tops": "tops",
+    "top": "tops",
+    "outerwear": "tops",
+    "upper": "tops",
+    "shirt": "tops",
+    "shirts": "tops",
+    "blouse": "tops",
+    "sweater": "tops",
+    "sweaters": "tops",
+    "jacket": "tops",
+    "jackets": "tops",
+    "coat": "tops",
+    "coats": "tops",
+    "blazer": "tops",
+    "blazers": "tops",
+    "tee": "tops",
+    "t-shirt": "tops",
+    "bottoms": "bottoms",
+    "bottom": "bottoms",
+    "lower": "bottoms",
+    "pants": "bottoms",
+    "trousers": "bottoms",
+    "jeans": "bottoms",
+    "skirts": "bottoms",
+    "skirt": "bottoms",
+    "shorts": "bottoms",
+    "chinos": "bottoms",
+    "one-pieces": "one-pieces",
+    "one-piece": "one-pieces",
+    "one_piece": "one-pieces",
+    "one_pieces": "one-pieces",
+    "overall": "one-pieces",
+    "dresses": "one-pieces",
+    "dress": "one-pieces",
+    "jumpsuits": "one-pieces",
+    "jumpsuit": "one-pieces",
+    "romper": "one-pieces",
+    "rompers": "one-pieces",
+}
+
+
+_MAX_PROVIDER_IMAGE_PIXELS = 12_000_000
+
+
+def validate_raster_image_bytes(
+    data: bytes,
+    label: str,
+    correlation_id: str | None = None,
+    provider_id: str = "unknown",
+) -> str:
+    """Validate raster image magic bytes and Pillow decoding (JPEG, PNG, WebP).
+
+    Raises ProviderPayloadError on empty, truncated, malformed, decompression-bomb,
+    or unsupported format payloads (including SVG/GIF/HTML).
+    """
+    from PIL import Image
+
+    if not data or len(data) < 12:
+        raise ProviderPayloadError(
+            f"{label} payload is empty or too short ({len(data) if data else 0} bytes)",
+            provider_id=provider_id,
+            correlation_id=correlation_id,
+        )
+
+    if data[:3] == b"\xff\xd8\xff":
+        expected_format, mime = "JPEG", "image/jpeg"
+    elif data[:8] == b"\x89PNG\r\n\x1a\n":
+        expected_format, mime = "PNG", "image/png"
+    elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        expected_format, mime = "WEBP", "image/webp"
+    else:
+        raise ProviderPayloadError(
+            f"{label} has unsupported or corrupt format (must be JPEG, PNG, or WebP)",
+            provider_id=provider_id,
+            correlation_id=correlation_id,
+        )
+
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            if img.format != expected_format:
+                raise ProviderPayloadError(
+                    f"{label} format {img.format!r} does not match signature {expected_format!r}",
+                    provider_id=provider_id,
+                    correlation_id=correlation_id,
+                )
+            w, h = img.size
+            if w < 1 or h < 1 or w * h > _MAX_PROVIDER_IMAGE_PIXELS:
+                raise ProviderPayloadError(
+                    f"{label} dimensions {w}x{h} exceed safety limits",
+                    provider_id=provider_id,
+                    correlation_id=correlation_id,
+                )
+            img.load()
+    except ProviderPayloadError:
+        raise
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ProviderPayloadError(
+            f"{label} rejected as decompression bomb",
+            provider_id=provider_id,
+            correlation_id=correlation_id,
+            cause=exc,
+        )
+    except Exception as exc:
+        raise ProviderPayloadError(
+            f"{label} is malformed or unreadable",
+            provider_id=provider_id,
+            correlation_id=correlation_id,
+            cause=exc,
+        )
+
+    return mime
+
+
+def map_wardrobe_category_to_fashn(
+    category: str,
+    *,
+    correlation_id: str | None = None,
+    provider_id: str = "fashn",
+) -> str:
+    """Map a Fansivibe wardrobe category to a FASHN VTON 1.5 category.
+
+    Raises ProviderPayloadError for unsupported categories (e.g. footwear,
+    accessories) rather than silently misclassifying them as tops.
+    """
+    normalized = (category or "").strip().lower()
+    mapped = FASHN_CATEGORY_MAP.get(normalized)
+    if mapped is None:
+        raise ProviderPayloadError(
+            f"Unsupported garment category for FASHN VTON: {category!r}",
+            provider_id=provider_id,
+            correlation_id=correlation_id,
+        )
+    return mapped
+
+
 @runtime_checkable
 class TryOnProvider(Protocol):
     """Render contract implemented by try-on providers."""
@@ -124,6 +262,11 @@ class TryOnProvider(Protocol):
         garment_bytes: bytes | None = None,
         category: str = "upper",
         correlation_id: str | None = None,
+        job_id: str | None = None,
+        person_image_url: str | None = None,
+        garment_image_url: str | None = None,
+        result_upload_url: str | None = None,
+        is_cancelled_fn: Callable[[], bool] | None = None,
     ) -> bytes:
         """Return result image bytes for the job."""
         ...  # pragma: no cover
@@ -229,6 +372,25 @@ class CatVTONTryOnProvider:
         import tempfile
         from PIL import Image
 
+        # Ensure category is supported (fail closed on footwear/accessories/unknown)
+        map_wardrobe_category_to_fashn(
+            category,
+            correlation_id=correlation_id,
+            provider_id=self.provider_id,
+        )
+        catvton_category_map = {
+            "tops": "upper",
+            "bottoms": "lower",
+            "one-pieces": "overall",
+        }
+        resolved_category = catvton_category_map[
+            map_wardrobe_category_to_fashn(
+                category,
+                correlation_id=correlation_id,
+                provider_id=self.provider_id,
+            )
+        ]
+
         from app.ai.manager.scheduler import get_gpu_scheduler
         from app.ai.manager.types import WorkloadType
         from app.config.settings import get_settings
@@ -329,7 +491,7 @@ class CatVTONTryOnProvider:
                         cli_script,
                         "--person", person_path,
                         "--garment", garment_path,
-                        "--category", category,
+                        "--category", resolved_category,
                         "--resolution", f"{self.resolution[0]}x{self.resolution[1]}",
                         "--output", output_path,
                         "--steps", "25",
@@ -388,7 +550,7 @@ class CatVTONTryOnProvider:
                 res = pipeline.run_inference(
                     person_image=person_img,
                     garment_image=garment_img,
-                    category=category,
+                    category=resolved_category,
                     target_resolution=self.resolution,
                     num_inference_steps=25,
                 )
@@ -405,6 +567,14 @@ class CatVTONTryOnProvider:
                     torch.cuda.synchronize()
             except Exception:
                 pass
+
+            # Validate generated output image before marking completed
+            validate_raster_image_bytes(
+                result_bytes or b"",
+                "CatVTON result image",
+                correlation_id=correlation_id,
+                provider_id=self.provider_id,
+            )
 
             # 3. Mark completed before lease release
             lease.mark_workload_completed()
@@ -449,21 +619,12 @@ class CommercialTryOnProvider:
 
     @staticmethod
     def _validate_image_format(data: bytes, label: str, correlation_id: str) -> str:
-        """Validate image magic bytes without decompressing full image in RAM."""
-        if not data or len(data) < 12:
-            raise ProviderPayloadError(
-                f"{label} payload is empty or too short ({len(data) if data else 0} bytes)",
-                correlation_id=correlation_id,
-            )
-        if data[:3] == b"\xff\xd8\xff":
-            return "image/jpeg"
-        if data[:8] == b"\x89PNG\r\n\x1a\n":
-            return "image/png"
-        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-            return "image/webp"
-        raise ProviderPayloadError(
-            f"{label} has unsupported or corrupt format (must be JPEG, PNG, or WebP)",
+        """Validate image magic bytes and Pillow decoding."""
+        return validate_raster_image_bytes(
+            data,
+            label,
             correlation_id=correlation_id,
+            provider_id="commercial",
         )
 
     def render(
@@ -483,6 +644,12 @@ class CommercialTryOnProvider:
         import httpx
 
         corr_id = correlation_id or str(uuid4())
+        # Fail closed for unsupported garment categories (e.g. footwear, accessories)
+        map_wardrobe_category_to_fashn(
+            category,
+            correlation_id=corr_id,
+            provider_id=self.provider_id,
+        )
         if person_bytes is None or len(person_bytes) == 0:
             raise ProviderPayloadError(
                 "Commercial try-on requires person image bytes",

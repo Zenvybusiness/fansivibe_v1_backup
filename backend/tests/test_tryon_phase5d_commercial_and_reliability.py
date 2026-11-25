@@ -846,11 +846,21 @@ class TestTryOnPhase5dApiEndpoints:
         assert "retention_policies" in data
         assert "quotas" in data
 
-    def test_retention_cleanup_endpoint(self):
-        client = TestClient(app)
-        resp = client.post("/v1/tryon/maintenance/retention-cleanup")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "person_photos_purged" in data
-        assert "failed_jobs_deleted" in data
-        assert "cancelled_jobs_deleted" in data
+    def test_retention_cleanup_endpoint(self, monkeypatch):
+        monkeypatch.setenv("FANSIVIBE_OPERATOR_API_KEY", "test-operator-maintenance-key-32chars!")
+        from app.config.settings import clear_settings_cache
+
+        clear_settings_cache()
+        try:
+            client = TestClient(app)
+            resp = client.post(
+                "/v1/tryon/maintenance/retention-cleanup",
+                headers={"X-Operator-Key": "test-operator-maintenance-key-32chars!"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "person_photos_purged" in data
+            assert "failed_jobs_deleted" in data
+            assert "cancelled_jobs_deleted" in data
+        finally:
+            clear_settings_cache()

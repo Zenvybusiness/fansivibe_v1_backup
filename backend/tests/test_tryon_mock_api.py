@@ -10,19 +10,28 @@ touched) and zero provider calls (no paid path exists in F0).
 
 from __future__ import annotations
 
+import io
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 import app.application.tryon as tryon_app
 from app.api.deps import get_current_user_id
 from app.infrastructure.db.session import get_db
 
+
+def _make_valid_jpeg(size: tuple[int, int] = (128, 128), color: tuple[int, int, int] = (180, 120, 90)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, color=color).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
 USER_A = uuid4()
 USER_B = uuid4()
-JPEG = ("person.jpg", b"\xff\xd8fake-person-bytes", "image/jpeg")
+JPEG = ("person.jpg", _make_valid_jpeg(), "image/jpeg")
 
 
 def _settings(**overrides):

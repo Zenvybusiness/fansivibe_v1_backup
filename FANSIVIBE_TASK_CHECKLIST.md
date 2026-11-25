@@ -111,6 +111,31 @@ Produce the standardized 15-point report:
 
 ### Executed Task Verification Records
 
+#### Phase 5E.2 Final VTON Integration Readiness Verification (2026-11-25)
+- **Status:** COMPLETED & VERIFIED
+- **Recommendation:** `PASS WITH DOCUMENTED LIMITATIONS`
+- **PostgreSQL Container & Database Safety:** Started existing `fansivibe-postgres18` (`postgres:18-alpine`, volume `backend_postgres18`) without recreation; ran all DB-backed verification strictly against disposable test DB `fansivibe_disposable_test` (migrated to head `0038`); verified `fansivibe` (`0036`), `fansivibe_test` (`0032`), and `fansivibe_phase5c_durability` (`0037`) remained untouched.
+- **Centralized Pillow Configuration:** Added `backend/app/config/image.py` (`configure_pillow_limits()`, `MAX_PILLOW_IMAGE_PIXELS = 16_777_216`) called centrally at startup in `backend/app/main.py`; removed per-request/module `Image.MAX_IMAGE_PIXELS` and `ImageFile.LOAD_TRUNCATED_IMAGES` mutations from `backend/app/application/tryon.py` and `backend/app/domain/ports/tryon_provider.py`; verified thread safety under concurrent person/output validation, bomb rejection, JPEG/PNG/WebP validation, and EXIF/GPS stripping + orientation correction.
+- **PostgreSQL Integration & Readiness Suites:**
+  - `test_tryon_phase5e_2_readiness.py` + `test_tryon_phase5e_1_security_hardening.py` + VTON suites + `test_auth_api.py` + `test_auth_unit.py`: **193/193 passed** (including 11/11 Phase 5E.2 readiness tests, 27/27 DB-backed auth API tests, VTON persistence/isolation/0038 idempotency/recovery, cancellation/retry, zero connection pool leaks, and background inference fresh-session success & failure paths).
+  - `test_media_api.py -k "not test_migration_0033_metadata_and_chain"`: **57/57 passed** (1 pre-existing head-0036 assertion deselected), including 2 genuine PostgreSQL multi-session concurrency tests.
+  - `test_media_association_p4.py` + `test_media_publication_fencing_p34.py` + `test_digital_wardrobe_e2e.py`: **47/47 passed**.
+  - `test_wardrobe_api.py`: **49/49 passed** against `fansivibe_disposable_test`.
+  - `test_storage_*.py` + `test_fake_storage.py` + `test_model_manager_scheduler.py` + `test_llm_backend_scheduler_lifecycle.py`: **140/140 passed** (55 storage + 85 scheduler).
+  - `test_db_session.py`: **26/27 passed** (1 pre-existing failure `test_12_5_catalog_db_content_parity` due to older `looks` seed rows in `fansivibe_disposable_test`).
+  - `test_settings.py` (isolated `/tmp` + `env -i`): **17/17 passed**.
+- **Documented Limitations:** Live Cloudflare R2 credentials/bucket remain unprovisioned (`MEDIA_STORAGE_PROVIDER=fake` locally); FASHN Human Parser commercial license remains pending; zero weights downloaded, zero GPU packages installed, zero RunPod deployment, zero schema changes, zero commits/pushes.
+
+#### Phase 5E.1 VTON Security, Privacy, and Reliability Hardening (2026-11-25)
+- **Status:** COMPLETED & VERIFIED
+- **Recommendation:** `PASS WITH DOCUMENTED LIMITATIONS`
+- **New Security/Hardening Suite (`test_tryon_phase5e_1_security_hardening.py`):** 38/38 passed (operator auth positive/negative tests, fake JPEG / MIME mismatch / malformed / bomb / EXIF GPS stripping / orientation preservation / JPEG-PNG-WebP validation, `_BYTE_CACHE` lifecycle eviction, SQLAlchemy session closure on success and exception, input persistence hard prerequisite and presigned URL confirmation gating, cancellation/retry orphan cleanup, JPEG/PNG/WebP/SVG/invalid provider output validation, and fail-closed footwear/accessories rejection).
+- **Combined VTON + Storage + Auth Unit + Scheduler Suites:** 271/271 passed (`test_tryon_mock_api.py`, `test_tryon_phase5c_e2e.py`, `test_tryon_reliability_and_security.py`, `test_tryon_phase5d_commercial_and_reliability.py`, `test_tryon_provider_contract_phase5e.py`, `test_tryon_phase5e_1_security_hardening.py`, `test_storage_config.py`, `test_storage_di.py`, `test_storage_adapter.py`, `test_fake_storage.py`, `test_auth_unit.py`, `test_model_manager_scheduler.py`, `test_llm_backend_scheduler_lifecycle.py`).
+- **Isolated Settings Suite (`test_settings.py`):** 17/17 passed in isolated environment (`/tmp`, `env -i`); confirmed the 2 failures when run under `backend/` were local `backend/.env` environment contamination (`YOUTUBE_DATA_API_KEY`), not application defects.
+- **Wardrobe Media Regression (`test_media_api.py -k "not test_migration_0033_metadata_and_chain"`):** 55 passed, 2 skipped (DB tests), 1 deselected (pre-existing head-0036 assertion vs repo head 0038).
+- **DB-Backed Auth API (`test_auth_api.py`):** 27 skipped (`FANSIVIBE_TEST_DATABASE_URL` unset; local `fansivibe-postgres18` container exited).
+- **Non-Deployment & Safety:** Zero DB migrations, zero RunPod/FASHN deployment, zero model weights downloaded, zero GPU packages installed, zero commits/pushes, `backend/.env` untouched, existing uncommitted changes preserved.
+
 #### Phase 5C.1 Final Integration Verification and Reliability Testing (2026-11-23)
 - **Status:** COMPLETED & EMPIRICALLY VERIFIED
 - **Recommendation:** `PASS WITH DOCUMENTED LIMITATIONS`
@@ -252,3 +277,15 @@ Produce the standardized 15-point report:
 - **Flutter Tests:** 13/13 passed in try-on suites; 51/51 passed across full Flutter regression suite; `flutter analyze` 0 issues found.
 - **PostgreSQL Database:** Verified on disposable DB `fansivibe_phase5d_disposable` (Alembic 0001 -> 0038); `fansivibe` (0036) and `fansivibe_test` (0032) completely untouched.
 - **Documented Limitations:** Live Cloudflare R2 bucket credentials not present in dev environment (R2 adapter verified with mock S3 clients and unit tests); live commercial provider selection pending user review and approval (no live commercial calls made without approval).
+
+#### Phase 5E RunPod Serverless Preparation (No Deployment) (2026-11-25)
+- **Status:** PREPARATION COMPLETE (Design & Contract Compatibility Only; No Deployment)
+- **Recommendation:** `PASS WITH DOCUMENTED LIMITATIONS` (blocked for production release on FASHN Human Parser commercial license and live Cloudflare R2 provisioning)
+- **Integration & Worker Design:** Delivered full RunPod Serverless integration contract, isolated worker container specification (`Dockerfile`, pinned deps strategy, warm-worker reuse, input/output validation, structured JSON logging without secrets/URLs/bytes, GPU telemetry, graceful shutdown, health check), security/privacy gap audit, R2 readiness audit, and empirical cost-measurement plan (`min_workers=0`, `max_workers=1`, `concurrency=1`) in `docs/architecture/VTON_PHASE5E_RUNPOD_PREPARATION.md`.
+- **Provider-Contract Compatibility Changes:**
+  - Extended `TryOnProvider.render(...)` protocol with optional URL/async correlation kwargs (`job_id`, `person_image_url`, `garment_image_url`, `result_upload_url`, `is_cancelled_fn`) and added `FASHN_CATEGORY_MAP` / `map_wardrobe_category_to_fashn` (`tops`, `bottoms`, `one-pieces`, fail-closed on unsupported categories) in `backend/app/domain/ports/tryon_provider.py`.
+  - Fixed UTC date alignment in `submit_job()` (`backend/app/application/tryon.py`) resolving timezone-dependent `test_quota_exceeded_is_429` mismatch.
+- **Tests Executed:**
+  - TryOn + Storage + Phase 5E Contract Suites: **143/143 passed** (`test_tryon_mock_api.py`, `test_tryon_phase5c_e2e.py`, `test_tryon_reliability_and_security.py`, `test_tryon_phase5d_commercial_and_reliability.py`, `test_tryon_provider_contract_phase5e.py`, `test_storage_config.py`, `test_storage_di.py`, `test_storage_adapter.py`).
+  - `test_settings.py` + `test_model_manager_scheduler.py`: 90 passed, 2 failed in `test_settings.py` due to local `backend/.env` containing `YOUTUBE_DATA_API_KEY` (pre-existing local `.env` interaction, unrelated to Phase 5E).
+- **Non-Deployment & Safety Verification:** Zero weights downloaded, zero GPU packages installed, zero Docker images built/published, zero RunPod API calls, zero DB migrations, zero commits/pushes, existing uncommitted work (`?? experiments/vton_catvton/repo/`) preserved.

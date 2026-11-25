@@ -16,6 +16,7 @@ silently become production identity.
 
 from __future__ import annotations
 
+import hmac
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
@@ -187,66 +188,182 @@ def get_discovery_event_repository(db: Session = Depends(get_db)):
     return DiscoveryEventRepositorySQL(db)
 
 
-def get_tryon_repository(request: Request) -> Any:
-    """Try-on job repository dependency seam (Phase 5C).
+def require_operator_auth(
+    x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
+) -> None:
+    """Require configured operator API key for maintenance endpoints.
+
+    User JWTs and dev user tokens are never accepted here. Fails closed
+    if FANSIVIBE_OPERATOR_API_KEY is unconfigured.
+    """
+    if not x_operator_key or not x_operator_key.strip():
+        raise authentication_error()
+    configured = get_settings().operator_api_key
+    if not configured:
+        raise ApiError(
+            status_code=503,
+            code="OPERATOR_AUTH_NOT_CONFIGURED",
+            message="Operator maintenance authentication is not configured.",
+        )
+    if not hmac.compare_digest(
+        x_operator_key.strip().encode("utf-8"),
+        configured.encode("utf-8"),
+    ):
+        raise ApiError(
+            status_code=403,
+            code="FORBIDDEN",
+            message="Operator authorization required.",
+        )
+
+
+def get_tryon_repository(request: Request):
+    """Try-on job repository dependency seam (Phase 5C / 5E.1).
 
     Resolves to TryOnJobRepositorySQL when database is available, or
     falls back cleanly to in-memory repository when database is absent/disabled.
+    Guarantees SQLAlchemy session closure via yield + finally.
     """
     override = request.app.dependency_overrides.get(get_tryon_repository)
     if override:
-        return override()
+        res = override()
+        if hasattr(res, "__next__"):
+            try:
+                yield next(res)
+            finally:
+                try:
+                    res.close()
+                except Exception:
+                    pass
+        else:
+            yield res
+        return
 
     db_override = request.app.dependency_overrides.get(get_db)
     if db_override:
+        gen = None
         try:
             res = db_override()
-            db = next(res) if hasattr(res, "__next__") else res
+            if hasattr(res, "__next__"):
+                gen = res
+                db = next(res)
+            else:
+                db = res
             from app.infrastructure.db.repositories import TryOnJobRepositorySQL
 
-            return TryOnJobRepositorySQL(db)
+            repo = TryOnJobRepositorySQL(db)
         except (AssertionError, Exception):
+            if gen is not None:
+                try:
+                    gen.close()
+                except Exception:
+                    pass
             from app.application.tryon import _IN_MEMORY_REPO
 
-            return _IN_MEMORY_REPO
+            yield _IN_MEMORY_REPO
+            return
+        try:
+            yield repo
+        finally:
+            if gen is not None:
+                try:
+                    gen.close()
+                except Exception:
+                    pass
+        return
 
+    db = None
     try:
         from app.infrastructure.db.repositories import TryOnJobRepositorySQL
         from app.infrastructure.db.session import SessionLocal
 
         db = SessionLocal()
-        return TryOnJobRepositorySQL(db)
     except Exception:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
         from app.application.tryon import _IN_MEMORY_REPO
 
-        return _IN_MEMORY_REPO
+        yield _IN_MEMORY_REPO
+        return
+
+    try:
+        yield TryOnJobRepositorySQL(db)
+    finally:
+        db.close()
 
 
-def get_tryon_wardrobe_repository(request: Request) -> Any:
-    """Wardrobe repository resolver for try-on (handles _no_db test mode cleanly)."""
+def get_tryon_wardrobe_repository(request: Request):
+    """Wardrobe repository resolver for try-on (handles _no_db test mode cleanly).
+
+    Guarantees SQLAlchemy session closure via yield + finally.
+    """
     override = request.app.dependency_overrides.get(get_wardrobe_repository)
     if override:
-        return override()
+        res = override()
+        if hasattr(res, "__next__"):
+            try:
+                yield next(res)
+            finally:
+                try:
+                    res.close()
+                except Exception:
+                    pass
+        else:
+            yield res
+        return
 
     db_override = request.app.dependency_overrides.get(get_db)
     if db_override:
+        gen = None
         try:
             res = db_override()
-            db = next(res) if hasattr(res, "__next__") else res
+            if hasattr(res, "__next__"):
+                gen = res
+                db = next(res)
+            else:
+                db = res
             from app.infrastructure.db.repositories import WardrobeItemRepositorySQL
 
-            return WardrobeItemRepositorySQL(db)
+            repo = WardrobeItemRepositorySQL(db)
         except (AssertionError, Exception):
-            return None
+            if gen is not None:
+                try:
+                    gen.close()
+                except Exception:
+                    pass
+            yield None
+            return
+        try:
+            yield repo
+        finally:
+            if gen is not None:
+                try:
+                    gen.close()
+                except Exception:
+                    pass
+        return
 
+    db = None
     try:
         from app.infrastructure.db.repositories import WardrobeItemRepositorySQL
         from app.infrastructure.db.session import SessionLocal
 
         db = SessionLocal()
-        return WardrobeItemRepositorySQL(db)
     except Exception:
-        return None
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+        yield None
+        return
+
+    try:
+        yield WardrobeItemRepositorySQL(db)
+    finally:
+        db.close()
 
 
 

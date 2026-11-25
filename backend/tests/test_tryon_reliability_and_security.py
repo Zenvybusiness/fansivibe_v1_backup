@@ -25,11 +25,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+import io
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.main import app
 import app.application.tryon as tryon_app
@@ -47,7 +49,13 @@ from tests.fakes.fake_storage import FakeStorageAdapter
 USER_A = uuid4()
 USER_B = uuid4()
 
-JPEG = ("person.jpg", b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 32, "image/jpeg")
+def _make_valid_jpeg(size: tuple[int, int] = (128, 128), color: tuple[int, int, int] = (140, 120, 100)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, color=color).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+JPEG = ("person.jpg", _make_valid_jpeg(), "image/jpeg")
 
 
 class FailingStorageAdapter(FakeStorageAdapter):

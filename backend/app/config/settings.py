@@ -161,6 +161,11 @@ class Settings(BaseSettings):
         default=2, alias="TRYON_COMMERCIAL_MAX_RETRIES"
     )
 
+    # Operator / Cron Maintenance Authentication (Phase 5E.1)
+    operator_api_key: str | None = Field(
+        default=None, alias="FANSIVIBE_OPERATOR_API_KEY", repr=False
+    )
+
     # Privacy and Media Retention Policies (Phase 5D)
     tryon_retention_enabled: bool = Field(
         default=True, alias="TRYON_RETENTION_ENABLED"
@@ -437,6 +442,16 @@ class Settings(BaseSettings):
     @field_validator("youtube_data_api_key", mode="before")
     @classmethod
     def _sanitize_youtube_data_api_key(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            val = v.strip()
+            return val if val else None
+        return v
+
+    @field_validator("operator_api_key", mode="before")
+    @classmethod
+    def _sanitize_operator_api_key(cls, v: Any) -> str | None:
         if v is None:
             return None
         if isinstance(v, str):
@@ -774,6 +789,16 @@ class Settings(BaseSettings):
                 ):
                     raise ValueError(
                         f"Production requires a secure media upload HMAC secret for key '{kid}' (at least 32 characters)."
+                    )
+            # 6. Production operator maintenance API key, if configured, must be >= 32 chars
+            if self.operator_api_key is not None:
+                if (
+                    len(self.operator_api_key) < 32
+                    or "dev" in self.operator_api_key.lower()
+                    or "insecure" in self.operator_api_key.lower()
+                ):
+                    raise ValueError(
+                        "Production FANSIVIBE_OPERATOR_API_KEY must be at least 32 characters and not a dev placeholder."
                     )
         return self
 
