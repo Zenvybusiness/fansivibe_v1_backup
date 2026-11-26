@@ -551,6 +551,7 @@ class TestGenlookProviderUnit:
             "poll_timeout_s": 1.0,
             "max_retries": 2,
             "backoff_factor": 1.0,
+            "is_production": False,
         }
         base.update(overrides)
         return GenlookTryOnConfig(**base)
@@ -1897,7 +1898,12 @@ class TestGenlookImageCompatibilityMatrix:
     def test_result_image_validation_and_expired_result_url_handling(self) -> None:
         server = MockGenlookServer()
         provider = GenlookTryOnProvider(
-            GenlookTryOnConfig(api_key=TEST_API_KEY, poll_interval_s=0.01, poll_timeout_s=1.0),
+            GenlookTryOnConfig(
+                api_key=TEST_API_KEY,
+                poll_interval_s=0.01,
+                poll_timeout_s=1.0,
+                is_production=False,
+            ),
             http_client=server,
         )
 
@@ -1934,7 +1940,12 @@ class TestPhase5F5AAuditHardening:
     def test_download_result_image_blocks_ssrf_urls_and_oversized_content_length(self) -> None:
         server = MockGenlookServer()
         provider = GenlookTryOnProvider(
-            GenlookTryOnConfig(api_key=TEST_API_KEY, poll_interval_s=0.01, poll_timeout_s=1.0),
+            GenlookTryOnConfig(
+                api_key=TEST_API_KEY,
+                poll_interval_s=0.01,
+                poll_timeout_s=1.0,
+                is_production=False,
+            ),
             http_client=server,
         )
 
@@ -2088,7 +2099,12 @@ class TestPhase5F5A1Remediation:
     def test_genlook_delete_customer_idempotency_and_transient_retry(self) -> None:
         server = MockGenlookServer()
         provider = GenlookTryOnProvider(
-            GenlookTryOnConfig(api_key=TEST_API_KEY, max_retries=1, backoff_factor=0.01),
+            GenlookTryOnConfig(
+                api_key=TEST_API_KEY,
+                max_retries=1,
+                backoff_factor=0.01,
+                is_production=False,
+            ),
             http_client=server,
         )
 
@@ -2350,7 +2366,12 @@ class TestPhase5F5A1Remediation:
         ok_12mp = _make_image_bytes("PNG", size=(4000, 3000))
         server = MockGenlookServer(result_bytes=ok_12mp)
         provider = GenlookTryOnProvider(
-            GenlookTryOnConfig(api_key=TEST_API_KEY, poll_interval_s=0.01, poll_timeout_s=1.0),
+            GenlookTryOnConfig(
+                api_key=TEST_API_KEY,
+                poll_interval_s=0.01,
+                poll_timeout_s=1.0,
+                is_production=False,
+            ),
             http_client=server,
         )
         assert provider.download_result_image("https://cdn.genlook-results.example/12mp.png") == ok_12mp
@@ -3319,6 +3340,64 @@ class TestPhase5F5CPostgresWardrobeToGenlook:
         finally:
             app.dependency_overrides.clear()
             tryon_app.reset_for_tests()
+
+
+class TestTryOnCapabilitiesContract:
+    """Verify GET /v1/tryon/capabilities exposes accurate constraints without leaking provider secrets."""
+
+    def test_capabilities_requires_auth(self) -> None:
+        from app.main import app
+
+        client = TestClient(app)
+        resp = client.get("/v1/tryon/capabilities")
+        assert resp.status_code == 401
+
+    def test_capabilities_mock_vs_genlook(self, monkeypatch) -> None:
+        from app.api.deps import get_current_user_id
+        from app.main import app
+
+        user_id = uuid4()
+        app.dependency_overrides[get_current_user_id] = lambda: user_id
+        try:
+            client = TestClient(app)
+
+            monkeypatch.setattr(
+                tryon_app,
+                "get_settings",
+                lambda: Settings(
+                    tryon_enabled=True,
+                    tryon_provider="mock",
+                    environment="development",
+                    auth_secret="test-secret-for-capabilities-contract-only",
+                ),
+            )
+            mock_resp = client.get("/v1/tryon/capabilities")
+            assert mock_resp.status_code == 200
+            mock_body = mock_resp.json()
+            assert mock_body["enabled"] is True
+            assert mock_body["is_mock"] is True
+            assert mock_body["max_garments"] == 8
+            assert mock_body["max_person_image_bytes"] == 20 * 1024 * 1024
+            assert mock_body["ai_disclosure_required"] is False
+            assert "provider" not in mock_body
+
+            monkeypatch.setattr(tryon_app, "get_settings", lambda: _genlook_settings())
+            gl_resp = client.get("/v1/tryon/capabilities")
+            assert gl_resp.status_code == 200
+            gl_body = gl_resp.json()
+            assert gl_body["enabled"] is True
+            assert gl_body["is_mock"] is False
+            assert gl_body["max_garments"] == 1
+            assert gl_body["max_person_image_bytes"] == 10 * 1024 * 1024
+            assert gl_body["min_image_edge"] == 64
+            assert gl_body["max_image_edge"] == 4096
+            assert gl_body["max_image_pixels"] == 12_000_000
+            assert gl_body["consent_version"] == "tryon-v1"
+            assert gl_body["ai_disclosure_required"] is True
+            assert "genlook" not in json.dumps(gl_body).lower()
+        finally:
+            app.dependency_overrides.clear()
+
 
 
 

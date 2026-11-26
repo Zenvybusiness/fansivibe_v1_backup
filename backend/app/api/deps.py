@@ -17,6 +17,7 @@ silently become production identity.
 from __future__ import annotations
 
 import hmac
+import logging
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
@@ -39,6 +40,7 @@ DEV_TOKEN = get_settings().dev_token
 _DEV_PROVIDER = "dev"
 _DEV_SUBJECT = "dev-user"
 _DEV_DISPLAY_NAME = "Dev User"
+_logger = logging.getLogger("fansivibe.api.deps")
 
 
 def _seeded_dev_user(session: Session) -> UUID:
@@ -79,7 +81,7 @@ def get_current_user_id(
         return user_id
     except ApiError:
         pass
-    if settings.allow_dev_token and token == DEV_TOKEN:
+    if settings.allow_dev_token and token == settings.dev_token:
         try:
             return _seeded_dev_user(db)
         except Exception:
@@ -189,6 +191,7 @@ def get_discovery_event_repository(db: Session = Depends(get_db)):
 
 
 def require_operator_auth(
+    request: Request,
     x_operator_key: str | None = Header(default=None, alias="X-Operator-Key"),
 ) -> None:
     """Require configured operator API key for maintenance endpoints.
@@ -196,10 +199,23 @@ def require_operator_auth(
     User JWTs and dev user tokens are never accepted here. Fails closed
     if FANSIVIBE_OPERATOR_API_KEY is unconfigured.
     """
+    from app.telemetry.metrics import get_metrics_collector
+
+    endpoint = request.url.path if request is not None else "operator"
     if not x_operator_key or not x_operator_key.strip():
+        get_metrics_collector().record_tryon_auth_failure(endpoint=endpoint, status_code=401)
+        _logger.warning(
+            "Operator auth missing header [event=tryon_auth_failure, endpoint=%s, status=401]",
+            endpoint,
+        )
         raise authentication_error()
     configured = get_settings().operator_api_key
     if not configured:
+        get_metrics_collector().record_tryon_auth_failure(endpoint=endpoint, status_code=503)
+        _logger.error(
+            "Operator auth unconfigured [event=tryon_auth_failure, endpoint=%s, status=503]",
+            endpoint,
+        )
         raise ApiError(
             status_code=503,
             code="OPERATOR_AUTH_NOT_CONFIGURED",
@@ -209,6 +225,11 @@ def require_operator_auth(
         x_operator_key.strip().encode("utf-8"),
         configured.encode("utf-8"),
     ):
+        get_metrics_collector().record_tryon_auth_failure(endpoint=endpoint, status_code=403)
+        _logger.warning(
+            "Operator auth rejected invalid key [event=tryon_auth_failure, endpoint=%s, status=403]",
+            endpoint,
+        )
         raise ApiError(
             status_code=403,
             code="FORBIDDEN",

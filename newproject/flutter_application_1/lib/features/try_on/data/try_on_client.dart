@@ -9,33 +9,30 @@ import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/try_on/data/try_on_models.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 
-/// HTTP client for the Stage F0 mock try-on surface.
+/// HTTP client for the Fansivibe Virtual Try-On API (`/v1/tryon/*`).
 ///
-/// Endpoints: `POST /v1/tryon/jobs` (multipart person photo + outfit
-/// refs, 202), `GET /v1/tryon/jobs/{id}` (poll), `GET
-/// /v1/tryon/jobs/{id}/image` (mock SVG bytes).
-///
-/// Same conventions as the garment client: session-first Bearer token,
-/// 20 MB client-side guard mirroring the backend contract, 30s timeout
-/// for the multipart submit, 12s for polls/reads. Calls never throw —
-/// result objects let the caller render honest states. The client never
-/// talks to a real AI provider (DEC-003): `mock` is the only provider
-/// in F0 and every response is labelled test data.
+/// Session-first Bearer auth (D-AUTH-1), client-side bounds mirroring the
+/// backend contract, typed error parsing from FastAPI's `{"error": ...}`
+/// envelope, and zero secret/image/signed-URL logging.
 class TryOnClient {
-  TryOnClient({http.Client? client}) : _client = client ?? http.Client();
+  TryOnClient({http.Client? client, String? baseUrl})
+      : _client = client ?? http.Client(),
+        _baseUrl = baseUrl ?? AppConfig.apiBaseUrl;
 
   static const String baseUrl = AppConfig.apiBaseUrl;
+
+  final String _baseUrl;
 
   static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',
     defaultValue: 'dev',
   );
 
-  /// Session-first Bearer token (D-AUTH-1).
   static String get _devToken => AuthSession.effectiveToken(_devTokenDefault);
 
-  /// Client-side size guard mirroring the backend 20 MB contract.
+  /// Maximum general person image size (20 MB); Genlook caps at 10 MB.
   static const int maxImageBytes = 20 * 1024 * 1024;
+  static const int genlookMaxImageBytes = 10 * 1024 * 1024;
 
   final http.Client _client;
   static const Duration _submitTimeout = Duration(seconds: 30);
@@ -45,21 +42,68 @@ class TryOnClient {
     'Authorization': 'Bearer $_devToken',
   };
 
-  static String _contentTypeFor(String filename) {
+  static String _contentTypeFor(String filename, [String? explicitMime]) {
+    if (explicitMime != null &&
+        (explicitMime == 'image/jpeg' ||
+            explicitMime == 'image/png' ||
+            explicitMime == 'image/webp')) {
+      return explicitMime;
+    }
     final lower = filename.toLowerCase();
     if (lower.endsWith('.png')) return 'image/png';
     if (lower.endsWith('.webp')) return 'image/webp';
     return 'image/jpeg';
   }
 
-  static TryOnFailure _failureOf(int statusCode) {
+  static ({String? code, String? message}) _parseApiError(String body) {
+    if (body.isEmpty) return (code: null, message: null);
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        final err = decoded['error'];
+        if (err is Map<String, dynamic>) {
+          final code = err['code'] as String?;
+          final msg = err['message'] as String?;
+          final details = err['details'];
+          if (details is Map<String, dynamic>) {
+            final fieldErrors = details['field_errors'];
+            if (fieldErrors is List && fieldErrors.isNotEmpty) {
+              final first = fieldErrors.first;
+              if (first is Map<String, dynamic>) {
+                final field = first['field']?.toString() ?? '';
+                final errText = first['error']?.toString() ?? '';
+                if (errText.isNotEmpty) {
+                  return (
+                    code: code,
+                    message: field.isNotEmpty ? '$field: $errText' : errText,
+                  );
+                }
+              }
+            }
+          }
+          return (code: code, message: msg);
+        }
+      }
+    } catch (_) {}
+    return (code: null, message: null);
+  }
+
+  static TryOnFailure _failureOf(int statusCode, [String? message]) {
     switch (statusCode) {
       case 401:
         return TryOnFailure.unauthorized;
+      case 404:
+        return TryOnFailure.notFound;
+      case 409:
+        return TryOnFailure.conflict;
       case 422:
         return TryOnFailure.invalidInput;
       case 429:
-        return TryOnFailure.quotaExceeded;
+        final lower = (message ?? '').toLowerCase();
+        if (lower.contains('daily') || lower.contains('quota')) {
+          return TryOnFailure.quotaExceeded;
+        }
+        return TryOnFailure.rateLimited;
       case 503:
         return TryOnFailure.serviceUnavailable;
       case 504:
@@ -69,34 +113,59 @@ class TryOnClient {
     }
   }
 
-  /// Submits one mock try-on job.
-  ///
-  /// [garmentIds] are labels only (the backend cannot retrieve wardrobe
-  /// pixels — audit finding); the person photo is hashed and discarded
-  /// server-side. One network call maps to one [TryOnSubmitResult]:
-  /// accepted job on 202, typed failure on rejection, null job + null
-  /// failure on transport failure (caller shows the network state).
+  /// Fetches backend try-on capabilities (`GET /v1/tryon/capabilities`).
+  /// Returns null when the endpoint is unavailable (caller uses conservative fallback).
+  Future<TryOnCapabilities?> getCapabilities() async {
+    try {
+      final response = await _client
+          .get(
+            Uri.parse('$_baseUrl/v1/tryon/capabilities'),
+            headers: _authHeaders,
+          )
+          .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          return TryOnCapabilities.fromJson(decoded);
+        }
+      } else if (response.statusCode == 401) {
+        AuthSession.notifyUnauthorized();
+      }
+    } catch (error) {
+      debugPrint('TryOn capabilities unavailable: $error');
+    }
+    return null;
+  }
+
+  /// Submits one try-on job (`POST /v1/tryon/jobs`, 202 Accepted).
   Future<TryOnSubmitResult> submitMockTryOn({
     required Uint8List personBytes,
     String personFilename = 'tryon_person.jpg',
+    String? personContentType,
     required String outfitSource,
     required List<String> garmentIds,
     String consentVersion = TryOnConsentVersion.current,
     required bool consentAccepted,
     required String idempotencyKey,
+    int maxBytes = maxImageBytes,
   }) async {
-    if (personBytes.isEmpty || personBytes.length > maxImageBytes) {
+    if (personBytes.isEmpty || personBytes.length > maxBytes) {
       debugPrint('TryOn submit refused image (${personBytes.length} bytes).');
-      return const TryOnSubmitResult(failure: TryOnFailure.invalidInput);
+      return const TryOnSubmitResult(
+        failure: TryOnFailure.invalidInput,
+        errorMessage: 'Selected photo is empty or exceeds the maximum file size.',
+      );
     }
     if (idempotencyKey.isEmpty) {
       debugPrint('TryOn submit refused: Idempotency-Key is required.');
       return const TryOnSubmitResult(failure: TryOnFailure.invalidInput);
     }
     try {
+      final mime = _contentTypeFor(personFilename, personContentType);
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse('$baseUrl/v1/tryon/jobs'),
+        Uri.parse('$_baseUrl/v1/tryon/jobs'),
       )
         ..headers['Authorization'] = 'Bearer $_devToken'
         ..headers['Idempotency-Key'] = idempotencyKey
@@ -109,7 +178,7 @@ class TryOnClient {
             'person_image',
             personBytes,
             filename: personFilename,
-            contentType: MediaType.parse(_contentTypeFor(personFilename)),
+            contentType: MediaType.parse(mime),
           ),
         );
       final streamed = await _client.send(request).timeout(_submitTimeout);
@@ -122,28 +191,45 @@ class TryOnClient {
         final job = decoded is Map<String, dynamic>
             ? TryOnJob.fromJson(decoded)
             : null;
-        if (job != null) return TryOnSubmitResult(job: job);
-        return const TryOnSubmitResult(failure: TryOnFailure.unknown);
+        if (job != null) return TryOnSubmitResult(job: job, statusCode: 202);
+        return const TryOnSubmitResult(
+          failure: TryOnFailure.unknown,
+          statusCode: 202,
+        );
       }
       if (response.statusCode == 401) AuthSession.notifyUnauthorized();
+      final parsedErr = _parseApiError(response.body);
       debugPrint(
-        'TryOn submit responded ${response.statusCode}: ${response.body}',
+        'TryOn submit responded ${response.statusCode} (${parsedErr.code ?? "unknown"}).',
       );
-      return TryOnSubmitResult(failure: _failureOf(response.statusCode));
+      return TryOnSubmitResult(
+        failure: _failureOf(response.statusCode, parsedErr.message),
+        errorCode: parsedErr.code,
+        errorMessage: parsedErr.message,
+        statusCode: response.statusCode,
+      );
+    } on TimeoutException catch (error) {
+      debugPrint('TryOn submit timed out: $error');
+      return const TryOnSubmitResult(
+        failure: TryOnFailure.timeout,
+        errorMessage:
+            'Request timed out before confirmation. Tap Try Again to check or retry safely without creating a duplicate job.',
+      );
     } catch (error) {
       debugPrint('TryOn backend unreachable during submit: $error');
-      return const TryOnSubmitResult();
+      return const TryOnSubmitResult(failure: TryOnFailure.networkError);
     }
   }
 
-  /// Polls one mock job. Null means "still unknown" (transport failure
-  /// or unparseable body) — the caller keeps polling or shows retry.
-  Future<TryOnJobStatus?> getJobStatus(String jobId) async {
-    if (jobId.isEmpty) return null;
+  /// Polls one job and returns full status + HTTP failure distinction.
+  Future<TryOnStatusOutcome> getJobStatusOutcome(String jobId) async {
+    if (jobId.isEmpty) {
+      return const TryOnStatusOutcome(failure: TryOnFailure.invalidInput);
+    }
     try {
       final response = await _client
           .get(
-            Uri.parse('$baseUrl/v1/tryon/jobs/$jobId'),
+            Uri.parse('$_baseUrl/v1/tryon/jobs/$jobId'),
             headers: _authHeaders,
           )
           .timeout(_timeout);
@@ -151,44 +237,84 @@ class TryOnClient {
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
         if (decoded is Map<String, dynamic>) {
-          return TryOnJobStatus.fromJson(decoded);
+          final parsed = TryOnJobStatus.fromJson(decoded);
+          if (parsed != null) {
+            return TryOnStatusOutcome(status: parsed, statusCode: 200);
+          }
         }
-      } else if (response.statusCode == 401) {
-        AuthSession.notifyUnauthorized();
+        return const TryOnStatusOutcome(
+          failure: TryOnFailure.unknown,
+          statusCode: 200,
+        );
       }
+      if (response.statusCode == 401) AuthSession.notifyUnauthorized();
+      final parsedErr = _parseApiError(response.body);
+      return TryOnStatusOutcome(
+        failure: _failureOf(response.statusCode, parsedErr.message),
+        errorMessage: parsedErr.message,
+        statusCode: response.statusCode,
+      );
     } catch (error) {
       debugPrint('TryOn backend unreachable during poll: $error');
+      return const TryOnStatusOutcome(failure: TryOnFailure.networkError);
     }
-    return null;
   }
 
-  /// Fetches the composite image bytes (completed jobs only).
-  Future<Uint8List?> getJobImage(String jobId) async {
-    if (jobId.isEmpty) return null;
+  /// Polls one job. Null means transport/non-200 failure.
+  Future<TryOnJobStatus?> getJobStatus(String jobId) async {
+    final outcome = await getJobStatusOutcome(jobId);
+    return outcome.status;
+  }
+
+  /// Fetches the generated image bytes with explicit status/failure info.
+  Future<TryOnImageOutcome> getJobImageOutcome(String jobId) async {
+    if (jobId.isEmpty) {
+      return const TryOnImageOutcome(failure: TryOnFailure.invalidInput);
+    }
     try {
       final response = await _client
           .get(
-            Uri.parse('$baseUrl/v1/tryon/jobs/$jobId/image'),
+            Uri.parse('$_baseUrl/v1/tryon/jobs/$jobId/image'),
             headers: _authHeaders,
           )
           .timeout(_timeout);
       AuthSession.noteStatus(response.statusCode);
-      if (response.statusCode == 200) return response.bodyBytes;
+      if (response.statusCode == 200) {
+        return TryOnImageOutcome(
+          bytes: response.bodyBytes,
+          contentType: response.headers['content-type'],
+          statusCode: 200,
+        );
+      }
       if (response.statusCode == 401) AuthSession.notifyUnauthorized();
+      final parsedErr = _parseApiError(response.body);
       debugPrint('TryOn image responded ${response.statusCode}.');
+      return TryOnImageOutcome(
+        failure: _failureOf(response.statusCode, parsedErr.message),
+        errorMessage: parsedErr.message,
+        statusCode: response.statusCode,
+      );
     } catch (error) {
       debugPrint('TryOn backend unreachable during image fetch: $error');
+      return const TryOnImageOutcome(failure: TryOnFailure.networkError);
     }
-    return null;
   }
 
-  /// Retries an eligible failed try-on job.
+  /// Fetches the composite image bytes (completed jobs only).
+  Future<Uint8List?> getJobImage(String jobId) async {
+    final outcome = await getJobImageOutcome(jobId);
+    return outcome.bytes;
+  }
+
+  /// Retries an eligible failed or cancelled try-on job.
   Future<TryOnSubmitResult> retryJob(String jobId) async {
-    if (jobId.isEmpty) return const TryOnSubmitResult(failure: TryOnFailure.invalidInput);
+    if (jobId.isEmpty) {
+      return const TryOnSubmitResult(failure: TryOnFailure.invalidInput);
+    }
     try {
       final response = await _client
           .post(
-            Uri.parse('$baseUrl/v1/tryon/jobs/$jobId/retry'),
+            Uri.parse('$_baseUrl/v1/tryon/jobs/$jobId/retry'),
             headers: _authHeaders,
           )
           .timeout(_submitTimeout);
@@ -198,14 +324,30 @@ class TryOnClient {
         final job = decoded is Map<String, dynamic>
             ? TryOnJob.fromJson(decoded)
             : null;
-        if (job != null) return TryOnSubmitResult(job: job);
-        return const TryOnSubmitResult(failure: TryOnFailure.unknown);
+        if (job != null) return TryOnSubmitResult(job: job, statusCode: 202);
+        return const TryOnSubmitResult(
+          failure: TryOnFailure.unknown,
+          statusCode: 202,
+        );
       }
       if (response.statusCode == 401) AuthSession.notifyUnauthorized();
-      return TryOnSubmitResult(failure: _failureOf(response.statusCode));
+      final parsedErr = _parseApiError(response.body);
+      return TryOnSubmitResult(
+        failure: _failureOf(response.statusCode, parsedErr.message),
+        errorCode: parsedErr.code,
+        errorMessage: parsedErr.message,
+        statusCode: response.statusCode,
+      );
+    } on TimeoutException catch (error) {
+      debugPrint('TryOn retry timed out: $error');
+      return const TryOnSubmitResult(
+        failure: TryOnFailure.timeout,
+        errorMessage:
+            'Retry request timed out. Tap Try Again to safely re-check status.',
+      );
     } catch (error) {
       debugPrint('TryOn backend unreachable during retry: $error');
-      return const TryOnSubmitResult();
+      return const TryOnSubmitResult(failure: TryOnFailure.networkError);
     }
   }
 
@@ -215,7 +357,7 @@ class TryOnClient {
     try {
       final response = await _client
           .post(
-            Uri.parse('$baseUrl/v1/tryon/jobs/$jobId/cancel'),
+            Uri.parse('$_baseUrl/v1/tryon/jobs/$jobId/cancel'),
             headers: _authHeaders,
           )
           .timeout(_timeout);
@@ -239,7 +381,7 @@ class TryOnClient {
     try {
       final response = await _client
           .delete(
-            Uri.parse('$baseUrl/v1/tryon/jobs/$jobId'),
+            Uri.parse('$_baseUrl/v1/tryon/jobs/$jobId'),
             headers: _authHeaders,
           )
           .timeout(_timeout);

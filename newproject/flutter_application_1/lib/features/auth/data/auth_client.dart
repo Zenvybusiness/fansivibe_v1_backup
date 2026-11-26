@@ -27,10 +27,14 @@ import 'package:fansivibe/shared/utils/local_storage.dart';
 /// typed ([AuthResult]) — never a fake success, never throws, never
 /// logs credentials or tokens.
 class AuthClient {
-  AuthClient({http.Client? client}) : _client = client ?? http.Client();
+  AuthClient({http.Client? client, String? baseUrl})
+      : _client = client ?? http.Client(),
+        _baseUrl = baseUrl ?? AppConfig.apiBaseUrl;
 
   /// Canonical base URL — single source of truth is [AppConfig.apiBaseUrl].
   static const String baseUrl = AppConfig.apiBaseUrl;
+
+  final String _baseUrl;
 
   final http.Client _client;
   static const Duration _timeout = Duration(seconds: 12);
@@ -53,7 +57,7 @@ class AuthClient {
     try {
       final response = await _client
           .post(
-            Uri.parse('$baseUrl/v1/auth/register'),
+            Uri.parse('$_baseUrl/v1/auth/register'),
             headers: {..._jsonHeaders, 'Idempotency-Key': idempotencyKey},
             body: jsonEncode({
               'email': email,
@@ -80,7 +84,7 @@ class AuthClient {
     try {
       final response = await _client
           .post(
-            Uri.parse('$baseUrl/v1/auth/login'),
+            Uri.parse('$_baseUrl/v1/auth/login'),
             headers: _jsonHeaders,
             body: jsonEncode({'email': email, 'password': password}),
           )
@@ -120,7 +124,7 @@ class AuthClient {
       try {
         await _client
             .post(
-              Uri.parse('$baseUrl/v1/auth/logout'),
+              Uri.parse('$_baseUrl/v1/auth/logout'),
               headers: {'Authorization': 'Bearer $token'},
             )
             .timeout(_timeout);
@@ -146,7 +150,7 @@ class AuthClient {
     try {
       final response = await _client
           .get(
-            Uri.parse('$baseUrl/v1/users/me'),
+            Uri.parse('$_baseUrl/v1/users/me'),
             headers: {'Authorization': 'Bearer $token'},
           )
           .timeout(_timeout);
@@ -171,7 +175,7 @@ class AuthClient {
     try {
       final response = await _client
           .post(
-            Uri.parse('$baseUrl/v1/auth/social'),
+            Uri.parse('$_baseUrl/v1/auth/social'),
             headers: _jsonHeaders,
             body: jsonEncode({
               'provider': provider,

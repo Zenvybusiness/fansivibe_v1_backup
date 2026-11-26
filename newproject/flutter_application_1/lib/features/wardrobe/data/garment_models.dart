@@ -1,5 +1,7 @@
+import 'dart:typed_data';
+
 /// Garment analysis result — the validated observation snapshot from
-/// `POST /v1/analysis/garment` (M11 wardrobe intelligence).
+/// `POST /v1/analysis/garment` (M11 / P5.1 wardrobe intelligence).
 ///
 /// Every attribute is either observed or null. Null means "not clearly
 /// visible" — the UI renders `Not detected` and leaves the field for the
@@ -26,6 +28,18 @@ class GarmentCandidate {
     this.confidence,
     this.needsReview = true,
     this.isSelected = true,
+    this.isSaved = false,
+    this.hasCrop = false,
+    this.cropKey,
+    this.cropUrl,
+    this.cropWidth,
+    this.cropHeight,
+    this.cropError,
+    this.cropBytes,
+    this.extractionMethod,
+    this.hasSegmentationMask = false,
+    this.mask,
+    this.segmentation,
   });
 
   final String? id;
@@ -46,6 +60,18 @@ class GarmentCandidate {
   final double? confidence;
   final bool needsReview;
   final bool isSelected;
+  final bool isSaved;
+  final bool hasCrop;
+  final String? cropKey;
+  final String? cropUrl;
+  final int? cropWidth;
+  final int? cropHeight;
+  final String? cropError;
+  final Uint8List? cropBytes;
+  final String? extractionMethod;
+  final bool hasSegmentationMask;
+  final Map<String, dynamic>? mask;
+  final Map<String, dynamic>? segmentation;
 
   GarmentCandidate copyWith({
     String? id,
@@ -66,6 +92,18 @@ class GarmentCandidate {
     double? confidence,
     bool? needsReview,
     bool? isSelected,
+    bool? isSaved,
+    bool? hasCrop,
+    String? cropKey,
+    String? cropUrl,
+    int? cropWidth,
+    int? cropHeight,
+    String? cropError,
+    Uint8List? cropBytes,
+    String? extractionMethod,
+    bool? hasSegmentationMask,
+    Map<String, dynamic>? mask,
+    Map<String, dynamic>? segmentation,
   }) {
     return GarmentCandidate(
       id: id ?? this.id,
@@ -86,6 +124,18 @@ class GarmentCandidate {
       confidence: confidence ?? this.confidence,
       needsReview: needsReview ?? this.needsReview,
       isSelected: isSelected ?? this.isSelected,
+      isSaved: isSaved ?? this.isSaved,
+      hasCrop: hasCrop ?? this.hasCrop,
+      cropKey: cropKey ?? this.cropKey,
+      cropUrl: cropUrl ?? this.cropUrl,
+      cropWidth: cropWidth ?? this.cropWidth,
+      cropHeight: cropHeight ?? this.cropHeight,
+      cropError: cropError ?? this.cropError,
+      cropBytes: cropBytes ?? this.cropBytes,
+      extractionMethod: extractionMethod ?? this.extractionMethod,
+      hasSegmentationMask: hasSegmentationMask ?? this.hasSegmentationMask,
+      mask: mask ?? this.mask,
+      segmentation: segmentation ?? this.segmentation,
     );
   }
 
@@ -110,7 +160,9 @@ class GarmentCandidate {
     return GarmentCandidate(
       id: GarmentAnalysisResult.optString(json['id']),
       category: rawCat,
-      subcategory: GarmentAnalysisResult.optString(json['subcategory'] ?? json['name']),
+      subcategory: GarmentAnalysisResult.optString(
+        json['subcategory'] ?? json['name'],
+      ),
       color: GarmentAnalysisResult.optString(json['color']),
       secondaryColors: secColors,
       pattern: GarmentAnalysisResult.optString(json['pattern']),
@@ -128,6 +180,22 @@ class GarmentCandidate {
       confidence: confidence,
       needsReview: json['needs_review'] as bool? ?? true,
       isSelected: true,
+      hasCrop: json['has_crop'] as bool? ?? false,
+      cropKey: GarmentAnalysisResult.optString(json['crop_key']),
+      cropUrl: GarmentAnalysisResult.optString(json['crop_url']),
+      cropWidth: (json['crop_width'] as num?)?.toInt(),
+      cropHeight: (json['crop_height'] as num?)?.toInt(),
+      cropError: GarmentAnalysisResult.optString(json['crop_error']),
+      extractionMethod: GarmentAnalysisResult.optString(
+        json['extraction_method'],
+      ),
+      hasSegmentationMask: json['has_segmentation_mask'] as bool? ?? false,
+      mask: json['mask'] is Map<String, dynamic>
+          ? json['mask'] as Map<String, dynamic>
+          : null,
+      segmentation: json['segmentation'] is Map<String, dynamic>
+          ? json['segmentation'] as Map<String, dynamic>
+          : null,
     );
   }
 }
@@ -144,6 +212,10 @@ class GarmentAnalysisResult {
     this.confidence,
     this.needsReview = true,
     this.sourceRunId,
+    this.extractionMethod,
+    this.hasSegmentationMask = false,
+    this.segmentation,
+    this.partialFailures = const [],
     this.candidates = const [],
   });
 
@@ -166,6 +238,11 @@ class GarmentAnalysisResult {
 
   /// Producing run id (provenance), when the backend attaches it.
   final String? sourceRunId;
+
+  final String? extractionMethod;
+  final bool hasSegmentationMask;
+  final Map<String, dynamic>? segmentation;
+  final List<Map<String, dynamic>> partialFailures;
 
   /// Individual detected garment candidates from this extraction.
   final List<GarmentCandidate> candidates;
@@ -228,9 +305,24 @@ class GarmentAnalysisResult {
           description: optString(json['description']),
           confidence: confidence,
           needsReview: json['needs_review'] as bool? ?? true,
+          extractionMethod: optString(json['extraction_method']),
+          hasSegmentationMask: json['has_segmentation_mask'] as bool? ?? false,
+          segmentation: json['segmentation'] is Map<String, dynamic>
+              ? json['segmentation'] as Map<String, dynamic>
+              : null,
           isSelected: true,
         ),
       );
+    }
+
+    final failures = <Map<String, dynamic>>[];
+    final rawFailures = json['partial_failures'];
+    if (rawFailures is List) {
+      for (final entry in rawFailures) {
+        if (entry is Map<String, dynamic>) {
+          failures.add(entry);
+        }
+      }
     }
 
     return GarmentAnalysisResult(
@@ -244,6 +336,12 @@ class GarmentAnalysisResult {
       confidence: confidence,
       needsReview: json['needs_review'] as bool? ?? true,
       sourceRunId: optString(json['sourceRunId']),
+      extractionMethod: optString(json['extraction_method']),
+      hasSegmentationMask: json['has_segmentation_mask'] as bool? ?? false,
+      segmentation: json['segmentation'] is Map<String, dynamic>
+          ? json['segmentation'] as Map<String, dynamic>
+          : null,
+      partialFailures: failures,
       candidates: parsedCandidates,
     );
   }
@@ -252,7 +350,9 @@ class GarmentAnalysisResult {
   /// throw — silently stringifying them would fabricate attributes.
   static String? optString(Object? raw) {
     if (raw == null) return null;
-    if (raw is! String) throw const FormatException('Invalid garment attribute');
+    if (raw is! String) {
+      throw const FormatException('Invalid garment attribute');
+    }
     final text = raw.trim();
     return text.isEmpty ? null : text;
   }

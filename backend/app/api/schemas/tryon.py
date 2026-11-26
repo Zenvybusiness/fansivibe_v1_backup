@@ -25,3 +25,19 @@ class TryOnJobStatus(BaseModel):
     garment_ids: list[str] = []
     result_media_ref: dict | None = None
 
+
+class TryOnCapabilitiesResponse(BaseModel):
+    enabled: bool
+    is_mock: bool
+    max_garments: int
+    max_person_image_bytes: int
+    min_image_edge: int
+    max_image_edge: int
+    max_image_pixels: int
+    allowed_mime_types: list[str]
+    consent_version: str
+    poll_interval_seconds: float
+    poll_timeout_seconds: float
+    ai_disclosure_required: bool
+
+

@@ -8,12 +8,20 @@ failure. Business rules live here, not in the routers.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import asyncio
 from dataclasses import replace
 from typing import Callable, Optional
 from uuid import UUID, uuid4
 
 from app.api.errors import ApiError, ai_failure, conflict, not_found, validation
 from app.application.enrichment import enrich_hairstyle_result
+from app.application.garment_extraction import (
+    GarmentImageValidationError,
+    detect_magic_mime,
+    persist_extraction_crops,
+    prepare_candidate_crops,
+    validate_and_normalize_garment_image,
+)
 from app.application.learning import mark_styled_today
 from app.application.media import build_media_ref, read_image_bytes
 from app.ai.vision_appearance_adapter import AppearanceAnalysisError
@@ -22,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.domain.ports.garment_analysis import GarmentAnalysisPort
 from app.domain.ports.external import KnowledgeError, KnowledgeSource
+from app.domain.ports.storage import ObjectStoragePort
 from app.domain.ports.repositories import (
     ActivityDayRepository,
     AnalysisRunRepository,
@@ -876,15 +885,14 @@ class CreateGroomingRun:
 
 
 class CreateGarmentRun:
-    """M11 — submit a garment analysis (wardrobe image pass).
+    """M11 / P5.1 — submit a garment analysis (wardrobe image pass).
 
-    Garment-typed run → GarmentAnalysisPort → GarmentProfile → completed /
-    failed run whose ``result`` is the observation snapshot verbatim. There
-    is deliberately NO decision-engine step: the observation IS the result
-    (no recommendation is derived), and nothing is written to
-    ``user_state`` or ``wardrobe_items`` here — persisting a wardrobe item
-    from a garment run is the user-confirmed save path's job
-    (``POST /v1/wardrobe/items`` with vocab-validated fields).
+    Garment-typed run → image validation & EXIF normalization →
+    GarmentAnalysisPort → bounding-box crop extraction → private storage →
+    completed / failed run whose ``result`` is the observation snapshot.
+    There is deliberately NO decision-engine step and nothing is written to
+    ``user_state`` or ``wardrobe_items`` here — persisting selected wardrobe
+    items happens only after explicit user confirmation.
 
     ``garment_port`` is REQUIRED (no default): the development/hash adapter
     must never silently back this path.
@@ -895,13 +903,15 @@ class CreateGarmentRun:
         *,
         runs: AnalysisRunRepository,
         garment_port: GarmentAnalysisPort,
+        storage: ObjectStoragePort | None = None,
     ) -> None:
         self._runs = runs
         self._garment_port = garment_port
+        self._storage = storage
 
-    def __call__(
+    def _prepare_run(
         self, *, user_id: UUID, image: any, idempotency_key: Optional[str] = None
-    ) -> UUID:
+    ) -> tuple[UUID, bool, bytes, str, dict]:
         # Validate image content-type
         content_type = getattr(image, "content_type", None)
         if content_type not in {"image/jpeg", "image/png", "image/webp"}:
@@ -919,6 +929,11 @@ class CreateGarmentRun:
 
         # Construct MediaRef from the actual received bytes (real SHA-256).
         content = read_image_bytes(image)
+        if len(content) > 20 * 1024 * 1024:
+            raise validation(
+                [{"field": "image", "error": f"image too large ({len(content)} bytes), max 20 MB"}]
+            )
+
         media_ref = build_media_ref(
             user_id=user_id,
             content_type=content_type,
@@ -938,7 +953,14 @@ class CreateGarmentRun:
                     incoming_hash = media_ref.get("contentHash") or media_ref.get("sha256")
                     if existing_hash and incoming_hash and existing_hash != incoming_hash:
                         raise conflict("duplicate")
-                return existing.id
+                return existing.id, True, content, content_type, media_ref
+
+        if getattr(self._garment_port, "validates_image_signature", False):
+            detected_mime = detect_magic_mime(content)
+            if detected_mime is None or detected_mime != content_type:
+                raise validation(
+                    [{"field": "image", "error": "invalid or corrupted image file signature"}]
+                )
 
         # Step 1: Create analysis run (pending)
         try:
@@ -963,13 +985,41 @@ class CreateGarmentRun:
                         incoming_hash = media_ref.get("contentHash") or media_ref.get("sha256")
                         if existing_hash and incoming_hash and existing_hash != incoming_hash:
                             raise conflict("duplicate")
-                    return existing.id
+                    return existing.id, True, content, content_type, media_ref
             raise
 
-        # Step 2: Run garment analysis adapter
+        return run_id, False, content, content_type, media_ref
+
+    def _run_analysis_and_crop(
+        self,
+        *,
+        run_id: UUID,
+        user_id: UUID,
+        content: bytes,
+        content_type: str,
+        media_ref: dict,
+    ) -> tuple[dict | None, list[tuple[str, str, bytes, dict[str, str]]]]:
+        validated = None
+        vlm_bytes = content
+        if getattr(self._garment_port, "validates_image_signature", False):
+            try:
+                validated = validate_and_normalize_garment_image(content, content_type)
+                vlm_bytes = validated.vlm_bytes
+            except GarmentImageValidationError as exc:
+                self._runs.fail(
+                    run_id=run_id,
+                    user_id=user_id,
+                    error={
+                        "code": "PROCESSING_FAILURE",
+                        "message": exc.message,
+                        "details": {"run_id": str(run_id), "reason": exc.reason},
+                    },
+                )
+                return None, []
+
         try:
             garment_profile = self._garment_port.analyze(
-                media_ref=media_ref, user_id=user_id, image_bytes=content
+                media_ref=media_ref, user_id=user_id, image_bytes=vlm_bytes
             )
         except GarmentAnalysisError as exc:
             self._runs.fail(
@@ -981,9 +1031,8 @@ class CreateGarmentRun:
                     "details": {"run_id": str(run_id), "reason": exc.reason},
                 },
             )
-            return run_id
+            return None, []
         except Exception:
-            # Adapter failure → honest `failed` run — never a stuck pending.
             self._runs.fail(
                 run_id=run_id,
                 user_id=user_id,
@@ -993,16 +1042,83 @@ class CreateGarmentRun:
                     "details": {"run_id": str(run_id)},
                 },
             )
+            return None, []
+
+        snapshot = replace(garment_profile, sourceRunId=str(run_id)).to_snapshot()
+        crop_blobs: list[tuple[str, str, bytes, dict[str, str]]] = []
+        if validated is not None and self._storage is not None:
+            snapshot, crop_blobs = prepare_candidate_crops(
+                validated.pil_image,
+                snapshot,
+                run_id=run_id,
+                user_id=user_id,
+            )
+        return snapshot, crop_blobs
+
+    def __call__(
+        self, *, user_id: UUID, image: any, idempotency_key: Optional[str] = None
+    ) -> UUID:
+        run_id, is_replay, content, content_type, media_ref = self._prepare_run(
+            user_id=user_id, image=image, idempotency_key=idempotency_key
+        )
+        if is_replay:
             return run_id
 
-        # Step 3: Complete the run with the observation snapshot verbatim.
+        snapshot, _ = self._run_analysis_and_crop(
+            run_id=run_id,
+            user_id=user_id,
+            content=content,
+            content_type=content_type,
+            media_ref=media_ref,
+        )
+        if snapshot is None:
+            return run_id
+
         completed = self._runs.complete(
             run_id=run_id,
             user_id=user_id,
             status="completed",
-            result=replace(
-                garment_profile, sourceRunId=str(run_id)
-            ).to_snapshot(),
+            result=snapshot,
+        )
+        if not completed:
+            raise ApiError(
+                status_code=500,
+                code="DATABASE_FAILURE",
+                message="Something went wrong while saving your data. Please try again.",
+            )
+        return run_id
+
+    async def run_async(
+        self, *, user_id: UUID, image: any, idempotency_key: Optional[str] = None
+    ) -> UUID:
+        """Async execution: runs VLM inference in a worker thread and stores private crops."""
+        run_id, is_replay, content, content_type, media_ref = self._prepare_run(
+            user_id=user_id, image=image, idempotency_key=idempotency_key
+        )
+        if is_replay:
+            return run_id
+
+        snapshot, crop_blobs = await asyncio.to_thread(
+            self._run_analysis_and_crop,
+            run_id=run_id,
+            user_id=user_id,
+            content=content,
+            content_type=content_type,
+            media_ref=media_ref,
+        )
+        if snapshot is None:
+            return run_id
+
+        if self._storage is not None and crop_blobs:
+            snapshot = await persist_extraction_crops(
+                self._storage, snapshot, crop_blobs
+            )
+
+        completed = self._runs.complete(
+            run_id=run_id,
+            user_id=user_id,
+            status="completed",
+            result=snapshot,
         )
         if not completed:
             raise ApiError(

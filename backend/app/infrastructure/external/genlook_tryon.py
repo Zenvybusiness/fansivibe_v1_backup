@@ -23,11 +23,14 @@ from dataclasses import dataclass
 import ipaddress
 import logging
 import re
+import socket
+import ssl
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 from urllib.parse import quote, urlparse
 from uuid import uuid4
 
+import httpcore
 import httpx
 
 from app.domain.ports.tryon_provider import (
@@ -91,6 +94,14 @@ class GenlookTryOnConfig:
     keep_for_days: int = 1
     ai_label: bool = True
     allow_insecure_urls: bool = False
+    is_production: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.is_production, bool):
+            raise CommercialProviderConfigurationError(
+                "GenlookTryOnConfig.is_production must be a bool",
+                provider_id="genlook",
+            )
 
     def __repr__(self) -> str:
         key = self.api_key or ""
@@ -223,6 +234,75 @@ def _parse_retry_after(headers: Any, details: dict[str, Any] | None = None) -> f
     return None
 
 
+_IPV4_CGNAT_NETWORK = ipaddress.IPv4Network("100.64.0.0/10")
+
+_HTTPCORE_EXCEPTION_MAP: tuple[tuple[type[BaseException], type[httpx.HTTPError]], ...] = (
+    (httpcore.ConnectTimeout, httpx.ConnectTimeout),
+    (httpcore.ReadTimeout, httpx.ReadTimeout),
+    (httpcore.WriteTimeout, httpx.WriteTimeout),
+    (httpcore.PoolTimeout, httpx.PoolTimeout),
+    (httpcore.TimeoutException, httpx.TimeoutException),
+    (httpcore.ConnectError, httpx.ConnectError),
+    (httpcore.ReadError, httpx.ReadError),
+    (httpcore.WriteError, httpx.WriteError),
+    (httpcore.NetworkError, httpx.NetworkError),
+    (httpcore.ProxyError, httpx.ProxyError),
+    (httpcore.UnsupportedProtocol, httpx.UnsupportedProtocol),
+    (httpcore.LocalProtocolError, httpx.LocalProtocolError),
+    (httpcore.RemoteProtocolError, httpx.RemoteProtocolError),
+    (httpcore.ProtocolError, httpx.ProtocolError),
+)
+
+
+class _SSRFBlockedError(Exception):
+    """Raised when a result download target violates SSRF, DNS, or URL policy."""
+
+
+def _map_httpcore_exception(exc: BaseException) -> httpx.HTTPError | None:
+    for core_exc, httpx_exc in _HTTPCORE_EXCEPTION_MAP:
+        if isinstance(exc, core_exc):
+            return httpx_exc(str(exc))
+    return None
+
+
+def _is_safe_ip_address(ip_obj: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Return True only for globally routable unicast IPv4/IPv6 addresses."""
+    if isinstance(ip_obj, ipaddress.IPv6Address):
+        if ip_obj.ipv4_mapped is not None:
+            return False
+        if ip_obj.is_site_local:
+            return False
+    else:
+        if ip_obj in _IPV4_CGNAT_NETWORK:
+            return False
+
+    if not ip_obj.is_global:
+        return False
+    if (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_multicast
+        or ip_obj.is_reserved
+        or ip_obj.is_unspecified
+    ):
+        return False
+    return True
+
+
+def _parse_ip_literal(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse standard IPv4/IPv6 literals as well as non-canonical IPv4 notations."""
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    try:
+        packed = socket.inet_aton(host)
+        return ipaddress.IPv4Address(packed)
+    except OSError:
+        return None
+
+
 def _is_valid_http_url(url: str, *, allow_http: bool) -> bool:
     if not url or not isinstance(url, str):
         return False
@@ -234,49 +314,417 @@ def _is_valid_http_url(url: str, *, allow_http: bool) -> bool:
     return False
 
 
-def _is_safe_result_url(url: str, *, allow_http: bool) -> bool:
-    """Validate untrusted provider resultImageUrl against SSRF and unsafe schemes."""
-    if not _is_valid_http_url(url, allow_http=allow_http):
-        return False
+def _parse_and_validate_result_url(
+    url: str,
+    *,
+    allow_http: bool,
+    is_production: bool = True,
+) -> tuple[str, int] | None:
+    """Strictly validate resultImageUrl syntax, scheme, credentials, port, and literal host."""
+    if not url or not isinstance(url, str):
+        return None
+    cleaned = url.strip()
+    if not cleaned or any(ch.isspace() or ord(ch) < 32 for ch in cleaned):
+        return None
+
+    effective_allow_http = bool(allow_http) and not is_production
     try:
-        parsed = urlparse(url.strip())
+        parsed = urlparse(cleaned)
+        httpx.URL(cleaned)
     except Exception:
-        return False
-    if parsed.username or parsed.password:
-        return False
+        return None
+
+    scheme = (parsed.scheme or "").lower()
+    allowed_schemes = ("https", "http") if effective_allow_http else ("https",)
+    if scheme not in allowed_schemes:
+        return None
+
+    netloc = parsed.netloc or ""
+    if (
+        not netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or "@" in netloc
+        or "\\" in netloc
+    ):
+        return None
+
+    # Reject empty trailing port colon such as 'https://host:/path' or 'https://[::1]:/path'.
+    if netloc.startswith("["):
+        if netloc.endswith("]:"):
+            return None
+    elif ":" in netloc and netloc.rsplit(":", 1)[1] == "":
+        return None
+
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if port is not None and (port < 1 or port > 65535):
+        return None
+
+    effective_port = port if port is not None else (443 if scheme == "https" else 80)
+    if is_production or not effective_allow_http or scheme == "https":
+        if effective_port != 443:
+            return None
+
     host = (parsed.hostname or "").strip().lower().rstrip(".")
     if not host:
-        return False
-    if not allow_http:
-        if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
-            return False
+        return None
+    if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
+        return None
+
+    ip_literal = _parse_ip_literal(host)
+    if ip_literal is not None and not _is_safe_ip_address(ip_literal):
+        return None
+
+    return host, effective_port
+
+
+def _resolve_and_validate_host_ips(
+    host: str,
+    port: int | None,
+    *,
+    allow_http: bool,
+    is_production: bool = True,
+    require_dns: bool = True,
+) -> list[str]:
+    """Resolve host via DNS and validate every returned address before TCP connection."""
+    clean_host = (host or "").strip().lower().rstrip(".")
+    if not clean_host:
+        raise _SSRFBlockedError("Empty result download host")
+    if clean_host == "localhost" or clean_host.endswith((".localhost", ".local", ".internal")):
+        raise _SSRFBlockedError(f"Blocked internal hostname: {clean_host}")
+
+    effective_allow_http = bool(allow_http) and not is_production
+    if port is not None:
+        if port < 1 or port > 65535:
+            raise _SSRFBlockedError(f"Invalid port: {port}")
+        if (is_production or not effective_allow_http) and port != 443:
+            raise _SSRFBlockedError(f"Disallowed port for HTTPS result download: {port}")
+
+    ip_literal = _parse_ip_literal(clean_host)
+    if ip_literal is not None:
+        if not _is_safe_ip_address(ip_literal):
+            raise _SSRFBlockedError(f"Blocked non-global IP literal: {ip_literal}")
+        return [str(ip_literal)]
+
+    try:
+        infos = socket.getaddrinfo(clean_host, port)
+    except OSError as exc:
+        if require_dns:
+            raise _SSRFBlockedError(f"DNS resolution failed for {clean_host}") from exc
+        return []
+
+    if not infos:
+        raise _SSRFBlockedError(f"DNS resolution returned no addresses for {clean_host}")
+
+    validated_ips: list[str] = []
+    for info in infos:
+        sockaddr = info[4] if len(info) > 4 else ()
+        if not sockaddr:
+            raise _SSRFBlockedError(f"Malformed DNS address entry for {clean_host}")
+        raw_addr = str(sockaddr[0]).strip()
+        if "%" in raw_addr:
+            raise _SSRFBlockedError(f"Scoped IPv6 address rejected for {clean_host}")
         try:
-            ip_obj = ipaddress.ip_address(host)
-            if (
-                ip_obj.is_private
-                or ip_obj.is_loopback
-                or ip_obj.is_link_local
-                or ip_obj.is_multicast
-                or ip_obj.is_reserved
-                or ip_obj.is_unspecified
-            ):
-                return False
-        except ValueError:
-            pass
+            resolved_ip = ipaddress.ip_address(raw_addr)
+        except ValueError as exc:
+            raise _SSRFBlockedError(f"Invalid DNS IP address for {clean_host}") from exc
+        if not _is_safe_ip_address(resolved_ip):
+            raise _SSRFBlockedError(
+                f"DNS resolution for {clean_host} returned unsafe IP address"
+            )
+        ip_str = str(resolved_ip)
+        if ip_str not in validated_ips:
+            validated_ips.append(ip_str)
+
+    if not validated_ips:
+        raise _SSRFBlockedError(f"DNS resolution returned no usable addresses for {clean_host}")
+    return validated_ips
+
+
+def _is_safe_result_url(
+    url: str,
+    *,
+    allow_http: bool,
+    is_production: bool = True,
+) -> bool:
+    """Validate untrusted provider resultImageUrl against SSRF and unsafe schemes."""
+    parsed_target = _parse_and_validate_result_url(
+        url,
+        allow_http=allow_http,
+        is_production=is_production,
+    )
+    if parsed_target is None:
+        return False
+    host, _port = parsed_target
+    try:
+        _resolve_and_validate_host_ips(
+            host,
+            None,
+            allow_http=allow_http,
+            is_production=is_production,
+            require_dns=False,
+        )
+    except _SSRFBlockedError:
+        return False
     return True
+
+
+class _PinnedDNSBackend(httpcore.SyncBackend):
+    """httpcore NetworkBackend that resolves and validates DNS at connect_tcp time.
+
+    Connects directly to a validated IP address so no second hostname DNS lookup
+    can rebind between validation and TCP connect, while httpcore preserves the
+    original request hostname for TLS SNI, certificate verification, and Host.
+    """
+
+    __slots__ = ("_allow_http", "_is_production", "_delegate", "_frozen")
+
+    def __init__(
+        self,
+        *,
+        allow_http: bool = False,
+        is_production: bool = True,
+        delegate: httpcore.NetworkBackend | None = None,
+    ) -> None:
+        object.__setattr__(self, "_allow_http", bool(allow_http))
+        object.__setattr__(self, "_is_production", bool(is_production))
+        object.__setattr__(self, "_delegate", delegate)
+        object.__setattr__(self, "_frozen", True)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        try:
+            frozen = object.__getattribute__(self, "_frozen")
+        except AttributeError:
+            frozen = False
+        if frozen:
+            raise AttributeError(f"_PinnedDNSBackend is immutable after construction (cannot set {name!r})")
+        object.__setattr__(self, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"_PinnedDNSBackend is immutable after construction (cannot delete {name!r})")
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        validated_ips = _resolve_and_validate_host_ips(
+            host,
+            port,
+            allow_http=self._allow_http,
+            is_production=self._is_production,
+            require_dns=True,
+        )
+        last_exc: Exception | None = None
+        for pinned_ip in validated_ips:
+            try:
+                if self._delegate is not None:
+                    return self._delegate.connect_tcp(
+                        host=pinned_ip,
+                        port=port,
+                        timeout=timeout,
+                        local_address=local_address,
+                        socket_options=socket_options,
+                    )
+                return super().connect_tcp(
+                    host=pinned_ip,
+                    port=port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                last_exc = exc
+        assert last_exc is not None
+        raise last_exc
+
+
+class _PinnedByteStream(httpx.SyncByteStream):
+    def __init__(self, httpcore_stream: Any) -> None:
+        self._stream = httpcore_stream
+
+    def __iter__(self) -> Iterable[bytes]:
+        try:
+            for chunk in self._stream:
+                yield chunk
+        except Exception as exc:
+            mapped = _map_httpcore_exception(exc)
+            if mapped is not None:
+                raise mapped from exc
+            raise
+
+    def close(self) -> None:
+        if hasattr(self._stream, "close"):
+            self._stream.close()
+
+
+class _PinnedSSRFTransport(httpx.BaseTransport):
+    """httpx transport backed by httpcore.ConnectionPool with DNS-pinned connect_tcp."""
+
+    __slots__ = ("_allow_http", "_is_production", "_pool", "_frozen")
+
+    def __init__(
+        self,
+        *,
+        allow_http: bool = False,
+        is_production: bool = True,
+        verify: ssl.SSLContext | bool = True,
+        network_backend: httpcore.NetworkBackend | None = None,
+    ) -> None:
+        object.__setattr__(self, "_allow_http", bool(allow_http))
+        object.__setattr__(self, "_is_production", bool(is_production))
+        ssl_context = httpx.create_ssl_context(verify=verify, trust_env=False)
+        pinned_backend = _PinnedDNSBackend(
+            allow_http=bool(allow_http),
+            is_production=bool(is_production),
+            delegate=network_backend,
+        )
+        pool = httpcore.ConnectionPool(
+            ssl_context=ssl_context,
+            max_connections=10,
+            max_keepalive_connections=0,
+            http1=True,
+            http2=False,
+            retries=0,
+            network_backend=pinned_backend,
+        )
+        object.__setattr__(self, "_pool", pool)
+        object.__setattr__(self, "_frozen", True)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        try:
+            frozen = object.__getattribute__(self, "_frozen")
+        except AttributeError:
+            frozen = False
+        if frozen:
+            raise AttributeError(f"_PinnedSSRFTransport is immutable after construction (cannot set {name!r})")
+        object.__setattr__(self, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"_PinnedSSRFTransport is immutable after construction (cannot delete {name!r})")
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        if (
+            _parse_and_validate_result_url(
+                str(request.url),
+                allow_http=self._allow_http,
+                is_production=self._is_production,
+            )
+            is None
+        ):
+            raise _SSRFBlockedError("Result request URL failed transport safety validation")
+
+        req = httpcore.Request(
+            method=request.method,
+            url=httpcore.URL(
+                scheme=request.url.raw_scheme,
+                host=request.url.raw_host,
+                port=request.url.port,
+                target=request.url.raw_path,
+            ),
+            headers=request.headers.raw,
+            content=request.stream,
+            extensions=request.extensions,
+        )
+        try:
+            resp = self._pool.handle_request(req)
+        except _SSRFBlockedError:
+            raise
+        except Exception as exc:
+            mapped = _map_httpcore_exception(exc)
+            if mapped is not None:
+                raise mapped from exc
+            raise
+
+        return httpx.Response(
+            status_code=resp.status,
+            headers=resp.headers,
+            stream=_PinnedByteStream(resp.stream),
+            extensions=resp.extensions,
+        )
+
+    def close(self) -> None:
+        self._pool.close()
+
+
+def _is_mock_or_pinned_httpx_client(client: httpx.Client) -> bool:
+    """Defense-in-depth check that an injected httpx.Client has no unpinned network transports."""
+    transport = getattr(client, "_transport", None)
+    mounts = getattr(client, "_mounts", None)
+    if not isinstance(mounts, dict):
+        return False
+    if type(transport) is not httpx.MockTransport and not isinstance(transport, _PinnedSSRFTransport):
+        return False
+    for mount_transport in mounts.values():
+        if (
+            type(mount_transport) is not httpx.MockTransport
+            and not isinstance(mount_transport, _PinnedSSRFTransport)
+        ):
+            return False
+    return True
+
+
+def _validate_test_injection(
+    *,
+    http_client: Any,
+    result_network_backend: httpcore.NetworkBackend | None,
+    is_production: bool,
+) -> str | None:
+    """Reject any client/backend injection in production and unpinned clients in all modes."""
+    if is_production is not False:
+        if http_client is not None or result_network_backend is not None:
+            return (
+                "Injected http_client and result_network_backend are forbidden when is_production=True"
+            )
+        return None
+    if result_network_backend is not None and not isinstance(
+        result_network_backend, httpcore.NetworkBackend
+    ):
+        return "Injected result_network_backend must be an httpcore.NetworkBackend instance"
+    if http_client is not None:
+        if isinstance(http_client, httpx.BaseTransport):
+            return "http_client cannot be a raw httpx.BaseTransport instance"
+        if isinstance(http_client, httpx.Client) and not _is_mock_or_pinned_httpx_client(
+            http_client
+        ):
+            return (
+                "Non-production GenlookTryOnProvider cannot use an unpinned httpx.Client; "
+                "use httpx.MockTransport or _PinnedSSRFTransport"
+            )
+    return None
 
 
 class GenlookTryOnProvider:
     """Genlook Commercial Virtual Try-On API provider implementing ``TryOnProvider``."""
 
     provider_id = "genlook"
+    __slots__ = (
+        "_config",
+        "_base_url",
+        "_http_client",
+        "_result_network_backend",
+        "_is_production",
+        "_frozen",
+    )
 
     def __init__(
         self,
         config: GenlookTryOnConfig,
         *,
         http_client: Any = None,
+        result_network_backend: httpcore.NetworkBackend | None = None,
     ) -> None:
+        if not isinstance(config, GenlookTryOnConfig) or not isinstance(config.is_production, bool):
+            raise CommercialProviderConfigurationError(
+                "Genlook try-on provider requires a valid GenlookTryOnConfig",
+                provider_id=self.provider_id,
+            )
         if not config.api_key or not config.api_key.strip():
             raise CommercialProviderConfigurationError(
                 "Genlook try-on provider requires a non-empty GENLOOK_API_KEY",
@@ -292,13 +740,72 @@ class GenlookTryOnProvider:
                 "Genlook keep_for_days must be 1, 3, or 7",
                 provider_id=self.provider_id,
             )
-        self.config = config
-        self._base_url = config.base_url.rstrip("/")
-        self._http_client = http_client
+        is_prod = config.is_production is not False
+        injection_error = _validate_test_injection(
+            http_client=http_client,
+            result_network_backend=result_network_backend,
+            is_production=is_prod,
+        )
+        if injection_error is not None:
+            raise CommercialProviderConfigurationError(
+                injection_error,
+                provider_id=self.provider_id,
+            )
+        object.__setattr__(self, "_config", config)
+        object.__setattr__(self, "_is_production", is_prod)
+        object.__setattr__(self, "_base_url", config.base_url.rstrip("/"))
+        object.__setattr__(self, "_http_client", http_client)
+        object.__setattr__(self, "_result_network_backend", result_network_backend)
+        object.__setattr__(self, "_frozen", True)
+
+    @classmethod
+    def for_tests(
+        cls,
+        config: GenlookTryOnConfig,
+        *,
+        http_client: Any = None,
+        result_network_backend: httpcore.NetworkBackend | None = None,
+    ) -> GenlookTryOnProvider:
+        """Dedicated test-only factory requiring explicit ``is_production=False``."""
+        if not isinstance(config, GenlookTryOnConfig) or config.is_production is not False:
+            raise CommercialProviderConfigurationError(
+                "GenlookTryOnProvider.for_tests requires GenlookTryOnConfig(is_production=False)",
+                provider_id=cls.provider_id,
+            )
+        return cls(
+            config,
+            http_client=http_client,
+            result_network_backend=result_network_backend,
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        try:
+            frozen = object.__getattribute__(self, "_frozen")
+        except AttributeError:
+            frozen = False
+        if frozen:
+            raise AttributeError(
+                f"GenlookTryOnProvider is immutable after construction (cannot set {name!r})"
+            )
+        object.__setattr__(self, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(
+            f"GenlookTryOnProvider is immutable after construction (cannot delete {name!r})"
+        )
+
+    @property
+    def config(self) -> GenlookTryOnConfig:
+        return self._config
+
+    def _effective_is_production(self) -> bool:
+        return (self._is_production is not False) or (self._config.is_production is not False)
 
     @property
     def _allow_http_urls(self) -> bool:
-        return self.config.allow_insecure_urls or self._base_url.lower().startswith("http://")
+        if self._effective_is_production():
+            return False
+        return self._config.allow_insecure_urls or self._base_url.lower().startswith("http://")
 
     def _auth_headers(self, correlation_id: str, extra: dict[str, str] | None = None) -> dict[str, str]:
         headers = {
@@ -420,7 +927,18 @@ class GenlookTryOnProvider:
         headers: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> Any:
-        if self._http_client is not None:
+        effective_is_prod = self._effective_is_production()
+        injection_error = _validate_test_injection(
+            http_client=self._http_client,
+            result_network_backend=self._result_network_backend,
+            is_production=effective_is_prod,
+        )
+        if injection_error is not None:
+            raise CommercialProviderConfigurationError(
+                injection_error,
+                provider_id=self.provider_id,
+            )
+        if not effective_is_prod and self._http_client is not None:
             fn = getattr(self._http_client, method.lower())
             return fn(url, headers=headers, timeout=timeout, **kwargs)
         with httpx.Client(timeout=timeout, follow_redirects=False) as client:
@@ -909,7 +1427,9 @@ class GenlookTryOnProvider:
 
             if gen_status.status == "COMPLETED":
                 if not gen_status.result_image_url or not _is_safe_result_url(
-                    gen_status.result_image_url, allow_http=self._allow_http_urls
+                    gen_status.result_image_url,
+                    allow_http=self._allow_http_urls,
+                    is_production=self.config.is_production,
                 ):
                     raise ProviderPayloadError(
                         "Genlook COMPLETED generation missing valid resultImageUrl",
@@ -947,7 +1467,12 @@ class GenlookTryOnProvider:
     ) -> bytes:
         """Download temporary Genlook resultImageUrl server-side and validate raster pixels."""
         corr_id = correlation_id or str(uuid4())
-        if not _is_safe_result_url(result_image_url, allow_http=self._allow_http_urls):
+        effective_is_prod = self._effective_is_production()
+        if not _is_safe_result_url(
+            result_image_url,
+            allow_http=self._allow_http_urls,
+            is_production=effective_is_prod,
+        ):
             err = ProviderPayloadError(
                 "Genlook resultImageUrl is missing or failed URL safety validation",
                 provider_id=self.provider_id,
@@ -964,8 +1489,44 @@ class GenlookTryOnProvider:
         headers = {"Accept": "image/*"}
 
         try:
-            if self._http_client is not None:
-                resp = self._send("GET", result_image_url, timeout=timeout, headers=headers)
+            injection_error = _validate_test_injection(
+                http_client=self._http_client,
+                result_network_backend=self._result_network_backend,
+                is_production=effective_is_prod,
+            )
+            if injection_error is not None:
+                raise _SSRFBlockedError(injection_error)
+            if effective_is_prod and (
+                self._http_client is not None or self._result_network_backend is not None
+            ):
+                raise _SSRFBlockedError(
+                    "Injected http_client and result_network_backend are forbidden when is_production=True"
+                )
+
+            if not effective_is_prod and self._http_client is not None:
+                if isinstance(self._http_client, httpx.Client):
+                    transport = getattr(self._http_client, "_transport", None)
+                    mounts = getattr(self._http_client, "_mounts", None)
+                    if type(transport) is httpx.MockTransport and not mounts:
+                        with httpx.Client(
+                            transport=transport,
+                            timeout=timeout,
+                            follow_redirects=False,
+                            trust_env=False,
+                        ) as safe_mock_client:
+                            resp = safe_mock_client.get(
+                                result_image_url,
+                                headers=headers,
+                            )
+                    else:
+                        resp = self._http_client.get(
+                            result_image_url,
+                            headers=headers,
+                            timeout=timeout,
+                            follow_redirects=False,
+                        )
+                else:
+                    resp = self._send("GET", result_image_url, timeout=timeout, headers=headers)
                 status_code = int(resp.status_code)
                 if status_code != 200:
                     if status_code in (408, 500, 502, 503, 504):
@@ -998,7 +1559,17 @@ class GenlookTryOnProvider:
             else:
                 chunks: list[bytes] = []
                 total_read = 0
-                with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+                transport = _PinnedSSRFTransport(
+                    allow_http=self._allow_http_urls,
+                    is_production=effective_is_prod,
+                    network_backend=None if effective_is_prod else self._result_network_backend,
+                )
+                with httpx.Client(
+                    transport=transport,
+                    timeout=timeout,
+                    follow_redirects=False,
+                    trust_env=False,
+                ) as client:
                     with client.stream("GET", result_image_url, headers=headers) as resp:
                         status_code = int(resp.status_code)
                         if status_code != 200:
@@ -1056,6 +1627,15 @@ class GenlookTryOnProvider:
                 provider_id=self.provider_id,
             )
             return raw_bytes
+        except _SSRFBlockedError as exc:
+            err_p = ProviderPayloadError(
+                f"Genlook resultImageUrl failed SSRF validation: {exc}",
+                provider_id=self.provider_id,
+                correlation_id=corr_id,
+                cause=exc,
+            )
+            err_p.provider_error_code = "RESULT_DOWNLOAD_REJECTED"  # type: ignore[attr-defined]
+            raise err_p
         except ProviderPayloadError as exc:
             if not getattr(exc, "provider_error_code", None):
                 exc.provider_error_code = "RESULT_DOWNLOAD_REJECTED"  # type: ignore[attr-defined]

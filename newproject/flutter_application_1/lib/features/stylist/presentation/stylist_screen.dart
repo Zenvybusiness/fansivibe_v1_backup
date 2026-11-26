@@ -279,6 +279,14 @@ class _StylistScreenState extends State<StylistScreen> {
 
                         // 3. Secondary Action: Build Outfit From My Wardrobe
                         _buildBuildOutfitCard(context),
+                        const SizedBox(height: 14),
+
+                        // 3b. Virtual Try-On Entry
+                        _buildVirtualTryOnCard(context),
+                        const SizedBox(height: 14),
+
+                        // 3c. Extract Garments to Digital Wardrobe
+                        _buildExtractGarmentsCard(context),
                         const SizedBox(height: 28),
 
                         // 4. Face & Grooming Section
@@ -395,9 +403,13 @@ class _StylistScreenState extends State<StylistScreen> {
                       height: 36,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: FansivibeColors.accentGold.withValues(alpha: 0.15),
+                        color: FansivibeColors.accentGold.withValues(
+                          alpha: 0.15,
+                        ),
                         border: Border.all(
-                          color: FansivibeColors.accentGold.withValues(alpha: 0.4),
+                          color: FansivibeColors.accentGold.withValues(
+                            alpha: 0.4,
+                          ),
                           width: 1.2,
                         ),
                       ),
@@ -412,12 +424,12 @@ class _StylistScreenState extends State<StylistScreen> {
                               (name != null && name.isNotEmpty)
                                   ? name[0].toUpperCase()
                                   : 'A',
-                              style:
-                                  FansivibeTypography.titleLargeWithFamily.copyWith(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: FansivibeColors.accentGold,
-                              ),
+                              style: FansivibeTypography.titleLargeWithFamily
+                                  .copyWith(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: FansivibeColors.accentGold,
+                                  ),
                             ),
                           ),
                         ),
@@ -505,19 +517,21 @@ class _StylistScreenState extends State<StylistScreen> {
                       children: [
                         Text(
                           'Ask AI Stylist',
-                          style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                            fontSize: 16.5,
-                            fontWeight: FontWeight.w700,
-                            color: FansivibeColors.textPrimary,
-                          ),
+                          style: FansivibeTypography.titleLargeWithFamily
+                              .copyWith(
+                                fontSize: 16.5,
+                                fontWeight: FontWeight.w700,
+                                color: FansivibeColors.textPrimary,
+                              ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           'Chat for custom outfits, event styling & advice',
-                          style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                            fontSize: 12,
-                            color: FansivibeColors.textSecondary,
-                          ),
+                          style: FansivibeTypography.bodyMediumWithFamily
+                              .copyWith(
+                                fontSize: 12,
+                                color: FansivibeColors.textSecondary,
+                              ),
                         ),
                       ],
                     ),
@@ -558,9 +572,7 @@ class _StylistScreenState extends State<StylistScreen> {
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.1),
-          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
         ),
         child: Text(
           prompt,
@@ -708,29 +720,32 @@ class _StylistScreenState extends State<StylistScreen> {
                       children: [
                         Text(
                           'Build Outfit',
-                          style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600,
-                            color: FansivibeColors.textPrimary,
-                            height: 1.2,
-                          ),
+                          style: FansivibeTypography.titleLargeWithFamily
+                              .copyWith(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                                color: FansivibeColors.textPrimary,
+                                height: 1.2,
+                              ),
                         ),
                         Text(
                           'From My Wardrobe',
-                          style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600,
-                            color: FansivibeColors.textPrimary,
-                            height: 1.2,
-                          ),
+                          style: FansivibeTypography.titleLargeWithFamily
+                              .copyWith(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                                color: FansivibeColors.textPrimary,
+                                height: 1.2,
+                              ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           subtitle,
-                          style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                            fontSize: 12.5,
-                            color: FansivibeColors.textSecondary,
-                          ),
+                          style: FansivibeTypography.bodyMediumWithFamily
+                              .copyWith(
+                                fontSize: 12.5,
+                                color: FansivibeColors.textSecondary,
+                              ),
                         ),
                       ],
                     ),
@@ -741,6 +756,180 @@ class _StylistScreenState extends State<StylistScreen> {
           ),
         );
       },
+    );
+  }
+
+  // ── 3B. VIRTUAL TRY-ON ENTRY ───────────────────────────────────────────────
+
+  Widget _buildVirtualTryOnCard(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Virtual Try-On',
+      child: InkWell(
+        onTap: () => context.pushNamed(
+          RouteNames.tryOn,
+          extra: {
+            'outfitSource': 'wardrobe',
+            'garmentIds': const <String>[],
+            'title': 'Virtual Try-On',
+          },
+        ),
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+          decoration: BoxDecoration(
+            color: const Color(0xFF161618),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: FansivibeColors.accentGold.withValues(alpha: 0.28),
+              width: 1.0,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: FansivibeColors.accentGold.withValues(alpha: 0.14),
+                ),
+                child: const Icon(
+                  Icons.auto_fix_high_rounded,
+                  color: FansivibeColors.accentGold,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Virtual Try-On',
+                      style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: FansivibeColors.textPrimary,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Preview wardrobe garments on your photo',
+                      style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                        fontSize: 12.5,
+                        color: FansivibeColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.arrow_forward_rounded,
+                size: 20,
+                color: FansivibeColors.accentGold,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── 3C. EXTRACT GARMENTS TO WARDROBE ───────────────────────────────────────
+
+  Widget _buildExtractGarmentsCard(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Extract Garments',
+      child: InkWell(
+        onTap: () async {
+          final dynamic result = await context.pushNamed<dynamic>(
+            RouteNames.wardrobeExtraction,
+          );
+          if (!context.mounted) return;
+          if (result is List && result.isNotEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  result.length == 1
+                      ? '1 garment saved to your Digital Wardrobe'
+                      : '${result.length} garments saved to your Digital Wardrobe',
+                ),
+                backgroundColor: FansivibeColors.accentGold,
+                behavior: SnackBarBehavior.floating,
+                action: SnackBarAction(
+                  label: 'View',
+                  textColor: FansivibeColors.onPrimary,
+                  onPressed: () => context.goNamed(RouteNames.wardrobe),
+                ),
+              ),
+            );
+          }
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+          decoration: BoxDecoration(
+            color: const Color(0xFF161618),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.08),
+              width: 1.0,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: FansivibeColors.accentGold.withValues(alpha: 0.14),
+                ),
+                child: const Icon(
+                  Icons.document_scanner_outlined,
+                  color: FansivibeColors.accentGold,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Extract Garments',
+                      style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: FansivibeColors.textPrimary,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Detect and crop items from one photo into your wardrobe',
+                      style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                        fontSize: 12.5,
+                        color: FansivibeColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.arrow_forward_rounded,
+                size: 20,
+                color: FansivibeColors.accentGold,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -807,19 +996,20 @@ class _StylistScreenState extends State<StylistScreen> {
                                 'Hairstyle',
                                 style: FansivibeTypography.bodyLargeWithFamily
                                     .copyWith(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: FansivibeColors.textPrimary,
-                                ),
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: FansivibeColors.textPrimary,
+                                    ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
                                 'Recommendation',
-                                style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                                  fontSize: 11,
-                                  color: FansivibeColors.textSecondary,
-                                ),
+                                style: FansivibeTypography.bodyMediumWithFamily
+                                    .copyWith(
+                                      fontSize: 11,
+                                      color: FansivibeColors.textSecondary,
+                                    ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -878,19 +1068,20 @@ class _StylistScreenState extends State<StylistScreen> {
                                 'Beard / Glasses',
                                 style: FansivibeTypography.bodyLargeWithFamily
                                     .copyWith(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: FansivibeColors.textPrimary,
-                                ),
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: FansivibeColors.textPrimary,
+                                    ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
                                 'Suggestion',
-                                style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                                  fontSize: 11,
-                                  color: FansivibeColors.textSecondary,
-                                ),
+                                style: FansivibeTypography.bodyMediumWithFamily
+                                    .copyWith(
+                                      fontSize: 11,
+                                      color: FansivibeColors.textSecondary,
+                                    ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -945,12 +1136,12 @@ class _StylistScreenState extends State<StylistScreen> {
                 Expanded(
                   child: Text(
                     'Plan for an Event',
-                    style:
-                        FansivibeTypography.headlineMediumWithFamily.copyWith(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w500,
-                      color: FansivibeColors.textPrimary,
-                    ),
+                    style: FansivibeTypography.headlineMediumWithFamily
+                        .copyWith(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w500,
+                          color: FansivibeColors.textPrimary,
+                        ),
                   ),
                 ),
                 Icon(
@@ -1150,11 +1341,11 @@ class _StylistScreenState extends State<StylistScreen> {
                         _formatEventSubtitle(event),
                         style: FansivibeTypography.labelMediumWithFamily
                             .copyWith(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 0.8,
-                          color: FansivibeColors.textSecondary,
-                        ),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 0.8,
+                              color: FansivibeColors.textSecondary,
+                            ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1182,9 +1373,7 @@ class _StylistScreenState extends State<StylistScreen> {
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.02),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.04),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
       ),
       child: Column(
         children: [
@@ -1223,9 +1412,7 @@ class _StylistScreenState extends State<StylistScreen> {
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.02),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.04),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -123,6 +123,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Tap the Build Outfit card.
+    await tester.ensureVisible(find.text('Build Outfit'));
+    await tester.pump();
     await tester.tap(find.text('Build Outfit'));
     await tester.pumpAndSettle();
 

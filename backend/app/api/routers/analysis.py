@@ -12,19 +12,24 @@ from __future__ import annotations
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, File, Header, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Header, Path, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user_id
-from app.api.errors import validation
+from app.api.deps import get_current_user_id, get_storage_adapter
+from app.api.errors import ApiError, not_found, validation
 from app.api.rate_limit import ephemeral_rate_limit
+from app.api.routers.wardrobe import _to_wire as wardrobe_item_to_wire
 from app.api.schemas.analysis import (
     AnalysisRun,
     AnalysisRunList,
     AnalysisRunSummary,
     AsyncAccepted,
+    CleanupExtractionAssetsResponse,
     CreateGroomingRunRequest,
     EphemeralGroomingProfile,
+    SaveExtractedGarmentFailure,
+    SaveExtractedGarmentsRequest,
+    SaveExtractedGarmentsResponse,
 )
 from app.application.analysis import (
     CreateGarmentRun,
@@ -39,17 +44,29 @@ from app.application.analysis import (
     GetAnalysisRun,
     ListAnalysisRuns,
 )
+from app.application.garment_extraction import (
+    CleanupExtractionAssets,
+    MAX_CROP_BYTES,
+    SaveExtractedGarments,
+)
 from app.ai.vision_appearance_adapter import OllamaVisionAppearanceAdapter
 from app.ai.vision_garment_adapter import OllamaVisionGarmentAdapter
 from app.domain.ports.appearance_analysis import AppearanceAnalysisPort
 from app.ai.appearance_adapter import DevelopmentAppearanceAnalysisAdapter
 from app.domain.ports.repositories import AnalysisRunRecord, LearningSignalRepository
+from app.domain.ports.storage import (
+    ObjectStoragePort,
+    StorageError,
+    StorageNotFoundError,
+    validate_scoped_object_key,
+)
 from app.infrastructure.db.repositories import (
     ActivityDayRepositorySQL,
     AnalysisRunRepositorySQL,
     UserStateRepositorySQL,
     SavedLookRepositorySQL,
     LearningSignalRepositorySQL,
+    WardrobeItemRepositorySQL,
 )
 from app.infrastructure.db.session import get_db
 from app.infrastructure.external.knowledge import CatalogKnowledgeSource
@@ -259,18 +276,19 @@ def create_outfit_run(
         503: {"model": dict},
     },
 )
-def create_garment_run(
+async def create_garment_run(
     image: UploadFile = File(...),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
 ) -> AsyncAccepted:
-    """Submit a garment analysis for a wardrobe photo (M11, image-based).
+    """Submit a garment analysis for a wardrobe photo (M11 / P5.1, image-based).
 
     Returns `run_id`; poll `GET /v1/analysis/runs/{run_id}`. A completed
-    run's `result` is the observed garment snapshot (nullable attributes
-    stay null — the user confirms values before any wardrobe save).
-    Analyzer failure → terminal `failed` run with `details.reason`.
+    run's `result` carries extracted garment candidates with bounding-box
+    crops stored privately under the owner's namespace (never auto-saved to
+    the Digital Wardrobe).
     """
     if image.content_type not in {"image/jpeg", "image/png", "image/webp"}:
         raise validation(
@@ -283,9 +301,142 @@ def create_garment_run(
     use_case = CreateGarmentRun(
         runs=AnalysisRunRepositorySQL(db),
         garment_port=OllamaVisionGarmentAdapter(),
+        storage=storage,
     )
-    run_id = use_case(user_id=user_id, image=image, idempotency_key=idempotency_key)
+    run_id = await use_case.run_async(
+        user_id=user_id, image=image, idempotency_key=idempotency_key
+    )
     return AsyncAccepted(run_id=run_id)
+
+
+@router.get(
+    "/runs/{run_id}/candidates/{candidate_id}/image",
+    responses={
+        401: {"model": dict},
+        404: {"model": dict},
+        503: {"model": dict},
+    },
+)
+async def get_garment_candidate_crop_image(
+    run_id: UUID,
+    candidate_id: str = Path(..., min_length=1, max_length=64),
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
+) -> Response:
+    """Serve an authenticated owner-scoped private garment crop image."""
+    record = GetAnalysisRun(runs=AnalysisRunRepositorySQL(db))(
+        user_id=user_id, run_id=run_id
+    )
+    if record.run_type != "garment" or not isinstance(record.result, dict):
+        raise not_found()
+
+    crop_key: str | None = None
+    for cand in record.result.get("candidates") or []:
+        if isinstance(cand, dict) and str(cand.get("id")) == candidate_id:
+            raw_key = cand.get("crop_key")
+            if isinstance(raw_key, str) and raw_key:
+                crop_key = raw_key
+            break
+
+    if crop_key is None:
+        raise not_found()
+
+    validate_scoped_object_key(crop_key, user_id=str(user_id))
+    try:
+        data = await storage.read_object(crop_key, max_bytes=MAX_CROP_BYTES)
+    except StorageNotFoundError:
+        raise not_found()
+    except StorageError as exc:
+        raise ApiError(
+            status_code=503,
+            code="STORAGE_ERROR",
+            message=f"Could not read candidate crop image: {exc.message}",
+        ) from exc
+
+    return Response(
+        content=data,
+        media_type="image/webp",
+        headers={
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.post(
+    "/garment/runs/{run_id}/save",
+    response_model=SaveExtractedGarmentsResponse,
+    status_code=200,
+    responses={
+        401: {"model": dict},
+        404: {"model": dict},
+        409: {"model": dict},
+        422: {"model": dict},
+        503: {"model": dict},
+    },
+)
+async def save_extracted_garments(
+    run_id: UUID,
+    request: SaveExtractedGarmentsRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
+) -> SaveExtractedGarmentsResponse:
+    """Explicitly confirm and save selected extracted garment candidates to Digital Wardrobe."""
+    use_case = SaveExtractedGarments(
+        runs=AnalysisRunRepositorySQL(db),
+        wardrobe=WardrobeItemRepositorySQL(db),
+        storage=storage,
+        signals=LearningSignalRepositorySQL(db),
+        db=db,
+    )
+    outcome = await use_case.execute(
+        user_id=user_id,
+        run_id=run_id,
+        items=[item.model_dump() for item in request.items],
+        idempotency_key=idempotency_key,
+    )
+    saved_wire = [
+        await wardrobe_item_to_wire(rec, storage=storage)
+        for rec in outcome["saved_records"]
+    ]
+    failed_wire = [
+        SaveExtractedGarmentFailure(**f) for f in outcome["failed_items"]
+    ]
+    return SaveExtractedGarmentsResponse(
+        runId=run_id,
+        savedItems=saved_wire,
+        failedItems=failed_wire,
+        cleanedUpAssets=bool(outcome["cleaned_up_assets"]),
+    )
+
+
+@router.delete(
+    "/garment/runs/{run_id}/assets",
+    response_model=CleanupExtractionAssetsResponse,
+    status_code=200,
+    responses={
+        401: {"model": dict},
+        404: {"model": dict},
+        422: {"model": dict},
+    },
+)
+async def cleanup_garment_extraction_assets(
+    run_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
+) -> CleanupExtractionAssetsResponse:
+    """Owner-scoped immediate cleanup of temporary extraction crops for a garment run."""
+    use_case = CleanupExtractionAssets(
+        runs=AnalysisRunRepositorySQL(db),
+        storage=storage,
+    )
+    res = await use_case.execute(user_id=user_id, run_id=run_id)
+    return CleanupExtractionAssetsResponse(**res)
 
 
 @router.post(

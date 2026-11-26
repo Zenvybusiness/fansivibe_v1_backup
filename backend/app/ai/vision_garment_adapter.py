@@ -117,6 +117,15 @@ _MATERIAL_ALIASES = {
 _NO_GARMENT_TOKEN = "no_garment"
 _AMBIGUOUS_TOKEN = "ambiguous"
 
+_SEGMENTATION_UNSUPPORTED = {
+    "supported": False,
+    "type": "none",
+    "reason": (
+        "Local VLM (qwen3-vl:4b-instruct) provides 2D bounding-box localization only; "
+        "pixel-level segmentation masks are not supported."
+    ),
+}
+
 
 class GarmentAnalysisError(Exception):
     """Typed analyzer failure carrying a contract failure reason.
@@ -152,6 +161,7 @@ def _prompt() -> str:
         '      "length": "<string or null>",\n'
         '      "condition": "<string or null>",\n'
         '      "description": "<short visual description or observations>",\n'
+        '      "bbox_2d": [<x1>, <y1>, <x2>, <y2>] or null,\n'
         '      "confidence": <number 0-1>\n'
         '    }\n'
         '  ],\n'
@@ -168,8 +178,9 @@ def _prompt() -> str:
         "- Include EVERY clothing item and accessory visible in the photo as a separate entry in the 'items' list.\n"
         "- If multiple garments are present (e.g. both top and bottom, shoes, jacket), list each item in 'items'.\n"
         "- Category codes are strictly: tops, bottoms, outerwear, footwear, accessories.\n"
+        "- For each item, provide bbox_2d as [x1, y1, x2, y2] integer coordinates on a 0..1000 scale relative to image width/height (left, top, right, bottom), or null if localization is uncertain.\n"
         "- Reply null (JSON null, not the string) for any attribute you cannot clearly see. Never invent hidden details.\n"
-        "- Distinguish visual material estimates from verified fabric composition.\n"
+        "- Only report material when visually supportable from fabric texture/weave/sheen; otherwise reply null.\n"
         "- confidence is how certain you are about the category, 0 to 1.\n"
         '- If no clothing item is clearly visible, reply {"category": "no_garment", "confidence": 0, "items": []}.\n'
         "- A face-first portrait is NOT a garment photo: unless an item of "
@@ -267,6 +278,66 @@ def _normalize_string_list(raw: object) -> list[str] | None:
     return None
 
 
+def _normalize_bounding_box(
+    raw_bbox_2d: object, raw_bbox_dict: object = None
+) -> dict | None:
+    """Normalize VLM 2D bounding box coordinates to [0.0..1.0] or return None.
+
+    Supports Qwen3-VL ``[x1, y1, x2, y2]`` (0..1000 integer or 0..1 float scale)
+    and dict shapes ``{"x1", "y1", "x2", "y2"}`` or ``{"x", "y", "width", "height"}``.
+    Degenerate, inverted, or non-numeric boxes return None (never fabricated).
+    """
+    coords: tuple[float, float, float, float] | None = None
+
+    if isinstance(raw_bbox_2d, (list, tuple)) and len(raw_bbox_2d) == 4:
+        vals: list[float] = []
+        for v in raw_bbox_2d:
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                return None
+            vals.append(float(v))
+        coords = (vals[0], vals[1], vals[2], vals[3])
+    elif isinstance(raw_bbox_dict, dict):
+        if all(k in raw_bbox_dict for k in ("x1", "y1", "x2", "y2")):
+            raw_vals = [raw_bbox_dict["x1"], raw_bbox_dict["y1"], raw_bbox_dict["x2"], raw_bbox_dict["y2"]]
+            if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in raw_vals):
+                return None
+            coords = tuple(float(v) for v in raw_vals)  # type: ignore[assignment]
+        elif all(k in raw_bbox_dict for k in ("x", "y", "width", "height")):
+            raw_vals = [
+                raw_bbox_dict["x"],
+                raw_bbox_dict["y"],
+                raw_bbox_dict["width"],
+                raw_bbox_dict["height"],
+            ]
+            if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in raw_vals):
+                return None
+            x, y, w, h = (float(v) for v in raw_vals)
+            coords = (x, y, x + w, y + h)
+
+    if coords is None:
+        return None
+
+    x1, y1, x2, y2 = coords
+    max_val = max(abs(x1), abs(y1), abs(x2), abs(y2))
+    scale = 1000.0 if max_val > 1.0 else 1.0
+
+    nx1 = max(0.0, min(1.0, x1 / scale))
+    ny1 = max(0.0, min(1.0, y1 / scale))
+    nx2 = max(0.0, min(1.0, x2 / scale))
+    ny2 = max(0.0, min(1.0, y2 / scale))
+
+    if nx2 - nx1 < 0.02 or ny2 - ny1 < 0.02:
+        return None
+
+    return {
+        "x1": round(nx1, 4),
+        "y1": round(ny1, 4),
+        "x2": round(nx2, 4),
+        "y2": round(ny2, 4),
+        "coord_space": "normalized_0_1",
+    }
+
+
 def _deduplicate_candidates(candidates: list[dict]) -> list[dict]:
     """Prevent returning identical garment candidates from the model."""
     seen = set()
@@ -347,8 +418,11 @@ def _garment_chat(
         except httpx.TimeoutException as exc:
             raise GarmentAnalysisError("analyzer_timeout") from exc
         except httpx.HTTPError as exc:
+            # HTTP response already received and httpx.Client closed; no GPU work remains in flight.
+            request_submitted = False
             raise GarmentAnalysisError("analyzer_unavailable") from exc
         except Exception as exc:
+            request_submitted = False
             raise GarmentAnalysisError("analyzer_unavailable") from exc
 
     if not isinstance(payload, dict):
@@ -372,6 +446,7 @@ class OllamaVisionGarmentAdapter(GarmentAnalysisPort):
     """Production adapter: measures garment attributes from actual pixels."""
 
     adapter_id = ADAPTER_ID
+    validates_image_signature = True
 
     def __init__(
         self,
@@ -390,6 +465,7 @@ class OllamaVisionGarmentAdapter(GarmentAnalysisPort):
         self._disabled = bool(getattr(settings, "disable_vision", False))
         # Injectable transport boundary: tests supply a fake, production
         # uses Ollama over httpx with GPU lease coordination.
+        self._has_custom_chat_fn = chat_fn is not None
         self._chat_fn = chat_fn or _garment_chat
 
     def analyze(
@@ -426,23 +502,27 @@ class OllamaVisionGarmentAdapter(GarmentAnalysisPort):
         if not isinstance(decoded, dict):
             raise GarmentAnalysisError("invalid_analyzer_response")
 
-        raw_candidates = decoded.get("candidates") or decoded.get("items")
+        raw_candidates = decoded.get("candidates")
+        if raw_candidates is None:
+            raw_candidates = decoded.get("items")
 
         # Category verdict first (face-adapter precedent): no_garment /
         # ambiguous carry confidence 0 by contract and must surface their
         # specific reason, never low_confidence.
         raw_cat = decoded.get("category")
         if raw_cat is None and isinstance(raw_candidates, list) and raw_candidates:
-            first = raw_candidates[0]
-            if isinstance(first, dict):
-                raw_cat = first.get("category")
+            for cand in raw_candidates:
+                if isinstance(cand, dict) and isinstance(cand.get("category"), str):
+                    raw_cat = cand.get("category")
+                    break
         category = _normalize_category(raw_cat)
 
         raw_conf = decoded.get("confidence")
         if raw_conf is None and isinstance(raw_candidates, list) and raw_candidates:
-            first = raw_candidates[0]
-            if isinstance(first, dict):
-                raw_conf = first.get("confidence")
+            for cand in raw_candidates:
+                if isinstance(cand, dict) and cand.get("confidence") is not None:
+                    raw_conf = cand.get("confidence")
+                    break
 
         try:
             confidence = _parse_confidence(raw_conf)
@@ -465,12 +545,21 @@ class OllamaVisionGarmentAdapter(GarmentAnalysisPort):
         length = _normalize_text(decoded.get("length"))
         condition = _normalize_text(decoded.get("condition"))
         description = _normalize_text(decoded.get("description") or decoded.get("visual_observations"))
+        top_bbox = _normalize_bounding_box(decoded.get("bbox_2d"), decoded.get("bounding_box"))
 
         candidates_list: list[dict] = []
+        partial_failures: list[dict] = []
         if isinstance(raw_candidates, list) and raw_candidates:
             for idx, item in enumerate(raw_candidates):
-                if isinstance(item, dict):
-                    cand_id = _normalize_text(item.get("id")) or f"cand_{idx + 1}"
+                if not isinstance(item, dict):
+                    partial_failures.append({
+                        "candidate_id": f"cand_{idx + 1}",
+                        "reason": "invalid_candidate_entry",
+                    })
+                    continue
+                cand_id = f"cand_{idx + 1}"
+                try:
+                    cand_id = _normalize_text(item.get("id")) or cand_id
                     c_cat = _normalize_category(item.get("category"))
                     c_subcat = _normalize_text(item.get("subcategory") or item.get("subtype") or item.get("name"))
                     c_color = _normalize_text(item.get("color"))
@@ -485,27 +574,68 @@ class OllamaVisionGarmentAdapter(GarmentAnalysisPort):
                     c_condition = _normalize_text(item.get("condition"))
                     c_desc = _normalize_text(item.get("description") or item.get("visual_observations") or item.get("notes"))
                     c_conf = _parse_confidence(item.get("confidence", confidence))
-                    c_bbox = item.get("bounding_box") if isinstance(item.get("bounding_box"), dict) else None
-
-                    candidates_list.append({
-                        "id": cand_id,
-                        "category": c_cat,
-                        "subcategory": c_subcat,
-                        "color": c_color,
-                        "secondary_colors": c_sec_colors,
-                        "pattern": c_pattern,
-                        "material": c_material,
-                        "style": c_style,
-                        "fit": c_fit,
-                        "sleeve_type": c_sleeve,
-                        "neckline": c_neckline,
-                        "length": c_length,
-                        "condition": c_condition,
-                        "description": c_desc,
-                        "confidence": c_conf,
-                        "bounding_box": c_bbox,
-                        "needs_review": c_cat is None or c_color is None or c_conf < 0.6,
+                except GarmentAnalysisError as exc:
+                    partial_failures.append({
+                        "candidate_id": cand_id,
+                        "reason": exc.reason,
                     })
+                    continue
+                except Exception:
+                    partial_failures.append({
+                        "candidate_id": cand_id,
+                        "reason": "invalid_analyzer_response",
+                    })
+                    continue
+
+                if c_conf < LOW_CONFIDENCE_FLOOR:
+                    partial_failures.append({
+                        "candidate_id": cand_id,
+                        "reason": "low_confidence",
+                    })
+                    continue
+
+                c_bbox = _normalize_bounding_box(
+                    item.get("bbox_2d"),
+                    item.get("bounding_box"),
+                )
+
+                candidates_list.append({
+                    "id": cand_id,
+                    "category": c_cat,
+                    "subcategory": c_subcat,
+                    "color": c_color,
+                    "secondary_colors": c_sec_colors,
+                    "pattern": c_pattern,
+                    "material": c_material,
+                    "style": c_style,
+                    "fit": c_fit,
+                    "sleeve_type": c_sleeve,
+                    "neckline": c_neckline,
+                    "length": c_length,
+                    "condition": c_condition,
+                    "description": c_desc,
+                    "confidence": c_conf,
+                    "bounding_box": c_bbox,
+                    "extraction_method": (
+                        "vlm_bounding_box_crop" if c_bbox is not None else "vlm_attribute_only"
+                    ),
+                    "has_crop": False,
+                    "has_segmentation_mask": False,
+                    "mask": None,
+                    "segmentation": dict(_SEGMENTATION_UNSUPPORTED),
+                    "needs_review": c_cat is None or c_color is None or c_conf < 0.6,
+                })
+
+            if not candidates_list and partial_failures:
+                first_reason = partial_failures[0]["reason"]
+                if first_reason in (
+                    "no_garment_detected",
+                    "ambiguous_subject",
+                    "low_confidence",
+                    "invalid_analyzer_response",
+                ):
+                    raise GarmentAnalysisError(first_reason)
+                raise GarmentAnalysisError("invalid_analyzer_response")
 
         candidates_list = _deduplicate_candidates(candidates_list)
         for i, c in enumerate(candidates_list):
@@ -543,11 +673,19 @@ class OllamaVisionGarmentAdapter(GarmentAnalysisPort):
                 "condition": condition,
                 "description": description,
                 "confidence": confidence,
-                "bounding_box": None,
+                "bounding_box": top_bbox,
+                "extraction_method": (
+                    "vlm_bounding_box_crop" if top_bbox is not None else "vlm_attribute_only"
+                ),
+                "has_crop": False,
+                "has_segmentation_mask": False,
+                "mask": None,
+                "segmentation": dict(_SEGMENTATION_UNSUPPORTED),
                 "needs_review": needs_review,
             })
 
         first_cand = candidates_list[0]
+        has_any_bbox = any(c.get("bounding_box") is not None for c in candidates_list)
         return GarmentProfile(
             category=category,
             subcategory=subcategory,
@@ -566,6 +704,12 @@ class OllamaVisionGarmentAdapter(GarmentAnalysisPort):
             length=first_cand.get("length") or length,
             condition=first_cand.get("condition") or condition,
             description=first_cand.get("description") or description,
+            extraction_method=(
+                "vlm_bounding_box_crop" if has_any_bbox else "vlm_attribute_only"
+            ),
+            has_segmentation_mask=False,
+            segmentation=dict(_SEGMENTATION_UNSUPPORTED),
+            partial_failures=tuple(partial_failures),
         )
 
     def validate_result(self, result: dict) -> bool:

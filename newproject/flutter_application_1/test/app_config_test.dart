@@ -46,14 +46,8 @@ void main() {
         ),
         returnsNormally,
       );
-      expect(
-        AppConfig.isHttpsUrl('https://api.example.com'),
-        isTrue,
-      );
-      expect(
-        AppConfig.isLocalhostUrl('https://api.example.com'),
-        isFalse,
-      );
+      expect(AppConfig.isHttpsUrl('https://api.example.com'), isTrue);
+      expect(AppConfig.isLocalhostUrl('https://api.example.com'), isFalse);
     });
 
     test('production + localhost is rejected clearly', () {
@@ -67,6 +61,20 @@ void main() {
       expect(
         () => AppConfig.validateOrThrow(
           baseUrl: 'http://127.0.0.1:8000',
+          production: true,
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+        () => AppConfig.validateOrThrow(
+          baseUrl: 'https://10.0.2.2:8000',
+          production: true,
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+        () => AppConfig.validateOrThrow(
+          baseUrl: 'https://0.0.0.0:8000',
           production: true,
         ),
         throwsA(isA<StateError>()),
@@ -89,10 +97,11 @@ void main() {
         throwsA(isA<StateError>()),
       );
       expect(
-        () => AppConfig.validateOrThrow(
-          baseUrl: 'not-a-url',
-          production: true,
-        ),
+        () => AppConfig.validateOrThrow(baseUrl: 'https://', production: true),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+        () => AppConfig.validateOrThrow(baseUrl: 'not-a-url', production: true),
         throwsA(isA<StateError>()),
       );
     });

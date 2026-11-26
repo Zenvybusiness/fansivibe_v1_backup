@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/media/presentation/wardrobe_cache_manager.dart';
 import 'package:fansivibe/shared/auth/secure_token_storage.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
@@ -51,6 +52,7 @@ class AuthSession {
   static String effectiveToken(String fallback) {
     final current = token;
     if (current != null && current.isNotEmpty) return current;
+    if (AppConfig.isProduction) return '';
     return fallback;
   }
 
@@ -69,6 +71,7 @@ class AuthSession {
   static Future<void> clearSession() async {
     _expiryNotified = false;
     await SecureTokenStorage.deleteToken();
+    LocalStorage.activeTryOnJob = null;
     WardrobeCacheManager.instance.clear();
     _bump();
   }
@@ -93,6 +96,7 @@ class AuthSession {
     // that explicit logout clears (see `AuthClient.logout`).
     LocalStorage.displayName = null;
     LocalStorage.isReturningUser = false;
+    LocalStorage.activeTryOnJob = null;
     _bump();
     onSessionExpired?.call();
   }

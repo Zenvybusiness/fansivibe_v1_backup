@@ -12,8 +12,10 @@ from datetime import date, datetime, timedelta, timezone
 import io
 import logging
 import threading
+import time
 from typing import Any, Optional
 from uuid import UUID, uuid4
+import weakref
 import xml.etree.ElementTree as ET
 
 from fastapi import HTTPException
@@ -197,9 +199,11 @@ class InMemoryTryOnJobRepository:
         day: date,
         daily_quota: int,
         concurrent_limit: int,
+        global_concurrent_limit: int = 10,
     ) -> tuple[TryOnJobRecord, bool]:
         """Atomically verify idempotency and quotas under in-memory lock."""
-        now = datetime.now(timezone.utc)
+        from app.telemetry.metrics import get_metrics_collector
+
         with self._lock:
             existing_id = self._idempotency.get((user_id, idempotency_key))
             if existing_id is not None:
@@ -215,6 +219,7 @@ class InMemoryTryOnJobRepository:
                 if j.user_id == user_id and j.created_at.date() == day
             )
             if used >= daily_quota:
+                get_metrics_collector().record_tryon_quota_rejection("daily_quota")
                 raise rate_limited()
 
             active = sum(
@@ -223,7 +228,17 @@ class InMemoryTryOnJobRepository:
                 if j.user_id == user_id and j.status in ("queued", "processing")
             )
             if active >= concurrent_limit:
+                get_metrics_collector().record_tryon_quota_rejection("user_concurrency")
                 raise rate_limited()
+
+            global_active = sum(
+                1
+                for j in self._jobs.values()
+                if j.status in ("queued", "processing")
+            )
+            if global_active >= global_concurrent_limit:
+                get_metrics_collector().record_tryon_quota_rejection("global_concurrency")
+                raise rate_limited(retry_after_s=10)
 
             record = self.create(
                 job_id=job_id,
@@ -413,7 +428,7 @@ class InMemoryTryOnJobRepository:
     ) -> Optional[TryOnJobRecord]:
         with self._lock:
             old = self._jobs.get(job_id)
-            if not old:
+            if not old or old.status not in ("failed", "cancelled"):
                 return None
             new_rec = TryOnJobRecord(
                 id=old.id,
@@ -441,6 +456,42 @@ class InMemoryTryOnJobRepository:
             )
             self._jobs[job_id] = new_rec
             return new_rec
+
+    def claim_queued_job(
+        self,
+        *,
+        job_id: UUID,
+        processing_started_at: datetime,
+    ) -> bool:
+        with self._lock:
+            old = self._jobs.get(job_id)
+            if not old or old.status != "queued":
+                return False
+            self._jobs[job_id] = TryOnJobRecord(
+                id=old.id,
+                user_id=old.user_id,
+                outfit_source=old.outfit_source,
+                garment_id=old.garment_id,
+                garment_ids=old.garment_ids,
+                provider=old.provider,
+                status="processing",
+                consent_version=old.consent_version,
+                consent_accepted_at=old.consent_accepted_at,
+                created_at=old.created_at,
+                updated_at=datetime.now(timezone.utc),
+                person_media_ref=old.person_media_ref,
+                result_media_ref=old.result_media_ref,
+                idempotency_key=old.idempotency_key,
+                request_fingerprint=old.request_fingerprint,
+                error_code=old.error_code,
+                error_message=old.error_message,
+                retry_count=old.retry_count,
+                retry_of_job_id=old.retry_of_job_id,
+                processing_started_at=processing_started_at,
+                completed_at=old.completed_at,
+                image_bytes=old.image_bytes or self._images.get(job_id),
+            )
+            return True
 
     def delete(
         self,
@@ -502,6 +553,27 @@ class InMemoryTryOnJobRepository:
                 for j in self._jobs.values()
                 if j.user_id == user_id and j.status in ("queued", "processing")
             )
+
+    def count_all_active_jobs(self) -> int:
+        with self._lock:
+            return sum(
+                1
+                for j in self._jobs.values()
+                if j.status in ("queued", "processing")
+            )
+
+    def find_stale_active_jobs(
+        self,
+        *,
+        older_than: datetime,
+    ) -> list[TryOnJobRecord]:
+        with self._lock:
+            return [
+                j
+                for j in self._jobs.values()
+                if j.status in ("queued", "processing")
+                and (j.processing_started_at or j.updated_at or j.created_at) <= older_than
+            ]
 
     def find_expired_jobs(
         self,
@@ -648,6 +720,23 @@ class InMemoryTryOnJobRepository:
 _IN_MEMORY_REPO = InMemoryTryOnJobRepository()
 _POLL_COUNTS: dict[str, int] = {}
 _BYTE_CACHE: dict[str, tuple[bytes, str]] = {}  # job_id -> (person_bytes, content_type)
+_ACTIVE_EXECUTION_IDS: set[UUID] = set()
+_EXECUTION_LOCK = threading.Lock()
+_LOOP_SEMAPHORES: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, tuple[int, asyncio.Semaphore]]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _get_worker_semaphore(limit: int) -> asyncio.Semaphore:
+    """Return a loop-local asyncio.Semaphore bounded by configured worker concurrency."""
+    safe_limit = max(1, int(limit))
+    loop = asyncio.get_running_loop()
+    entry = _LOOP_SEMAPHORES.get(loop)
+    if entry is None or entry[0] != safe_limit:
+        sem = asyncio.Semaphore(safe_limit)
+        _LOOP_SEMAPHORES[loop] = (safe_limit, sem)
+        return sem
+    return entry[1]
 
 
 def _detect_magic_format(data: bytes) -> str | None:
@@ -927,14 +1016,15 @@ def submit_job(
     settings = get_settings()
 
     enabled = getattr(settings, "tryon_enabled", True)
-    provider_name = getattr(settings, "tryon_provider", "mock")
-    env = getattr(settings, "environment", "development")
+    provider_name = str(getattr(settings, "tryon_provider", "mock")).strip().lower()
+    env = str(getattr(settings, "environment", "development")).strip().lower()
+    is_prod = bool(getattr(settings, "is_production", env == "production"))
 
     if not enabled or provider_name == "off":
         raise ai_failure()
 
     # Production gate: CatVTON is prohibited in production. If mock or missing provider in production, fail closed.
-    if env == "production":
+    if is_prod:
         if provider_name == "catvton":
             raise validation(
                 [{"field": "tryon_provider", "error": "CatVTON cannot be enabled in production."}]
@@ -1022,10 +1112,13 @@ def submit_job(
                         ]
                     )
     else:
-        # For non-wardrobe sources, if IDs are valid UUIDs, record first UUID
-        if garment_ids:
+        # For non-wardrobe sources, link garment_id FK only when the caller owns that wardrobe item
+        if garment_ids and wardrobe_repo is not None:
             try:
-                first_garment_uuid = UUID(garment_ids[0])
+                candidate_uuid = UUID(garment_ids[0])
+                owned_item = wardrobe_repo.get_by_id(user_id=user_uuid, item_id=candidate_uuid)
+                if owned_item is not None:
+                    first_garment_uuid = candidate_uuid
             except Exception:
                 pass
 
@@ -1046,10 +1139,26 @@ def submit_job(
     if existing is not None:
         if existing.request_fingerprint != digest:
             raise conflict(kind="idempotency_key_reuse")
+        try:
+            from app.telemetry.metrics import get_metrics_collector
+
+            get_metrics_collector().record_tryon_job_created(
+                provider=existing.provider, replayed=True
+            )
+        except Exception:
+            pass
+        logger.info(
+            "TryOn duplicate submission replayed [event=tryon_job_duplicate_replay, job_id=%s, user_id=%s, provider=%s, status=%s]",
+            existing.id,
+            user_uuid,
+            existing.provider,
+            existing.status,
+        )
         return existing, False
 
     daily_quota = getattr(settings, "tryon_daily_quota_per_user", 20)
     concurrent_limit = getattr(settings, "tryon_max_concurrent_jobs_per_user", 5)
+    global_concurrent_limit = getattr(settings, "tryon_max_concurrent_jobs_global", 10)
 
     job_id = uuid4()
     person_ext = "webp" if "webp" in canonical_content_type else ("png" if "png" in canonical_content_type else "jpg")
@@ -1082,19 +1191,81 @@ def submit_job(
             day=current_day,
             daily_quota=daily_quota,
             concurrent_limit=concurrent_limit,
+            global_concurrent_limit=global_concurrent_limit,
         )
         if created:
             _BYTE_CACHE[str(job_id)] = (sanitized_bytes, canonical_content_type)
+            try:
+                from app.telemetry.metrics import get_metrics_collector
+
+                get_metrics_collector().record_tryon_job_created(
+                    provider=created_job.provider, replayed=False
+                )
+            except Exception:
+                pass
+            logger.info(
+                "TryOn job created [event=tryon_job_created, job_id=%s, user_id=%s, provider=%s, outfit_source=%s, garment_count=%d]",
+                created_job.id,
+                user_uuid,
+                created_job.provider,
+                outfit_source,
+                len(garment_ids),
+            )
+        else:
+            try:
+                from app.telemetry.metrics import get_metrics_collector
+
+                get_metrics_collector().record_tryon_job_created(
+                    provider=created_job.provider, replayed=True
+                )
+            except Exception:
+                pass
+            logger.info(
+                "TryOn duplicate submission replayed [event=tryon_job_duplicate_replay, job_id=%s, user_id=%s, provider=%s, status=%s]",
+                created_job.id,
+                user_uuid,
+                created_job.provider,
+                created_job.status,
+            )
         return created_job, created
 
     # Fallback path for minimal custom repository test stubs without create_with_quota
+    from app.telemetry.metrics import get_metrics_collector
+
     used = repo.count_today_jobs(user_id=user_uuid, day=current_day)
     if used >= daily_quota:
+        get_metrics_collector().record_tryon_quota_rejection("daily_quota")
+        logger.warning(
+            "TryOn quota rejected [event=tryon_quota_rejected, user_id=%s, reason=daily_quota, used=%d, limit=%d]",
+            user_uuid,
+            used,
+            daily_quota,
+        )
         raise rate_limited()
 
     active_count = repo.count_active_jobs(user_id=user_uuid)
     if active_count >= concurrent_limit:
+        get_metrics_collector().record_tryon_quota_rejection("user_concurrency")
+        logger.warning(
+            "TryOn quota rejected [event=tryon_quota_rejected, user_id=%s, reason=user_concurrency, active=%d, limit=%d]",
+            user_uuid,
+            active_count,
+            concurrent_limit,
+        )
         raise rate_limited()
+
+    count_all_fn = getattr(repo, "count_all_active_jobs", None)
+    if callable(count_all_fn):
+        global_active = count_all_fn()
+        if global_active >= global_concurrent_limit:
+            get_metrics_collector().record_tryon_quota_rejection("global_concurrency")
+            logger.warning(
+                "TryOn quota rejected [event=tryon_quota_rejected, user_id=%s, reason=global_concurrency, active=%d, limit=%d]",
+                user_uuid,
+                global_active,
+                global_concurrent_limit,
+            )
+            raise rate_limited(retry_after_s=10)
 
     # Temporarily stage sanitized person bytes until durable storage persistence completes
     _BYTE_CACHE[str(job_id)] = (sanitized_bytes, canonical_content_type)
@@ -1175,7 +1346,14 @@ async def store_person_image_async(
             if not exists:
                 raise StorageError("Person image storage confirmation failed", key=key)
         except Exception as e:
-            logger.error("Failed to persist person image to storage for job %s: %s", job_id, e)
+            from app.telemetry.metrics import get_metrics_collector
+
+            get_metrics_collector().record_tryon_storage_error(operation="person_upload")
+            logger.error(
+                "Failed to persist person image to storage [event=tryon_storage_error, operation=person_upload, job_id=%s, err=%s]",
+                job_id,
+                type(e).__name__,
+            )
             if job_repo is not None:
                 job_repo.update_failure(
                     job_id=job_id,
@@ -1210,16 +1388,37 @@ async def execute_tryon_inference(
     seed: str = "mock-1",
 ) -> None:
     """Execute try-on inference in background, persist result privately, and update job status."""
+    from app.telemetry.metrics import get_metrics_collector
+
+    with _EXECUTION_LOCK:
+        if job_id in _ACTIVE_EXECUTION_IDS:
+            logger.info(
+                "Duplicate worker execution suppressed [event=tryon_duplicate_execution_skipped, job_id=%s]",
+                job_id,
+            )
+            return
+        _ACTIVE_EXECUTION_IDS.add(job_id)
+
+    settings = get_settings()
+    worker_limit = int(getattr(settings, "tryon_worker_concurrency_limit", 10))
+    sem = _get_worker_semaphore(worker_limit)
+    collector = get_metrics_collector()
     try:
-        await _execute_tryon_inference_impl(
-            job_id=job_id,
-            user_id=user_id,
-            job_repo=job_repo,
-            storage=storage,
-            wardrobe_repo=wardrobe_repo,
-            seed=seed,
-        )
+        async with sem:
+            with _EXECUTION_LOCK:
+                collector.set_tryon_active_jobs(len(_ACTIVE_EXECUTION_IDS))
+            await _execute_tryon_inference_impl(
+                job_id=job_id,
+                user_id=user_id,
+                job_repo=job_repo,
+                storage=storage,
+                wardrobe_repo=wardrobe_repo,
+                seed=seed,
+            )
     finally:
+        with _EXECUTION_LOCK:
+            _ACTIVE_EXECUTION_IDS.discard(job_id)
+            collector.set_tryon_active_jobs(len(_ACTIVE_EXECUTION_IDS))
         _BYTE_CACHE.pop(str(job_id), None)
 
 
@@ -1232,11 +1431,27 @@ async def _execute_tryon_inference_impl(
     wardrobe_repo: Optional[WardrobeItemRepository] = None,
     seed: str = "mock-1",
 ) -> None:
+    from app.telemetry.metrics import get_metrics_collector
+
+    collector = get_metrics_collector()
+    t0 = time.monotonic()
     repo = job_repo or _IN_MEMORY_REPO
     job = repo.get_by_id(user_id=user_id, job_id=job_id)
     if job is None or job.status in ("cancelled", "completed", "failed"):
         logger.info("TryOn job %s absent or terminal (%s); stopping execution.", job_id, getattr(job, "status", None))
         return
+
+    now = datetime.now(timezone.utc)
+    if job.status == "queued":
+        claim_fn = getattr(repo, "claim_queued_job", None)
+        if callable(claim_fn):
+            if not claim_fn(job_id=job_id, processing_started_at=now):
+                logger.info(
+                    "TryOn queued job already claimed or terminal [event=tryon_claim_skipped, job_id=%s]",
+                    job_id,
+                )
+                return
+            job = repo.get_by_id(user_id=user_id, job_id=job_id) or job
 
     settings = get_settings()
     provider_name = settings.tryon_provider
@@ -1246,6 +1461,13 @@ async def _execute_tryon_inference_impl(
     if job.person_media_ref and "key" in job.person_media_ref:
         person_key = job.person_media_ref["key"]
         if storage is None:
+            collector.record_tryon_storage_error(operation="person_download")
+            collector.record_tryon_job_terminal(
+                provider=provider_name,
+                status="failed",
+                error_code="STORAGE_FAILURE",
+                duration_s=time.monotonic() - t0,
+            )
             logger.error("Storage unavailable for job %s with person_media_ref", job_id)
             repo.update_failure(
                 job_id=job_id,
@@ -1256,7 +1478,14 @@ async def _execute_tryon_inference_impl(
             return
         try:
             if not await storage.object_exists(person_key):
-                logger.error("Person image missing from durable storage for job %s (key=%s)", job_id, person_key)
+                collector.record_tryon_storage_error(operation="person_download")
+                collector.record_tryon_job_terminal(
+                    provider=provider_name,
+                    status="failed",
+                    error_code="STORAGE_FAILURE",
+                    duration_s=time.monotonic() - t0,
+                )
+                logger.error("Person image missing from durable storage for job %s", job_id)
                 repo.update_failure(
                     job_id=job_id,
                     error_code="STORAGE_FAILURE",
@@ -1266,7 +1495,18 @@ async def _execute_tryon_inference_impl(
                 return
             person_bytes = await storage.read_object(person_key, max_bytes=_MAX_PERSON_BYTES)
         except Exception as e:
-            logger.error("Could not load person image from storage for job %s: %s", job_id, e)
+            collector.record_tryon_storage_error(operation="person_download")
+            collector.record_tryon_job_terminal(
+                provider=provider_name,
+                status="failed",
+                error_code="STORAGE_FAILURE",
+                duration_s=time.monotonic() - t0,
+            )
+            logger.error(
+                "Could not load person image from storage [event=tryon_storage_error, operation=person_download, job_id=%s, err=%s]",
+                job_id,
+                type(e).__name__,
+            )
             repo.update_failure(
                 job_id=job_id,
                 error_code="STORAGE_FAILURE",
@@ -1278,7 +1518,6 @@ async def _execute_tryon_inference_impl(
         cached_person = _BYTE_CACHE.pop(str(job_id), None)
         person_bytes = cached_person[0] if cached_person else None
 
-    now = datetime.now(timezone.utc)
     repo.update_status(job_id=job_id, status="processing", processing_started_at=now)
 
     # Resolve garment bytes / signed URL and validate category
@@ -1358,7 +1597,18 @@ async def _execute_tryon_inference_impl(
                 expires_in_s=300,
             )
         except Exception as e:
-            logger.warning("Failed to sign garment image URL for Genlook job %s: %s", job_id, type(e).__name__)
+            collector.record_tryon_storage_error(operation="garment_sign")
+            collector.record_tryon_job_terminal(
+                provider=provider_name,
+                status="failed",
+                error_code="STORAGE_FAILURE",
+                duration_s=time.monotonic() - t0,
+            )
+            logger.warning(
+                "Failed to sign garment image URL [event=tryon_storage_error, operation=garment_sign, job_id=%s, err=%s]",
+                job_id,
+                type(e).__name__,
+            )
             repo.update_failure(
                 job_id=job_id,
                 error_code="STORAGE_FAILURE",
@@ -1556,6 +1806,13 @@ async def _execute_tryon_inference_impl(
                 max_retries=getattr(settings, "genlook_max_retries", 2),
                 keep_for_days=getattr(settings, "genlook_keep_for_days", 1),
                 ai_label=getattr(settings, "genlook_ai_label", True),
+                is_production=bool(
+                    getattr(
+                        settings,
+                        "is_production",
+                        str(getattr(settings, "environment", "")).strip().lower() == "production",
+                    )
+                ),
             )
             g_provider = GenlookTryOnProvider(g_config)
             result_bytes = await asyncio.to_thread(
@@ -1627,9 +1884,11 @@ async def _execute_tryon_inference_impl(
                 outfit_source=job.outfit_source,
             )
     except GenlookCancelledError:
+        collector.record_tryon_provider_outcome(provider=provider_name, outcome="cancelled")
         logger.info("Genlook try-on job %s cancelled during polling; preserving cancelled state.", job_id)
         return
     except ProviderPayloadError as e:
+        collector.record_tryon_provider_outcome(provider=provider_name, outcome="payload_rejected")
         if provider_name == "genlook":
             err_code = getattr(e, "provider_error_code", None)
             if err_code == "RESULT_DOWNLOAD_REJECTED" and genlook_meta.get("generationId"):
@@ -1656,7 +1915,21 @@ async def _execute_tryon_inference_impl(
                         "lastErrorCode": err_code,
                     }
                 )
-        logger.warning("TryOn payload rejected for job %s: %s", job_id, e.message)
+        duration_s = time.monotonic() - t0
+        collector.record_tryon_job_terminal(
+            provider=provider_name,
+            status="failed",
+            error_code="PAYLOAD_REJECTED",
+            duration_s=duration_s,
+        )
+        logger.warning(
+            "TryOn payload rejected [event=tryon_job_failed, job_id=%s, user_id=%s, provider=%s, error_code=PAYLOAD_REJECTED, duration_ms=%.1f, retry_count=%d]",
+            job_id,
+            user_id,
+            provider_name,
+            duration_s * 1000,
+            job.retry_count,
+        )
         repo.update_failure(
             job_id=job_id,
             error_code="PAYLOAD_REJECTED",
@@ -1665,6 +1938,7 @@ async def _execute_tryon_inference_impl(
         )
         return
     except ProviderAuthError as e:
+        collector.record_tryon_provider_outcome(provider=provider_name, outcome="auth_error")
         if provider_name == "genlook":
             _persist_genlook_meta(
                 {
@@ -1674,7 +1948,21 @@ async def _execute_tryon_inference_impl(
                     "lastErrorCode": getattr(e, "provider_error_code", None),
                 }
             )
-        logger.error("TryOn provider auth failure for job %s: %s", job_id, e.message)
+        duration_s = time.monotonic() - t0
+        collector.record_tryon_job_terminal(
+            provider=provider_name,
+            status="failed",
+            error_code="PROVIDER_AUTH_ERROR",
+            duration_s=duration_s,
+        )
+        logger.error(
+            "TryOn provider auth failure [event=tryon_job_failed, job_id=%s, user_id=%s, provider=%s, error_code=PROVIDER_AUTH_ERROR, duration_ms=%.1f, retry_count=%d]",
+            job_id,
+            user_id,
+            provider_name,
+            duration_s * 1000,
+            job.retry_count,
+        )
         repo.update_failure(
             job_id=job_id,
             error_code="PROVIDER_AUTH_ERROR",
@@ -1683,20 +1971,45 @@ async def _execute_tryon_inference_impl(
         )
         return
     except ProviderQuotaExceededError as e:
+        collector.record_tryon_provider_outcome(provider=provider_name, outcome="quota_exceeded")
         if provider_name == "genlook":
             err_code = getattr(e, "provider_error_code", None)
-            _persist_genlook_meta(
-                {
-                    "generationStatus": "FAILED" if genlook_meta.get("generationId") else genlook_meta.get("generationStatus"),
-                    "generationId": None,
-                    "pendingIdempotencyKey": None,
-                    "attemptSeq": attempt_seq + 1,
-                    "creditsCharged": 0,
-                    "refunded": bool(genlook_meta.get("generationId")),
-                    "lastErrorCode": err_code,
-                }
-            )
-        logger.warning("TryOn provider quota exceeded for job %s: %s", job_id, e.message)
+            if err_code == "RATE_LIMITED" and genlook_meta.get("generationId"):
+                # Generation already accepted by Genlook (1 credit charged); polling hit 429.
+                # Preserve generationId so retry resumes polling without double-charging.
+                _persist_genlook_meta(
+                    {
+                        "pendingIdempotencyKey": None,
+                        "lastErrorCode": err_code,
+                    }
+                )
+            else:
+                _persist_genlook_meta(
+                    {
+                        "generationStatus": "FAILED" if genlook_meta.get("generationId") else genlook_meta.get("generationStatus"),
+                        "generationId": None,
+                        "pendingIdempotencyKey": None,
+                        "attemptSeq": attempt_seq + 1,
+                        "creditsCharged": 0,
+                        "refunded": bool(genlook_meta.get("generationId")),
+                        "lastErrorCode": err_code,
+                    }
+                )
+        duration_s = time.monotonic() - t0
+        collector.record_tryon_job_terminal(
+            provider=provider_name,
+            status="failed",
+            error_code="PROVIDER_QUOTA_EXCEEDED",
+            duration_s=duration_s,
+        )
+        logger.warning(
+            "TryOn provider quota exceeded [event=tryon_job_failed, job_id=%s, user_id=%s, provider=%s, error_code=PROVIDER_QUOTA_EXCEEDED, duration_ms=%.1f, retry_count=%d]",
+            job_id,
+            user_id,
+            provider_name,
+            duration_s * 1000,
+            job.retry_count,
+        )
         repo.update_failure(
             job_id=job_id,
             error_code="PROVIDER_QUOTA_EXCEEDED",
@@ -1705,6 +2018,7 @@ async def _execute_tryon_inference_impl(
         )
         return
     except ProviderTransientError as e:
+        collector.record_tryon_provider_outcome(provider=provider_name, outcome="transient_error")
         if provider_name == "genlook":
             err_code = getattr(e, "provider_error_code", None)
             # If Genlook explicitly marked generation FAILED (refunded), clear generationId so retry can re-submit;
@@ -1724,9 +2038,33 @@ async def _execute_tryon_inference_impl(
                         "lastErrorCode": err_code,
                     }
                 )
+            elif genlook_meta.get("generationId") and err_code == "RESULT_DOWNLOAD_TRANSIENT":
+                _persist_genlook_meta(
+                    {
+                        "generationStatus": "COMPLETED",
+                        "pendingIdempotencyKey": None,
+                        "creditsCharged": 1,
+                        "refunded": False,
+                        "lastErrorCode": err_code,
+                    }
+                )
             else:
                 _persist_genlook_meta({"lastErrorCode": err_code or "TRANSIENT_UNCERTAIN"})
-        logger.warning("TryOn provider transient error for job %s: %s", job_id, e.message)
+        duration_s = time.monotonic() - t0
+        collector.record_tryon_job_terminal(
+            provider=provider_name,
+            status="failed",
+            error_code="PROVIDER_TRANSIENT_FAILURE",
+            duration_s=duration_s,
+        )
+        logger.warning(
+            "TryOn provider transient error [event=tryon_job_failed, job_id=%s, user_id=%s, provider=%s, error_code=PROVIDER_TRANSIENT_FAILURE, duration_ms=%.1f, retry_count=%d]",
+            job_id,
+            user_id,
+            provider_name,
+            duration_s * 1000,
+            job.retry_count,
+        )
         repo.update_failure(
             job_id=job_id,
             error_code="PROVIDER_TRANSIENT_FAILURE",
@@ -1735,7 +2073,22 @@ async def _execute_tryon_inference_impl(
         )
         return
     except CommercialProviderConfigurationError as e:
-        logger.error("TryOn commercial config error for job %s: %s", job_id, e.message)
+        collector.record_tryon_provider_outcome(provider=provider_name, outcome="config_error")
+        duration_s = time.monotonic() - t0
+        collector.record_tryon_job_terminal(
+            provider=provider_name,
+            status="failed",
+            error_code="PROVIDER_CONFIG_ERROR",
+            duration_s=duration_s,
+        )
+        logger.error(
+            "TryOn commercial config error [event=tryon_job_failed, job_id=%s, user_id=%s, provider=%s, error_code=PROVIDER_CONFIG_ERROR, duration_ms=%.1f, retry_count=%d]",
+            job_id,
+            user_id,
+            provider_name,
+            duration_s * 1000,
+            job.retry_count,
+        )
         repo.update_failure(
             job_id=job_id,
             error_code="PROVIDER_CONFIG_ERROR",
@@ -1744,7 +2097,23 @@ async def _execute_tryon_inference_impl(
         )
         return
     except Exception as e:
-        logger.error("TryOn inference failed for job %s: %s", job_id, e)
+        collector.record_tryon_provider_outcome(provider=provider_name, outcome="unexpected_error")
+        duration_s = time.monotonic() - t0
+        collector.record_tryon_job_terminal(
+            provider=provider_name,
+            status="failed",
+            error_code="AI_INFERENCE_FAILURE",
+            duration_s=duration_s,
+        )
+        logger.error(
+            "TryOn inference failed [event=tryon_job_failed, job_id=%s, user_id=%s, provider=%s, error_code=AI_INFERENCE_FAILURE, duration_ms=%.1f, retry_count=%d, err=%s]",
+            job_id,
+            user_id,
+            provider_name,
+            duration_s * 1000,
+            job.retry_count,
+            type(e).__name__,
+        )
         repo.update_failure(
             job_id=job_id,
             error_code="AI_INFERENCE_FAILURE",
@@ -1752,6 +2121,8 @@ async def _execute_tryon_inference_impl(
             completed_at=datetime.now(timezone.utc),
         )
         return
+
+    collector.record_tryon_provider_outcome(provider=provider_name, outcome="success")
 
     # Check for cancellation before validating/persisting
     latest = repo.get_by_id(user_id=user_id, job_id=job_id)
@@ -1811,7 +2182,20 @@ async def _execute_tryon_inference_impl(
             if not exists:
                 raise StorageError("Try-on result storage confirmation failed", key=result_key)
         except Exception as e:
-            logger.error("Failed to store try-on result image for job %s: %s", job_id, e)
+            collector.record_tryon_storage_error(operation="result_upload")
+            duration_s = time.monotonic() - t0
+            collector.record_tryon_job_terminal(
+                provider=provider_name,
+                status="failed",
+                error_code="STORAGE_FAILURE",
+                duration_s=duration_s,
+            )
+            logger.error(
+                "Failed to store try-on result image [event=tryon_storage_error, operation=result_upload, job_id=%s, user_id=%s, err=%s]",
+                job_id,
+                user_id,
+                type(e).__name__,
+            )
             repo.update_failure(
                 job_id=job_id,
                 error_code="STORAGE_FAILURE",
@@ -1848,6 +2232,24 @@ async def _execute_tryon_inference_impl(
                 await storage.delete_object(result_key)
             except Exception:
                 pass
+    else:
+        duration_s = time.monotonic() - t0
+        credits_charged = int(result_media_ref.get("creditsCharged", 0)) if provider_name == "genlook" else 0
+        collector.record_tryon_job_terminal(
+            provider=provider_name,
+            status="completed",
+            duration_s=duration_s,
+            credits_charged=credits_charged,
+        )
+        logger.info(
+            "TryOn job completed [event=tryon_job_completed, job_id=%s, user_id=%s, provider=%s, duration_ms=%.1f, retry_count=%d, credits_charged=%d]",
+            job_id,
+            user_id,
+            provider_name,
+            duration_s * 1000,
+            updated.retry_count,
+            credits_charged,
+        )
 
 
 def get_job(
@@ -1956,14 +2358,17 @@ def retry_job(
     job_repo: Optional[TryOnJobRepository] = None,
 ) -> TryOnJobRecord:
     """Retry an eligible failed or cancelled try-on job."""
+    from app.telemetry.metrics import get_metrics_collector
+
     settings = get_settings()
     enabled = getattr(settings, "tryon_enabled", True)
-    provider_name = getattr(settings, "tryon_provider", "mock")
-    env = getattr(settings, "environment", "development")
+    provider_name = str(getattr(settings, "tryon_provider", "mock")).strip().lower()
+    env = str(getattr(settings, "environment", "development")).strip().lower()
+    is_prod = bool(getattr(settings, "is_production", env == "production"))
 
     if not enabled or provider_name == "off":
         raise ai_failure()
-    if env == "production" and provider_name in ("mock", "catvton"):
+    if is_prod and provider_name in ("mock", "catvton"):
         raise ai_failure()
     if provider_name == "genlook" and not getattr(settings, "genlook_api_key", None):
         raise ai_failure()
@@ -1982,12 +2387,30 @@ def retry_job(
     if job.status not in ("failed", "cancelled"):
         raise conflict(kind="cannot_retry_completed_job")
 
+    if job.consent_accepted_at is None or job.consent_version != settings.tryon_consent_version:
+        raise validation(
+            [
+                {
+                    "field": "consent_version",
+                    "error": f"fresh consent required for {settings.tryon_consent_version!r}",
+                }
+            ]
+        )
+
     if job.retry_count >= _MAX_TRYON_RETRIES:
         raise conflict(kind="max_retries_exceeded")
 
+    collector = get_metrics_collector()
     concurrent_limit = getattr(settings, "tryon_max_concurrent_jobs_per_user", 5)
     if repo.count_active_jobs(user_id=user_uuid) >= concurrent_limit:
+        collector.record_tryon_quota_rejection("user_concurrency")
         raise rate_limited()
+
+    global_limit = getattr(settings, "tryon_max_concurrent_jobs_global", 10)
+    count_all_fn = getattr(repo, "count_all_active_jobs", None)
+    if callable(count_all_fn) and count_all_fn() >= global_limit:
+        collector.record_tryon_quota_rejection("global_concurrency")
+        raise rate_limited(retry_after_s=10)
 
     updated = repo.update_retry(
         job_id=job_uuid,
@@ -1995,7 +2418,20 @@ def retry_job(
         status="processing",
     )
     if not updated:
+        # Either job vanished or a concurrent retry already claimed it into processing
+        latest = repo.get_by_id(user_id=user_uuid, job_id=job_uuid)
+        if latest is not None:
+            raise conflict(kind="cannot_retry_completed_job")
         raise not_found()
+
+    collector.record_tryon_retry(provider=updated.provider)
+    logger.info(
+        "TryOn job retried [event=tryon_job_retried, job_id=%s, user_id=%s, provider=%s, retry_count=%d]",
+        updated.id,
+        user_uuid,
+        updated.provider,
+        updated.retry_count,
+    )
     return updated
 
 
@@ -2006,6 +2442,8 @@ def cancel_job(
     job_repo: Optional[TryOnJobRepository] = None,
 ) -> TryOnJobRecord:
     """Cancel an active queued or processing try-on job."""
+    from app.telemetry.metrics import get_metrics_collector
+
     try:
         user_uuid = UUID(user_id)
         job_uuid = UUID(job_id)
@@ -2029,6 +2467,17 @@ def cancel_job(
     _POLL_COUNTS.pop(str(job_uuid), None)
     if not updated:
         raise not_found()
+
+    get_metrics_collector().record_tryon_job_terminal(
+        provider=updated.provider,
+        status="cancelled",
+    )
+    logger.info(
+        "TryOn job cancelled [event=tryon_job_cancelled, job_id=%s, user_id=%s, provider=%s]",
+        updated.id,
+        user_uuid,
+        updated.provider,
+    )
     return updated
 
 
@@ -2051,18 +2500,44 @@ async def delete_job_and_media(
     if job is None:
         raise not_found()
 
-    # Safely delete private media
+    # Safely delete owner-scoped private media BEFORE removing DB row so storage
+    # outages never silently orphan private R2 objects.
     if storage is not None:
-        if job.person_media_ref and "key" in job.person_media_ref:
-            try:
-                await storage.delete_object(job.person_media_ref["key"])
-            except Exception as e:
-                logger.warning("Failed to delete person image %s: %s", job.person_media_ref["key"], e)
-        if job.result_media_ref and "key" in job.result_media_ref:
-            try:
-                await storage.delete_object(job.result_media_ref["key"])
-            except Exception as e:
-                logger.warning("Failed to delete result image %s: %s", job.result_media_ref["key"], e)
+        from app.telemetry.metrics import get_metrics_collector
+
+        owner_str = str(user_uuid)
+        for ref_label, ref_dict in (
+            ("person", job.person_media_ref),
+            ("result", job.result_media_ref),
+        ):
+            if isinstance(ref_dict, dict) and isinstance(ref_dict.get("key"), str):
+                key = ref_dict["key"]
+                try:
+                    validate_scoped_object_key(key, user_id=owner_str)
+                except Exception as e:
+                    get_metrics_collector().record_tryon_storage_error(operation="job_delete")
+                    logger.warning(
+                        "Refused cross-user/invalid %s image deletion for job %s: %s",
+                        ref_label,
+                        job.id,
+                        type(e).__name__,
+                    )
+                    continue
+                try:
+                    await storage.delete_object(key)
+                except Exception as e:
+                    get_metrics_collector().record_tryon_storage_error(operation="job_delete")
+                    logger.error(
+                        "Failed to delete %s image for job %s [event=tryon_storage_error, operation=job_delete, err=%s]",
+                        ref_label,
+                        job.id,
+                        type(e).__name__,
+                    )
+                    raise ApiError(
+                        status_code=503,
+                        code="STORAGE_FAILURE",
+                        message="Failed to delete try-on media from storage. Please retry.",
+                    )
 
     _BYTE_CACHE.pop(str(job_uuid), None)
     _POLL_COUNTS.pop(str(job_uuid), None)
@@ -2079,6 +2554,8 @@ def reset_for_tests() -> None:
     _IN_MEMORY_REPO.clear()
     _BYTE_CACHE.clear()
     _POLL_COUNTS.clear()
+    with _EXECUTION_LOCK:
+        _ACTIVE_EXECUTION_IDS.clear()
 
 
 def recover_interrupted_jobs(
@@ -2087,10 +2564,8 @@ def recover_interrupted_jobs(
     """Recover jobs left in queued or processing status on backend restart.
 
     Transition orphaned jobs to failed status with clear reason codes:
-    - INTERRUPTED_IN_QUEUE for jobs that had not yet reached inference.
-    - INTERRUPTED_DURING_INFERENCE for jobs active during crash, preventing
-      duplicate billing or duplicate inference.
-    Users can safely inspect the state and retry.
+    - INTERRUPTED_BY_RESTART, preserving generationId / pendingIdempotencyKey
+      so retries never cause duplicate billing or duplicate inference.
     """
     repo = job_repo or _IN_MEMORY_REPO
     count = 0
@@ -2115,14 +2590,130 @@ def recover_interrupted_jobs(
     return count
 
 
+def recover_stale_jobs(
+    *,
+    job_repo: Optional[TryOnJobRepository] = None,
+    stale_after_s: int | None = None,
+    now: Optional[datetime] = None,
+) -> int:
+    """Recover active queued/processing jobs stuck beyond stale_after_s without restart."""
+    repo = job_repo or _IN_MEMORY_REPO
+    find_stale_fn = getattr(repo, "find_stale_active_jobs", None)
+    if not callable(find_stale_fn):
+        return 0
+    cfg = get_settings()
+    threshold_s = (
+        int(stale_after_s)
+        if stale_after_s is not None
+        else int(getattr(cfg, "tryon_stale_job_timeout_s", 300))
+    )
+    current_time = now or datetime.now(timezone.utc)
+    cutoff = current_time - timedelta(seconds=max(30, threshold_s))
+    stale_jobs = find_stale_fn(older_than=cutoff)
+    recovered = 0
+    for job in stale_jobs:
+        with _EXECUTION_LOCK:
+            if job.id in _ACTIVE_EXECUTION_IDS:
+                continue
+        repo.update_failure(
+            job_id=job.id,
+            error_code="STALE_JOB_TIMEOUT",
+            error_message="Job processing stalled and was safely closed. Please retry.",
+            completed_at=current_time,
+        )
+        _BYTE_CACHE.pop(str(job.id), None)
+        _POLL_COUNTS.pop(str(job.id), None)
+        recovered += 1
+        logger.warning(
+            "Recovered stale active try-on job [event=tryon_stale_job_recovered, job_id=%s, user_id=%s, prior_status=%s]",
+            job.id,
+            job.user_id,
+            job.status,
+        )
+    return recovered
+
+
 @dataclass
 class RetentionCleanupSummary:
     person_photos_purged: int = 0
     failed_jobs_deleted: int = 0
     cancelled_jobs_deleted: int = 0
     completed_results_deleted: int = 0
+    abandoned_jobs_deleted: int = 0
+    stale_jobs_recovered: int = 0
     storage_objects_deleted: int = 0
     storage_errors: int = 0
+
+
+async def _delete_job_scoped_object(
+    *,
+    storage: ObjectStoragePort,
+    user_id: UUID,
+    key: str,
+    summary: RetentionCleanupSummary,
+    operation: str,
+) -> bool:
+    """Delete an object strictly scoped to user_id; return True if safe to clear DB ref."""
+    from app.telemetry.metrics import get_metrics_collector
+
+    try:
+        validate_scoped_object_key(key, user_id=str(user_id))
+    except Exception as exc:
+        summary.storage_errors += 1
+        get_metrics_collector().record_tryon_storage_error(operation=operation)
+        logger.warning(
+            "Retention cleanup refused cross-user/invalid object key [event=tryon_retention_scope_blocked, user_id=%s, err=%s]",
+            user_id,
+            type(exc).__name__,
+        )
+        return False
+
+    try:
+        await storage.delete_object(key)
+        summary.storage_objects_deleted += 1
+        return True
+    except Exception as exc:
+        summary.storage_errors += 1
+        get_metrics_collector().record_tryon_storage_error(operation=operation)
+        logger.warning(
+            "Retention cleanup storage delete failed [event=tryon_storage_error, operation=%s, user_id=%s, err=%s]",
+            operation,
+            user_id,
+            type(exc).__name__,
+        )
+        return False
+
+
+async def _purge_expired_job_bucket(
+    *,
+    repo: TryOnJobRepository,
+    storage: Optional[ObjectStoragePort],
+    jobs: list[TryOnJobRecord],
+    summary: RetentionCleanupSummary,
+) -> int:
+    """Delete storage media and DB records for expired jobs without orphaning R2 objects."""
+    deleted_count = 0
+    for j in jobs:
+        all_deleted = True
+        if storage is not None:
+            for ref_dict, op_name in (
+                (j.person_media_ref, "retention_person_delete"),
+                (j.result_media_ref, "retention_result_delete"),
+            ):
+                if isinstance(ref_dict, dict) and isinstance(ref_dict.get("key"), str):
+                    ok = await _delete_job_scoped_object(
+                        storage=storage,
+                        user_id=j.user_id,
+                        key=ref_dict["key"],
+                        summary=summary,
+                        operation=op_name,
+                    )
+                    if not ok:
+                        all_deleted = False
+        if all_deleted:
+            repo.delete(user_id=j.user_id, job_id=j.id)
+            deleted_count += 1
+    return deleted_count
 
 
 async def cleanup_retention_data(
@@ -2138,7 +2729,7 @@ async def cleanup_retention_data(
     - Person photos older than tryon_retention_person_photo_hours (default 24h) are deleted
       from storage and their reference cleared from the database.
     - Cancelled jobs older than tryon_retention_cancelled_jobs_hours (default 12h) are purged.
-    - Failed jobs older than tryon_retention_failed_jobs_hours (default 24h) are purged.
+    - Failed and abandoned jobs older than tryon_retention_failed_jobs_hours (default 24h) are purged.
     - Completed jobs older than tryon_retention_result_hours (default 72h) are purged.
     """
     repo = job_repo or _IN_MEMORY_REPO
@@ -2153,77 +2744,66 @@ async def cleanup_retention_data(
     person_cutoff = current_time - timedelta(hours=cfg.tryon_retention_person_photo_hours)
     jobs_with_photos = repo.find_jobs_with_unpurged_person_photo(older_than=person_cutoff)
     for j in jobs_with_photos:
-        if j.person_media_ref and "key" in j.person_media_ref:
+        if isinstance(j.person_media_ref, dict) and isinstance(j.person_media_ref.get("key"), str):
             key = j.person_media_ref["key"]
+            ok = True
             if storage is not None:
-                try:
-                    await storage.delete_object(key)
-                    summary.storage_objects_deleted += 1
-                except Exception as e:
-                    logger.warning("Failed to purge person photo %s: %s", key, e)
-                    summary.storage_errors += 1
-            repo.clear_person_media_ref(job_id=j.id)
-            summary.person_photos_purged += 1
+                ok = await _delete_job_scoped_object(
+                    storage=storage,
+                    user_id=j.user_id,
+                    key=key,
+                    summary=summary,
+                    operation="retention_person_delete",
+                )
+            if ok:
+                repo.clear_person_media_ref(job_id=j.id)
+                summary.person_photos_purged += 1
 
     # 2. Purge expired cancelled jobs (default 12h)
     cancelled_cutoff = current_time - timedelta(hours=cfg.tryon_retention_cancelled_jobs_hours)
-    expired_cancelled = repo.find_expired_jobs(status="cancelled", older_than=cancelled_cutoff)
-    for j in expired_cancelled:
-        if storage is not None:
-            if j.person_media_ref and "key" in j.person_media_ref:
-                try:
-                    await storage.delete_object(j.person_media_ref["key"])
-                    summary.storage_objects_deleted += 1
-                except Exception:
-                    summary.storage_errors += 1
-            if j.result_media_ref and "key" in j.result_media_ref:
-                try:
-                    await storage.delete_object(j.result_media_ref["key"])
-                    summary.storage_objects_deleted += 1
-                except Exception:
-                    summary.storage_errors += 1
-        repo.delete(user_id=j.user_id, job_id=j.id)
-        summary.cancelled_jobs_deleted += 1
+    summary.cancelled_jobs_deleted = await _purge_expired_job_bucket(
+        repo=repo,
+        storage=storage,
+        jobs=repo.find_expired_jobs(status="cancelled", older_than=cancelled_cutoff),
+        summary=summary,
+    )
 
     # 3. Purge expired failed jobs (default 24h)
     failed_cutoff = current_time - timedelta(hours=cfg.tryon_retention_failed_jobs_hours)
-    expired_failed = repo.find_expired_jobs(status="failed", older_than=failed_cutoff)
-    for j in expired_failed:
-        if storage is not None:
-            if j.person_media_ref and "key" in j.person_media_ref:
-                try:
-                    await storage.delete_object(j.person_media_ref["key"])
-                    summary.storage_objects_deleted += 1
-                except Exception:
-                    summary.storage_errors += 1
-            if j.result_media_ref and "key" in j.result_media_ref:
-                try:
-                    await storage.delete_object(j.result_media_ref["key"])
-                    summary.storage_objects_deleted += 1
-                except Exception:
-                    summary.storage_errors += 1
-        repo.delete(user_id=j.user_id, job_id=j.id)
-        summary.failed_jobs_deleted += 1
+    summary.failed_jobs_deleted = await _purge_expired_job_bucket(
+        repo=repo,
+        storage=storage,
+        jobs=repo.find_expired_jobs(status="failed", older_than=failed_cutoff),
+        summary=summary,
+    )
 
     # 4. Purge expired completed jobs (default 72h)
     completed_cutoff = current_time - timedelta(hours=cfg.tryon_retention_result_hours)
-    expired_completed = repo.find_expired_jobs(status="completed", older_than=completed_cutoff)
-    for j in expired_completed:
-        if storage is not None:
-            if j.person_media_ref and "key" in j.person_media_ref:
-                try:
-                    await storage.delete_object(j.person_media_ref["key"])
-                    summary.storage_objects_deleted += 1
-                except Exception:
-                    summary.storage_errors += 1
-            if j.result_media_ref and "key" in j.result_media_ref:
-                try:
-                    await storage.delete_object(j.result_media_ref["key"])
-                    summary.storage_objects_deleted += 1
-                except Exception:
-                    summary.storage_errors += 1
-        repo.delete(user_id=j.user_id, job_id=j.id)
-        summary.completed_results_deleted += 1
+    summary.completed_results_deleted = await _purge_expired_job_bucket(
+        repo=repo,
+        storage=storage,
+        jobs=repo.find_expired_jobs(status="completed", older_than=completed_cutoff),
+        summary=summary,
+    )
+
+    # 5. Purge abandoned queued/processing jobs older than failed_cutoff (default 24h)
+    abandoned_jobs = (
+        repo.find_expired_jobs(status="queued", older_than=failed_cutoff)
+        + repo.find_expired_jobs(status="processing", older_than=failed_cutoff)
+    )
+    summary.abandoned_jobs_deleted = await _purge_expired_job_bucket(
+        repo=repo,
+        storage=storage,
+        jobs=abandoned_jobs,
+        summary=summary,
+    )
+
+    # 6. Recover any newer stale queued/processing jobs beyond stale_job_timeout_s
+    summary.stale_jobs_recovered = recover_stale_jobs(
+        job_repo=repo,
+        stale_after_s=int(getattr(cfg, "tryon_stale_job_timeout_s", 300)),
+        now=current_time,
+    )
 
     logger.info("Retention cleanup completed: %s", summary)
     return summary

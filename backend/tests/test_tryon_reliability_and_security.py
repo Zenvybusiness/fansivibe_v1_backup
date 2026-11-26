@@ -461,7 +461,7 @@ def test_result_persistence_failure_leaves_not_completed(setup_overrides):
 
 
 def test_deletion_when_one_media_fails(setup_overrides):
-    """Deletion succeeds and removes DB record even when one storage deletion raises an error."""
+    """Deletion fails closed without orphaning R2 objects when storage deletion raises an error, and succeeds on retry."""
     person_key = f"users/{USER_A}/tryon/job-del-test/person.jpg"
     result_key = f"users/{USER_A}/tryon/job-del-test/result.jpg"
 
@@ -487,7 +487,19 @@ def test_deletion_when_one_media_fails(setup_overrides):
         completed_at=now,
     )
 
-    # Call delete
+    # First delete fails closed on storage error and preserves DB record so R2 object is not orphaned
+    with pytest.raises(tryon_app.ApiError) as exc_info:
+        asyncio.run(tryon_app.delete_job_and_media(
+            user_id=str(USER_A),
+            job_id=str(job_id),
+            job_repo=repo,
+            storage=storage,
+        ))
+    assert exc_info.value.status_code == 503
+    assert repo.get_by_id(user_id=USER_A, job_id=job_id) is not None
+
+    # After storage recovers, retry deletes remaining media and DB record cleanly
+    storage.fail_delete_keys.clear()
     success = asyncio.run(tryon_app.delete_job_and_media(
         user_id=str(USER_A),
         job_id=str(job_id),
@@ -495,8 +507,6 @@ def test_deletion_when_one_media_fails(setup_overrides):
         storage=storage,
     ))
     assert success is True
-
-    # Database row is deleted
     assert repo.get_by_id(user_id=USER_A, job_id=job_id) is None
 
 

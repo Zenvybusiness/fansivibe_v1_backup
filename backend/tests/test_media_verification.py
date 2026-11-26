@@ -732,7 +732,7 @@ class TestMigration0034MetadataAndPostgreSQL:
     """Validate Alembic migration 0034 lineage and multi-session PostgreSQL concurrency."""
 
     def test_migration_0034_and_0035_metadata_and_chain(self):
-        """Migration 0034 through 0036 forming single linear head."""
+        """Migration 0034 through 0036 lie on the single linear chain to head."""
         backend = Path(__file__).resolve().parents[1]
         config = Config(str(backend / "alembic.ini"))
         config.set_main_option("script_location", str(backend / "alembic"))
@@ -740,28 +740,35 @@ class TestMigration0034MetadataAndPostgreSQL:
 
         heads = script.get_heads()
         assert len(heads) == 1
-        assert heads[0] == "0036"
+        head = heads[0]
+
+        head_rev = script.get_revision(head)
+        assert head_rev is not None
+        assert callable(getattr(head_rev.module, "upgrade", None))
+        assert callable(getattr(head_rev.module, "downgrade", None))
+
+        chain_revisions = [
+            rev.revision for rev in script.walk_revisions(base="0033", head=head)
+        ]
+        assert chain_revisions[-4:] == ["0036", "0035", "0034", "0033"]
 
         rev36 = script.get_revision("0036")
         assert rev36 is not None
         assert rev36.down_revision == "0035"
-        assert hasattr(rev36.module, "upgrade")
-        assert hasattr(rev36.module, "downgrade")
+        assert callable(getattr(rev36.module, "upgrade", None))
+        assert callable(getattr(rev36.module, "downgrade", None))
 
         rev35 = script.get_revision("0035")
         assert rev35 is not None
         assert rev35.down_revision == "0034"
-        assert hasattr(rev35.module, "upgrade")
-        assert hasattr(rev35.module, "downgrade")
+        assert callable(getattr(rev35.module, "upgrade", None))
+        assert callable(getattr(rev35.module, "downgrade", None))
 
         rev34 = script.get_revision("0034")
         assert rev34 is not None
         assert rev34.down_revision == "0033"
-        assert hasattr(rev34.module, "upgrade")
-        assert hasattr(rev34.module, "downgrade")
-        assert rev34.down_revision == "0033"
-        assert hasattr(rev34.module, "upgrade")
-        assert hasattr(rev34.module, "downgrade")
+        assert callable(getattr(rev34.module, "upgrade", None))
+        assert callable(getattr(rev34.module, "downgrade", None))
 
     def test_postgresql_concurrent_completion_serialization(self):
         """Independent PostgreSQL sessions serialize concurrent completion requests via advisory locking."""

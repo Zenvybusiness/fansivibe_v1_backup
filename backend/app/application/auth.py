@@ -35,6 +35,8 @@ from typing import Any, Callable, Optional
 from uuid import UUID, uuid4
 import logging
 
+from sqlalchemy.exc import IntegrityError
+
 from app.api.errors import ApiError, authentication_error, conflict, not_found
 from app.domain.ports.repositories import AuthAccountRecord, AuthRepository
 from app.infrastructure.auth import (
@@ -158,22 +160,45 @@ class RegisterAccount:
                 self._auth.commit()
                 return existing, token
             raise conflict(kind="duplicate")
-        account = self._auth.create_account(
-            auth_provider=_EMAIL_PROVIDER,
-            auth_subject=clean_email,
-            display_name=clean_name,
-            password_hash=hash_password(clean_password),
-            idempotency_key=idempotency_key,
-        )
-        token = issue_session(
-            self._auth,
-            account=account,
-            secret=secret,
-            expires_in_s=expires_in_s,
-            now=now,
-        )
-        self._auth.commit()
-        return account, token
+        try:
+            account = self._auth.create_account(
+                auth_provider=_EMAIL_PROVIDER,
+                auth_subject=clean_email,
+                display_name=clean_name,
+                password_hash=hash_password(clean_password),
+                idempotency_key=idempotency_key,
+            )
+            token = issue_session(
+                self._auth,
+                account=account,
+                secret=secret,
+                expires_in_s=expires_in_s,
+                now=now,
+            )
+            self._auth.commit()
+            return account, token
+        except IntegrityError:
+            self._auth.rollback()
+            raced = self._auth.find_account(
+                auth_provider=_EMAIL_PROVIDER, auth_subject=clean_email
+            )
+            if (
+                raced is not None
+                and raced.register_idempotency_key == idempotency_key
+                and raced.password_hash is not None
+                and verify_password(clean_password, raced.password_hash)
+                and raced.display_name == clean_name
+            ):
+                token = issue_session(
+                    self._auth,
+                    account=raced,
+                    secret=secret,
+                    expires_in_s=expires_in_s,
+                    now=now,
+                )
+                self._auth.commit()
+                return raced, token
+            raise conflict(kind="duplicate")
 
 
 class SignIn:
@@ -379,6 +404,13 @@ class EraseAccount:
                         max_retries=getattr(settings, "genlook_max_retries", 2),
                         keep_for_days=getattr(settings, "genlook_keep_for_days", 1),
                         ai_label=getattr(settings, "genlook_ai_label", True),
+                        is_production=bool(
+                            getattr(
+                                settings,
+                                "is_production",
+                                str(getattr(settings, "environment", "")).strip().lower() == "production",
+                            )
+                        ),
                     )
                     g_provider = GenlookTryOnProvider(g_config)
                     genlook_erased = await asyncio.to_thread(

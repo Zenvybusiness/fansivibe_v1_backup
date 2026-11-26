@@ -720,7 +720,7 @@ class CommercialTryOnProvider:
                         timeout=timeout,
                     )
                 else:
-                    with httpx.Client(timeout=timeout) as client:
+                    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
                         resp = client.post(
                             self.config.endpoint_url,
                             json=json_payload,

@@ -110,9 +110,26 @@ class GarmentProfile:
     length: str | None = None
     condition: str | None = None
     description: str | None = None
+    extraction_method: str = "vlm_bounding_box_crop"
+    has_segmentation_mask: bool = False
+    segmentation: dict | None = None
+    partial_failures: tuple[dict, ...] = ()
 
     def to_snapshot(self) -> dict:
-        candidates_list = list(self.candidates)
+        default_segmentation = {
+            "supported": False,
+            "type": "none",
+            "reason": (
+                "Local VLM provides 2D bounding-box localization only; "
+                "pixel-level segmentation masks are not supported."
+            ),
+        }
+        seg_payload = (
+            dict(self.segmentation)
+            if isinstance(self.segmentation, dict)
+            else default_segmentation
+        )
+        candidates_list = [dict(c) for c in self.candidates]
         if not candidates_list and (self.category or self.subcategory or self.color):
             candidates_list = [
                 {
@@ -131,6 +148,12 @@ class GarmentProfile:
                     "condition": self.condition,
                     "description": self.description,
                     "confidence": self.confidence,
+                    "bounding_box": None,
+                    "extraction_method": "vlm_attribute_only",
+                    "has_crop": False,
+                    "has_segmentation_mask": False,
+                    "mask": None,
+                    "segmentation": dict(seg_payload),
                     "needs_review": self.needs_review,
                 }
             ]
@@ -151,6 +174,11 @@ class GarmentProfile:
             "confidence": self.confidence,
             "needs_review": self.needs_review,
             "sourceRunId": self.sourceRunId,
+            "extraction_method": self.extraction_method,
+            "has_segmentation_mask": self.has_segmentation_mask,
+            "mask": None,
+            "segmentation": seg_payload,
+            "partial_failures": [dict(f) for f in self.partial_failures],
             "candidates": candidates_list,
         }
 

@@ -8,6 +8,8 @@ import 'package:http_parser/http_parser.dart';
 
 import 'package:fansivibe/core/config/app_config.dart';
 import 'package:fansivibe/features/media/domain/image_pipeline.dart';
+import 'package:fansivibe/features/wardrobe/data/garment_models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 
 /// One polled garment-analysis run (`GET /v1/analysis/runs/{run_id}`).
@@ -21,17 +23,15 @@ class GarmentAnalysisRun {
   bool get isFailed => data?['status'] == 'failed';
 
   /// Completed-run observation snapshot, or null.
-  Map<String, dynamic>? get result =>
-      data?['result'] as Map<String, dynamic>?;
+  Map<String, dynamic>? get result => data?['result'] as Map<String, dynamic>?;
 
   /// Persisted input-media metadata (key, mediaType, sizeBytes,
-  /// contentHash, analyzer, uploadedAt) — the photo reference the
-  /// wardrobe save persists as `imageRef`.
+  /// contentHash, analyzer, uploadedAt) — the photo reference metadata.
   Map<String, dynamic>? get inputMedia =>
       data?['input_media'] as Map<String, dynamic>?;
 
   /// Typed failure reason (`details.reason`: no_garment_detected,
-  /// low_confidence, analyzer_unavailable, …), or null.
+  /// low_confidence, analyzer_unavailable, invalid_image, …), or null.
   String? get failureReason {
     final error = data?['error'] as Map<String, dynamic>?;
     final details = error?['details'] as Map<String, dynamic>?;
@@ -39,19 +39,60 @@ class GarmentAnalysisRun {
   }
 }
 
-/// HTTP client for the M11 garment-analysis surface.
+class SaveExtractedGarmentFailure {
+  const SaveExtractedGarmentFailure({
+    required this.candidateId,
+    required this.name,
+    required this.error,
+  });
+
+  final String candidateId;
+  final String name;
+  final String error;
+
+  factory SaveExtractedGarmentFailure.fromJson(Map<String, dynamic> json) {
+    return SaveExtractedGarmentFailure(
+      candidateId: (json['candidateId'] as String?) ?? '',
+      name: (json['name'] as String?) ?? 'Item',
+      error: (json['error'] as String?) ?? 'Save failed',
+    );
+  }
+}
+
+class SaveExtractedGarmentsResult {
+  const SaveExtractedGarmentsResult({
+    this.savedItems = const [],
+    this.failedItems = const [],
+    this.cleanedUpAssets = false,
+    this.errorMessage,
+    this.isConflict = false,
+  });
+
+  final List<WardrobeItem> savedItems;
+  final List<SaveExtractedGarmentFailure> failedItems;
+  final bool cleanedUpAssets;
+  final String? errorMessage;
+  final bool isConflict;
+
+  bool get hasSavedItems => savedItems.isNotEmpty;
+  bool get hasFailures => failedItems.isNotEmpty || errorMessage != null;
+}
+
+/// HTTP client for the M11 / P5.1 garment-analysis & extraction surface.
 ///
 /// `POST /v1/analysis/garment` (multipart image → 202 `{run_id}`), then
-/// the existing run endpoint. Web-safe bytes upload (`fromBytes`, no
-/// `dart:io`), same Bearer convention as every other client. Failures
-/// return null — never a fabricated garment.
+/// `GET /v1/analysis/runs/{run_id}`, candidate crop retrieval, explicit save,
+/// and temporary asset cleanup. Failures never fabricate garments.
 class GarmentClient {
-  GarmentClient({http.Client? client, Duration? pollInterval})
+  GarmentClient({http.Client? client, Duration? pollInterval, String? baseUrl})
     : _client = client ?? http.Client(),
-      _pollInterval = pollInterval ?? const Duration(seconds: 1);
+      _pollInterval = pollInterval ?? const Duration(seconds: 1),
+      _baseUrl = baseUrl ?? AppConfig.apiBaseUrl;
 
   /// Canonical base URL — single source of truth is [AppConfig.apiBaseUrl].
   static const String baseUrl = AppConfig.apiBaseUrl;
+
+  final String _baseUrl;
 
   static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',
@@ -69,13 +110,15 @@ class GarmentClient {
 
   final http.Client _client;
   final Duration _pollInterval;
-  // Phase 4A: 30s exceeds the backend 20s vision budget + overhead, so a
-  // legitimate synchronous analysis never surfaces as a client timeout.
-  static const Duration _timeout = Duration(seconds: 30);
+  // Exceeds the 60s local vision inference budget + cropping overhead.
+  static const Duration _timeout = Duration(seconds: 75);
 
   String? _activeIdempotencyKey;
   String? get activeIdempotencyKey => _activeIdempotencyKey;
   void resetIdempotencyKey() => _activeIdempotencyKey = null;
+
+  String? lastSubmitError;
+  String? lastSubmitErrorCode;
 
   /// Submits a garment photo for analysis.
   ///
@@ -86,14 +129,21 @@ class GarmentClient {
     String filename = 'wardrobe_item.jpg',
     String? idempotencyKey,
   }) async {
+    lastSubmitError = null;
+    lastSubmitErrorCode = null;
     if (bytes.isEmpty || bytes.length > maxImageBytes) {
+      lastSubmitError = bytes.isEmpty
+          ? 'The selected image is empty.'
+          : 'Image exceeds 20 MB size limit.';
+      lastSubmitErrorCode = 'VALIDATION_ERROR';
       debugPrint('Garment submit refused image (${bytes.length} bytes).');
       return null;
     }
     final effectiveKey =
-        idempotencyKey ?? (_activeIdempotencyKey ??= newGarmentIdempotencyKey());
+        idempotencyKey ??
+        (_activeIdempotencyKey ??= newGarmentIdempotencyKey());
     try {
-      final uri = Uri.parse('$baseUrl/v1/analysis/garment');
+      final uri = Uri.parse('$_baseUrl/v1/analysis/garment');
       final request = http.MultipartRequest('POST', uri)
         ..headers['Authorization'] = 'Bearer $_devToken'
         ..headers['Idempotency-Key'] = effectiveKey;
@@ -106,21 +156,74 @@ class GarmentClient {
         ),
       );
       final streamed = await _client.send(request).timeout(_timeout);
-      final response =
-          await http.Response.fromStream(streamed).timeout(_timeout);
+      final response = await http.Response.fromStream(
+        streamed,
+      ).timeout(_timeout);
       AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 202) {
         _activeIdempotencyKey = null;
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return decoded['run_id'] as String?;
       }
+      _captureSubmitError(response);
       debugPrint(
         'Garment submit responded ${response.statusCode}: ${response.body}',
       );
+    } on TimeoutException {
+      lastSubmitError =
+          'Garment extraction timed out while contacting the server. Please try again.';
+      lastSubmitErrorCode = 'TIMEOUT';
     } catch (error) {
+      lastSubmitError =
+          'Could not upload photo for analysis. Please check your connection.';
+      lastSubmitErrorCode = 'UNREACHABLE';
       debugPrint('Garment backend unreachable during submit: $error');
     }
     return null;
+  }
+
+  void _captureSubmitError(http.Response response) {
+    if (response.statusCode == 401) {
+      lastSubmitError = 'Please sign in to extract garments.';
+      lastSubmitErrorCode = 'UNAUTHORIZED';
+      return;
+    }
+    if (response.statusCode == 409) {
+      lastSubmitError =
+          'This request key was already used for another photo. Please try again.';
+      lastSubmitErrorCode = 'CONFLICT';
+      return;
+    }
+    if (response.statusCode == 413) {
+      lastSubmitError = 'Image exceeds the maximum allowed upload size.';
+      lastSubmitErrorCode = 'PAYLOAD_TOO_LARGE';
+      return;
+    }
+    try {
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
+      final error = decoded?['error'];
+      if (error is Map<String, dynamic>) {
+        lastSubmitErrorCode = error['code'] as String?;
+        final details = error['details'];
+        if (details is Map<String, dynamic>) {
+          final fieldErrors = details['field_errors'];
+          if (fieldErrors is List && fieldErrors.isNotEmpty) {
+            final first = fieldErrors.first;
+            if (first is Map<String, dynamic> && first['error'] is String) {
+              lastSubmitError = first['error'] as String;
+              return;
+            }
+          }
+        }
+        if (error['message'] is String &&
+            (error['message'] as String).isNotEmpty) {
+          lastSubmitError = error['message'] as String;
+          return;
+        }
+      }
+    } catch (_) {}
+    lastSubmitError =
+        'Garment upload failed (HTTP ${response.statusCode}). Please try again.';
   }
 
   /// Fetches one garment run (200 with data, other statuses bare, 0 when
@@ -129,7 +232,7 @@ class GarmentClient {
     try {
       final response = await _client
           .get(
-            Uri.parse('$baseUrl/v1/analysis/runs/$runId'),
+            Uri.parse('$_baseUrl/v1/analysis/runs/$runId'),
             headers: {'Authorization': 'Bearer $_devToken'},
           )
           .timeout(_timeout);
@@ -146,10 +249,7 @@ class GarmentClient {
   }
 
   /// Polls until the run is completed/failed, the run disappears, or
-  /// [attempts] exhaust. A terminal `failed` run returns promptly (never
-  /// polled to exhaustion). Returns null when unreachable or timed out so
-  /// the caller can offer a retry — retrying a timed-out poll is a fresh
-  /// read, never a duplicate analysis.
+  /// [attempts] exhaust. A terminal `failed` run returns promptly.
   Future<GarmentAnalysisRun?> pollGarmentRun({
     required String runId,
     int attempts = 30,
@@ -157,10 +257,6 @@ class GarmentClient {
     try {
       for (var attempt = 0; attempt < attempts; attempt++) {
         final run = await getGarmentRun(runId: runId);
-        // Unreachable (0) and missing (404) stop promptly. A 401 also
-        // stops: the session was already cleared via AuthSession.noteStatus
-        // in getGarmentRun, so further polls are a doomed loop — the
-        // caller surfaces its honest retry state instead.
         if (run.statusCode == 0 ||
             run.statusCode == 404 ||
             run.statusCode == 401) {
@@ -173,6 +269,124 @@ class GarmentClient {
       debugPrint('Garment polling failed: $error');
     }
     return null;
+  }
+
+  /// Fetches private cropped candidate image bytes using authenticated Bearer token.
+  Future<Uint8List?> fetchCandidateCropBytes({
+    required String runId,
+    required String candidateId,
+  }) async {
+    try {
+      final uri = Uri.parse(
+        '$_baseUrl/v1/analysis/runs/$runId/candidates/$candidateId/image',
+      );
+      final response = await _client
+          .get(uri, headers: {'Authorization': 'Bearer $_devToken'})
+          .timeout(const Duration(seconds: 15));
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+        return response.bodyBytes;
+      }
+    } catch (error) {
+      debugPrint('Candidate crop fetch failed: $error');
+    }
+    return null;
+  }
+
+  /// Explicitly saves user-selected garment candidates to Digital Wardrobe
+  /// (`POST /v1/analysis/garment/runs/{runId}/save`).
+  Future<SaveExtractedGarmentsResult?> saveExtractedGarments({
+    required String runId,
+    required List<GarmentCandidate> candidates,
+    String? idempotencyKey,
+  }) async {
+    if (candidates.isEmpty) return null;
+    try {
+      final uri = Uri.parse('$_baseUrl/v1/analysis/garment/runs/$runId/save');
+      final payload = {
+        'items': candidates.map((c) {
+          final name = (c.subcategory?.trim().isNotEmpty ?? false)
+              ? c.subcategory!.trim()
+              : '${c.color ?? ''} ${c.category ?? 'Garment'}'.trim();
+          return {
+            'candidateId': c.id ?? 'cand_1',
+            'name': name.length > 100 ? name.substring(0, 100) : name,
+            'category': c.category ?? 'tops',
+            'color': c.color ?? 'black',
+            if (c.material != null) 'material': c.material,
+            if (c.fit != null) 'fit': c.fit,
+            if (c.confidence != null) 'fitConfidence': c.confidence,
+            'isFavorite': false,
+          };
+        }).toList(),
+      };
+      final headers = <String, String>{
+        'Authorization': 'Bearer $_devToken',
+        'Content-Type': 'application/json; charset=UTF-8',
+        if (idempotencyKey != null && idempotencyKey.isNotEmpty)
+          'Idempotency-Key': idempotencyKey,
+      };
+      final response = await _client
+          .post(uri, headers: headers, body: jsonEncode(payload))
+          .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        final rawSaved = decoded['savedItems'] as List<dynamic>? ?? const [];
+        final rawFailed = decoded['failedItems'] as List<dynamic>? ?? const [];
+        return SaveExtractedGarmentsResult(
+          savedItems: rawSaved
+              .whereType<Map<String, dynamic>>()
+              .map(WardrobeItem.fromJson)
+              .toList(),
+          failedItems: rawFailed
+              .whereType<Map<String, dynamic>>()
+              .map(SaveExtractedGarmentFailure.fromJson)
+              .toList(),
+          cleanedUpAssets: decoded['cleanedUpAssets'] as bool? ?? false,
+        );
+      }
+      if (response.statusCode == 409) {
+        return const SaveExtractedGarmentsResult(
+          errorMessage:
+              'Selection changed for an existing save key. Retrying with fresh key.',
+          isConflict: true,
+        );
+      }
+      String msg =
+          'Could not save selected garments (HTTP ${response.statusCode}).';
+      try {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
+        final err = decoded?['error'];
+        if (err is Map<String, dynamic> && err['message'] is String) {
+          msg = err['message'] as String;
+        }
+      } catch (_) {}
+      return SaveExtractedGarmentsResult(errorMessage: msg);
+    } on TimeoutException {
+      return const SaveExtractedGarmentsResult(
+        errorMessage: 'Saving garments timed out. Please retry.',
+      );
+    } catch (error) {
+      debugPrint('Save extracted garments failed: $error');
+      return const SaveExtractedGarmentsResult(
+        errorMessage: 'Could not reach server while saving garments.',
+      );
+    }
+  }
+
+  /// Cleans up temporary extraction crops when discarding/cancelling a run.
+  Future<bool> cleanupExtractionAssets({required String runId}) async {
+    try {
+      final uri = Uri.parse('$_baseUrl/v1/analysis/garment/runs/$runId/assets');
+      final response = await _client
+          .delete(uri, headers: {'Authorization': 'Bearer $_devToken'})
+          .timeout(const Duration(seconds: 10));
+      AuthSession.noteStatus(response.statusCode);
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 
   static String _contentTypeFor(String filename, [Uint8List? bytes]) {
@@ -188,13 +402,6 @@ class GarmentClient {
 
   /// Submits a guest garment photo for synchronous ephemeral observation
   /// (`POST /v1/analysis/garment/ephemeral`, D-01).
-  ///
-  /// Guest-only transport: NO `Authorization` header (the endpoint is
-  /// unauthenticated), NO `Idempotency-Key` (no run row exists to
-  /// deduplicate), NO `user_id` field. Returns the observation snapshot
-  /// verbatim on 200 (nullable attributes stay null) — never a run id.
-  /// There is no `input_media` envelope on this path, so callers must not
-  /// expect persisted media metadata.
   Future<({Map<String, dynamic>? snapshot, String? failureReason})>
   submitGarmentEphemeralBytes(
     Uint8List bytes, {
@@ -205,7 +412,7 @@ class GarmentClient {
       return (snapshot: null, failureReason: 'empty_image');
     }
     try {
-      final uri = Uri.parse('$baseUrl/v1/analysis/garment/ephemeral');
+      final uri = Uri.parse('$_baseUrl/v1/analysis/garment/ephemeral');
       final request = http.MultipartRequest('POST', uri);
       request.files.add(
         http.MultipartFile.fromBytes(
@@ -216,8 +423,9 @@ class GarmentClient {
         ),
       );
       final streamed = await _client.send(request).timeout(_timeout);
-      final response =
-          await http.Response.fromStream(streamed).timeout(_timeout);
+      final response = await http.Response.fromStream(
+        streamed,
+      ).timeout(_timeout);
       AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -226,21 +434,13 @@ class GarmentClient {
       debugPrint(
         'Garment ephemeral responded ${response.statusCode}: ${response.body}',
       );
-      return (
-        snapshot: null,
-        failureReason: _ephemeralFailureReason(response),
-      );
+      return (snapshot: null, failureReason: _ephemeralFailureReason(response));
     } catch (error) {
       debugPrint('Garment ephemeral unreachable: $error');
       return (snapshot: null, failureReason: 'unreachable');
     }
   }
 
-  /// Maps an ephemeral failure response to a stable reason string.
-  ///
-  /// 429/503 keep their transport meaning; a 422 surfaces the backend's
-  /// typed field reason (e.g. `no_garment_detected`) verbatim. Unknown
-  /// shapes degrade to `request_failed` — never a crash, never a fake.
   static String _ephemeralFailureReason(http.Response response) {
     if (response.statusCode == 429) return 'rate_limited';
     if (response.statusCode == 503) return 'service_unavailable';

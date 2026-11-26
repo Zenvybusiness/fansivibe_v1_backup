@@ -302,6 +302,15 @@ def register_error_handlers(app: FastAPI) -> None:
                 _sanitize_log_message(exc.message),
             )
         elif exc.status_code >= 400:
+            if request.url.path.startswith("/v1/tryon") and exc.status_code in (401, 403):
+                try:
+                    from app.telemetry.metrics import get_metrics_collector
+
+                    get_metrics_collector().record_tryon_auth_failure(
+                        endpoint=request.url.path, status_code=exc.status_code
+                    )
+                except Exception:
+                    pass
             logger.info(
                 "API 4xx error %s (%s) on %s %s [request_id=%s]",
                 exc.code,

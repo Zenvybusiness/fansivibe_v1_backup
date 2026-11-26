@@ -1,12 +1,12 @@
-/// Stage F0 mock virtual try-on — feature public contract.
+/// Virtual Try-On feature public contract.
 ///
-/// Test data only: the mock provider renders a labelled SVG composite
-/// (`is_mock: true` on every response). Nothing here calls a real AI
-/// provider, and mock outputs must never enter saved-look, export, or
-/// sharing flows as genuine try-on results.
+/// Integrates with `/v1/tryon/*` endpoints via [TryOnRepository] and renders
+/// mock test previews (`is_mock: true`) or genuine AI try-on results (`is_mock: false`)
+/// with strict privacy, consent, and AI-disclosure guarantees.
 library;
 
 export 'data/try_on_client.dart';
+export 'data/try_on_device_saver.dart';
 export 'data/try_on_models.dart';
 export 'data/try_on_repository.dart';
 export 'presentation/try_on_screen.dart';

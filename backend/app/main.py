@@ -61,7 +61,7 @@ from app.api.routers import (
 )
 from app.application.outfits import GenerateOutfit
 from app.config.image import configure_pillow_limits
-from app.config.settings import get_settings
+from app.config.settings import get_settings, validate_production_startup
 from app.domain.ports.repositories import (
     SavedLookRepository,
     UserProfileRecord,
@@ -141,6 +141,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan: background model warmup & probe on startup, graceful shutdown."""
     configure_pillow_limits()
     current_settings = get_settings()
+    validate_production_startup(current_settings)
     scheduler_provider = app.dependency_overrides.get(
         deps_get_gpu_scheduler, get_gpu_scheduler
     )
@@ -236,6 +237,10 @@ async def security_and_correlation_headers(request: Request, call_next):
     response.headers["Content-Security-Policy"] = (
         "default-src 'none'; frame-ancestors 'none'"
     )
+
+    if request.url.path.startswith(("/v1/auth", "/v1/users", "/v1/media", "/v1/tryon")):
+        response.headers.setdefault("Cache-Control", "private, no-store")
+        response.headers.setdefault("Pragma", "no-cache")
 
     current_settings = get_settings()
     if current_settings.is_production:

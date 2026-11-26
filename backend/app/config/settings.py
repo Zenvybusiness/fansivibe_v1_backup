@@ -11,11 +11,12 @@ Settings load from environment variables at first access and are cached by the
 from __future__ import annotations
 
 from functools import lru_cache
+import os
 from typing import Any
 import typing
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 _DEFAULT_DATABASE_URL = (
     "postgresql+psycopg://fansivibe:fansivibe_dev@localhost:5432/fansivibe"
@@ -139,6 +140,18 @@ class Settings(BaseSettings):
     )
     tryon_max_concurrent_jobs_per_user: int = Field(
         default=2, alias="FANSIVIBE_TRYON_MAX_CONCURRENT_JOBS"
+    )
+    tryon_max_concurrent_jobs_global: int = Field(
+        default=10, alias="FANSIVIBE_TRYON_MAX_GLOBAL_CONCURRENT_JOBS"
+    )
+    tryon_worker_concurrency_limit: int = Field(
+        default=10, alias="FANSIVIBE_TRYON_WORKER_CONCURRENCY"
+    )
+    tryon_rate_limit_per_minute: int = Field(
+        default=20, alias="FANSIVIBE_RATE_LIMIT_TRYON_PER_MINUTE"
+    )
+    tryon_stale_job_timeout_s: int = Field(
+        default=300, alias="FANSIVIBE_TRYON_STALE_JOB_TIMEOUT_S"
     )
 
     # Commercial Virtual Try-On Provider Configuration (Phase 5D)
@@ -333,6 +346,9 @@ class Settings(BaseSettings):
     # enforcement (Redis/edge) is Phase 21.3 infrastructure work.
     rate_limit_enabled: bool = Field(
         default=True, alias="FANSIVIBE_RATE_LIMIT_ENABLED"
+    )
+    rate_limit_distributed: bool | None = Field(
+        default=None, alias="FANSIVIBE_RATE_LIMIT_DISTRIBUTED"
     )
     rate_limit_auth_per_minute: int = Field(
         default=60, alias="FANSIVIBE_RATE_LIMIT_AUTH_PER_MINUTE"
@@ -539,6 +555,14 @@ class Settings(BaseSettings):
             return val if val else None
         return v
 
+    @field_validator("tryon_provider", mode="before")
+    @classmethod
+    def _normalize_tryon_provider(cls, v: Any) -> str:
+        if v is None:
+            return "mock"
+        val = str(v).strip().lower()
+        return val if val else "mock"
+
     @field_validator("media_storage_provider", mode="before")
     @classmethod
     def _normalize_media_storage_provider(cls, v: Any) -> str:
@@ -550,6 +574,28 @@ class Settings(BaseSettings):
         if val in ("in_memory", "memory", "mock", "test"):
             return "fake"
         return val if val else "fake"
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Skip default .env file loading during pytest unless explicitly overridden."""
+        disable_dotenv = os.environ.get("FANSIVIBE_DISABLE_DOTENV", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        in_pytest = "PYTEST_CURRENT_TEST" in os.environ
+        default_env_file = cls.model_config.get("env_file")
+        explicit_env_file = getattr(dotenv_settings, "env_file", default_env_file) != default_env_file
+        if (disable_dotenv or in_pytest) and not explicit_env_file:
+            return (init_settings, env_settings, file_secret_settings)
+        return (init_settings, env_settings, dotenv_settings, file_secret_settings)
 
     @model_validator(mode="before")
     @classmethod
@@ -655,7 +701,9 @@ class Settings(BaseSettings):
             raise ValueError(
                 "FANSIVIBE_TRYON_PROVIDER must be 'mock', 'off', 'catvton', 'commercial', or 'genlook'."
             )
-        if self.tryon_provider == "catvton" and self.environment == "production":
+        if self.auth_expires_in_s < 60:
+            raise ValueError("FANSIVIBE_AUTH_EXPIRES_IN_S must be at least 60.")
+        if self.tryon_provider == "catvton" and self.is_production:
             raise ValueError(
                 "CatVTON is an experimental prototype and cannot be enabled in production."
             )
@@ -709,6 +757,22 @@ class Settings(BaseSettings):
         if self.tryon_max_concurrent_jobs_per_user < 1:
             raise ValueError(
                 "FANSIVIBE_TRYON_MAX_CONCURRENT_JOBS must be at least 1."
+            )
+        if self.tryon_max_concurrent_jobs_global < 1:
+            raise ValueError(
+                "FANSIVIBE_TRYON_MAX_GLOBAL_CONCURRENT_JOBS must be at least 1."
+            )
+        if self.tryon_worker_concurrency_limit < 1:
+            raise ValueError(
+                "FANSIVIBE_TRYON_WORKER_CONCURRENCY must be at least 1."
+            )
+        if self.tryon_rate_limit_per_minute < 1:
+            raise ValueError(
+                "FANSIVIBE_RATE_LIMIT_TRYON_PER_MINUTE must be at least 1."
+            )
+        if self.tryon_stale_job_timeout_s < 30:
+            raise ValueError(
+                "FANSIVIBE_TRYON_STALE_JOB_TIMEOUT_S must be at least 30."
             )
         if self.tryon_commercial_connect_timeout_s <= 0:
             raise ValueError(
@@ -799,32 +863,63 @@ class Settings(BaseSettings):
                     "with allow_credentials=True."
                 )
         if self.is_production:
-            # 1. DATABASE_URL must not use default dev credentials or dev URL
+            if any(origin.strip() == "*" for origin in self.cors_origins):
+                raise ValueError(
+                    "Production CORS must not use wildcard allow_origins=['*']. Specify explicit origins or leave empty."
+                )
+            for origin in self.cors_origins:
+                if origin.strip().lower().startswith("http://"):
+                    raise ValueError(
+                        "Production CORS origins must use HTTPS, not cleartext HTTP."
+                    )
+            if self.cors_origin_regex:
+                normalized_regex = self.cors_origin_regex.strip()
+                if normalized_regex in (".*", ".+", "^.*$", "^.+$", "*"):
+                    raise ValueError(
+                        "Production FANSIVIBE_CORS_ORIGIN_REGEX must not be a wildcard pattern."
+                    )
+        if self.is_production:
+            # 1. DATABASE_URL must not use default dev credentials, test DBs, or SQLite
+            db_lower = self.database_url.lower()
             if (
                 self.database_url == _DEFAULT_DATABASE_URL
-                or "fansivibe_dev" in self.database_url
+                or "fansivibe_dev" in db_lower
+                or "fansivibe_test" in db_lower
+                or "fansivibe_disposable" in db_lower
+                or db_lower.startswith("sqlite")
             ):
                 raise ValueError(
                     "Production requires DATABASE_URL to be set explicitly without development credentials (fansivibe_dev)."
                 )
             # 2. FANSIVIBE_AUTH_SECRET must not be the dev-only placeholder and must be >= 32 chars
-            if self.auth_secret == _DEV_AUTH_SECRET:
-                raise ValueError(
-                    "Production requires FANSIVIBE_AUTH_SECRET to be explicitly set to a secure secret."
-                )
-            if len(self.auth_secret) < 32:
+            trimmed_auth = self.auth_secret.strip()
+            if len(trimmed_auth) < 32:
                 raise ValueError(
                     "Production FANSIVIBE_AUTH_SECRET must be at least 32 characters long."
+                )
+            if (
+                self.auth_secret == _DEV_AUTH_SECRET
+                or "dev" in trimmed_auth.lower()
+                or "insecure" in trimmed_auth.lower()
+                or "test-only" in trimmed_auth.lower()
+            ):
+                raise ValueError(
+                    "Production requires FANSIVIBE_AUTH_SECRET to be explicitly set to a secure secret."
                 )
             # 3. FANSIVIBE_ALLOW_DEV_TOKEN must not be enabled in production
             if self.allow_dev_token:
                 raise ValueError(
                     "FANSIVIBE_ALLOW_DEV_TOKEN cannot be enabled in production."
                 )
-            # 4. Production cannot silently use fake storage; requires explicit R2 configuration
+            # 4. Production cannot silently use fake storage; requires explicit R2 configuration with HTTPS
             if self.media_storage_provider != "r2":
                 raise ValueError(
                     "Production requires MEDIA_STORAGE_PROVIDER to be explicitly set to 'r2'."
+                )
+            r2_url = self.effective_r2_endpoint_url or ""
+            if not r2_url.lower().startswith("https://"):
+                raise ValueError(
+                    "Production requires R2 endpoint URL to use HTTPS."
                 )
             # 5. Production media upload HMAC secret must be secure and >= 32 chars
             if self.media_upload_hmac_secret:
@@ -878,6 +973,44 @@ class Settings(BaseSettings):
                         "Production FANSIVIBE_OPERATOR_API_KEY must be at least 32 characters and not a dev placeholder."
                     )
         return self
+
+
+def validate_production_startup(settings: Settings) -> None:
+    """Enforce strict fail-closed production startup requirements.
+
+    Executed during FastAPI application startup (`lifespan`) so real
+    production deployments never start with mock/off Try-On when enabled,
+    missing operator API key, or auth/upload HMAC secret reuse.
+    """
+    if not settings.is_production:
+        return
+    if settings.allow_dev_token:
+        raise ValueError("FANSIVIBE_ALLOW_DEV_TOKEN cannot be enabled in production.")
+    if settings.tryon_enabled and settings.tryon_provider != "genlook":
+        raise ValueError(
+            "Production requires FANSIVIBE_TRYON_PROVIDER='genlook' when Virtual Try-On is enabled."
+        )
+    if (
+        not settings.operator_api_key
+        or len(settings.operator_api_key.strip()) < 32
+        or "dev" in settings.operator_api_key.lower()
+        or "insecure" in settings.operator_api_key.lower()
+    ):
+        raise ValueError(
+            "Production requires a mandatory FANSIVIBE_OPERATOR_API_KEY (at least 32 characters)."
+        )
+    has_explicit_upload_secret = bool(
+        (settings.media_upload_hmac_secret and settings.media_upload_hmac_secret.strip())
+        or settings.media_upload_key_ring.get(settings.media_upload_active_key_id)
+    )
+    if not has_explicit_upload_secret:
+        raise ValueError(
+            "Production requires an explicit MEDIA_UPLOAD_HMAC_SECRET separate from FANSIVIBE_AUTH_SECRET."
+        )
+    if settings.active_media_upload_hmac_secret == settings.auth_secret:
+        raise ValueError(
+            "Production MEDIA_UPLOAD_HMAC_SECRET must be distinct from FANSIVIBE_AUTH_SECRET."
+        )
 
 
 @lru_cache

@@ -49,6 +49,8 @@
 	<string>Fansivibe requires camera access to scan and analyze your outfits and style.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Fansivibe requires photo library access to upload outfit and hairstyle photos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Fansivibe saves virtual try-on results to your photo library when requested.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

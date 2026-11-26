@@ -217,6 +217,7 @@ final List<RouteBase> appRoutes = [
                         ? rawIds.whereType<String>().toList()
                         : const <String>[],
                     title: extra?['title'] as String? ?? 'Try-On Preview',
+                    initialJobId: extra?['jobId'] as String?,
                   );
                 },
               ),

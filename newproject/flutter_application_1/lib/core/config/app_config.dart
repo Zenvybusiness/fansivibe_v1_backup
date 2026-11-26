@@ -44,9 +44,23 @@ abstract final class AppConfig {
     seconds: int.fromEnvironment('API_TIMEOUT_S', defaultValue: 12),
   );
 
-  /// Whether [url] targets a loopback host.
-  static bool isLocalhostUrl(String url) =>
-      url.contains('localhost') || url.contains('127.0.0.1');
+  /// Whether [url] targets a loopback or local-development host.
+  static bool isLocalhostUrl(String url) {
+    final parsed = Uri.tryParse(url);
+    final host = parsed?.host.toLowerCase() ?? '';
+    if (host == 'localhost' ||
+        host == '127.0.0.1' ||
+        host == '0.0.0.0' ||
+        host == '::1' ||
+        host == '10.0.2.2' ||
+        host.endsWith('.localhost')) {
+      return true;
+    }
+    return url.contains('localhost') ||
+        url.contains('127.0.0.1') ||
+        url.contains('10.0.2.2') ||
+        url.contains('0.0.0.0');
+  }
 
   /// Whether the configured base URL targets a loopback host.
   static bool get isLocalhost => isLocalhostUrl(apiBaseUrl);
@@ -109,11 +123,13 @@ abstract final class AppConfig {
       final uri = Uri.tryParse(trimmed);
       final baseUri = Uri.tryParse(resolvedApiBaseUrl);
       if (uri != null && baseUri != null && baseUri.hasAuthority) {
-        return uri.replace(
-          scheme: baseUri.scheme,
-          host: baseUri.host,
-          port: baseUri.hasPort ? baseUri.port : null,
-        ).toString();
+        return uri
+            .replace(
+              scheme: baseUri.scheme,
+              host: baseUri.host,
+              port: baseUri.hasPort ? baseUri.port : null,
+            )
+            .toString();
       }
     }
     return trimmed;
@@ -158,7 +174,10 @@ abstract final class AppConfig {
       );
     }
     final Uri? uri = Uri.tryParse(url);
-    if (uri == null || !uri.hasScheme || !uri.hasAuthority) {
+    if (uri == null ||
+        !uri.hasScheme ||
+        !uri.hasAuthority ||
+        uri.host.isEmpty) {
       throw StateError(
         'PRODUCTION API base URL is invalid ($url). Supply '
         '--dart-define=ASSISTANT_BASE_URL=https://<your-backend-host>.',

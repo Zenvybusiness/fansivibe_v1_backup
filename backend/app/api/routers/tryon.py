@@ -28,7 +28,8 @@ from app.api.deps import (
     require_operator_auth,
 )
 from app.api.errors import ApiError, conflict, not_found, validation
-from app.api.schemas.tryon import TryOnJobStatus, TryOnJobSubmitted
+from app.api.rate_limit import tryon_rate_limit
+from app.api.schemas.tryon import TryOnCapabilitiesResponse, TryOnJobStatus, TryOnJobSubmitted
 from app.application import tryon as tryon_app
 from app.application.media import read_image_bytes
 from app.config.settings import get_settings
@@ -37,6 +38,64 @@ from app.domain.ports.tryon_provider import ProviderPayloadError
 from app.infrastructure.db.session import get_db
 
 router = APIRouter(prefix="/v1/tryon", tags=["tryon"])
+
+
+@router.get(
+    "/capabilities",
+    response_model=TryOnCapabilitiesResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": dict}},
+)
+def get_tryon_capabilities(
+    user_id: UUID = Depends(get_current_user_id),
+) -> TryOnCapabilitiesResponse:
+    """Return authenticated client capabilities and validation constraints without exposing provider internals."""
+    del user_id
+    settings = tryon_app.get_settings()
+    provider_name = str(getattr(settings, "tryon_provider", "mock")).strip().lower()
+    env = str(getattr(settings, "environment", "development")).strip().lower()
+    is_prod = bool(getattr(settings, "is_production", env == "production"))
+    enabled = bool(getattr(settings, "tryon_enabled", True)) and provider_name != "off"
+    if is_prod and provider_name in ("mock", "catvton"):
+        enabled = False
+    if provider_name == "genlook" and not getattr(settings, "genlook_api_key", None):
+        enabled = False
+
+    is_mock = provider_name == "mock"
+    is_genlook = provider_name == "genlook"
+    max_garments = 1 if is_genlook else tryon_app._MAX_GARMENT_IDS
+    max_person_bytes = (
+        tryon_app.GENLOOK_MAX_IMAGE_BYTES if is_genlook else tryon_app._MAX_PERSON_BYTES
+    )
+    if is_genlook:
+        poll_interval_s = float(getattr(settings, "genlook_poll_interval_s", 1.0))
+        poll_timeout_s = float(getattr(settings, "genlook_poll_timeout_s", 120.0))
+        ai_disclosure = bool(getattr(settings, "genlook_ai_label", True))
+    elif provider_name == "commercial":
+        poll_interval_s = 1.0
+        poll_timeout_s = float(
+            getattr(settings, "tryon_commercial_inference_timeout_s", 60.0)
+        )
+        ai_disclosure = True
+    else:
+        poll_interval_s = 1.0
+        poll_timeout_s = 120.0
+        ai_disclosure = not is_mock
+
+    return TryOnCapabilitiesResponse(
+        enabled=enabled,
+        is_mock=is_mock,
+        max_garments=max_garments,
+        max_person_image_bytes=max_person_bytes,
+        min_image_edge=tryon_app._MIN_PERSON_EDGE,
+        max_image_edge=tryon_app._MAX_PERSON_EDGE,
+        max_image_pixels=tryon_app._MAX_PERSON_PIXELS,
+        allowed_mime_types=sorted(tryon_app._ALLOWED_IMAGE_TYPES),
+        consent_version=str(getattr(settings, "tryon_consent_version", "tryon-v1")),
+        poll_interval_seconds=poll_interval_s,
+        poll_timeout_seconds=poll_timeout_s,
+        ai_disclosure_required=ai_disclosure,
+    )
 
 
 async def _execute_inference_with_fresh_session(
@@ -172,6 +231,7 @@ async def submit_tryon_job(
     job_repo: Any = Depends(get_tryon_repository),
     wardrobe_repo: Any = Depends(get_tryon_wardrobe_repository),
     storage: ObjectStoragePort = Depends(get_storage_adapter),
+    _: None = Depends(tryon_rate_limit),
 ) -> TryOnJobSubmitted:
     """Submit a virtual try-on job with wardrobe validation and durable persistence."""
     ids = _parse_garment_ids(garment_ids)
@@ -345,7 +405,14 @@ async def get_tryon_image(
     except ProviderPayloadError:
         raise not_found()
 
-    return Response(content=content, media_type=media_type)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @router.post(
@@ -366,6 +433,7 @@ def retry_tryon_job(
     job_repo: Any = Depends(get_tryon_repository),
     wardrobe_repo: Any = Depends(get_tryon_wardrobe_repository),
     storage: ObjectStoragePort = Depends(get_storage_adapter),
+    _: None = Depends(tryon_rate_limit),
 ) -> TryOnJobSubmitted:
     """Retry an eligible failed or cancelled try-on job."""
     job = tryon_app.retry_job(user_id=str(user_id), job_id=job_id, job_repo=job_repo)
@@ -465,8 +533,9 @@ async def get_tryon_health(
     Use ``GET /v1/tryon/health/credits`` for explicit external credit/account checks.
     """
     settings = get_settings()
-    provider_name = settings.tryon_provider
-    env = settings.environment
+    provider_name = str(settings.tryon_provider).strip().lower()
+    env = str(settings.environment).strip().lower()
+    is_prod = bool(getattr(settings, "is_production", env == "production"))
 
     local_backend_status: dict[str, Any] = {
         "status": "healthy" if (settings.tryon_enabled and provider_name != "off") else "disabled",
@@ -516,6 +585,13 @@ async def get_tryon_health(
                 max_retries=getattr(settings, "genlook_max_retries", 2),
                 keep_for_days=getattr(settings, "genlook_keep_for_days", 1),
                 ai_label=getattr(settings, "genlook_ai_label", True),
+                is_production=bool(
+                    getattr(
+                        settings,
+                        "is_production",
+                        str(getattr(settings, "environment", "")).strip().lower() == "production",
+                    )
+                ),
             )
             GenlookTryOnProvider(g_config)
             provider_config_status = {
@@ -537,7 +613,7 @@ async def get_tryon_health(
         provider_config_status = {
             "provider": "catvton",
             "configured": True,
-            "status": "healthy" if env != "production" else "blocked_in_production",
+            "status": "healthy" if not is_prod else "blocked_in_production",
             "environment": env,
             "mode": "local_research",
         }
@@ -545,7 +621,7 @@ async def get_tryon_health(
         provider_config_status = {
             "provider": "mock",
             "configured": True,
-            "status": "healthy" if env != "production" else "unsupported_in_production",
+            "status": "healthy" if not is_prod else "unsupported_in_production",
             "mode": "test_data",
         }
     else:
@@ -609,6 +685,8 @@ async def get_tryon_health(
         "quotas": {
             "daily_per_user": settings.tryon_daily_quota_per_user,
             "max_concurrent_per_user": settings.tryon_max_concurrent_jobs_per_user,
+            "max_concurrent_global": getattr(settings, "tryon_max_concurrent_jobs_global", 10),
+            "worker_concurrency_limit": getattr(settings, "tryon_worker_concurrency_limit", 10),
         },
     }
 
@@ -648,6 +726,13 @@ async def get_tryon_provider_credits() -> dict[str, Any]:
                 max_retries=getattr(settings, "genlook_max_retries", 2),
                 keep_for_days=getattr(settings, "genlook_keep_for_days", 1),
                 ai_label=getattr(settings, "genlook_ai_label", True),
+                is_production=bool(
+                    getattr(
+                        settings,
+                        "is_production",
+                        str(getattr(settings, "environment", "")).strip().lower() == "production",
+                    )
+                ),
             )
             g_provider = GenlookTryOnProvider(g_config)
             return await asyncio.to_thread(g_provider.check_health)
@@ -701,8 +786,13 @@ async def run_retention_cleanup(
     storage: ObjectStoragePort = Depends(get_storage_adapter),
 ) -> dict[str, Any]:
     """Execute retention policy cleanup across storage and database."""
+    from app.api.rate_limit import prune_expired_buckets
+
     summary = await tryon_app.cleanup_retention_data(
         job_repo=job_repo,
         storage=storage,
     )
-    return asdict(summary)
+    pruned_buckets = prune_expired_buckets(getattr(job_repo, "_session", None))
+    result = asdict(summary)
+    result["rate_limit_buckets_pruned"] = pruned_buckets
+    return result

@@ -3313,12 +3313,21 @@ class DiscoveryEventRepositorySQL:
 
 
 _TRYON_QUOTA_LOCK_NAMESPACE = "tryon_job_quota"
+_TRYON_GLOBAL_QUOTA_LOCK_NAMESPACE = "tryon_job_global_quota"
 
 
 def _get_tryon_quota_lock_key(user_id: UUID) -> int:
     """Derive a stable namespaced signed 64-bit integer for per-user try-on quota locking."""
     digest = hashlib.sha256(
         f"{_TRYON_QUOTA_LOCK_NAMESPACE}:{user_id}".encode("utf-8")
+    ).digest()
+    return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+
+def _get_tryon_global_quota_lock_key() -> int:
+    """Derive a stable signed 64-bit integer for global try-on concurrency admission."""
+    digest = hashlib.sha256(
+        _TRYON_GLOBAL_QUOTA_LOCK_NAMESPACE.encode("utf-8")
     ).digest()
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
 
@@ -3408,9 +3417,11 @@ class TryOnJobRepositorySQL:
         day: date,
         daily_quota: int,
         concurrent_limit: int,
+        global_concurrent_limit: int = 10,
     ) -> tuple[TryOnJobRecord, bool]:
-        """Atomically verify idempotency and daily/concurrent quotas under a per-user lock."""
+        """Atomically verify idempotency and daily/per-user/global concurrency quotas."""
         from app.api.errors import conflict, rate_limited
+        from app.telemetry.metrics import get_metrics_collector
 
         is_postgres = False
         try:
@@ -3421,6 +3432,7 @@ class TryOnJobRepositorySQL:
             is_postgres = False
 
         lock_key = _get_tryon_quota_lock_key(user_id)
+        global_lock_key = _get_tryon_global_quota_lock_key()
 
         try:
             if is_postgres:
@@ -3444,12 +3456,26 @@ class TryOnJobRepositorySQL:
             used = self.count_today_jobs(user_id=user_id, day=day)
             if used >= daily_quota:
                 self._session.rollback()
+                get_metrics_collector().record_tryon_quota_rejection("daily_quota")
                 raise rate_limited()
 
             active_count = self.count_active_jobs(user_id=user_id)
             if active_count >= concurrent_limit:
                 self._session.rollback()
+                get_metrics_collector().record_tryon_quota_rejection("user_concurrency")
                 raise rate_limited()
+
+            if is_postgres:
+                self._session.execute(
+                    text("SELECT pg_advisory_xact_lock(:global_lock_key)"),
+                    {"global_lock_key": global_lock_key},
+                )
+
+            global_active = self.count_all_active_jobs()
+            if global_active >= global_concurrent_limit:
+                self._session.rollback()
+                get_metrics_collector().record_tryon_quota_rejection("global_concurrency")
+                raise rate_limited(retry_after_s=10)
 
             row = TryOnJobModel(
                 id=job_id,
@@ -3473,6 +3499,7 @@ class TryOnJobRepositorySQL:
             self._session.rollback()
             pgcode = getattr(exc.orig, "pgcode", None) or getattr(exc.orig, "sqlstate", None)
             if pgcode == "55P03" or "lock_timeout" in str(exc).lower():
+                get_metrics_collector().record_tryon_quota_rejection("lock_timeout")
                 raise rate_limited(retry_after_s=5)
             raise
         except IntegrityError:
@@ -3587,22 +3614,55 @@ class TryOnJobRepositorySQL:
         retry_count: int,
         status: str = "queued",
     ) -> Optional[TryOnJobRecord]:
+        res = self._session.execute(
+            update(TryOnJobModel)
+            .where(
+                TryOnJobModel.id == job_id,
+                TryOnJobModel.status.in_(["failed", "cancelled"]),
+            )
+            .values(
+                retry_count=retry_count,
+                status=status,
+                error_code=None,
+                error_message=None,
+                processing_started_at=None,
+                completed_at=None,
+            )
+        )
+        if (res.rowcount or 0) == 0:
+            self._session.rollback()
+            return None
+        self._session.commit()
         row = self._session.execute(
             select(TryOnJobModel)
             .where(TryOnJobModel.id == job_id)
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
-        if not row:
-            return None
-        row.retry_count = retry_count
-        row.status = status
-        row.error_code = None
-        row.error_message = None
-        row.processing_started_at = None
-        row.completed_at = None
+        return self._to_record(row) if row else None
+
+    def claim_queued_job(
+        self,
+        *,
+        job_id: UUID,
+        processing_started_at: datetime,
+    ) -> bool:
+        """Atomically claim a queued job for processing (returns False if already claimed/terminal)."""
+        res = self._session.execute(
+            update(TryOnJobModel)
+            .where(
+                TryOnJobModel.id == job_id,
+                TryOnJobModel.status == "queued",
+            )
+            .values(
+                status="processing",
+                processing_started_at=processing_started_at,
+            )
+        )
+        if (res.rowcount or 0) == 0:
+            self._session.rollback()
+            return False
         self._session.commit()
-        self._session.refresh(row)
-        return self._to_record(row)
+        return True
 
     def delete(
         self,
@@ -3682,6 +3742,36 @@ class TryOnJobRepositorySQL:
             )
         ).scalar_one()
         return int(count)
+
+    def count_all_active_jobs(self) -> int:
+        count = self._session.execute(
+            select(func.count()).select_from(TryOnJobModel).where(
+                TryOnJobModel.status.in_(["queued", "processing"]),
+            )
+        ).scalar_one()
+        return int(count)
+
+    def find_stale_active_jobs(
+        self,
+        *,
+        older_than: datetime,
+    ) -> list[TryOnJobRecord]:
+        rows = (
+            self._session.execute(
+                select(TryOnJobModel).where(
+                    TryOnJobModel.status.in_(["queued", "processing"]),
+                    func.coalesce(
+                        TryOnJobModel.processing_started_at,
+                        TryOnJobModel.updated_at,
+                        TryOnJobModel.created_at,
+                    )
+                    <= older_than,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [self._to_record(row) for row in rows]
 
     def find_expired_jobs(
         self,

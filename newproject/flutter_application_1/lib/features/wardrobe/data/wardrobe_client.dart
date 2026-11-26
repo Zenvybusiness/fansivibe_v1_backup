@@ -15,11 +15,14 @@ import 'package:fansivibe/shared/auth/auth_session.dart';
 /// On failure it returns null so the caller can fall back to the offline
 /// result — the flow never breaks when the server is unreachable.
 class WardrobeClient {
-  WardrobeClient({http.Client? client})
-    : _client = client ?? http.Client();
+  WardrobeClient({http.Client? client, String? baseUrl})
+    : _client = client ?? http.Client(),
+      _baseUrl = baseUrl ?? AppConfig.apiBaseUrl;
 
   /// Canonical base URL — single source of truth is [AppConfig.apiBaseUrl].
   static const String baseUrl = AppConfig.apiBaseUrl;
+
+  final String _baseUrl;
 
   static const String _devTokenDefault = String.fromEnvironment(
     'FANSIVIBE_DEV_TOKEN',
@@ -53,7 +56,7 @@ class WardrobeClient {
       if (page > 1) queryParams['page'] = page.toString();
       if (pageSize > 20) queryParams['page_size'] = pageSize.toString();
 
-      final uri = Uri.parse('$baseUrl/v1/wardrobe/items')
+      final uri = Uri.parse('$_baseUrl/v1/wardrobe/items')
           .resolveUri(Uri(queryParameters: queryParams));
 
       final response = await _client
@@ -83,7 +86,7 @@ class WardrobeClient {
     try {
       final response = await _client
           .get(
-            Uri.parse('$baseUrl/v1/wardrobe/items/$itemId'),
+            Uri.parse('$_baseUrl/v1/wardrobe/items/$itemId'),
             headers: {'Authorization': 'Bearer $_devToken'},
           )
           .timeout(_timeout);
@@ -132,7 +135,7 @@ class WardrobeClient {
       };
       final response = await _client
           .post(
-            Uri.parse('$baseUrl/v1/wardrobe/items'),
+            Uri.parse('$_baseUrl/v1/wardrobe/items'),
             headers: {
               'Content-Type': 'application/json; charset=UTF-8',
               'Authorization': 'Bearer $_devToken',
@@ -186,7 +189,7 @@ class WardrobeClient {
 
       final response = await _client
           .patch(
-            Uri.parse('$baseUrl/v1/wardrobe/items/$itemId'),
+            Uri.parse('$_baseUrl/v1/wardrobe/items/$itemId'),
             headers: {
               'Content-Type': 'application/json; charset=UTF-8',
               'Authorization': 'Bearer $_devToken',
@@ -215,7 +218,7 @@ class WardrobeClient {
     try {
       final response = await _client
           .delete(
-            Uri.parse('$baseUrl/v1/wardrobe/items/$itemId'),
+            Uri.parse('$_baseUrl/v1/wardrobe/items/$itemId'),
             headers: {'Authorization': 'Bearer $_devToken'},
           )
           .timeout(_timeout);
@@ -242,7 +245,7 @@ class WardrobeClient {
     try {
       final response = await _client
           .get(
-            Uri.parse('$baseUrl/v1/wardrobe/insight'),
+            Uri.parse('$_baseUrl/v1/wardrobe/insight'),
             headers: {'Authorization': 'Bearer $_devToken'},
           )
           .timeout(_timeout);
@@ -277,7 +280,7 @@ class WardrobeClient {
     try {
       final response = await _client
           .get(
-            Uri.parse('$baseUrl/v1/wardrobe/wear-summary'),
+            Uri.parse('$_baseUrl/v1/wardrobe/wear-summary'),
             headers: {'Authorization': 'Bearer $_devToken'},
           )
           .timeout(_timeout);
@@ -319,7 +322,7 @@ class WardrobeClient {
       final request = WearEventLogRequest(itemIds: itemIds, wornAt: wornAt);
       final response = await _client
           .post(
-            Uri.parse('$baseUrl/v1/wardrobe/wears'),
+            Uri.parse('$_baseUrl/v1/wardrobe/wears'),
             headers: {
               'Content-Type': 'application/json; charset=UTF-8',
               'Authorization': 'Bearer $_devToken',

@@ -17,7 +17,9 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.api.schemas.wardrobe import WardrobeItem
 
 
 class AsyncAccepted(BaseModel):
@@ -143,3 +145,51 @@ class CreateGroomingRunRequest(BaseModel):
     @property
     def resolved_style_type(self) -> str:
         return (self.style_type or self.styleType or "").strip()
+
+
+class ExtractedGarmentSelection(BaseModel):
+    """One user-selected (and optionally edited) extracted garment candidate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidateId: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=100)
+    category: str = Field(min_length=1, max_length=64)
+    color: str = Field(min_length=1, max_length=64)
+    material: Optional[str] = Field(default=None, max_length=64)
+    fit: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    fitConfidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    isFavorite: bool = False
+
+
+class SaveExtractedGarmentsRequest(BaseModel):
+    """Request body for `POST /v1/analysis/garment/runs/{run_id}/save`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ExtractedGarmentSelection] = Field(min_length=1, max_length=20)
+
+
+class SaveExtractedGarmentFailure(BaseModel):
+    """Failure entry for one candidate in a partial-save batch."""
+
+    candidateId: str
+    name: str
+    error: str
+
+
+class SaveExtractedGarmentsResponse(BaseModel):
+    """Response for `POST /v1/analysis/garment/runs/{run_id}/save`."""
+
+    runId: UUID
+    savedItems: list[WardrobeItem]
+    failedItems: list[SaveExtractedGarmentFailure] = Field(default_factory=list)
+    cleanedUpAssets: bool = False
+
+
+class CleanupExtractionAssetsResponse(BaseModel):
+    """Response for `DELETE /v1/analysis/garment/runs/{run_id}/assets`."""
+
+    runId: UUID
+    deletedCount: int
+    alreadyCleaned: bool

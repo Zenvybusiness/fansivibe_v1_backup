@@ -1809,5 +1809,21 @@ class TryOnJobModel(Base):
     )
 
 
+class RateLimitBucket(Base):
+    """PostgreSQL-backed distributed rate-limit counter bucket (Migration 0039)."""
+
+    __tablename__ = "rate_limit_buckets"
+    __table_args__ = (
+        Index("ix_rate_limit_buckets_window_start", "window_start"),
+    )
+
+    bucket_key: Mapped[str] = mapped_column(Text, primary_key=True, nullable=False)
+    window_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    hit_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+
 
 

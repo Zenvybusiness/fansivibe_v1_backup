@@ -22,13 +22,7 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 
-enum ExtractionUiStage {
-  idle,
-  extracting,
-  selection,
-  saving,
-  error,
-}
+enum ExtractionUiStage { idle, extracting, selection, saving, error }
 
 /// End-to-end screen for extracting clothing items from an image,
 /// selecting which candidates to save, and persisting them to the wardrobe.
@@ -72,14 +66,19 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
 
   List<GarmentCandidate> _candidates = [];
   String? _idempotencyKey;
+  String? _currentRunId;
+  String? _saveIdempotencyKey;
+  String? _partialExtractionNotice;
   bool _isSaving = false;
+  bool _assetsCleaned = false;
 
   @override
   void initState() {
     super.initState();
     _garmentClient = widget.garmentClient ?? GarmentClient();
     _mediaClient = widget.mediaClient ?? MediaClient();
-    _repository = widget.repository ??
+    _repository =
+        widget.repository ??
         (isGuestUser || !AuthSession.isAuthenticated
             ? LocalWardrobeRepository()
             : WardrobeRepositoryImpl());
@@ -97,9 +96,18 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
   @override
   void dispose() {
     _stillAnalyzingTimer?.cancel();
+    _cleanupCurrentRunAssets();
     _garmentClient.dispose();
     _mediaClient.dispose();
     super.dispose();
+  }
+
+  void _cleanupCurrentRunAssets() {
+    final runId = _currentRunId;
+    if (runId == null || _assetsCleaned) return;
+    if (isGuestUser || !AuthSession.isAuthenticated) return;
+    _assetsCleaned = true;
+    unawaited(_garmentClient.cleanupExtractionAssets(runId: runId));
   }
 
   Future<void> _captureWithCamera() async {
@@ -127,12 +135,13 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
 
   Future<void> _pickFromGallery() async {
     try {
-      final picker = widget.pickImage ??
+      final picker =
+          widget.pickImage ??
           ((source) => ImagePicker().pickImage(
-                source: source,
-                maxWidth: 1920,
-                maxHeight: 1920,
-              ));
+            source: source,
+            maxWidth: 1920,
+            maxHeight: 1920,
+          ));
 
       final file = await picker(ImageSource.gallery);
       if (file == null || !mounted) return;
@@ -145,7 +154,8 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       if (!mounted) return;
       setState(() {
         _stage = ExtractionUiStage.error;
-        _errorMessage = 'Could not open photo gallery. Please check permissions.';
+        _errorMessage =
+            'Could not open photo gallery. Please check permissions.';
       });
     }
   }
@@ -154,7 +164,8 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     if (bytes.isEmpty) {
       setState(() {
         _stage = ExtractionUiStage.error;
-        _errorMessage = 'The selected image is empty. Please choose another image.';
+        _errorMessage =
+            'The selected image is empty. Please choose another image.';
       });
       return;
     }
@@ -183,6 +194,10 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       _imageBytes = bytes;
       _filename = filename;
       _errorMessage = null;
+      _partialExtractionNotice = null;
+      _currentRunId = null;
+      _saveIdempotencyKey = null;
+      _assetsCleaned = false;
     });
 
     _startExtraction();
@@ -197,6 +212,9 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       _statusMessage = 'Uploading photo…';
       _stillAnalyzing = false;
       _errorMessage = null;
+      _partialExtractionNotice = null;
+      _saveIdempotencyKey = null;
+      _assetsCleaned = false;
     });
 
     _stillAnalyzingTimer?.cancel();
@@ -223,11 +241,14 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     if (runId == null) {
       setState(() {
         _stage = ExtractionUiStage.error;
-        _errorMessage = 'Could not upload photo for analysis. Please check your connection.';
+        _errorMessage =
+            _garmentClient.lastSubmitError ??
+            'Could not upload photo for analysis. Please check your connection.';
       });
       return;
     }
 
+    _currentRunId = runId;
     setState(() => _statusMessage = 'Extracting garments with AI…');
     final run = await _garmentClient.pollGarmentRun(runId: runId);
 
@@ -301,13 +322,48 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       return;
     }
 
+    String? partialNotice;
+    if (result.partialFailures.isNotEmpty) {
+      partialNotice =
+          '${result.partialFailures.length} detected region(s) could not be extracted cleanly; review the available garments below.';
+    }
+
     setState(() {
       _stage = ExtractionUiStage.selection;
       _candidates = candidates;
+      _partialExtractionNotice = partialNotice;
       _stillAnalyzing = false;
       _statusMessage = null;
       _idempotencyKey = null;
+      if (runId != null) {
+        _currentRunId = runId;
+      }
     });
+
+    if (runId != null && !isGuestUser) {
+      _loadCandidateCrops(runId, candidates);
+    }
+  }
+
+  Future<void> _loadCandidateCrops(
+    String runId,
+    List<GarmentCandidate> candidates,
+  ) async {
+    for (var i = 0; i < candidates.length; i++) {
+      final c = candidates[i];
+      if (!c.hasCrop || c.id == null) continue;
+      final cropBytes = await _garmentClient.fetchCandidateCropBytes(
+        runId: runId,
+        candidateId: c.id!,
+      );
+      if (!mounted || cropBytes == null) continue;
+      setState(() {
+        final idx = _candidates.indexWhere((item) => item.id == c.id);
+        if (idx != -1) {
+          _candidates[idx] = _candidates[idx].copyWith(cropBytes: cropBytes);
+        }
+      });
+    }
   }
 
   String _failureMessage(String? reason) {
@@ -321,10 +377,18 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       case 'low_confidence':
         return 'The photo was too unclear or dimly lit to analyze confidently. '
             'Please retake with better lighting.';
+      case 'invalid_image':
+        return 'The selected image is invalid or corrupted. Please choose a valid JPEG, PNG, or WebP photo.';
+      case 'oversized_image':
+        return 'The image dimensions or file size exceed supported limits. Please choose a smaller photo.';
+      case 'unsupported_format':
+        return 'Unsupported image format. Please select a JPEG, PNG, or WebP photo.';
       case 'analyzer_timeout':
         return 'The analysis service took too long to reply. Please try again.';
       case 'analyzer_unavailable':
         return 'AI extraction service is currently unavailable. Please check your setup.';
+      case 'invalid_analyzer_response':
+        return 'The AI service returned an unreadable response. Please try again.';
       default:
         return 'Garment extraction failed. Please try again.';
     }
@@ -333,8 +397,34 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
   void _toggleCandidateSelection(int index) {
     setState(() {
       final current = _candidates[index];
+      if (current.isSaved) return;
       _candidates[index] = current.copyWith(isSelected: !current.isSelected);
+      _saveIdempotencyKey = null;
     });
+  }
+
+  void _inspectCandidate(int index) {
+    final candidate = _candidates[index];
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: FansivibeColors.surfaceContainerLow,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _CandidateInspectSheet(
+        candidate: candidate,
+        fallbackPhotoBytes: _imageBytes,
+        onToggleSelected: () {
+          Navigator.of(ctx).pop();
+          _toggleCandidateSelection(index);
+        },
+        onEdit: () {
+          Navigator.of(ctx).pop();
+          _editCandidate(index);
+        },
+      ),
+    );
   }
 
   void _editCandidate(int index) async {
@@ -357,33 +447,141 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     if (updated != null && mounted) {
       setState(() {
         _candidates[index] = updated;
+        _saveIdempotencyKey = null;
       });
     }
   }
 
   Future<void> _saveSelectedGarments() async {
     if (_isSaving) return;
-    final selectedCandidates =
-        _candidates.where((c) => c.isSelected).toList();
+    final selectedCandidates = _candidates
+        .where((c) => c.isSelected && !c.isSaved)
+        .toList();
     if (selectedCandidates.isEmpty) return;
 
     _isSaving = true;
     setState(() {
       _stage = ExtractionUiStage.saving;
-      _statusMessage = 'Saving ${selectedCandidates.length} item(s) to wardrobe…';
+      _statusMessage =
+          'Saving ${selectedCandidates.length} item(s) to wardrobe…';
+      _errorMessage = null;
     });
 
+    final useServerSavePipeline =
+        AuthSession.isAuthenticated &&
+        !isGuestUser &&
+        _currentRunId != null &&
+        _repository is WardrobeRepositoryImpl;
+
+    if (useServerSavePipeline) {
+      await _saveViaExtractionEndpoint(selectedCandidates);
+      return;
+    }
+
+    await _saveViaRepositoryLoop(selectedCandidates);
+  }
+
+  Future<void> _saveViaExtractionEndpoint(
+    List<GarmentCandidate> selectedCandidates,
+  ) async {
+    final runId = _currentRunId!;
+    var saveKey = _saveIdempotencyKey ??= newGarmentIdempotencyKey();
+    var result = await _garmentClient.saveExtractedGarments(
+      runId: runId,
+      candidates: selectedCandidates,
+      idempotencyKey: saveKey,
+    );
+
+    if (result != null && result.isConflict) {
+      saveKey = _saveIdempotencyKey = newGarmentIdempotencyKey();
+      result = await _garmentClient.saveExtractedGarments(
+        runId: runId,
+        candidates: selectedCandidates,
+        idempotencyKey: saveKey,
+      );
+    }
+
+    _isSaving = false;
+    if (!mounted) return;
+
+    if (result == null) {
+      setState(() {
+        _stage = ExtractionUiStage.selection;
+        _errorMessage = 'Failed to save items to wardrobe. Please try again.';
+      });
+      return;
+    }
+
+    if (result.errorMessage != null && !result.hasSavedItems) {
+      setState(() {
+        _stage = ExtractionUiStage.selection;
+        _errorMessage = result!.errorMessage;
+      });
+      return;
+    }
+
+    final savedUiItems = <WardrobeItemData>[];
+    for (var i = 0; i < result.savedItems.length; i++) {
+      final dto = result.savedItems[i];
+      var uiItem = mapItemDtoToUi(dto);
+      final matchingCand = i < selectedCandidates.length
+          ? selectedCandidates[i]
+          : null;
+      final localBytes = matchingCand?.cropBytes;
+      if (localBytes != null && localBytes.isNotEmpty) {
+        final prepared = await prepareWardrobePhoto(localBytes);
+        uiItem = uiItem.copyWith(imageBytes: prepared ?? localBytes);
+        LearningService.instance.updateItem(
+          uiItem.id,
+          wardrobeEntryFromItem(uiItem),
+        );
+      }
+      savedUiItems.add(uiItem);
+    }
+
+    if (result.cleanedUpAssets) {
+      _assetsCleaned = true;
+    }
+
+    if (!mounted) return;
+    if (result.failedItems.isEmpty && savedUiItems.isNotEmpty) {
+      _saveIdempotencyKey = null;
+      _assetsCleaned = true;
+      Navigator.of(context).pop<List<WardrobeItemData>>(savedUiItems);
+      return;
+    }
+
+    final failedIds = result.failedItems.map((f) => f.candidateId).toSet();
+    final failedNames = result.failedItems.map((f) => f.name).join(', ');
+    setState(() {
+      _stage = ExtractionUiStage.selection;
+      _saveIdempotencyKey = null;
+      _candidates = _candidates.map((c) {
+        final wasSelected = selectedCandidates.contains(c);
+        if (wasSelected && !failedIds.contains(c.id)) {
+          return c.copyWith(isSelected: false, isSaved: true);
+        }
+        return c;
+      }).toList();
+      _errorMessage = savedUiItems.isNotEmpty
+          ? 'Saved ${savedUiItems.length} item(s). Failed to save: $failedNames. You can retry saving remaining items.'
+          : 'Failed to save: $failedNames. Please edit details and try again.';
+    });
+  }
+
+  Future<void> _saveViaRepositoryLoop(
+    List<GarmentCandidate> selectedCandidates,
+  ) async {
     final photoBytes = _imageBytes;
     MediaRef? cloudMediaRef;
 
-    // Authenticated media upload pipeline
+    // Authenticated legacy media upload fallback when using direct repository
     if (AuthSession.isAuthenticated &&
         !isGuestUser &&
         photoBytes != null &&
         photoBytes.isNotEmpty) {
       try {
         final detectedMime = detectImageMimeType(photoBytes) ?? 'image/jpeg';
-        // Only upload to media API if JPEG or WebP and <= 2MB
         if (photoBytes.length <= 2 * 1024 * 1024 &&
             (detectedMime == 'image/jpeg' || detectedMime == 'image/webp')) {
           final clientSha = sha256Hex(photoBytes);
@@ -411,7 +609,8 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
               final pubRes = await _mediaClient.completeUpload(
                 uploadId: authRes.uploadId,
               );
-              if (pubRes != null && pubRes.status == 'published') {
+              if (pubRes != null &&
+                  (pubRes.status == 'ready' || pubRes.status == 'published')) {
                 cloudMediaRef = MediaRef(
                   objectKey: pubRes.canonicalKey,
                   mediaType: pubRes.mediaType,
@@ -437,7 +636,8 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     for (final candidate in selectedCandidates) {
       final categoryCode = candidate.category ?? 'tops';
       final colorCode = candidate.color ?? 'Black';
-      final name = candidate.subcategory ??
+      final name =
+          candidate.subcategory ??
           '${candidate.color ?? ''} ${candidate.category ?? 'Item'}'.trim();
 
       try {
@@ -452,8 +652,9 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
         );
 
         if (created != null) {
-          final attached = created.copyWith(imageBytes: photoBytes);
-          if (photoBytes != null) {
+          final bytesToAttach = candidate.cropBytes ?? photoBytes;
+          final attached = created.copyWith(imageBytes: bytesToAttach);
+          if (bytesToAttach != null) {
             LearningService.instance.updateItem(
               attached.id,
               wardrobeEntryFromItem(attached),
@@ -473,6 +674,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     if (!mounted) return;
 
     if (failedCandidates.isEmpty && savedItems.isNotEmpty) {
+      _cleanupCurrentRunAssets();
       Navigator.of(context).pop<List<WardrobeItemData>>(savedItems);
     } else if (savedItems.isNotEmpty && failedCandidates.isNotEmpty) {
       setState(() {
@@ -480,7 +682,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
         // Deselect saved candidates to prevent duplicate saves on retry
         _candidates = _candidates.map((c) {
           if (savedCandidates.contains(c)) {
-            return c.copyWith(isSelected: false);
+            return c.copyWith(isSelected: false, isSaved: true);
           }
           return c;
         }).toList();
@@ -609,10 +811,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
             child: SizedBox(
               width: 140,
               height: 140,
-              child: Image.memory(
-                _imageBytes!,
-                fit: BoxFit.cover,
-              ),
+              child: Image.memory(_imageBytes!, fit: BoxFit.cover),
             ),
           ),
           const SizedBox(height: FansivibeSpacing.xl),
@@ -689,10 +888,14 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
                   label: 'Try Another Photo',
                   icon: Icons.photo_library_outlined,
                   onPressed: () {
+                    _cleanupCurrentRunAssets();
                     setState(() {
                       _stage = ExtractionUiStage.idle;
                       _imageBytes = null;
                       _errorMessage = null;
+                      _partialExtractionNotice = null;
+                      _currentRunId = null;
+                      _saveIdempotencyKey = null;
                     });
                   },
                 )
@@ -700,10 +903,14 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
                   label: 'Try Another Photo',
                   icon: Icons.refresh_rounded,
                   onPressed: () {
+                    _cleanupCurrentRunAssets();
                     setState(() {
                       _stage = ExtractionUiStage.idle;
                       _imageBytes = null;
                       _errorMessage = null;
+                      _partialExtractionNotice = null;
+                      _currentRunId = null;
+                      _saveIdempotencyKey = null;
                     });
                   },
                 ),
@@ -713,7 +920,9 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
   }
 
   Widget _buildCandidateSelectionView(ThemeData theme) {
-    final selectedCount = _candidates.where((c) => c.isSelected).length;
+    final selectedCount = _candidates
+        .where((c) => c.isSelected && !c.isSaved)
+        .length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -727,10 +936,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
                 child: SizedBox(
                   width: 52,
                   height: 52,
-                  child: Image.memory(
-                    _imageBytes!,
-                    fit: BoxFit.cover,
-                  ),
+                  child: Image.memory(_imageBytes!, fit: BoxFit.cover),
                 ),
               ),
             const SizedBox(width: FansivibeSpacing.md),
@@ -747,7 +953,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Select the items you want to keep in your wardrobe.',
+                    'Inspect items and select which ones to save to your wardrobe.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: FansivibeColors.textSecondary,
                     ),
@@ -757,7 +963,26 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
             ),
           ],
         ),
-        const SizedBox(height: FansivibeSpacing.lg),
+        const SizedBox(height: FansivibeSpacing.md),
+        if (_partialExtractionNotice != null) ...[
+          Container(
+            padding: const EdgeInsets.all(FansivibeSpacing.sm),
+            decoration: BoxDecoration(
+              color: FansivibeColors.accentGold.withValues(alpha: 0.12),
+              borderRadius: FansivibeRadius.smBorder,
+              border: Border.all(
+                color: FansivibeColors.accentGold.withValues(alpha: 0.35),
+              ),
+            ),
+            child: Text(
+              _partialExtractionNotice!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: FansivibeColors.textPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(height: FansivibeSpacing.sm),
+        ],
         if (_errorMessage != null) ...[
           Container(
             padding: const EdgeInsets.all(FansivibeSpacing.sm),
@@ -785,6 +1010,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
               return _CandidateCard(
                 candidate: candidate,
                 onToggle: () => _toggleCandidateSelection(index),
+                onInspect: () => _inspectCandidate(index),
                 onEdit: () => _editCandidate(index),
               );
             },
@@ -804,7 +1030,10 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
           width: double.infinity,
           child: FansiButton.secondary(
             label: 'Cancel',
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () {
+              _cleanupCurrentRunAssets();
+              Navigator.of(context).pop();
+            },
           ),
         ),
       ],
@@ -816,18 +1045,21 @@ class _CandidateCard extends StatelessWidget {
   const _CandidateCard({
     required this.candidate,
     required this.onToggle,
+    required this.onInspect,
     required this.onEdit,
   });
 
   final GarmentCandidate candidate;
   final VoidCallback onToggle;
+  final VoidCallback onInspect;
   final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final categoryLabel = (candidate.category ?? 'Item').toUpperCase();
-    final name = candidate.subcategory ??
+    final name =
+        candidate.subcategory ??
         '${candidate.color ?? ''} ${candidate.category ?? 'Garment'}'.trim();
 
     return Container(
@@ -855,9 +1087,32 @@ class _CandidateCard extends StatelessWidget {
                   Checkbox(
                     value: candidate.isSelected,
                     activeColor: FansivibeColors.accentGold,
-                    onChanged: (_) => onToggle(),
+                    onChanged: candidate.isSaved ? null : (_) => onToggle(),
                   ),
-                  const SizedBox(width: FansivibeSpacing.xs),
+                  GestureDetector(
+                    onTap: onInspect,
+                    child: ClipRRect(
+                      borderRadius: FansivibeRadius.smBorder,
+                      child: Container(
+                        width: 52,
+                        height: 52,
+                        color: FansivibeColors.surfaceContainerLowest,
+                        child: candidate.cropBytes != null
+                            ? Image.memory(
+                                candidate.cropBytes!,
+                                fit: BoxFit.cover,
+                              )
+                            : Icon(
+                                Icons.checkroom_outlined,
+                                color: FansivibeColors.accentGold.withValues(
+                                  alpha: 0.8,
+                                ),
+                                size: 24,
+                              ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: FansivibeSpacing.sm),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -870,9 +1125,13 @@ class _CandidateCard extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          categoryLabel,
+                          candidate.isSaved
+                              ? '$categoryLabel • SAVED'
+                              : categoryLabel,
                           style: theme.textTheme.labelSmall?.copyWith(
-                            color: FansivibeColors.accentGold,
+                            color: candidate.isSaved
+                                ? FansivibeColors.success
+                                : FansivibeColors.accentGold,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -880,9 +1139,16 @@ class _CandidateCard extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.edit_outlined, size: 20),
+                    icon: const Icon(Icons.visibility_outlined, size: 20),
+                    tooltip: 'Inspect garment',
                     color: FansivibeColors.textSecondary,
-                    onPressed: onEdit,
+                    onPressed: onInspect,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined, size: 20),
+                    tooltip: 'Edit garment',
+                    color: FansivibeColors.textSecondary,
+                    onPressed: candidate.isSaved ? null : onEdit,
                   ),
                 ],
               ),
@@ -902,6 +1168,11 @@ class _CandidateCard extends StatelessWidget {
                       label:
                           'Secondary: ${candidate.secondaryColors!.join(", ")}',
                       icon: Icons.color_lens_outlined,
+                    ),
+                  if (candidate.pattern != null)
+                    _MetadataPill(
+                      label: 'Pattern: ${candidate.pattern}',
+                      icon: Icons.grid_on_rounded,
                     ),
                   if (candidate.material != null)
                     _MetadataPill(
@@ -928,10 +1199,14 @@ class _CandidateCard extends StatelessWidget {
                       label: 'Condition: ${candidate.condition}',
                       icon: Icons.verified_outlined,
                     ),
+                  if (candidate.hasCrop)
+                    const _MetadataPill(
+                      label: 'BBox crop',
+                      icon: Icons.crop_rounded,
+                    ),
                   if (candidate.confidence != null)
                     _MetadataPill(
-                      label:
-                          '${(candidate.confidence! * 100).toInt()}% match',
+                      label: '${(candidate.confidence! * 100).toInt()}% match',
                       icon: Icons.auto_awesome_rounded,
                       color: FansivibeColors.success,
                     ),
@@ -956,12 +1231,198 @@ class _CandidateCard extends StatelessWidget {
   }
 }
 
-class _MetadataPill extends StatelessWidget {
-  const _MetadataPill({
-    required this.label,
-    required this.icon,
-    this.color,
+class _CandidateInspectSheet extends StatelessWidget {
+  const _CandidateInspectSheet({
+    required this.candidate,
+    required this.fallbackPhotoBytes,
+    required this.onToggleSelected,
+    required this.onEdit,
   });
+
+  final GarmentCandidate candidate;
+  final Uint8List? fallbackPhotoBytes;
+  final VoidCallback onToggleSelected;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final displayBytes = candidate.cropBytes ?? fallbackPhotoBytes;
+    final name =
+        candidate.subcategory ??
+        '${candidate.color ?? ''} ${candidate.category ?? 'Garment'}'.trim();
+    final segReason =
+        candidate.segmentation?['reason'] as String? ??
+        'Local VLM provides 2D bounding-box crops only; pixel-level segmentation masks are not supported.';
+
+    return Padding(
+      padding: const EdgeInsets.all(FansivibeSpacing.lg),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    name,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: FansivibeColors.textPrimary,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: FansivibeSpacing.md),
+            if (displayBytes != null)
+              Center(
+                child: ClipRRect(
+                  borderRadius: FansivibeRadius.baseBorder,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    child: Image.memory(displayBytes, fit: BoxFit.contain),
+                  ),
+                ),
+              ),
+            const SizedBox(height: FansivibeSpacing.md),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(FansivibeSpacing.sm),
+              decoration: BoxDecoration(
+                color: FansivibeColors.surfaceContainerLowest,
+                borderRadius: FansivibeRadius.smBorder,
+              ),
+              child: Text(
+                candidate.cropBytes != null
+                    ? 'Extracted via bounding-box crop. $segReason'
+                    : (candidate.hasCrop
+                          ? 'Bounding-box crop stored privately. $segReason'
+                          : 'No bounding-box crop extracted; showing full photo reference. $segReason'),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: FansivibeColors.textSecondary,
+                ),
+              ),
+            ),
+            const SizedBox(height: FansivibeSpacing.md),
+            _InspectRow('Category', candidate.category ?? 'Not detected'),
+            _InspectRow('Subcategory', candidate.subcategory ?? 'Not detected'),
+            _InspectRow('Primary Color', candidate.color ?? 'Not detected'),
+            if (candidate.secondaryColors != null &&
+                candidate.secondaryColors!.isNotEmpty)
+              _InspectRow(
+                'Secondary Colors',
+                candidate.secondaryColors!.join(', '),
+              ),
+            _InspectRow('Pattern', candidate.pattern ?? 'Not detected'),
+            _InspectRow(
+              'Material',
+              candidate.material != null
+                  ? '${candidate.material} (visual estimate)'
+                  : 'Not visually determinable',
+            ),
+            if (candidate.fit != null) _InspectRow('Fit', candidate.fit!),
+            if (candidate.sleeveType != null)
+              _InspectRow('Sleeve', candidate.sleeveType!),
+            if (candidate.neckline != null)
+              _InspectRow('Neckline', candidate.neckline!),
+            if (candidate.length != null)
+              _InspectRow('Length', candidate.length!),
+            if (candidate.condition != null)
+              _InspectRow('Condition', candidate.condition!),
+            _InspectRow(
+              'Confidence',
+              candidate.confidence != null
+                  ? '${(candidate.confidence! * 100).toInt()}%'
+                  : 'Not reported',
+            ),
+            _InspectRow(
+              'Segmentation Mask',
+              candidate.hasSegmentationMask
+                  ? 'Supported'
+                  : 'Not supported (crop only)',
+            ),
+            if (candidate.description != null) ...[
+              const SizedBox(height: FansivibeSpacing.sm),
+              Text(
+                candidate.description!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: FansivibeColors.textSecondary,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+            const SizedBox(height: FansivibeSpacing.lg),
+            Row(
+              children: [
+                Expanded(
+                  child: FansiButton.secondary(
+                    label: 'Edit Details',
+                    icon: Icons.edit_outlined,
+                    onPressed: candidate.isSaved ? null : onEdit,
+                  ),
+                ),
+                const SizedBox(width: FansivibeSpacing.sm),
+                Expanded(
+                  child: FansiButton.primary(
+                    label: candidate.isSelected ? 'Deselect' : 'Select',
+                    onPressed: candidate.isSaved ? null : onToggleSelected,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InspectRow extends StatelessWidget {
+  const _InspectRow(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: FansivibeColors.textSecondary,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: FansivibeColors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetadataPill extends StatelessWidget {
+  const _MetadataPill({required this.label, required this.icon, this.color});
 
   final String label;
   final IconData icon;
@@ -978,11 +1439,7 @@ class _MetadataPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 12,
-            color: color ?? FansivibeColors.textSecondary,
-          ),
+          Icon(icon, size: 12, color: color ?? FansivibeColors.textSecondary),
           const SizedBox(width: 4),
           Text(
             label,
@@ -1017,6 +1474,31 @@ class _CandidateEditSheetState extends State<_CandidateEditSheet> {
   String? _material;
   String? _fit;
 
+  static String? _matchColorOption(String? raw) {
+    if (raw == null) return null;
+    final clean = raw.trim().toLowerCase().replaceAll('_', ' ');
+    for (final c in AddItemConfig.colors) {
+      if (c.name.toLowerCase() == clean) return c.name;
+    }
+    const aliases = {
+      'blue': 'Navy',
+      'dark blue': 'Navy',
+      'gray': 'Grey',
+      'dark gray': 'Charcoal',
+      'dark grey': 'Charcoal',
+      'brown': 'Tan',
+      'red': 'Burgundy',
+      'green': 'Olive',
+      'pink': 'Blush',
+      'yellow': 'Cream',
+      'purple': 'Indigo',
+      'off white': 'Cream',
+      'off-white': 'Cream',
+      'ivory': 'Cream',
+    };
+    return aliases[clean];
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1025,18 +1507,20 @@ class _CandidateEditSheetState extends State<_CandidateEditSheet> {
     );
     _category = widget.candidate.category ?? 'tops';
     final candColor = widget.candidate.color;
-    if (candColor != null) {
-      final match = AddItemConfig.colors.where(
-        (c) => c.name.toLowerCase() == candColor.toLowerCase(),
+    if (candColor != null && candColor.trim().isNotEmpty) {
+      final cleanColor = candColor.trim().toLowerCase().replaceAll('_', ' ');
+      final exact = AddItemConfig.colors.where(
+        (c) => c.name.toLowerCase() == cleanColor,
       );
-      _color = match.isNotEmpty ? match.first.name : candColor;
+      _color = exact.isNotEmpty ? exact.first.name : candColor;
     } else {
       _color = 'Navy';
     }
     final candMat = widget.candidate.material;
     if (candMat != null) {
+      final cleanMat = candMat.trim().toLowerCase().replaceAll('_', ' ');
       final match = AddItemConfig.textures.where(
-        (t) => t.name.toLowerCase() == candMat.toLowerCase(),
+        (t) => t.name.toLowerCase() == cleanMat,
       );
       _material = match.isNotEmpty ? match.first.name : candMat;
     }
@@ -1098,7 +1582,10 @@ class _CandidateEditSheetState extends State<_CandidateEditSheet> {
                 DropdownMenuItem(value: 'bottoms', child: Text('Bottoms')),
                 DropdownMenuItem(value: 'outerwear', child: Text('Outerwear')),
                 DropdownMenuItem(value: 'footwear', child: Text('Footwear')),
-                DropdownMenuItem(value: 'accessories', child: Text('Accessories')),
+                DropdownMenuItem(
+                  value: 'accessories',
+                  child: Text('Accessories'),
+                ),
               ],
               onChanged: (val) {
                 if (val != null) setState(() => _category = val);
@@ -1108,16 +1595,15 @@ class _CandidateEditSheetState extends State<_CandidateEditSheet> {
             DropdownButtonFormField<String>(
               initialValue: AddItemConfig.colors.any((c) => c.name == _color)
                   ? _color
-                  : null,
+                  : _matchColorOption(_color),
               decoration: const InputDecoration(
                 labelText: 'Color',
                 border: OutlineInputBorder(),
               ),
               items: AddItemConfig.colors
-                  .map((c) => DropdownMenuItem(
-                        value: c.name,
-                        child: Text(c.name),
-                      ))
+                  .map(
+                    (c) => DropdownMenuItem(value: c.name, child: Text(c.name)),
+                  )
                   .toList(),
               onChanged: (val) {
                 if (val != null) setState(() => _color = val);
@@ -1125,7 +1611,8 @@ class _CandidateEditSheetState extends State<_CandidateEditSheet> {
             ),
             const SizedBox(height: FansivibeSpacing.md),
             DropdownButtonFormField<String>(
-              initialValue: AddItemConfig.textures.any((t) => t.name == _material)
+              initialValue:
+                  AddItemConfig.textures.any((t) => t.name == _material)
                   ? _material
                   : null,
               decoration: const InputDecoration(
@@ -1133,10 +1620,9 @@ class _CandidateEditSheetState extends State<_CandidateEditSheet> {
                 border: OutlineInputBorder(),
               ),
               items: AddItemConfig.textures
-                  .map((t) => DropdownMenuItem(
-                        value: t.name,
-                        child: Text(t.name),
-                      ))
+                  .map(
+                    (t) => DropdownMenuItem(value: t.name, child: Text(t.name)),
+                  )
                   .toList(),
               onChanged: (val) {
                 if (val != null) setState(() => _material = val);
@@ -1152,10 +1638,7 @@ class _CandidateEditSheetState extends State<_CandidateEditSheet> {
                 border: OutlineInputBorder(),
               ),
               items: AddItemConfig.fitOptions
-                  .map((f) => DropdownMenuItem(
-                        value: f,
-                        child: Text(f),
-                      ))
+                  .map((f) => DropdownMenuItem(value: f, child: Text(f)))
                   .toList(),
               onChanged: (val) {
                 if (val != null) setState(() => _fit = val);

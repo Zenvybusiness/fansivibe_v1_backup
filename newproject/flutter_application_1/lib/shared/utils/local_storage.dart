@@ -310,6 +310,18 @@ class LocalStorage {
     }
   }
 
+  /// Persisted active/recent Virtual Try-On job reference (opaque IDs only,
+  /// never person bytes or presigned URLs). Cleared on logout/expiry.
+  static String? get activeTryOnJob => _prefs?.getString('active_tryon_job');
+  static set activeTryOnJob(String? value) {
+    if (_prefs == null) return;
+    if (value != null) {
+      _prefs!.setString('active_tryon_job', value);
+    } else {
+      _prefs!.remove('active_tryon_job');
+    }
+  }
+
   /// Clear all persisted journey state (for onboarding reset or logout)
   static void clear() {
     _prefs?.clear();

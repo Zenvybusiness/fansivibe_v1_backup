@@ -19,6 +19,7 @@ import os
 # only, so the existing suites keep their historical identity while
 # production can never silently inherit it. Set before any `app.*`
 # import because settings are cached at first access.
+os.environ.setdefault("FANSIVIBE_DISABLE_DOTENV", "1")
 os.environ.setdefault("FANSIVIBE_ALLOW_DEV_TOKEN", "true")
 os.environ.setdefault("FANSIVIBE_AUTH_SECRET", "test-only-auth-secret")
 # 21.2: the local auth rate limiter stays OFF for the historical suite
@@ -49,7 +50,7 @@ from app.config.settings import _DEFAULT_DATABASE_URL
 from app.infrastructure.db.session import DATABASE_URL
 
 _TRUNCATE = (
-    "TRUNCATE offer_price_history, retailer_offers, product_variants, retailers, "
+    "TRUNCATE rate_limit_buckets, offer_price_history, retailer_offers, product_variants, retailers, "
     "discovery_events, "
     "media_attention_contributing_records, media_attention_observations, "
     "search_interest_observations, product_observations, "

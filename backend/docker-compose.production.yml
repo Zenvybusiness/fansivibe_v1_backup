@@ -39,7 +39,7 @@ services:
     environment:
       - FANSIVIBE_ENV=production
       - PORT=8000
-      - UVICORN_WORKERS=4
+      - UVICORN_WORKERS=1
     expose:
       - "8000"
     depends_on:
@@ -65,7 +65,7 @@ services:
     environment:
       - FANSIVIBE_ENV=production
       - PORT=8001
-      - UVICORN_WORKERS=4
+      - UVICORN_WORKERS=1
       - FANSIVIBE_CANARY_INSTANCE=true
     expose:
       - "8001"

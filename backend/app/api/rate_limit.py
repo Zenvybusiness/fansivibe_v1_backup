@@ -24,6 +24,7 @@ Properties:
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import logging
 import math
 import threading
@@ -31,9 +32,11 @@ import time
 from collections import deque
 
 from fastapi import Request
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.api.errors import ApiError, rate_limited
-from app.config.settings import get_settings
+from app.config.settings import Settings, get_settings
 
 logger = logging.getLogger("fansivibe.api.rate_limit")
 
@@ -85,6 +88,46 @@ def reset() -> None:
         _buckets.clear()
 
 
+def prune_expired_buckets(
+    session: Session | None = None,
+    *,
+    older_than_s: float = 3600.0,
+    now: datetime | None = None,
+) -> int:
+    """Delete expired rate_limit_buckets rows using ix_rate_limit_buckets_window_start."""
+    current = now or datetime.now(timezone.utc)
+    cutoff = current - timedelta(seconds=max(60.0, float(older_than_s)))
+    own_session = False
+    db = session
+    if db is None:
+        from app.infrastructure.db.session import SessionLocal
+
+        db = SessionLocal()
+        own_session = True
+    try:
+        bind = db.get_bind()
+        if bind is None or bind.dialect.name != "postgresql":
+            return 0
+        res = db.execute(
+            text("DELETE FROM rate_limit_buckets WHERE window_start < :cutoff_ts"),
+            {"cutoff_ts": cutoff},
+        )
+        db.commit()
+        return int(res.rowcount or 0)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return 0
+    finally:
+        if own_session:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
 def bucket_count() -> int:
     """Number of tracked buckets (tests/observability; no key material)."""
     with _lock:
@@ -100,6 +143,108 @@ def _client_ip(request: Request) -> str:
     return "unknown"
 
 
+def is_distributed_enabled(settings: Settings) -> bool:
+    """Return True when PostgreSQL-backed multi-worker/instance rate limiting is active."""
+    explicit = getattr(settings, "rate_limit_distributed", None)
+    if explicit is not None:
+        return bool(explicit)
+    return bool(settings.is_production or settings.is_staging)
+
+
+def check_distributed(
+    key: str,
+    *,
+    limit: int,
+    window_s: float,
+    session: Session | None = None,
+    now: datetime | None = None,
+) -> tuple[bool, int]:
+    """Atomic PostgreSQL-backed rate limit counter shared across workers and instances."""
+    current = now or datetime.now(timezone.utc)
+    cutoff = current - timedelta(seconds=float(window_s))
+
+    own_session = False
+    db = session
+    if db is None:
+        from app.infrastructure.db.session import SessionLocal
+
+        db = SessionLocal()
+        own_session = True
+
+    try:
+        bind = db.get_bind()
+        if bind is None or bind.dialect.name != "postgresql":
+            return check(key, limit=limit, window_s=window_s)
+
+        row = db.execute(
+            text(
+                """
+                INSERT INTO rate_limit_buckets (bucket_key, window_start, hit_count)
+                VALUES (:bucket_key, :now_ts, 1)
+                ON CONFLICT (bucket_key) DO UPDATE
+                SET
+                    hit_count = CASE
+                        WHEN rate_limit_buckets.window_start <= :cutoff_ts THEN 1
+                        ELSE LEAST(rate_limit_buckets.hit_count + 1, 2147483647)
+                    END,
+                    window_start = CASE
+                        WHEN rate_limit_buckets.window_start <= :cutoff_ts THEN :now_ts
+                        ELSE rate_limit_buckets.window_start
+                    END
+                RETURNING hit_count, window_start
+                """
+            ),
+            {
+                "bucket_key": key,
+                "now_ts": current,
+                "cutoff_ts": cutoff,
+            },
+        ).one()
+        db.commit()
+        hit_count = int(row[0])
+        window_start = row[1]
+        if window_start.tzinfo is None:
+            window_start = window_start.replace(tzinfo=timezone.utc)
+        if hit_count <= limit:
+            return True, 0
+        elapsed = (current - window_start).total_seconds()
+        retry_after = max(1, int(math.ceil(float(window_s) - elapsed)))
+        return False, retry_after
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        if own_session:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
+def _check_for_request(
+    *,
+    scope: str,
+    request: Request,
+    limit: int,
+    window_s: float,
+    settings: Settings,
+) -> tuple[bool, int]:
+    key = f"{scope}:{_client_ip(request)}"
+    if is_distributed_enabled(settings):
+        try:
+            return check_distributed(key, limit=limit, window_s=window_s)
+        except Exception as exc:
+            logger.warning(
+                "Distributed rate limiter unavailable for %s (%s); falling back to process limiter.",
+                scope,
+                type(exc).__name__,
+            )
+    return check(key, limit=limit, window_s=window_s)
+
+
 async def auth_rate_limit(request: Request) -> None:
     """FastAPI dependency: sliding-window guard for register/login.
 
@@ -113,10 +258,12 @@ async def auth_rate_limit(request: Request) -> None:
         settings = get_settings()
         if not settings.rate_limit_enabled:
             return
-        allowed, retry_after = check(
-            f"auth:{_client_ip(request)}",
+        allowed, retry_after = _check_for_request(
+            scope="auth",
+            request=request,
             limit=settings.rate_limit_auth_per_minute,
             window_s=float(settings.rate_limit_window_s),
+            settings=settings,
         )
         if allowed:
             return
@@ -187,10 +334,12 @@ def reasoning_rate_limit(request: Request) -> None:
         settings = get_settings()
         if not settings.rate_limit_enabled:
             return
-        allowed, retry_after = check(
-            f"reasoning:{_client_ip(request)}",
+        allowed, retry_after = _check_for_request(
+            scope="reasoning",
+            request=request,
             limit=settings.reasoning_rate_limit_per_minute,
             window_s=60.0,
+            settings=settings,
         )
         if allowed:
             return
@@ -216,10 +365,12 @@ async def ephemeral_rate_limit(request: Request) -> None:
         settings = get_settings()
         if not settings.rate_limit_enabled:
             return
-        allowed, retry_after = check(
-            f"ephemeral:{_client_ip(request)}",
+        allowed, retry_after = _check_for_request(
+            scope="ephemeral",
+            request=request,
             limit=settings.ephemeral_rate_limit_per_minute,
             window_s=float(settings.rate_limit_window_s),
+            settings=settings,
         )
         if allowed:
             return
@@ -228,5 +379,39 @@ async def ephemeral_rate_limit(request: Request) -> None:
     except Exception:
         logger.warning("Rate limiter error; failing open for ephemeral endpoint.")
         return
+    raise rate_limited(retry_after_s=retry_after)
+
+
+async def tryon_rate_limit(request: Request) -> None:
+    """FastAPI dependency: sliding-window rate limit for Virtual Try-On submissions/retries."""
+    try:
+        settings = get_settings()
+        if not settings.rate_limit_enabled:
+            return
+        limit = int(getattr(settings, "tryon_rate_limit_per_minute", 20))
+        allowed, retry_after = _check_for_request(
+            scope="tryon",
+            request=request,
+            limit=limit,
+            window_s=float(settings.rate_limit_window_s),
+            settings=settings,
+        )
+        if allowed:
+            return
+    except ApiError:
+        raise
+    except Exception:
+        logger.warning("Rate limiter error; failing open for try-on endpoint.")
+        return
+    try:
+        from app.telemetry.metrics import get_metrics_collector
+
+        get_metrics_collector().record_tryon_quota_rejection("rate_limit")
+    except Exception:
+        pass
+    logger.warning(
+        "TryOn rate limit exceeded [event=tryon_quota_rejected, reason=rate_limit, limit=%d]",
+        limit,
+    )
     raise rate_limited(retry_after_s=retry_after)
 
