@@ -1424,6 +1424,9 @@ class TryOnJobRecord:
     processing_started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     image_bytes: Optional[bytes] = None
+    worker_id: Optional[str] = None
+    lease_token: Optional[UUID] = None
+    lease_expires_at: Optional[datetime] = None
 
 
 class TryOnJobRepository(Protocol):

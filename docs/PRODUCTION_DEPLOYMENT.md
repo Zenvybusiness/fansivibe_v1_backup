@@ -346,12 +346,14 @@ All variables are validated at startup in `backend/app/config/settings.py` (`Set
 | `FANSIVIBE_TRYON_CONSENT_VERSION` | Optional | Default `tryon-v1` | Explicit consent version enforced on submit and retry. |
 | `FANSIVIBE_TRYON_DAILY_QUOTA` / `FANSIVIBE_TRYON_MAX_CONCURRENT_JOBS` / `FANSIVIBE_TRYON_MAX_GLOBAL_CONCURRENT_JOBS` / `FANSIVIBE_TRYON_WORKER_CONCURRENCY` | Optional | `>= 1` (defaults `20` / `2` / `10` / `10`) | Per-user daily quota, per-user & global concurrency locks, worker semaphore. |
 | `FANSIVIBE_TRYON_STALE_JOB_TIMEOUT_S` | Optional | `>= 30` (default `300`) | Timeout before stale `queued`/`processing` jobs recover as `STALE_JOB_TIMEOUT`. |
+| `FANSIVIBE_TRYON_WORKER_LEASE_SECONDS` | Optional | `>= 10` (default `60`) | Bounded DB lease duration for active/queued Try-On worker ownership (`tryon_jobs.lease_expires_at`). |
+| `FANSIVIBE_TRYON_WORKER_HEARTBEAT_INTERVAL_SECONDS` | Optional | `>= 2` and `< lease` (default `15`) | Background lease-renewal heartbeat interval during active Try-On execution. |
 | `GENLOOK_API_KEY` | Yes (when `genlook`) | >= 16 chars | Genlook `x-api-key` credential. |
 | `GENLOOK_API_BASE_URL` | Yes (when `genlook`) | Must start with `https://` | Genlook API base URL (`https://api.genlook.app/tryon/v1`). |
 | `GENLOOK_KEEP_FOR_DAYS` | Optional | Must be `1`, `3`, or `7` (default `1`) | Ephemeral person upload retention sent to Genlook. |
 | `GENLOOK_AI_LABEL` | Optional | Default `true` | AI-modified output labeling flag. |
 | `TRYON_RETENTION_ENABLED` / `_PERSON_PHOTO_HOURS` / `_RESULT_HOURS` / `_FAILED_JOBS_HOURS` / `_CANCELLED_JOBS_HOURS` | Optional | `true`, `24`, `72`, `24`, `12` (`>= 1`) | Automated privacy purge windows. |
-| `UVICORN_WORKERS` | Optional | Default `1` (recommended with replicas) | Single worker per container avoids multi-worker startup recovery races. |
+| `UVICORN_WORKERS` | Optional | Default `1` (recommended with replicas) | Supported with shared PostgreSQL (`tryon_jobs` leases + `rate_limit_buckets`); `validate_production_startup` rejects `> 1` without PostgreSQL. |
 
 ### 14.2 Secret Provisioning & Rotation
 
@@ -363,10 +365,10 @@ All variables are validated at startup in `backend/app/config/settings.py` (`Set
 ### 14.3 Database Migration & Rollback Plan
 
 1. **Pre-migration**: Take a verified snapshot (`pg_dump -Fc --no-owner "$DATABASE_URL" > pre_deploy_$(date -u +%Y%m%dT%H%M%SZ).dump`) and confirm `alembic current`.
-2. **Migration**: Execute `alembic upgrade head` once before scaling up new containers (or via `entrypoint.sh` single-init job; current head is `0039`, adding `rate_limit_buckets`).
-3. **Verification**: Confirm `alembic current` prints `0039 (head)` and `GET /ready` returns `200 {"status": "ready", "database": "connected"}`.
+2. **Migration**: Execute `alembic upgrade head` once before scaling up new containers (or via `entrypoint.sh` single-init job; current head is `0040`, adding `tryon_jobs` worker ownership & lease columns following `0039_rate_limit_buckets`).
+3. **Verification**: Confirm `alembic current` prints `0040 (head)` and `GET /ready` returns `200 {"status": "ready", "database": "connected"}`.
 4. **Rollback**:
-   - Application rollback: deploy prior image tag immediately if schema changes are additive (`0037`–`0039` are backward-compatible with read-only old code, except `0039` table unused by older code).
+   - Application rollback: deploy prior image tag immediately if schema changes are additive (`0037`–`0040` are backward-compatible with read-only old code, except `0039`–`0040` tables/columns unused by older code).
    - Schema retreat (only with explicit owner approval): `alembic downgrade <target_rev>` or restore from the pre-migration `pg_dump` snapshot.
 
 ### 14.4 Backend Startup, Health, Readiness & `/metrics` Restriction

@@ -115,7 +115,9 @@ def make_session(url: str = DATABASE_URL) -> sessionmaker:
 
 @pytest.fixture(autouse=True)
 def _cleanup_dependency_overrides():
+    from app.config.settings import get_settings
     from app.main import app
 
     yield
     app.dependency_overrides.clear()
+    get_settings.cache_clear()

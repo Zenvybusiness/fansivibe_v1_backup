@@ -56,14 +56,12 @@ class WardrobeClient {
       if (page > 1) queryParams['page'] = page.toString();
       if (pageSize > 20) queryParams['page_size'] = pageSize.toString();
 
-      final uri = Uri.parse('$_baseUrl/v1/wardrobe/items')
-          .resolveUri(Uri(queryParameters: queryParams));
+      final uri = Uri.parse(
+        '$_baseUrl/v1/wardrobe/items',
+      ).resolveUri(Uri(queryParameters: queryParams));
 
       final response = await _client
-          .get(
-            uri,
-            headers: {'Authorization': 'Bearer $_devToken'},
-          )
+          .get(uri, headers: {'Authorization': 'Bearer $_devToken'})
           .timeout(_timeout);
       AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
@@ -96,9 +94,7 @@ class WardrobeClient {
         return WardrobeItem.fromJson(decoded);
       }
       if (response.statusCode == 404) {
-        debugPrint(
-          'Wardrobe item not found (404): ${response.body}',
-        );
+        debugPrint('Wardrobe item not found (404): ${response.body}');
       } else {
         debugPrint(
           'Wardrobe fetch responded ${response.statusCode}: ${response.body}',
@@ -166,8 +162,10 @@ class WardrobeClient {
     String? category,
     String? color,
     String? material,
+    bool clearMaterial = false,
     bool? isFavorite,
     String? fit,
+    bool clearFit = false,
     double? fitConfidence,
     MediaRef? imageRef,
     bool clearImageRef = false,
@@ -177,9 +175,17 @@ class WardrobeClient {
       if (name != null) payload['name'] = name;
       if (category != null) payload['category'] = category;
       if (color != null) payload['color'] = color;
-      if (material != null) payload['material'] = material;
+      if (clearMaterial) {
+        payload['material'] = null;
+      } else if (material != null) {
+        payload['material'] = material;
+      }
       if (isFavorite != null) payload['isFavorite'] = isFavorite;
-      if (fit != null) payload['fit'] = fit;
+      if (clearFit) {
+        payload['fit'] = null;
+      } else if (fit != null) {
+        payload['fit'] = fit;
+      }
       if (fitConfidence != null) payload['fitConfidence'] = fitConfidence;
       if (clearImageRef) {
         payload['imageRef'] = null;
@@ -336,9 +342,7 @@ class WardrobeClient {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return WearEventLogResponse.fromJson(decoded);
       }
-      debugPrint(
-        'Wear log responded ${response.statusCode}: ${response.body}',
-      );
+      debugPrint('Wear log responded ${response.statusCode}: ${response.body}');
     } catch (error) {
       debugPrint('Wardrobe backend unreachable during wear log: $error');
     }
@@ -353,11 +357,7 @@ class WardrobeClient {
     DateTime? wornAt,
     String? idempotencyKey,
   }) =>
-      logWear(
-        itemIds: itemIds,
-        wornAt: wornAt,
-        idempotencyKey: idempotencyKey,
-      );
+      logWear(itemIds: itemIds, wornAt: wornAt, idempotencyKey: idempotencyKey);
 
   void dispose() => _client.close();
 }

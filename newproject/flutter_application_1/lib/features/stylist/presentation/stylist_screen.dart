@@ -4,7 +4,10 @@ import 'package:fansivibe/app/router/route_names.dart';
 import 'package:fansivibe/features/events/data/event_mock_data.dart';
 import 'package:fansivibe/features/events/data/event_models.dart';
 import 'package:fansivibe/features/events/data/events_repository.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_item_photo.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -12,6 +15,7 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
 
 /// Legacy action descriptor retained for backward compatibility with existing tests.
 class StylistActionData {
@@ -851,6 +855,17 @@ class _StylistScreenState extends State<StylistScreen> {
           );
           if (!context.mounted) return;
           if (result is List && result.isNotEmpty) {
+            for (final item in result.whereType<WardrobeItemData>()) {
+              if (!LearningService.instance.wardrobe.any(
+                (e) => e.id == item.id,
+              )) {
+                LearningService.instance.addItem(wardrobeEntryFromItem(item));
+              }
+            }
+            UserSession.hasSavedWardrobeItem = true;
+            setState(() {
+              _loadData();
+            });
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(

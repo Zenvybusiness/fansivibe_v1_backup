@@ -1,5 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:fansivibe/features/assistant/data/models.dart';
+import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/learning_repository.dart';
+import 'package:fansivibe/features/media/data/media_client.dart';
+import 'package:fansivibe/features/media/domain/image_pipeline.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
+import 'package:fansivibe/features/wardrobe/data/wardrobe_item_photo.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
 
@@ -34,8 +41,7 @@ class GuestMigrationResult {
   final List<String> prefsSynced;
   final List<String> prefsFailed;
 
-  bool get hasFailures =>
-      failedItemNames.isNotEmpty || prefsFailed.isNotEmpty;
+  bool get hasFailures => failedItemNames.isNotEmpty || prefsFailed.isNotEmpty;
 
   bool get movedAnything =>
       migratedItemNames.isNotEmpty || prefsSynced.isNotEmpty;
@@ -59,16 +65,147 @@ class GuestDataMigration {
     required WardrobeRepository wardrobeRepo,
     required SyncPreferenceFn syncPreference,
     required LearningRepository learning,
+    MediaClient? mediaClient,
+    Future<(int, int)?> Function(Uint8List bytes)? decodeDimensions,
   }) : _wardrobeRepo = wardrobeRepo,
        _syncPreference = syncPreference,
-       _learning = learning;
+       _learning = learning,
+       _mediaClient = mediaClient ?? MediaClient(),
+       _decodeDimensions = decodeDimensions ?? getImageDimensions;
 
   final WardrobeRepository _wardrobeRepo;
   final SyncPreferenceFn _syncPreference;
   final LearningRepository _learning;
+  final MediaClient _mediaClient;
+  final Future<(int, int)?> Function(Uint8List bytes) _decodeDimensions;
 
-  static String _tuple(String name, String? category, String? color,
-      String? material) {
+  static const int _maxMediaSizeBytes = 2 * 1024 * 1024;
+  static const int _maxMediaEdge = 4096;
+  static const int _maxMediaPixels = 12000000;
+  static const Set<String> _supportedMediaMimeTypes = {
+    'image/jpeg',
+    'image/webp',
+  };
+
+  Future<MediaRef?> _uploadGuestPhoto(WardrobeEntry entry) async {
+    final rawBase64 = entry.imageBase64;
+    if (rawBase64 == null || rawBase64.trim().isEmpty) {
+      return null;
+    }
+
+    final bytes = decodeWardrobePhoto(rawBase64.trim());
+    if (bytes == null || bytes.isEmpty || bytes.length > _maxMediaSizeBytes) {
+      return null;
+    }
+
+    final detectedMime = detectImageMimeType(bytes);
+    if (detectedMime == null ||
+        !_supportedMediaMimeTypes.contains(detectedMime)) {
+      return null;
+    }
+
+    final dims = await _decodeDimensions(bytes);
+    if (dims != null) {
+      final (w, h) = dims;
+      if (w <= 0 ||
+          h <= 0 ||
+          w > _maxMediaEdge ||
+          h > _maxMediaEdge ||
+          w * h > _maxMediaPixels) {
+        return null;
+      }
+    }
+
+    final clientSha = sha256Hex(bytes);
+
+    // Reuse previously published MediaRef if a prior attempt completed upload
+    // but failed during WardrobeRepository.createItem.
+    final cachedRefs = LocalStorage.migratedGuestMediaRefs;
+    final cachedEntry = cachedRefs[entry.id];
+    if (cachedEntry != null) {
+      try {
+        final cachedSha = cachedEntry['clientSha'] as String?;
+        final rawRef = cachedEntry['mediaRef'];
+        if (cachedSha == clientSha && rawRef is Map) {
+          final cached = MediaRef.fromJson(Map<String, dynamic>.from(rawRef));
+          if (cached.objectKey.isNotEmpty) {
+            return cached;
+          }
+        }
+      } catch (_) {
+        // Ignore malformed cache entry and proceed with normal upload.
+      }
+    }
+
+    final idempotencyKey =
+        'guest_mig_${entry.id}_${clientSha.substring(0, 16)}';
+    final boundedKey = idempotencyKey.length > 128
+        ? idempotencyKey.substring(0, 128)
+        : idempotencyKey;
+
+    final authRes = await _mediaClient.authorizeUpload(
+      clientSizeBytes: bytes.length,
+      clientSha256: clientSha,
+      idempotencyKey: boundedKey,
+      mimeType: detectedMime,
+      clientDeclaredWidth: dims?.$1,
+      clientDeclaredHeight: dims?.$2,
+    );
+    if (authRes == null) {
+      return null;
+    }
+
+    final uploaded = await _mediaClient.uploadBytesDirect(
+      presignedPutUrl: authRes.presignedPutUrl,
+      bytes: bytes,
+      contentType: detectedMime,
+    );
+    if (!uploaded) {
+      return null;
+    }
+
+    final completed = await _mediaClient.completeUpload(
+      uploadId: authRes.uploadId,
+    );
+    if (completed == null ||
+        (completed.status != 'ready' && completed.status != 'published')) {
+      return null;
+    }
+
+    final mediaRef = MediaRef(
+      uploadId: completed.uploadId,
+      objectKey: completed.canonicalKey,
+      mediaType: completed.mediaType,
+      width: completed.width,
+      height: completed.height,
+      sizeBytes: completed.sizeBytes,
+      contentHash: completed.sha256,
+      uploadedAt: completed.completedAt,
+    );
+
+    final updatedCache = Map<String, Map<String, dynamic>>.from(cachedRefs);
+    updatedCache[entry.id] = {
+      'clientSha': clientSha,
+      'mediaRef': mediaRef.toJson(),
+    };
+    LocalStorage.migratedGuestMediaRefs = updatedCache;
+    return mediaRef;
+  }
+
+  static void _clearCachedMediaRef(String localId) {
+    final cached = LocalStorage.migratedGuestMediaRefs;
+    if (!cached.containsKey(localId)) return;
+    final updated = Map<String, Map<String, dynamic>>.from(cached);
+    updated.remove(localId);
+    LocalStorage.migratedGuestMediaRefs = updated;
+  }
+
+  static String _tuple(
+    String name,
+    String? category,
+    String? color,
+    String? material,
+  ) {
     return '${name.trim().toLowerCase()}|'
         '${(category ?? '').trim().toLowerCase()}|'
         '${(color ?? '').trim().toLowerCase()}|'
@@ -126,18 +263,31 @@ class GuestDataMigration {
         continue;
       }
       try {
+        final hasPhoto =
+            entry.imageBase64 != null && entry.imageBase64!.trim().isNotEmpty;
+        MediaRef? uploadedImageRef;
+        if (hasPhoto) {
+          uploadedImageRef = await _uploadGuestPhoto(entry);
+          if (uploadedImageRef == null) {
+            // Never create a null-image authenticated item when a guest photo
+            // was present; keep the guest item intact for retry.
+            failed.add(entry.name);
+            continue;
+          }
+        }
+
         final created = await _wardrobeRepo.createItem(
           name: entry.name,
           category: entry.category,
           color: entry.color,
           material: entry.material,
-          imageRef: null, // Guest items are imageless (server-side analysis
-          // is account-only); photos never existed to upload.
+          imageRef: uploadedImageRef,
         );
         if (created == null) {
           failed.add(entry.name);
           continue;
         }
+        _clearCachedMediaRef(entry.id);
         if (entry.isFavorite) {
           // Favorites ride a second call: create carries no favorite
           // flag. A failed favorite flip keeps the item migrated (the

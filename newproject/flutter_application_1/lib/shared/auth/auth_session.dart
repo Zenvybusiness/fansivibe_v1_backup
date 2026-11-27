@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:fansivibe/core/config/app_config.dart';
+import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/media/presentation/wardrobe_cache_manager.dart';
 import 'package:fansivibe/shared/auth/secure_token_storage.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
@@ -58,21 +59,33 @@ class AuthSession {
 
   /// Persists a new session after register/login.
   static Future<void> saveSession(String accessToken) async {
+    final previousToken = SecureTokenStorage.currentToken;
     _expiryNotified = false;
     await SecureTokenStorage.writeToken(accessToken);
     // A valid session outranks the stale guest flag: explicit guests who
     // later sign in must never keep `savedLocally` shadowing them.
     LocalStorage.savedLocally = false;
+    // Account switch / new login: clear any previous user's cached cloud
+    // images and authenticated wardrobe mirrors while preserving genuine
+    // device-local guest items (`local-*`).
+    if (previousToken != accessToken) {
+      WardrobeCacheManager.instance.clear();
+      LocalStorage.activeTryOnJob = null;
+    }
+    LearningService.instance.clearAuthenticatedWardrobeMirrors();
     _bump();
   }
 
-  /// Clears the session (logout). Local journey state is preserved —
-  /// only the credential is removed.
+  /// Clears the session (logout). Genuine guest-local state is preserved;
+  /// session credentials, cached cloud media, and authenticated wardrobe
+  /// mirrors are removed so a subsequent Guest or account session cannot
+  /// observe the previous user's items or photos.
   static Future<void> clearSession() async {
     _expiryNotified = false;
     await SecureTokenStorage.deleteToken();
     LocalStorage.activeTryOnJob = null;
     WardrobeCacheManager.instance.clear();
+    LearningService.instance.clearAuthenticatedWardrobeMirrors();
     _bump();
   }
 
@@ -97,6 +110,8 @@ class AuthSession {
     LocalStorage.displayName = null;
     LocalStorage.isReturningUser = false;
     LocalStorage.activeTryOnJob = null;
+    WardrobeCacheManager.instance.clear();
+    LearningService.instance.clearAuthenticatedWardrobeMirrors();
     _bump();
     onSessionExpired?.call();
   }

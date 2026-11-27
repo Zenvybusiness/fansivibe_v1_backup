@@ -143,6 +143,40 @@ class LocalStorage {
     _prefs?.setStringList('migrated_guest_prefs', value);
   }
 
+  /// Published [MediaRef] JSON envelopes keyed by local guest item id.
+  ///
+  /// Durable recovery ledger: if media upload + completion succeeds but
+  /// `WardrobeRepository.createItem` fails, retrying migration reuses the
+  /// already-published `MediaRef` instead of creating duplicate uploads.
+  static Map<String, Map<String, dynamic>> get migratedGuestMediaRefs {
+    final raw = _prefs?.getString('migrated_guest_media_refs');
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return {};
+      final result = <String, Map<String, dynamic>>{};
+      for (final entry in decoded.entries) {
+        if (entry.value is Map<String, dynamic>) {
+          result[entry.key] = entry.value as Map<String, dynamic>;
+        } else if (entry.value is Map) {
+          result[entry.key] = Map<String, dynamic>.from(entry.value as Map);
+        }
+      }
+      return result;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static set migratedGuestMediaRefs(Map<String, Map<String, dynamic>> value) {
+    if (_prefs == null) return;
+    if (value.isEmpty) {
+      _prefs!.remove('migrated_guest_media_refs');
+    } else {
+      _prefs!.setString('migrated_guest_media_refs', jsonEncode(value));
+    }
+  }
+
   /// ----- Capability State -----
 
   static Map<String, bool> get capabilityState {

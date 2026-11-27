@@ -27,6 +27,7 @@ from app.api.schemas.analysis import (
     CleanupExtractionAssetsResponse,
     CreateGroomingRunRequest,
     EphemeralGroomingProfile,
+    SavedExtractedWardrobeItem,
     SaveExtractedGarmentFailure,
     SaveExtractedGarmentsRequest,
     SaveExtractedGarmentsResponse,
@@ -399,10 +400,16 @@ async def save_extracted_garments(
         items=[item.model_dump() for item in request.items],
         idempotency_key=idempotency_key,
     )
-    saved_wire = [
-        await wardrobe_item_to_wire(rec, storage=storage)
-        for rec in outcome["saved_records"]
-    ]
+    saved_wire: list[SavedExtractedWardrobeItem] = []
+    for entry in outcome["saved_entries"]:
+        base_item = await wardrobe_item_to_wire(entry["record"], storage=storage)
+        saved_wire.append(
+            SavedExtractedWardrobeItem(
+                **base_item.model_dump(),
+                candidateId=entry["candidate_id"],
+                extractionConfidence=entry["extraction_confidence"],
+            )
+        )
     failed_wire = [
         SaveExtractedGarmentFailure(**f) for f in outcome["failed_items"]
     ]
@@ -434,6 +441,7 @@ async def cleanup_garment_extraction_assets(
     use_case = CleanupExtractionAssets(
         runs=AnalysisRunRepositorySQL(db),
         storage=storage,
+        db=db,
     )
     res = await use_case.execute(user_id=user_id, run_id=run_id)
     return CleanupExtractionAssetsResponse(**res)

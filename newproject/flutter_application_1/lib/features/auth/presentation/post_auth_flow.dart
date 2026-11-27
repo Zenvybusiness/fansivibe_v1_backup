@@ -73,6 +73,7 @@ Future<void> handlePostAuthConversion(BuildContext context) async {
         // Device prefs are gone, so their sync ledger is meaningless —
         // without this a re-added code would be skipped as "migrated".
         LocalStorage.migratedGuestPrefs = [];
+        LocalStorage.migratedGuestMediaRefs = {};
         _snack(context, 'Device data removed. Your account is unchanged.');
       }
       _goWithGuidance(context, destination, intent);
@@ -110,9 +111,8 @@ Future<void> _runMerge(
   showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (dialogContext) => const Center(
-      child: CircularProgressIndicator(),
-    ),
+    builder: (dialogContext) =>
+        const Center(child: CircularProgressIndicator()),
   );
   final migration = GuestDataMigration(
     wardrobeRepo: WardrobeRepositoryImpl(),
@@ -130,9 +130,7 @@ Future<void> _runMerge(
   if (result != null && result.migratedLocalIds.isNotEmpty) {
     // Uploaded rows now live server-side: drop the device copies so
     // they cannot ghost back after a later logout. Failed rows stay.
-    LearningService.instance.removeLocalItems(
-      result.migratedLocalIds.toSet(),
-    );
+    LearningService.instance.removeLocalItems(result.migratedLocalIds.toSet());
   }
   if (!context.mounted) return;
   Navigator.of(context, rootNavigator: true).pop();
@@ -186,9 +184,7 @@ void _snack(BuildContext context, String message) {
       content: Text(message),
       backgroundColor: FansivibeColors.accentGold,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(
-        borderRadius: FansivibeRadius.smdBorder,
-      ),
+      shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
     ),
   );
 }
@@ -212,9 +208,7 @@ Future<GuestDataChoice?> showGuestMergeDialog(
     barrierDismissible: true,
     builder: (dialogContext) => AlertDialog(
       backgroundColor: FansivibeColors.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: FansivibeRadius.mdBorder,
-      ),
+      shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.mdBorder),
       title: Text(
         'Your device has saved data',
         style: FansivibeTypography.titleLargeWithFamily.copyWith(
@@ -269,9 +263,7 @@ Future<bool> showGuestDiscardConfirm(
     context: context,
     builder: (dialogContext) => AlertDialog(
       backgroundColor: FansivibeColors.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: FansivibeRadius.mdBorder,
-      ),
+      shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.mdBorder),
       title: Text(
         'Discard device data?',
         style: FansivibeTypography.titleLargeWithFamily.copyWith(
@@ -320,9 +312,7 @@ Future<bool> showGuestMigrationResult(
     barrierDismissible: false,
     builder: (dialogContext) => AlertDialog(
       backgroundColor: FansivibeColors.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: FansivibeRadius.mdBorder,
-      ),
+      shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.mdBorder),
       title: Text(
         'Some items stayed on your device',
         style: FansivibeTypography.titleLargeWithFamily.copyWith(

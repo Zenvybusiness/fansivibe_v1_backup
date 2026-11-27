@@ -632,52 +632,91 @@ def test_gpu_scheduler_lease_lifecycle_protection():
     assert "chat_executed" in lease_lifecycle_events
 
 
-def test_live_ollama_vision_model_verification():
-    """Verify live inference against Ollama qwen3-vl:4b-instruct with real image pixels."""
-    import httpx
+def _make_meaningful_garment_jpeg() -> bytes:
+    """Create a valid 600x800 studio-style garment JPEG fixture for live vision inference."""
+    from PIL import Image, ImageDraw
 
-    # Check if local Ollama daemon is reachable
+    img = Image.new("RGB", (600, 800), (242, 240, 236))
+    draw = ImageDraw.Draw(img)
+    # Draw a clear navy collared jacket/shirt silhouette on a neutral studio background
+    draw.rectangle([160, 120, 440, 520], fill=(28, 50, 96), outline=(15, 28, 58), width=3)
+    draw.polygon([(160, 120), (85, 290), (145, 325), (195, 200)], fill=(28, 50, 96), outline=(15, 28, 58))
+    draw.polygon([(440, 120), (515, 290), (455, 325), (405, 200)], fill=(28, 50, 96), outline=(15, 28, 58))
+    draw.polygon([(250, 120), (300, 185), (350, 120)], fill=(235, 232, 226), outline=(15, 28, 58))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return buf.getvalue()
+
+
+def test_live_ollama_vision_model_verification(monkeypatch):
+    """Verify live inference against Ollama qwen3-vl:4b-instruct with a meaningful garment fixture."""
+    import os
+    import httpx
+    from app.config.settings import get_settings
+
+    if os.getenv("FANSIVIBE_SKIP_LIVE_OLLAMA") == "1":
+        pytest.skip("Skipped via FANSIVIBE_SKIP_LIVE_OLLAMA=1")
+
+    required_model = "qwen3-vl:4b-instruct"
+
+    # 1. Distinguish: Ollama service unavailable vs required model not installed
     try:
         ping = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
-        if ping.status_code != 200:
-            pytest.skip("Local Ollama daemon not running at http://localhost:11434")
-    except Exception:
-        pytest.skip("Local Ollama daemon unreachable at http://localhost:11434")
+    except Exception as exc:
+        pytest.skip(f"Ollama service unavailable at http://localhost:11434: {exc}")
 
-    # Real JPEG pixel bytes (1x1 transparent/black JPEG)
-    jpeg_bytes = bytes([
-        0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
-        0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43,
-        0x00, 0x03, 0x02, 0x02, 0x03, 0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x04,
-        0x03, 0x03, 0x04, 0x05, 0x08, 0x05, 0x05, 0x04, 0x04, 0x05, 0x0A, 0x07,
-        0x07, 0x06, 0x08, 0x0C, 0x0A, 0x0C, 0x0C, 0x0B, 0x0A, 0x0B, 0x0B, 0x0D,
-        0x0E, 0x12, 0x10, 0x0D, 0x0E, 0x11, 0x0E, 0x0B, 0x0B, 0x10, 0x16, 0x10,
-        0x11, 0x13, 0x14, 0x15, 0x15, 0x15, 0x0C, 0x0F, 0x17, 0x18, 0x16, 0x14,
-        0x18, 0x12, 0x14, 0x15, 0x14, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01,
-        0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xFF, 0xC4, 0x00, 0x14, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x03, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00,
-        0x3F, 0x00, 0x37, 0xFF, 0xD9
-    ])
+    if ping.status_code != 200:
+        pytest.skip(f"Ollama service unavailable at http://localhost:11434 (HTTP {ping.status_code})")
+
+    installed_models = [m.get("name", "") for m in ping.json().get("models", [])]
+    if not any(
+        name == required_model or name == f"{required_model}:latest"
+        for name in installed_models
+    ):
+        pytest.skip(f"Required Ollama model '{required_model}' is not installed locally")
+
+    monkeypatch.setenv("FANSIVIBE_VISION_MODEL", required_model)
+    monkeypatch.setenv("FANSIVIBE_VISION_TIMEOUT_S", "60.0")
+    monkeypatch.delenv("FANSIVIBE_DISABLE_VISION", raising=False)
+    get_settings.cache_clear()
+
+    jpeg_bytes = _make_meaningful_garment_jpeg()
 
     adapter = OllamaVisionGarmentAdapter(
         host="http://localhost:11434",
-        model="qwen3-vl:4b-instruct",
+        model=required_model,
         timeout_s=60.0,
     )
     user_id = uuid4()
-    # A 1x1 black image has no clothing item visible; the real vision model must honestly report no_garment
+
+    # 2. Distinguish: timeout, post-ping unavailability, invalid image/response, or success
     try:
         profile = adapter.analyze(
             media_ref={"key": "live-test"},
             user_id=user_id,
             image_bytes=jpeg_bytes,
         )
-        # If it returns a profile, it must be valid
-        assert profile.category in ("tops", "bottoms", "outerwear", "footwear", "accessories", None)
     except GarmentAnalysisError as exc:
-        if exc.reason in ("analyzer_unavailable", "analyzer_timeout"):
-            pytest.skip(f"Ollama vision model unreachable or timed out during load: {exc.reason}")
-        # Truthful rejection: no_garment_detected or ambiguous_subject
-        assert exc.reason in ("no_garment_detected", "ambiguous_subject", "low_confidence")
+        if exc.reason == "analyzer_timeout":
+            pytest.fail(f"Ollama model loading or inference timed out: {exc.reason}")
+        if exc.reason == "analyzer_unavailable":
+            pytest.fail(
+                f"Ollama service unavailable or GPU quarantined during inference: {exc.reason}"
+            )
+        if exc.reason in (
+            "invalid_image",
+            "invalid_analyzer_response",
+            "no_garment_detected",
+            "ambiguous_subject",
+            "low_confidence",
+        ):
+            pytest.fail(
+                f"Invalid image or analyzer response on meaningful garment fixture: {exc.reason}"
+            )
+        pytest.fail(f"Unexpected GarmentAnalysisError: {exc.reason}")
+
+    # 3. Successful inference assertions
+    assert profile.category in ("tops", "bottoms", "outerwear", "footwear", "accessories")
+    assert profile.confidence >= 0.35
+    assert isinstance(profile.candidates, tuple) and len(profile.candidates) >= 1
 

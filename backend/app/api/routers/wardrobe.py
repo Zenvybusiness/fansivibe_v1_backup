@@ -258,8 +258,11 @@ async def update_wardrobe_item(
     server updates updatedAt.
     Foreign/non-existent item → 404.
     """
-    use_case = UpdateWardrobeItem(wardrobe=WardrobeItemRepositorySQL(db), db=db)
-    record = use_case(
+    use_case = UpdateWardrobeItem(
+        wardrobe=WardrobeItemRepositorySQL(db),
+        db=db,
+    )
+    record = await use_case.execute(
         user_id=user_id,
         item_id=item_id,
         name=request.name,
@@ -274,6 +277,7 @@ async def update_wardrobe_item(
         fit_set="fit" in request.model_fields_set,
         fit_confidence=request.fitConfidence,
         fit_confidence_set="fitConfidence" in request.model_fields_set,
+        storage=storage,
     )
     return await _to_wire(record, storage=storage)
 
@@ -284,12 +288,14 @@ async def update_wardrobe_item(
     responses={
         401: {"model": dict},
         404: {"model": dict},
+        503: {"model": dict},
     },
 )
-def delete_wardrobe_item(
+async def delete_wardrobe_item(
     item_id: UUID = Path(..., description="UUID of the wardrobe item to delete"),
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
 ) -> None:
     """Delete a wardrobe item.
 
@@ -297,8 +303,11 @@ def delete_wardrobe_item(
     Foreign/non-existent item → 404.
     Successful delete → 204 No Content.
     """
-    use_case = DeleteWardrobeItem(wardrobe=WardrobeItemRepositorySQL(db))
-    use_case(user_id=user_id, item_id=item_id)
+    use_case = DeleteWardrobeItem(
+        wardrobe=WardrobeItemRepositorySQL(db),
+        db=db,
+    )
+    await use_case.execute(user_id=user_id, item_id=item_id, storage=storage)
     return None
 
 

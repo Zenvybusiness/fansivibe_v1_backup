@@ -11,6 +11,7 @@ Implements P0-4 Phase 2 use cases:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import asyncio
 import hashlib
@@ -25,12 +26,13 @@ from sqlalchemy.orm import Session
 
 from app.api.errors import ApiError, database_failure, not_found, rate_limited, validation
 from app.domain.ports.storage import (
+    resolve_wardrobe_image_key,
     ObjectStoragePort,
     StorageError,
     StorageNotFoundError,
     StoragePayloadError,
 )
-from app.infrastructure.db.models import MediaUploadAuthorization
+from app.infrastructure.db.models import MediaUploadAuthorization, WardrobeItems
 from app.workers.transcoder import (
     ImageValidationError,
     MemoryLimitExceededError,
@@ -206,7 +208,7 @@ def prune_expired_authorizations(
             select(MediaUploadAuthorization.upload_id)
             .where(
                 MediaUploadAuthorization.expires_at < cutoff,
-                MediaUploadAuthorization.status != "published",
+                MediaUploadAuthorization.status.notin_(("published", "delete_pending")),
                 not_(is_active_processing),
             )
             .limit(batch_size)
@@ -231,6 +233,171 @@ def prune_expired_authorizations(
             break
 
     return total_deleted
+
+
+@dataclass
+class PendingMediaCleanupSummary:
+    """Summary of durable pending wardrobe media deletion retries."""
+
+    checked: int = 0
+    deleted: int = 0
+    restored: int = 0
+    failed: int = 0
+
+
+def parse_media_upload_id(image_ref: Any) -> Optional[UUID]:
+    """Extract and normalize `uploadId`/`upload_id` from a media reference dict."""
+    if not isinstance(image_ref, dict):
+        return None
+    raw = image_ref.get("uploadId") or image_ref.get("upload_id")
+    if not raw:
+        return None
+    if isinstance(raw, UUID):
+        return raw
+    try:
+        return UUID(str(raw).strip())
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def has_live_wardrobe_media_reference(
+    db: Session,
+    *,
+    user_id: UUID,
+    object_key: Optional[str] = None,
+    upload_id: Optional[UUID] = None,
+) -> bool:
+    """Return True if any live WardrobeItems row for `user_id` references `object_key` or `upload_id`."""
+    if object_key is None and upload_id is None:
+        return False
+    rows = db.execute(
+        select(WardrobeItems.image_ref).where(
+            WardrobeItems.user_id == user_id,
+            WardrobeItems.image_ref.is_not(None),
+        )
+    ).scalars().all()
+    for ref in rows:
+        if not isinstance(ref, dict):
+            continue
+        if upload_id is not None and parse_media_upload_id(ref) == upload_id:
+            return True
+        if object_key is not None:
+            try:
+                resolved = resolve_wardrobe_image_key(ref, user_id=user_id).key
+                if resolved == object_key:
+                    return True
+            except StorageError:
+                pass
+    return False
+
+
+def find_wardrobe_media_authorization(
+    db: Session,
+    *,
+    user_id: UUID,
+    object_key: Optional[str] = None,
+    upload_id: Optional[UUID] = None,
+    for_update: bool = False,
+) -> Optional[MediaUploadAuthorization]:
+    """Find the owner-scoped MediaUploadAuthorization matching `upload_id` or `canonical_key`."""
+    bind = db.get_bind()
+    is_pg = bind is not None and getattr(bind.dialect, "name", "") == "postgresql"
+
+    if upload_id is not None:
+        stmt = select(MediaUploadAuthorization).where(
+            MediaUploadAuthorization.user_id == user_id,
+            MediaUploadAuthorization.upload_id == upload_id,
+        )
+        if for_update and is_pg:
+            stmt = stmt.with_for_update()
+        auth = db.execute(stmt).scalar_one_or_none()
+        if auth is not None:
+            return auth
+    if object_key is not None:
+        stmt = select(MediaUploadAuthorization).where(
+            MediaUploadAuthorization.user_id == user_id,
+            MediaUploadAuthorization.canonical_key == object_key,
+        )
+        if for_update and is_pg:
+            stmt = stmt.with_for_update()
+        return db.execute(stmt).scalar_one_or_none()
+    return None
+
+
+async def cleanup_pending_media_deletions(
+    storage: ObjectStoragePort,
+    db: Session,
+    *,
+    batch_limit: int = 200,
+) -> PendingMediaCleanupSummary:
+    """Retry durable `delete_pending` MediaUploadAuthorization cleanups in bounded batches.
+
+    Re-checks live WardrobeItems references before deleting any storage object.
+    If a live reference exists, restores `status = 'published'`; otherwise
+    deletes the storage object and removes the MediaUploadAuthorization row.
+    """
+    summary = PendingMediaCleanupSummary()
+    bind = db.get_bind()
+    is_pg = bind is not None and getattr(bind.dialect, "name", "") == "postgresql"
+
+    stmt = (
+        select(MediaUploadAuthorization.upload_id)
+        .where(MediaUploadAuthorization.status == "delete_pending")
+        .order_by(MediaUploadAuthorization.created_at.asc())
+        .limit(max(1, int(batch_limit)))
+    )
+    if is_pg:
+        stmt = stmt.with_for_update(skip_locked=True)
+
+    candidate_ids = list(db.execute(stmt).scalars().all())
+    summary.checked = len(candidate_ids)
+
+    for uid in candidate_ids:
+        row_stmt = select(MediaUploadAuthorization).where(
+            MediaUploadAuthorization.upload_id == uid,
+            MediaUploadAuthorization.status == "delete_pending",
+        )
+        if is_pg:
+            row_stmt = row_stmt.with_for_update(skip_locked=True)
+        auth = db.execute(row_stmt).scalar_one_or_none()
+        if auth is None:
+            continue
+
+        key = auth.canonical_key
+        if has_live_wardrobe_media_reference(
+            db,
+            user_id=auth.user_id,
+            object_key=key,
+            upload_id=auth.upload_id,
+        ):
+            auth.status = "published"
+            auth.failure_reason = None
+            db.commit()
+            summary.restored += 1
+            continue
+
+        if key:
+            try:
+                resolve_wardrobe_image_key({"objectKey": key}, user_id=auth.user_id)
+                await storage.delete_object(key)
+            except Exception as exc:
+                logger.warning(
+                    "Pending media deletion retry failed [upload_id=%s, key=%s, err=%s]",
+                    auth.upload_id,
+                    key,
+                    type(exc).__name__,
+                )
+                auth.processing_attempts = (auth.processing_attempts or 0) + 1
+                auth.failure_reason = "STORAGE_DELETE_FAILED"
+                db.commit()
+                summary.failed += 1
+                continue
+
+        db.delete(auth)
+        db.commit()
+        summary.deleted += 1
+
+    return summary
 
 
 class AuthorizeMediaUpload:
@@ -813,7 +980,14 @@ class CompleteMediaUpload:
             self._db.rollback()
             return published_res
 
-        # 4. Check if previously FAILED terminally
+        # 4. Check if previously FAILED terminally or pending deletion
+        if auth.status == "delete_pending":
+            self._db.rollback()
+            raise ApiError(
+                status_code=409,
+                code="UPLOAD_DELETED",
+                message="Media upload has been deleted.",
+            )
         if auth.status == "failed":
             self._db.rollback()
             raise ApiError(
@@ -1545,10 +1719,15 @@ def validate_media_association(
             details={"field": "imageRef.uploadId"},
         )
 
+    bind = db.get_bind()
+    is_pg = bind is not None and getattr(bind.dialect, "name", "") == "postgresql"
+
     stmt = select(MediaUploadAuthorization).where(
         MediaUploadAuthorization.upload_id == upload_id,
         MediaUploadAuthorization.user_id == user_id,
     )
+    if is_pg:
+        stmt = stmt.with_for_update()
     auth = db.execute(stmt).scalar_one_or_none()
 
     if auth is None:

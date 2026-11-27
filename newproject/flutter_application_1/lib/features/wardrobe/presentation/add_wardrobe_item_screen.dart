@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -17,6 +16,7 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/features/wardrobe/presentation/wardrobe_extraction_screen.dart';
 import 'package:fansivibe/features/wardrobe/presentation/wardrobe_photo_screen.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
@@ -26,10 +26,8 @@ import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// Screen for filling in item details when adding a new wardrobe item.
 ///
-/// Optional photo flow (M11): photograph the garment, analyze it against
-/// the real garment endpoint, review the suggestion, then confirm. AI
-/// output only preselects the existing manual chips — the confirmed chips
-/// are the canonical values saved to the backend.
+/// Supports manual entry, prefill from Outfit Scan (`initialGarmentResult`),
+/// and AI garment extraction by delegating to [WardrobeExtractionScreen].
 class AddWardrobeItemScreen extends StatefulWidget {
   const AddWardrobeItemScreen({
     required this.category,
@@ -62,9 +60,6 @@ class AddWardrobeItemScreen extends StatefulWidget {
   State<AddWardrobeItemScreen> createState() => _AddWardrobeItemScreenState();
 }
 
-/// Photo → analysis pipeline stages (idle → photo → analyzing → result).
-enum _PhotoStage { none, selected, analyzing, result }
-
 class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
   String? _selectedType;
   ColorOption? _selectedColor;
@@ -73,20 +68,13 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
   String? _errorMessage;
   bool _isSubmitting = false;
   WardrobeItemData? _savedItem;
+  List<WardrobeItemData> _savedItems = const [];
   late final WardrobeRepository _repository;
-  late final GarmentClient _garmentClient;
   late final MediaClient _mediaClient;
 
   Uint8List? _photoBytes;
   String? _photoFilename;
-  _PhotoStage _photoStage = _PhotoStage.none;
-  String? _analysisStatus;
-  bool _stillAnalyzing = false;
   GarmentAnalysisResult? _garmentResult;
-  Map<String, dynamic>? _garmentInputMedia;
-  String? _garmentRunId;
-  Timer? _stillAnalyzingTimer;
-  String? _garmentIdempotencyKey;
 
   bool get _isValid => _selectedType != null && _selectedColor != null;
 
@@ -94,20 +82,18 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
   void initState() {
     super.initState();
     _repository = widget.repository ?? WardrobeRepositoryImpl();
-    _garmentClient = widget.garmentClient ?? GarmentClient();
     _mediaClient = widget.mediaClient ?? MediaClient();
     if (widget.initialGarmentResult != null) {
       _garmentResult = widget.initialGarmentResult;
-      _photoStage = _PhotoStage.result;
       _prefillFromGarment(widget.initialGarmentResult!);
     }
   }
 
   @override
   void dispose() {
-    _stillAnalyzingTimer?.cancel();
-    _garmentClient.dispose();
-    _mediaClient.dispose();
+    if (widget.mediaClient == null) {
+      _mediaClient.dispose();
+    }
     super.dispose();
   }
 
@@ -143,18 +129,22 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       );
     }
 
-    MediaRef? cloudMediaRef = _buildImageRef();
+    MediaRef? cloudMediaRef;
 
     // Authenticated upload pipeline (Gate 6.1 / Gate 8.1: only authenticated sessions upload)
     final uploadBytes = _photoBytes ?? photoBytes;
-    if (AuthSession.isAuthenticated && !isGuestUser && uploadBytes != null && uploadBytes.isNotEmpty && cloudMediaRef?.uploadId == null) {
+    if (AuthSession.isAuthenticated &&
+        !isGuestUser &&
+        uploadBytes != null &&
+        uploadBytes.isNotEmpty) {
       try {
         final detectedMime = detectImageMimeType(uploadBytes) ?? 'image/jpeg';
         if (uploadBytes.length <= 2 * 1024 * 1024 &&
             (detectedMime == 'image/jpeg' || detectedMime == 'image/webp')) {
           final clientSha = sha256Hex(uploadBytes);
           final dims = await getImageDimensions(uploadBytes);
-          final idempotencyKey = 'add_${clientSha.substring(0, 16)}_${DateTime.now().millisecondsSinceEpoch}';
+          final idempotencyKey =
+              'add_${clientSha.substring(0, 16)}_${DateTime.now().millisecondsSinceEpoch}';
 
           final authRes = await _mediaClient.authorizeUpload(
             clientSizeBytes: uploadBytes.length,
@@ -198,18 +188,16 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
     try {
       // Phase 2.1 guests persist on-device through the local repository.
       // No prompt, no backend.
-      final repository =
-          isGuestUser ? LocalWardrobeRepository() : _repository;
+      final repository = isGuestUser ? LocalWardrobeRepository() : _repository;
       final createdItem = await repository.createItem(
         name: newItem.name,
         category: newItem.category,
         color: newItem.color,
         material: newItem.material,
         imageRef: cloudMediaRef,
-        // C-02-F: persist the analyzer's own fit observation + confidence
-        // verbatim, allowing user override via fit selection.
+        // C-02-F: persist fit observation when present; never copy general
+        // Outfit Scan detection confidence into fitConfidence.
         fit: _selectedFit ?? _garmentResult?.fit,
-        fitConfidence: _garmentResult?.confidence,
       );
 
       if (!mounted) return;
@@ -228,6 +216,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
         setState(() {
           _isSubmitting = false;
           _savedItem = savedItem;
+          _savedItems = [savedItem];
         });
       } else {
         // API failure
@@ -281,7 +270,9 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Saved ${item.name} to your wardrobe.',
+                _savedItems.length > 1
+                    ? 'Saved ${_savedItems.length} items to your wardrobe.'
+                    : 'Saved ${item.name} to your wardrobe.',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: FansivibeColors.textPrimary,
                   fontWeight: FontWeight.w600,
@@ -306,35 +297,10 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
           width: double.infinity,
           child: FansiButton.secondary(
             label: 'Done',
-            onPressed: () =>
-                Navigator.pop<WardrobeItemData>(context, item),
+            onPressed: () => Navigator.pop<WardrobeItemData>(context, item),
           ),
         ),
       ],
-    );
-  }
-
-  /// Builds the photo reference for the save payload from the garment
-  /// run's persisted input-media (key/mediaType/sizeBytes/contentHash are
-  /// the backend's own values — never invented). Null when no analyzed
-  /// photo exists, so manual saves stay imageless as before.
-  MediaRef? _buildImageRef() {
-    final media = _garmentInputMedia;
-    final bytes = _photoBytes;
-    if (media == null || bytes == null) return null;
-    final key = media['key'] as String?;
-    final mediaType = media['mediaType'] as String?;
-    if (key == null || mediaType == null) return null;
-    return MediaRef(
-      objectKey: key,
-      mediaType: mediaType,
-      sizeBytes: media['sizeBytes'] as int?,
-      contentHash: media['contentHash'] as String?,
-      isGenerated: false,
-      uploadedAt: media['uploadedAt'] != null
-          ? DateTime.tryParse(media['uploadedAt'] as String)
-          : null,
-      sourceRunId: _garmentRunId,
     );
   }
 
@@ -348,12 +314,6 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
     setState(() {
       _photoBytes = photo.bytes;
       _photoFilename = photo.filename;
-      _photoStage = _PhotoStage.selected;
-      _garmentResult = null;
-      _garmentInputMedia = null;
-      _garmentRunId = null;
-      _analysisStatus = null;
-      _stillAnalyzing = false;
       _errorMessage = null;
     });
   }
@@ -372,14 +332,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       setState(() {
         _photoBytes = bytes;
         _photoFilename = file.name.isNotEmpty ? file.name : 'wardrobe_item.jpg';
-        _photoStage = _PhotoStage.selected;
-        _garmentResult = null;
-        _garmentInputMedia = null;
-        _garmentRunId = null;
-        _analysisStatus = null;
-        _stillAnalyzing = false;
         _errorMessage = null;
-        _garmentIdempotencyKey = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -393,186 +346,37 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
     setState(() {
       _photoBytes = null;
       _photoFilename = null;
-      _photoStage = _PhotoStage.none;
-      _garmentResult = null;
-      _garmentInputMedia = null;
-      _garmentRunId = null;
-      _analysisStatus = null;
-      _stillAnalyzing = false;
       _errorMessage = null;
-      _garmentIdempotencyKey = null;
     });
   }
 
-  Future<void> _analyzePhoto() async {
+  /// Delegates AI garment extraction, crop review, metadata editing,
+  /// candidate selection, save idempotency, and asset cleanup to the unified
+  /// [WardrobeExtractionScreen].
+  Future<void> _launchUnifiedExtraction() async {
     final bytes = _photoBytes;
-    if (bytes == null || _photoStage == _PhotoStage.analyzing) return;
-    if (bytes.length > GarmentClient.maxImageBytes) {
-      setState(() {
-        _errorMessage =
-            'This photo is larger than 20 MB. Retake it at a lower resolution.';
-      });
-      return;
-    }
-    setState(() {
-      _photoStage = _PhotoStage.analyzing;
-      _analysisStatus = 'Uploading photo…';
-      _stillAnalyzing = false;
-      _garmentResult = null;
-      _errorMessage = null;
-    });
-    // Cold-model notice (outfit-processing precedent): first inference can
-    // take a while — say so instead of stalling silently. Timer-cancelled
-    // on dispose so no setState fires after the screen is gone.
-    _stillAnalyzingTimer?.cancel();
-    _stillAnalyzingTimer = Timer(const Duration(seconds: 20), () {
-      if (!mounted || _photoStage != _PhotoStage.analyzing) return;
-      setState(() {
-        _stillAnalyzing = true;
-      });
-    });
-
-    // Guests run the synchronous ephemeral analysis (D-01): the same
-    // analyzing/result/prefill UI as the authenticated path — only the
-    // transport differs (no auth, no run id, no polling, no persisted
-    // input-media). The save below stays unchanged (device-local for
-    // guests, server for accounts).
-    if (isGuestUser) {
-      await _analyzeEphemeral(bytes);
-      return;
-    }
-
-    final key = _garmentIdempotencyKey ??= newGarmentIdempotencyKey();
-    final runId = await _garmentClient.submitGarmentAnalysisBytes(
-      bytes,
-      filename: _photoFilename ?? 'wardrobe_item.jpg',
-      idempotencyKey: key,
+    if (bytes == null) return;
+    final savedItems = await Navigator.of(context).push<List<WardrobeItemData>>(
+      MaterialPageRoute(
+        builder: (_) => WardrobeExtractionScreen(
+          initialImageBytes: bytes,
+          initialFilename: _photoFilename ?? 'wardrobe_item.jpg',
+          garmentClient: widget.garmentClient,
+          mediaClient: widget.mediaClient,
+          repository: widget.repository,
+          pickImage: widget.photoGalleryPick,
+        ),
+      ),
     );
     if (!mounted) return;
-    if (runId == null) {
+    if (savedItems != null && savedItems.isNotEmpty) {
       setState(() {
-        _photoStage = _PhotoStage.selected;
-        _analysisStatus = null;
-        _errorMessage = 'Could not upload the photo. Please try again.';
+        _photoBytes = null;
+        _photoFilename = null;
+        _savedItems = savedItems;
+        _savedItem = savedItems.first;
+        _errorMessage = null;
       });
-      return;
-    }
-    setState(() => _analysisStatus = 'Analyzing clothing…');
-    final run = await _garmentClient.pollGarmentRun(runId: runId);
-    if (!mounted) return;
-    if (run == null) {
-      setState(() {
-        _photoStage = _PhotoStage.selected;
-        _analysisStatus = null;
-        _errorMessage =
-            'Analysis is taking longer than expected. '
-            'Please try again.';
-      });
-      return;
-    }
-    if (run.isFailed) {
-      setState(() {
-        _photoStage = _PhotoStage.selected;
-        _analysisStatus = null;
-        _errorMessage = _garmentFailureMessage(run.failureReason);
-      });
-      return;
-    }
-    final resultMap = run.result;
-    if (resultMap == null) {
-      setState(() {
-        _photoStage = _PhotoStage.selected;
-        _analysisStatus = null;
-        _errorMessage = 'The analysis result was unreadable. Please try again.';
-      });
-      return;
-    }
-    late final GarmentAnalysisResult result;
-    try {
-      result = GarmentAnalysisResult.fromJson(resultMap);
-    } on FormatException {
-      if (!mounted) return;
-      setState(() {
-        _photoStage = _PhotoStage.selected;
-        _analysisStatus = null;
-        _errorMessage = 'The analysis result was unreadable. Please try again.';
-      });
-      return;
-    }
-    setState(() {
-      _photoStage = _PhotoStage.result;
-      _analysisStatus = null;
-      _stillAnalyzing = false;
-      _garmentResult = result;
-      _garmentInputMedia = run.inputMedia;
-      _garmentRunId = runId;
-      _garmentIdempotencyKey = null;
-    });
-    _prefillFromGarment(result);
-  }
-
-  /// Guest ephemeral garment pass (D-01): one synchronous observation over
-  /// the photo bytes, then the identical result/prefill tail. No run id is
-  /// created and no input-media envelope exists, so both stay null and the
-  /// save remains imageless exactly like a manual save.
-  Future<void> _analyzeEphemeral(Uint8List bytes) async {
-    final outcome = await _garmentClient.submitGarmentEphemeralBytes(
-      bytes,
-      filename: _photoFilename ?? 'wardrobe_item.jpg',
-    );
-    if (!mounted || _photoStage != _PhotoStage.analyzing) return;
-    final snapshot = outcome.snapshot;
-    if (snapshot == null) {
-      setState(() {
-        _photoStage = _PhotoStage.selected;
-        _analysisStatus = null;
-        _errorMessage = _garmentFailureMessage(outcome.failureReason);
-      });
-      return;
-    }
-    late final GarmentAnalysisResult result;
-    try {
-      result = GarmentAnalysisResult.fromJson(snapshot);
-    } on FormatException {
-      if (!mounted) return;
-      setState(() {
-        _photoStage = _PhotoStage.selected;
-        _analysisStatus = null;
-        _errorMessage = 'The analysis result was unreadable. Please try again.';
-      });
-      return;
-    }
-    setState(() {
-      _photoStage = _PhotoStage.result;
-      _analysisStatus = null;
-      _stillAnalyzing = false;
-      _garmentResult = result;
-      _garmentInputMedia = null;
-      _garmentRunId = null;
-      _garmentIdempotencyKey = null;
-    });
-    _prefillFromGarment(result);
-  }
-
-  /// Maps a typed backend failure reason to truthful UI copy. Unknown
-  /// reasons stay generic — no invented detail, never a fake suggestion.
-  String _garmentFailureMessage(String? reason) {
-    switch (reason) {
-      case 'no_garment_detected':
-        return 'No clothing item was detected in this photo. '
-            'Retake it with the garment clearly visible.';
-      case 'ambiguous_subject':
-        return 'Several garments overlap in this photo. '
-            'Photograph one item at a time.';
-      case 'low_confidence':
-        return 'The photo was too unclear to analyze confidently. '
-            'Retake it in better light.';
-      case 'analyzer_timeout':
-      case 'analyzer_unavailable':
-        return 'The analysis service is unavailable right now. '
-            'Please try again in a moment.';
-      default:
-        return 'Garment analysis failed. Please try again.';
     }
   }
 
@@ -583,10 +387,17 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
   void _prefillFromGarment(GarmentAnalysisResult result) {
     final subcategory = result.subcategory;
     if (_selectedType == null && subcategory != null) {
-      final lowered = subcategory.toLowerCase().replaceAll('_', '-').replaceAll(' ', '-');
+      final lowered = subcategory
+          .toLowerCase()
+          .replaceAll('_', '-')
+          .replaceAll(' ', '-');
       for (final type in widget.category.types) {
-        final typeLowered = type.toLowerCase().replaceAll('_', '-').replaceAll(' ', '-');
-        if (typeLowered == lowered || typeLowered.replaceAll('-', '') == lowered.replaceAll('-', '')) {
+        final typeLowered = type
+            .toLowerCase()
+            .replaceAll('_', '-')
+            .replaceAll(' ', '-');
+        if (typeLowered == lowered ||
+            typeLowered.replaceAll('-', '') == lowered.replaceAll('-', '')) {
           _selectedType = type;
           break;
         }
@@ -726,7 +537,9 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                           selectedItem: _selectedFit,
                           onSelected: (value) {
                             setState(() {
-                              _selectedFit = _selectedFit == value ? null : value;
+                              _selectedFit = _selectedFit == value
+                                  ? null
+                                  : value;
                               _errorMessage = null;
                             });
                           },
@@ -738,10 +551,14 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: FansivibeColors.error.withValues(alpha: 0.1),
+                              color: FansivibeColors.error.withValues(
+                                alpha: 0.1,
+                              ),
                               borderRadius: FansivibeRadius.smdBorder,
                               border: Border.all(
-                                color: FansivibeColors.error.withValues(alpha: 0.3),
+                                color: FansivibeColors.error.withValues(
+                                  alpha: 0.3,
+                                ),
                               ),
                             ),
                             child: Row(
@@ -782,8 +599,8 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                                         strokeWidth: 3,
                                         valueColor:
                                             AlwaysStoppedAnimation<Color>(
-                                          FansivibeColors.primary,
-                                        ),
+                                              FansivibeColors.primary,
+                                            ),
                                       ),
                                     ),
                                   )
@@ -815,7 +632,7 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_photoStage == _PhotoStage.result && _garmentResult != null) ...[
+          if (_garmentResult != null) ...[
             _buildGarmentSummary(theme, _garmentResult!),
             const SizedBox(height: 16),
           ],
@@ -852,72 +669,25 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        if (_photoStage == _PhotoStage.analyzing) ...[
-          Row(
-            children: [
-              const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
+        Row(
+          children: [
+            Expanded(
+              child: FansiButton.secondary(
+                label: 'Retake',
+                icon: Icons.refresh_rounded,
+                onPressed: _retakePhoto,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  _stillAnalyzing
-                      ? 'Still analyzing — this can take a little longer '
-                          'on the first scan.'
-                      : (_analysisStatus ?? 'Analyzing clothing…'),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: FansivibeColors.textSecondary,
-                  ),
-                ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FansiButton.primary(
+                label: 'Analyze Item',
+                icon: Icons.auto_awesome_outlined,
+                onPressed: _launchUnifiedExtraction,
               ),
-            ],
-          ),
-        ] else if (_photoStage == _PhotoStage.result &&
-            _garmentResult != null) ...[
-          _buildGarmentSummary(theme, _garmentResult!),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FansiButton.secondary(
-                  label: 'Retake',
-                  icon: Icons.refresh_rounded,
-                  onPressed: _retakePhoto,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FansiButton.secondary(
-                  label: 'Analyze Again',
-                  icon: Icons.refresh_rounded,
-                  onPressed: _analyzePhoto,
-                ),
-              ),
-            ],
-          ),
-        ] else ...[
-          Row(
-            children: [
-              Expanded(
-                child: FansiButton.secondary(
-                  label: 'Retake',
-                  icon: Icons.refresh_rounded,
-                  onPressed: _retakePhoto,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FansiButton.primary(
-                  label: 'Analyze Item',
-                  icon: Icons.auto_awesome_outlined,
-                  onPressed: _analyzePhoto,
-                ),
-              ),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -1121,15 +891,17 @@ class _AddWardrobeItemScreenState extends State<AddWardrobeItemScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                  Text(
-                    color.name,
-                    style: theme.textTheme.bodyMedium!.copyWith(
-                      color: isSelected
-                          ? FansivibeColors.accentGold
-                          : FansivibeColors.textSecondary,
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                    ),
+                Text(
+                  color.name,
+                  style: theme.textTheme.bodyMedium!.copyWith(
+                    color: isSelected
+                        ? FansivibeColors.accentGold
+                        : FansivibeColors.textSecondary,
+                    fontWeight: isSelected
+                        ? FontWeight.w600
+                        : FontWeight.normal,
                   ),
+                ),
               ],
             ),
           ),

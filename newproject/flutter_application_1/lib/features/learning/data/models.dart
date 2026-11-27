@@ -15,8 +15,18 @@ class WardrobeEntry {
     required this.color,
     this.material,
     this.isFavorite = false,
+    this.fit,
+    this.fitConfidence,
+    this.sourceRunId,
+    this.candidateId,
+    this.extractionConfidence,
     this.imageBase64,
+    this.isAuthenticatedMirror = false,
+    this.createdAt,
+    this.updatedAt,
   });
+
+  static final RegExp _numericSeedIdPattern = RegExp(r'^\d+$');
 
   final String id;
   final String name;
@@ -24,22 +34,65 @@ class WardrobeEntry {
   final String color;
   final String? material;
   final bool isFavorite;
+  final String? fit;
+  final double? fitConfidence;
+  final String? sourceRunId;
+  final String? candidateId;
+  final double? extractionConfidence;
 
   /// Base64 photo bytes for the item, or null when it has no photo.
   final String? imageBase64;
 
+  /// True when this entry is an on-device mirror of an authenticated
+  /// server-backed wardrobe item (never exposed to Guest mode or other users).
+  final bool isAuthenticatedMirror;
+
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  /// Whether this entry is a genuine device-local guest item.
+  ///
+  /// Genuine guest items use `local-*` IDs (or numeric seed IDs in test
+  /// fixtures) and are never marked [isAuthenticatedMirror]. Server UUIDs and
+  /// authenticated mirrors return false.
+  bool get isGuestLocal =>
+      !isAuthenticatedMirror &&
+      (id.startsWith('local-') || _numericSeedIdPattern.hasMatch(id));
+
   WardrobeEntry copyWith({
+    String? name,
+    String? category,
+    String? color,
+    String? material,
+    bool clearMaterial = false,
     bool? isFavorite,
+    String? fit,
+    bool clearFit = false,
+    double? fitConfidence,
+    String? sourceRunId,
+    String? candidateId,
+    double? extractionConfidence,
     String? imageBase64,
     bool clearImageBase64 = false,
+    bool? isAuthenticatedMirror,
+    DateTime? createdAt,
+    DateTime? updatedAt,
   }) => WardrobeEntry(
     id: id,
-    name: name,
-    category: category,
-    color: color,
-    material: material,
+    name: name ?? this.name,
+    category: category ?? this.category,
+    color: color ?? this.color,
+    material: clearMaterial ? null : (material ?? this.material),
     isFavorite: isFavorite ?? this.isFavorite,
+    fit: clearFit ? null : (fit ?? this.fit),
+    fitConfidence: fitConfidence ?? this.fitConfidence,
+    sourceRunId: sourceRunId ?? this.sourceRunId,
+    candidateId: candidateId ?? this.candidateId,
+    extractionConfidence: extractionConfidence ?? this.extractionConfidence,
     imageBase64: clearImageBase64 ? null : (imageBase64 ?? this.imageBase64),
+    isAuthenticatedMirror: isAuthenticatedMirror ?? this.isAuthenticatedMirror,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
   );
 
   Map<String, dynamic> toJson() => {
@@ -49,7 +102,16 @@ class WardrobeEntry {
     'color': color,
     'material': material,
     'isFavorite': isFavorite,
+    if (fit != null) 'fit': fit,
+    if (fitConfidence != null) 'fitConfidence': fitConfidence,
+    if (sourceRunId != null) 'sourceRunId': sourceRunId,
+    if (candidateId != null) 'candidateId': candidateId,
+    if (extractionConfidence != null)
+      'extractionConfidence': extractionConfidence,
     if (imageBase64 != null) 'imageBase64': imageBase64,
+    if (isAuthenticatedMirror) 'isAuthenticatedMirror': true,
+    if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
+    if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
   };
 
   factory WardrobeEntry.fromJson(Map<String, dynamic> json) => WardrobeEntry(
@@ -59,7 +121,19 @@ class WardrobeEntry {
     color: json['color'] as String,
     material: json['material'] as String?,
     isFavorite: json['isFavorite'] as bool? ?? false,
+    fit: json['fit'] as String?,
+    fitConfidence: (json['fitConfidence'] as num?)?.toDouble(),
+    sourceRunId: json['sourceRunId'] as String?,
+    candidateId: json['candidateId'] as String?,
+    extractionConfidence: (json['extractionConfidence'] as num?)?.toDouble(),
     imageBase64: json['imageBase64'] as String?,
+    isAuthenticatedMirror: json['isAuthenticatedMirror'] as bool? ?? false,
+    createdAt: json['createdAt'] != null
+        ? DateTime.tryParse(json['createdAt'] as String)
+        : null,
+    updatedAt: json['updatedAt'] != null
+        ? DateTime.tryParse(json['updatedAt'] as String)
+        : null,
   );
 }
 

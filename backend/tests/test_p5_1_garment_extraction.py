@@ -938,12 +938,15 @@ def test_cleanup_on_cancel_and_expired_runs(api_env):
     assert any(f"users/{user_a}/extractions/{run_fresh}/" in k for k in storage.get_stored_keys())
 
 
-def _ollama_has_vision_model() -> bool:
+def _ollama_has_vision_model(model_name: str = "qwen3-vl:4b-instruct") -> bool:
     try:
         with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         models = [m.get("name", "") for m in data.get("models", [])]
-        return any("qwen3-vl:4b-instruct" in name for name in models)
+        return any(
+            name == model_name or name == f"{model_name}:latest"
+            for name in models
+        )
     except Exception:
         return False
 
@@ -1010,9 +1013,1013 @@ def test_live_local_ollama_qwen3_vl_multi_garment_e2e(api_env):
     assert save_resp.status_code == 200
     save_json = save_resp.json()
     assert len(save_json["savedItems"]) == 1
+    saved_item = save_json["savedItems"][0]
+    assert saved_item["candidateId"] == first["id"]
+    assert saved_item["extractionConfidence"] == pytest.approx(first["confidence"])
     assert save_json["cleanedUpAssets"] is True
     assert not any(f"users/{user_a}/extractions/{run_id}/" in k for k in storage.get_stored_keys())
 
     with SessionLocal() as session:
         rows = session.execute(select(WardrobeItems).where(WardrobeItems.user_id == user_a)).scalars().all()
         assert len(rows) == 1
+        assert rows[0].id == UUID(saved_item["id"])
+
+    # Reopen wardrobe via API and verify persistence
+    wardrobe_resp = client.get("/v1/wardrobe/items")
+    assert wardrobe_resp.status_code == 200
+    wardrobe_items = wardrobe_resp.json()["items"]
+    assert len(wardrobe_items) == 1
+    assert wardrobe_items[0]["id"] == saved_item["id"]
+
+
+def test_partial_save_a_fails_b_c_succeed_preserves_identity_crops_and_idempotent_retry(api_env):
+    """P5.1A: A fails, B succeeds, C succeeds -> B & C keep exact crops/metadata, A stays retryable."""
+    import hashlib
+
+    client: TestClient = api_env["client"]
+    storage: FakeStorageAdapter = api_env["storage"]
+    user_a: UUID = api_env["user_a"]
+    SessionLocal = api_env["db"]
+
+    analyzer = _FakeVisionGarmentAnalyzer(
+        lambda _m, _u, _b: GarmentProfile(
+            category="tops",
+            subcategory="jacket",
+            color="black",
+            confidence=0.88,
+            needs_review=False,
+            candidates=(
+                {
+                    "id": "cand_a",
+                    "category": "tops",
+                    "subcategory": "Candidate A Shirt",
+                    "color": "white",
+                    "secondary_colors": [],
+                    "pattern": "solid",
+                    "material": "cotton",
+                    "fit": "Regular",
+                    "confidence": 0.71,
+                    "bounding_box": {"x1": 0.05, "y1": 0.05, "x2": 0.35, "y2": 0.45, "scale": "normalized_0_1"},
+                },
+                {
+                    "id": "cand_b",
+                    "category": "outerwear",
+                    "subcategory": "Candidate B Blazer",
+                    "color": "navy",
+                    "secondary_colors": [],
+                    "pattern": "solid",
+                    "material": "linen",
+                    "fit": "Tailored",
+                    "confidence": 0.86,
+                    "bounding_box": {"x1": 0.38, "y1": 0.08, "x2": 0.68, "y2": 0.60, "scale": "normalized_0_1"},
+                },
+                {
+                    "id": "cand_c",
+                    "category": "bottoms",
+                    "subcategory": "Candidate C Jeans",
+                    "color": "indigo",
+                    "secondary_colors": [],
+                    "pattern": "solid",
+                    "material": "denim",
+                    "fit": "Slim",
+                    "confidence": 0.94,
+                    "bounding_box": {"x1": 0.25, "y1": 0.50, "x2": 0.80, "y2": 0.95, "scale": "normalized_0_1"},
+                },
+            ),
+        )
+    )
+    api_env["monkeypatch"].setattr(analysis_router, "OllamaVisionGarmentAdapter", lambda: analyzer)
+
+    # Create an image with distinct colors in each candidate's region so every crop hash is unique
+    from PIL import ImageDraw
+
+    img = Image.new("RGB", (600, 800), (240, 240, 240))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([30, 40, 210, 360], fill=(245, 245, 245))   # cand_a white
+    draw.rectangle([228, 64, 408, 480], fill=(20, 40, 95))    # cand_b navy
+    draw.rectangle([150, 400, 480, 760], fill=(60, 85, 145))  # cand_c indigo
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    img_bytes = buf.getvalue()
+
+    run_id = client.post(
+        "/v1/analysis/garment",
+        files={"image": ("three_items.jpg", img_bytes, "image/jpeg")},
+    ).json()["run_id"]
+
+    key_a = f"users/{user_a}/extractions/{run_id}/candidates/cand_a.webp"
+    key_b = f"users/{user_a}/extractions/{run_id}/candidates/cand_b.webp"
+    key_c = f"users/{user_a}/extractions/{run_id}/candidates/cand_c.webp"
+    crop_a = asyncio.run(storage.read_object(key_a))
+    crop_b = asyncio.run(storage.read_object(key_b))
+    crop_c = asyncio.run(storage.read_object(key_c))
+    sha_a = hashlib.sha256(crop_a).hexdigest()
+    sha_b = hashlib.sha256(crop_b).hexdigest()
+    sha_c = hashlib.sha256(crop_c).hexdigest()
+    assert len({sha_a, sha_b, sha_c}) == 3
+
+    # Step 1: Save [A, B, C] where A fails (invalid category) while B and C succeed.
+    first_save = client.post(
+        f"/v1/analysis/garment/runs/{run_id}/save",
+        headers={"Idempotency-Key": "p51a-batch-1"},
+        json={
+            "items": [
+                {
+                    "candidateId": "cand_a",
+                    "name": "Candidate A Shirt",
+                    "category": "invalid_category_a",
+                    "color": "white",
+                    "material": "cotton",
+                    "fit": "Regular",
+                    "extractionConfidence": 0.71,
+                    "isFavorite": False,
+                },
+                {
+                    "candidateId": "cand_b",
+                    "name": "Candidate B Blazer",
+                    "category": "outerwear",
+                    "color": "navy",
+                    "material": "linen",
+                    "fit": "Tailored",
+                    "extractionConfidence": 0.86,
+                    "isFavorite": False,
+                },
+                {
+                    "candidateId": "cand_c",
+                    "name": "Candidate C Jeans",
+                    "category": "bottoms",
+                    "color": "indigo",
+                    "material": "denim",
+                    "fit": "Slim",
+                    "extractionConfidence": 0.94,
+                    "isFavorite": True,
+                },
+            ]
+        },
+    )
+    assert first_save.status_code == 200
+    body1 = first_save.json()
+    assert body1["cleanedUpAssets"] is False
+    assert [f["candidateId"] for f in body1["failedItems"]] == ["cand_a"]
+    assert [item["candidateId"] for item in body1["savedItems"]] == ["cand_b", "cand_c"]
+
+    saved_by_cid = {item["candidateId"]: item for item in body1["savedItems"]}
+    item_b = saved_by_cid["cand_b"]
+    item_c = saved_by_cid["cand_c"]
+
+    # B points strictly to B's crop and metadata; C points strictly to C's crop and metadata
+    assert item_b["name"] == "Candidate B Blazer"
+    assert item_b["category"] == "outerwear"
+    assert item_b["imageRef"]["candidateId"] == "cand_b"
+    assert item_b["imageRef"]["sourceRunId"] == run_id
+    assert item_b["imageRef"]["contentHash"] == sha_b
+    assert item_b["extractionConfidence"] == pytest.approx(0.86)
+    assert item_b["imageRef"]["extractionConfidence"] == pytest.approx(0.86)
+    assert item_b["fitConfidence"] is None
+    assert asyncio.run(storage.read_object(item_b["imageRef"]["objectKey"])) == crop_b
+
+    assert item_c["name"] == "Candidate C Jeans"
+    assert item_c["category"] == "bottoms"
+    assert item_c["imageRef"]["candidateId"] == "cand_c"
+    assert item_c["imageRef"]["sourceRunId"] == run_id
+    assert item_c["imageRef"]["contentHash"] == sha_c
+    assert item_c["extractionConfidence"] == pytest.approx(0.94)
+    assert item_c["imageRef"]["extractionConfidence"] == pytest.approx(0.94)
+    assert item_c["fitConfidence"] is None
+    assert asyncio.run(storage.read_object(item_c["imageRef"]["objectKey"])) == crop_c
+
+    # B & C temp crops cleaned up; A's temp crop preserved so A remains retryable
+    assert not storage.object_exists_sync(key_b)
+    assert not storage.object_exists_sync(key_c)
+    assert storage.object_exists_sync(key_a)
+
+    # Step 2: Retry with fixed A alongside B and C (idempotent retry must not duplicate or overwrite B/C)
+    retry_save = client.post(
+        f"/v1/analysis/garment/runs/{run_id}/save",
+        headers={"Idempotency-Key": "p51a-batch-2"},
+        json={
+            "items": [
+                {
+                    "candidateId": "cand_a",
+                    "name": "Candidate A Shirt",
+                    "category": "tops",
+                    "color": "white",
+                    "material": "cotton",
+                    "fit": "Regular",
+                    "extractionConfidence": 0.71,
+                    "isFavorite": False,
+                },
+                {
+                    "candidateId": "cand_b",
+                    "name": "Attempted Overwrite B",
+                    "category": "outerwear",
+                    "color": "black",
+                    "material": "wool",
+                    "extractionConfidence": 0.11,
+                    "isFavorite": True,
+                },
+                {
+                    "candidateId": "cand_c",
+                    "name": "Candidate C Jeans",
+                    "category": "bottoms",
+                    "color": "indigo",
+                    "material": "denim",
+                    "extractionConfidence": 0.94,
+                    "isFavorite": True,
+                },
+            ]
+        },
+    )
+    assert retry_save.status_code == 200
+    body2 = retry_save.json()
+    assert body2["failedItems"] == []
+    assert body2["cleanedUpAssets"] is True
+    assert [item["candidateId"] for item in body2["savedItems"]] == ["cand_a", "cand_b", "cand_c"]
+
+    retried_by_cid = {item["candidateId"]: item for item in body2["savedItems"]}
+    assert retried_by_cid["cand_a"]["name"] == "Candidate A Shirt"
+    assert retried_by_cid["cand_a"]["imageRef"]["contentHash"] == sha_a
+    assert retried_by_cid["cand_a"]["extractionConfidence"] == pytest.approx(0.71)
+    assert retried_by_cid["cand_a"]["fitConfidence"] is None
+    assert asyncio.run(storage.read_object(retried_by_cid["cand_a"]["imageRef"]["objectKey"])) == crop_a
+
+    # B & C were NOT duplicated and NOT overwritten by retry
+    assert retried_by_cid["cand_b"]["id"] == item_b["id"]
+    assert retried_by_cid["cand_b"]["name"] == "Candidate B Blazer"
+    assert retried_by_cid["cand_b"]["imageRef"]["contentHash"] == sha_b
+    assert retried_by_cid["cand_b"]["extractionConfidence"] == pytest.approx(0.86)
+    assert retried_by_cid["cand_c"]["id"] == item_c["id"]
+    assert retried_by_cid["cand_c"]["imageRef"]["contentHash"] == sha_c
+
+    assert not storage.object_exists_sync(key_a)
+    with SessionLocal() as session:
+        rows = session.execute(select(WardrobeItems).where(WardrobeItems.user_id == user_a)).scalars().all()
+        assert len(rows) == 3
+        for row in rows:
+            assert row.fit_confidence is None
+            assert isinstance(row.image_ref, dict)
+            assert row.image_ref["sourceRunId"] == run_id
+            assert row.image_ref["candidateId"] in {"cand_a", "cand_b", "cand_c"}
+
+
+def test_save_confidence_semantics_never_mixes_extraction_and_fit_confidence(api_env):
+    """P5.1A: extraction confidence is preserved in extraction metadata and never copied to fitConfidence."""
+    client: TestClient = api_env["client"]
+    user_a: UUID = api_env["user_a"]
+    SessionLocal = api_env["db"]
+
+    analyzer = _FakeVisionGarmentAnalyzer(
+        lambda _m, _u, _b: GarmentProfile(
+            category="tops",
+            subcategory="crewneck",
+            color="navy",
+            confidence=0.83,
+            needs_review=False,
+            candidates=(
+                {
+                    "id": "cand_ext_only",
+                    "category": "tops",
+                    "subcategory": "crewneck",
+                    "color": "navy",
+                    "secondary_colors": [],
+                    "pattern": "solid",
+                    "material": "cotton",
+                    "fit": "Regular",
+                    "confidence": 0.83,
+                    "bounding_box": {"x1": 0.2, "y1": 0.1, "x2": 0.8, "y2": 0.5, "scale": "normalized_0_1"},
+                },
+                {
+                    "id": "cand_both",
+                    "category": "bottoms",
+                    "subcategory": "trousers",
+                    "color": "charcoal",
+                    "secondary_colors": [],
+                    "pattern": "solid",
+                    "material": "wool",
+                    "fit": "Tailored",
+                    "confidence": 0.91,
+                    "bounding_box": {"x1": 0.2, "y1": 0.5, "x2": 0.8, "y2": 0.9, "scale": "normalized_0_1"},
+                },
+            ),
+        )
+    )
+    api_env["monkeypatch"].setattr(analysis_router, "OllamaVisionGarmentAdapter", lambda: analyzer)
+
+    img_bytes = _make_image_bytes(fmt="JPEG", size=(400, 500), with_two_garments=True)
+    run_id = client.post(
+        "/v1/analysis/garment",
+        files={"image": ("conf.jpg", img_bytes, "image/jpeg")},
+    ).json()["run_id"]
+
+    resp = client.post(
+        f"/v1/analysis/garment/runs/{run_id}/save",
+        json={
+            "items": [
+                {
+                    "candidateId": "cand_ext_only",
+                    "name": "Navy Crewneck",
+                    "category": "tops",
+                    "color": "navy",
+                    "material": "cotton",
+                    "fit": "Regular",
+                    # Omitting extractionConfidence tests fallback to run candidate confidence;
+                    # omitting fitConfidence must leave fitConfidence=None (never fabricated).
+                },
+                {
+                    "candidateId": "cand_both",
+                    "name": "Charcoal Trousers",
+                    "category": "bottoms",
+                    "color": "charcoal",
+                    "material": "wool",
+                    "fit": "Tailored",
+                    "extractionConfidence": 0.91,
+                    "fitConfidence": 0.65,
+                },
+            ]
+        },
+    )
+    assert resp.status_code == 200
+    items_by_cid = {it["candidateId"]: it for it in resp.json()["savedItems"]}
+
+    assert items_by_cid["cand_ext_only"]["extractionConfidence"] == pytest.approx(0.83)
+    assert items_by_cid["cand_ext_only"]["imageRef"]["extractionConfidence"] == pytest.approx(0.83)
+    assert items_by_cid["cand_ext_only"]["fitConfidence"] is None
+
+    assert items_by_cid["cand_both"]["extractionConfidence"] == pytest.approx(0.91)
+    assert items_by_cid["cand_both"]["imageRef"]["extractionConfidence"] == pytest.approx(0.91)
+    assert items_by_cid["cand_both"]["fitConfidence"] == pytest.approx(0.65)
+
+    with SessionLocal() as session:
+        rows = {
+            r.name: r
+            for r in session.execute(
+                select(WardrobeItems).where(WardrobeItems.user_id == user_a)
+            ).scalars().all()
+        }
+        assert rows["Navy Crewneck"].fit_confidence is None
+        assert rows["Navy Crewneck"].image_ref["extractionConfidence"] == pytest.approx(0.83)
+        assert rows["Charcoal Trousers"].fit_confidence == pytest.approx(0.65)
+        assert rows["Charcoal Trousers"].image_ref["extractionConfidence"] == pytest.approx(0.91)
+
+
+# ---------------------------------------------------------------------------
+# P5.1C — Extraction Lifecycle, Cleanup Pagination, Bounded Idempotency & Erasure
+# ---------------------------------------------------------------------------
+
+
+def _seed_expired_garment_run(
+    session,
+    storage: FakeStorageAdapter,
+    *,
+    user_id: UUID,
+    age_hours: int = 48,
+    num_crops: int = 1,
+) -> tuple[UUID, list[str]]:
+    run_id = uuid4()
+    created_at = datetime.now(timezone.utc) - timedelta(hours=age_hours)
+    keys: list[str] = []
+    candidates: list[dict] = []
+    for idx in range(num_crops):
+        cid = f"cand_{idx}"
+        key = f"users/{user_id}/extractions/{run_id}/{cid}.webp"
+        keys.append(key)
+        asyncio.run(storage.put_object(key=key, data=b"RIFFxxxxWEBP", content_type="image/webp"))
+        candidates.append({"id": cid, "crop_key": key, "has_crop": True})
+
+    row = AnalysisRuns(
+        id=run_id,
+        user_id=user_id,
+        run_type="garment",
+        status="completed",
+        engine_version="p5.1-test",
+        result={"candidates": candidates},
+        created_at=created_at,
+        completed_at=created_at,
+    )
+    session.add(row)
+    return run_id, keys
+
+
+def test_p5_1c_cleanup_more_than_200_expired_runs(api_env):
+    """More than 200 expired runs are eventually processed across bounded batches."""
+    from app.application.garment_extraction import cleanup_expired_extraction_assets_detailed
+
+    SessionLocal = api_env["db"]
+    storage: FakeStorageAdapter = api_env["storage"]
+    user_a: UUID = api_env["user_a"]
+
+    expired_keys: list[str] = []
+    with SessionLocal() as session:
+        for _ in range(215):
+            _, keys = _seed_expired_garment_run(session, storage, user_id=user_a, age_hours=48)
+            expired_keys.extend(keys)
+        _, active_keys = _seed_expired_garment_run(session, storage, user_id=user_a, age_hours=1)
+        session.commit()
+
+    with SessionLocal() as session:
+        s1 = asyncio.run(
+            cleanup_expired_extraction_assets_detailed(
+                storage, session, older_than_hours=24, batch_limit=200
+            )
+        )
+    assert s1.runs_claimed == 200
+    assert s1.runs_cleaned == 200
+    assert s1.assets_deleted == 200
+
+    with SessionLocal() as session:
+        s2 = asyncio.run(
+            cleanup_expired_extraction_assets_detailed(
+                storage, session, older_than_hours=24, batch_limit=200
+            )
+        )
+    assert s2.runs_claimed == 15
+    assert s2.runs_cleaned == 15
+    assert s2.assets_deleted == 15
+
+    with SessionLocal() as session:
+        s3 = asyncio.run(
+            cleanup_expired_extraction_assets_detailed(
+                storage, session, older_than_hours=24, batch_limit=200
+            )
+        )
+    assert s3.runs_claimed == 0
+    assert s3.assets_deleted == 0
+
+    remaining = storage.get_stored_keys()
+    for k in expired_keys:
+        assert k not in remaining
+    for k in active_keys:
+        assert k in remaining
+
+
+def test_p5_1c_cleanup_repeated_calls_do_not_reprocess_cleaned_runs(api_env):
+    """Successfully cleaned runs are marked cleaned and never reprocessed on repeat calls."""
+    from app.application.garment_extraction import cleanup_expired_extraction_assets_detailed
+
+    SessionLocal = api_env["db"]
+    storage: FakeStorageAdapter = api_env["storage"]
+    user_a: UUID = api_env["user_a"]
+
+    with SessionLocal() as session:
+        for _ in range(5):
+            _seed_expired_garment_run(session, storage, user_id=user_a, age_hours=48)
+        session.commit()
+
+    delete_calls = 0
+    orig_delete = storage.delete_object
+
+    async def counting_delete(key: str) -> bool:
+        nonlocal delete_calls
+        delete_calls += 1
+        return await orig_delete(key)
+
+    storage.delete_object = counting_delete  # type: ignore[method-assign]
+
+    with SessionLocal() as session:
+        s1 = asyncio.run(
+            cleanup_expired_extraction_assets_detailed(storage, session, older_than_hours=24)
+        )
+    assert s1.runs_cleaned == 5
+    assert delete_calls == 5
+
+    with SessionLocal() as session:
+        s2 = asyncio.run(
+            cleanup_expired_extraction_assets_detailed(storage, session, older_than_hours=24)
+        )
+    assert s2.runs_claimed == 0
+    assert s2.runs_cleaned == 0
+    assert delete_calls == 5  # Zero storage calls for already-cleaned runs
+
+
+def test_p5_1c_cleanup_partial_object_deletion_failure_remains_retryable(api_env):
+    """One failing object does not block others; failed run remains retryable and succeeds later."""
+    from app.application.garment_extraction import cleanup_expired_extraction_assets_detailed
+
+    SessionLocal = api_env["db"]
+    storage: FakeStorageAdapter = api_env["storage"]
+    user_a: UUID = api_env["user_a"]
+
+    with SessionLocal() as session:
+        run_fail, fail_keys = _seed_expired_garment_run(
+            session, storage, user_id=user_a, age_hours=48, num_crops=2
+        )
+        run_ok, ok_keys = _seed_expired_garment_run(
+            session, storage, user_id=user_a, age_hours=47, num_crops=1
+        )
+        session.commit()
+
+    flaky_key = fail_keys[0]
+    should_fail = True
+    orig_delete = storage.delete_object
+
+    async def flaky_delete(key: str) -> bool:
+        if should_fail and key == flaky_key:
+            raise StorageError("transient R2 error", key=key)
+        return await orig_delete(key)
+
+    storage.delete_object = flaky_delete  # type: ignore[method-assign]
+
+    with SessionLocal() as session:
+        s1 = asyncio.run(
+            cleanup_expired_extraction_assets_detailed(storage, session, older_than_hours=24)
+        )
+    assert s1.runs_claimed == 2
+    assert s1.runs_cleaned == 1
+    assert s1.runs_failed == 1
+    assert s1.assets_deleted == 2  # fail_keys[1] + ok_keys[0]
+    assert s1.storage_errors == 1
+    assert flaky_key in storage.get_stored_keys()
+    assert fail_keys[1] not in storage.get_stored_keys()
+    assert ok_keys[0] not in storage.get_stored_keys()
+
+    # Clear transient error and retry: failed run is retried, ok run is not.
+    should_fail = False
+    with SessionLocal() as session:
+        s2 = asyncio.run(
+            cleanup_expired_extraction_assets_detailed(storage, session, older_than_hours=24)
+        )
+    assert s2.runs_claimed == 1
+    assert s2.runs_cleaned == 1
+    assert s2.runs_failed == 0
+    assert s2.assets_deleted == 1
+    assert flaky_key not in storage.get_stored_keys()
+
+    with SessionLocal() as session:
+        row = session.get(AnalysisRuns, run_fail)
+        assert row.result["assets_cleanup"]["status"] == "cleaned"
+
+
+def test_p5_1c_cleanup_concurrent_workers_disjoint_and_safe(api_env):
+    """Concurrent cleanup workers claim disjoint batches and never delete active assets."""
+    from app.application.garment_extraction import cleanup_expired_extraction_assets_detailed
+
+    SessionLocal = api_env["db"]
+    storage: FakeStorageAdapter = api_env["storage"]
+    user_a: UUID = api_env["user_a"]
+
+    with SessionLocal() as session:
+        for _ in range(12):
+            _seed_expired_garment_run(session, storage, user_id=user_a, age_hours=48)
+        _, active_keys = _seed_expired_garment_run(session, storage, user_id=user_a, age_hours=2)
+        session.commit()
+
+    def _run_worker():
+        with SessionLocal() as s:
+            return asyncio.run(
+                cleanup_expired_extraction_assets_detailed(
+                    storage, s, older_than_hours=24, batch_limit=6
+                )
+            )
+
+    async def _run_both():
+        return await asyncio.gather(
+            asyncio.to_thread(_run_worker),
+            asyncio.to_thread(_run_worker),
+        )
+
+    r1, r2 = asyncio.run(_run_both())
+    assert r1.runs_claimed + r2.runs_claimed == 12
+    assert r1.runs_cleaned + r2.runs_cleaned == 12
+    assert r1.assets_deleted + r2.assets_deleted == 12
+    for k in active_keys:
+        assert k in storage.get_stored_keys()
+
+
+def test_p5_1c_cleanup_resumes_after_process_restart_expired_lease(api_env):
+    """A run left in 'cleaning' with an expired lease (crashed worker) is reclaimed on restart."""
+    from app.application.garment_extraction import cleanup_expired_extraction_assets_detailed
+
+    SessionLocal = api_env["db"]
+    storage: FakeStorageAdapter = api_env["storage"]
+    user_a: UUID = api_env["user_a"]
+
+    with SessionLocal() as session:
+        run_id, keys = _seed_expired_garment_run(session, storage, user_id=user_a, age_hours=48)
+        row = session.get(AnalysisRuns, run_id)
+        updated = dict(row.result)
+        updated["assets_cleanup"] = {
+            "status": "cleaning",
+            "claim_token": "crashed-worker-token",
+            "lease_expires_at": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(),
+            "attempts": 1,
+        }
+        row.result = updated
+        session.commit()
+
+    with SessionLocal() as session:
+        summary = asyncio.run(
+            cleanup_expired_extraction_assets_detailed(storage, session, older_than_hours=24)
+        )
+    assert summary.runs_claimed == 1
+    assert summary.runs_cleaned == 1
+    assert summary.assets_deleted == 1
+    assert keys[0] not in storage.get_stored_keys()
+    with SessionLocal() as session:
+        row = session.get(AnalysisRuns, run_id)
+        assert row.result["assets_cleanup"]["status"] == "cleaned"
+        assert row.result["assets_cleanup"]["attempts"] == 2
+
+
+def test_p5_1c_bounded_save_batch_cache_eviction_ttl_and_in_progress_protection():
+    """_BoundedSaveBatchCache bounds entries via LRU, expires via TTL, and protects in-progress keys."""
+    from app.application.garment_extraction import _BoundedSaveBatchCache
+
+    cache = _BoundedSaveBatchCache(max_entries=2, ttl_seconds=60.0)
+    u = uuid4()
+    r = uuid4()
+    k1 = (u, r, "k1")
+    k2 = (u, r, "k2")
+    k3 = (u, r, "k3")
+
+    cache.mark_in_progress(k1)
+    cache[k1] = {"fingerprint": "f1", "response": {"ok": 1}}
+    cache[k2] = {"fingerprint": "f2", "response": {"ok": 2}}
+    # k1 is in_progress, so inserting k3 must evict k2 instead of k1.
+    cache[k3] = {"fingerprint": "f3", "response": {"ok": 3}}
+    assert k1 in cache
+    assert k2 not in cache
+    assert k3 in cache
+
+    # Once k1 finishes, inserting k2 evicts k1 (oldest).
+    cache.clear_in_progress(k1)
+    cache[k2] = {"fingerprint": "f2", "response": {"ok": 2}}
+    assert k1 not in cache
+    assert k2 in cache
+    assert k3 in cache
+
+    # TTL expiration
+    ttl_cache = _BoundedSaveBatchCache(max_entries=10, ttl_seconds=0.05)
+    ttl_cache[k1] = {"fingerprint": "f1", "response": {"ok": 1}}
+    assert k1 in ttl_cache
+    import time as _time
+
+    _time.sleep(0.08)
+    assert ttl_cache.get(k1) is None
+    assert len(ttl_cache) == 0
+
+
+def test_p5_1c_concurrent_duplicate_save_requests_no_duplicates(api_env):
+    """Concurrent duplicate save requests with the same Idempotency-Key never duplicate wardrobe items."""
+    from app.application.garment_extraction import SaveExtractedGarments
+    from app.infrastructure.db.repositories import (
+        AnalysisRunRepositorySQL,
+        LearningSignalRepositorySQL,
+        WardrobeItemRepositorySQL,
+    )
+
+    client: TestClient = api_env["client"]
+    storage: FakeStorageAdapter = api_env["storage"]
+    user_a: UUID = api_env["user_a"]
+    SessionLocal = api_env["db"]
+
+    analyzer = _FakeVisionGarmentAnalyzer(
+        lambda _m, _u, _b: GarmentProfile(
+            category="outerwear",
+            subcategory="jacket",
+            color="navy",
+            material="cotton",
+            confidence=0.9,
+            needs_review=False,
+            candidates=(
+                {
+                    "id": "cand_dup",
+                    "category": "outerwear",
+                    "subcategory": "jacket",
+                    "color": "navy",
+                    "material": "cotton",
+                    "confidence": 0.9,
+                    "bounding_box": {"x1": 0.1, "y1": 0.1, "x2": 0.9, "y2": 0.9, "scale": "normalized_0_1"},
+                },
+            ),
+        )
+    )
+    api_env["monkeypatch"].setattr(analysis_router, "OllamaVisionGarmentAdapter", lambda: analyzer)
+
+    img_bytes = _make_image_bytes(fmt="JPEG", size=(300, 400))
+    run_id = UUID(
+        client.post(
+            "/v1/analysis/garment",
+            files={"image": ("dup.jpg", img_bytes, "image/jpeg")},
+        ).json()["run_id"]
+    )
+
+    items_payload = [
+        {
+            "candidateId": "cand_dup",
+            "name": "Navy Jacket",
+            "category": "outerwear",
+            "color": "navy",
+            "material": "cotton",
+            "fit": "Regular",
+        }
+    ]
+
+    def _do_save(key: str):
+        with SessionLocal() as s:
+            uc = SaveExtractedGarments(
+                runs=AnalysisRunRepositorySQL(s),
+                wardrobe=WardrobeItemRepositorySQL(s),
+                storage=storage,
+                signals=LearningSignalRepositorySQL(s),
+                db=s,
+            )
+            return asyncio.run(
+                uc.execute(
+                    user_id=user_a,
+                    run_id=run_id,
+                    items=items_payload,
+                    idempotency_key=key,
+                )
+            )
+
+    async def _concurrent():
+        return await asyncio.gather(
+            asyncio.to_thread(_do_save, "concurrent-save-key-1"),
+            asyncio.to_thread(_do_save, "concurrent-save-key-1"),
+        )
+
+    res1, res2 = asyncio.run(_concurrent())
+    assert len(res1["saved_records"]) == 1
+    assert len(res2["saved_records"]) == 1
+    assert res1["saved_records"][0].id == res2["saved_records"][0].id
+
+    with SessionLocal() as session:
+        rows = session.execute(
+            select(WardrobeItems).where(WardrobeItems.user_id == user_a)
+        ).scalars().all()
+        assert len(rows) == 1
+
+    # Conflicting payload with same key still returns 409 conflict
+    conflict_resp = client.post(
+        f"/v1/analysis/garment/runs/{run_id}/save",
+        headers={"Idempotency-Key": "concurrent-save-key-1"},
+        json={
+            "items": [
+                {
+                    "candidateId": "cand_dup",
+                    "name": "Different Name",
+                    "category": "outerwear",
+                    "color": "navy",
+                }
+            ]
+        },
+    )
+    assert conflict_resp.status_code == 409
+
+
+def test_p5_1c_retry_after_partial_save_with_same_key_preserves_saved(api_env):
+    """Retrying with the same Idempotency-Key after a partial save retries only failed items."""
+    client: TestClient = api_env["client"]
+    user_a: UUID = api_env["user_a"]
+    SessionLocal = api_env["db"]
+
+    analyzer = _FakeVisionGarmentAnalyzer(
+        lambda _m, _u, _b: GarmentProfile(
+            category="tops",
+            subcategory="shirt",
+            color="navy",
+            material="cotton",
+            confidence=0.88,
+            needs_review=False,
+            candidates=(
+                {
+                    "id": "cand_fail_first",
+                    "category": "tops",
+                    "subcategory": "shirt",
+                    "color": "navy",
+                    "confidence": 0.85,
+                    "bounding_box": {"x1": 0.1, "y1": 0.1, "x2": 0.5, "y2": 0.5, "scale": "normalized_0_1"},
+                },
+                {
+                    "id": "cand_ok_first",
+                    "category": "tops",
+                    "subcategory": "shirt",
+                    "color": "navy",
+                    "confidence": 0.9,
+                    "bounding_box": {"x1": 0.5, "y1": 0.1, "x2": 0.9, "y2": 0.5, "scale": "normalized_0_1"},
+                },
+            ),
+        )
+    )
+    api_env["monkeypatch"].setattr(analysis_router, "OllamaVisionGarmentAdapter", lambda: analyzer)
+
+    img_bytes = _make_image_bytes(fmt="JPEG", size=(400, 400), with_two_garments=True)
+    run_id = client.post(
+        "/v1/analysis/garment",
+        files={"image": ("partial_retry.jpg", img_bytes, "image/jpeg")},
+    ).json()["run_id"]
+
+    # First attempt: cand_fail_first has unsupported category -> partial failure
+    r1 = client.post(
+        f"/v1/analysis/garment/runs/{run_id}/save",
+        headers={"Idempotency-Key": "retry-same-key"},
+        json={
+            "items": [
+                {
+                    "candidateId": "cand_fail_first",
+                    "name": "Mystery Item",
+                    "category": "hats_unsupported",
+                    "color": "navy",
+                },
+                {
+                    "candidateId": "cand_ok_first",
+                    "name": "Navy Shirt",
+                    "category": "tops",
+                    "color": "navy",
+                },
+            ]
+        },
+    )
+    assert r1.status_code == 200
+    assert len(r1.json()["savedItems"]) == 1
+    assert len(r1.json()["failedItems"]) == 1
+    ok_id = r1.json()["savedItems"][0]["id"]
+
+    # Retry with same key and fixed category -> both returned, cand_ok_first not duplicated
+    r2 = client.post(
+        f"/v1/analysis/garment/runs/{run_id}/save",
+        headers={"Idempotency-Key": "retry-same-key"},
+        json={
+            "items": [
+                {
+                    "candidateId": "cand_fail_first",
+                    "name": "Fixed Cap",
+                    "category": "accessories",
+                    "color": "navy",
+                },
+                {
+                    "candidateId": "cand_ok_first",
+                    "name": "Navy Shirt",
+                    "category": "tops",
+                    "color": "navy",
+                },
+            ]
+        },
+    )
+    assert r2.status_code == 200
+    assert r2.json()["failedItems"] == []
+    assert r2.json()["cleanedUpAssets"] is True
+    ids_by_cid = {it["candidateId"]: it["id"] for it in r2.json()["savedItems"]}
+    assert ids_by_cid["cand_ok_first"] == ok_id
+    assert len(ids_by_cid) == 2
+
+    with SessionLocal() as session:
+        rows = session.execute(
+            select(WardrobeItems).where(WardrobeItems.user_id == user_a)
+        ).scalars().all()
+        assert len(rows) == 2
+
+
+def test_p5_1c_account_erasure_deletes_extraction_assets(api_env):
+    """Account erasure deletes temporary extraction assets along with user data."""
+    from app.application.auth import EraseAccount
+    from app.infrastructure.db.repositories import AuthRepositorySQL
+
+    client: TestClient = api_env["client"]
+    storage: FakeStorageAdapter = api_env["storage"]
+    user_a: UUID = api_env["user_a"]
+    SessionLocal = api_env["db"]
+
+    analyzer = _FakeVisionGarmentAnalyzer(
+        lambda _m, _u, _b: GarmentProfile(
+            category="tops",
+            subcategory="shirt",
+            color="navy",
+            material="cotton",
+            confidence=0.9,
+            needs_review=False,
+            candidates=(
+                {
+                    "id": "cand_erase",
+                    "category": "tops",
+                    "subcategory": "shirt",
+                    "color": "navy",
+                    "confidence": 0.9,
+                    "bounding_box": {"x1": 0.1, "y1": 0.1, "x2": 0.9, "y2": 0.9, "scale": "normalized_0_1"},
+                },
+            ),
+        )
+    )
+    api_env["monkeypatch"].setattr(analysis_router, "OllamaVisionGarmentAdapter", lambda: analyzer)
+
+    img_bytes = _make_image_bytes(fmt="JPEG", size=(300, 400))
+    run_id = client.post(
+        "/v1/analysis/garment",
+        files={"image": ("erase.jpg", img_bytes, "image/jpeg")},
+    ).json()["run_id"]
+    assert any(f"users/{user_a}/extractions/{run_id}/" in k for k in storage.get_stored_keys())
+
+    with SessionLocal() as session:
+        eraser = EraseAccount(auth=AuthRepositorySQL(session), storage=storage)
+        asyncio.run(eraser(user_id=user_a))
+
+    assert not any(f"users/{user_a}/extractions/" in k for k in storage.get_stored_keys())
+    with SessionLocal() as session:
+        assert session.get(Users, user_a) is None
+
+
+def test_p5_1c_cleanup_preserves_saved_wardrobe_media(api_env):
+    """Expired extraction cleanup never deletes promoted canonical wardrobe media."""
+    from app.application.garment_extraction import cleanup_expired_extraction_assets_detailed
+
+    client: TestClient = api_env["client"]
+    storage: FakeStorageAdapter = api_env["storage"]
+    user_a: UUID = api_env["user_a"]
+    SessionLocal = api_env["db"]
+
+    analyzer = _FakeVisionGarmentAnalyzer(
+        lambda _m, _u, _b: GarmentProfile(
+            category="tops",
+            subcategory="shirt",
+            color="navy",
+            material="cotton",
+            confidence=0.9,
+            needs_review=False,
+            candidates=(
+                {
+                    "id": "cand_keep",
+                    "category": "tops",
+                    "subcategory": "shirt",
+                    "color": "navy",
+                    "confidence": 0.9,
+                    "bounding_box": {"x1": 0.1, "y1": 0.1, "x2": 0.9, "y2": 0.9, "scale": "normalized_0_1"},
+                },
+            ),
+        )
+    )
+    api_env["monkeypatch"].setattr(analysis_router, "OllamaVisionGarmentAdapter", lambda: analyzer)
+
+    img_bytes = _make_image_bytes(fmt="JPEG", size=(300, 400))
+    run_id = client.post(
+        "/v1/analysis/garment",
+        files={"image": ("keep.jpg", img_bytes, "image/jpeg")},
+    ).json()["run_id"]
+
+    save_resp = client.post(
+        f"/v1/analysis/garment/runs/{run_id}/save",
+        json={
+            "items": [
+                {
+                    "candidateId": "cand_keep",
+                    "name": "Saved Shirt",
+                    "category": "tops",
+                    "color": "navy",
+                }
+            ]
+        },
+    )
+    assert save_resp.status_code == 200
+    wardrobe_key = save_resp.json()["savedItems"][0]["imageRef"]["objectKey"]
+    assert wardrobe_key.startswith(f"users/{user_a}/wardrobe/")
+    assert wardrobe_key in storage.get_stored_keys()
+
+    # Age the run past 24h and also plant a stray temp key under extractions/
+    stray_key = f"users/{user_a}/extractions/{run_id}/stray.webp"
+    asyncio.run(storage.put_object(key=stray_key, data=b"RIFFxxxxWEBP", content_type="image/webp"))
+    with SessionLocal() as session:
+        row = session.get(AnalysisRuns, UUID(run_id))
+        row.created_at = datetime.now(timezone.utc) - timedelta(hours=48)
+        updated = dict(row.result)
+        updated.pop("assets_cleanup", None)
+        row.result = updated
+        session.commit()
+
+    with SessionLocal() as session:
+        summary = asyncio.run(
+            cleanup_expired_extraction_assets_detailed(storage, session, older_than_hours=24)
+        )
+    assert summary.assets_deleted == 1
+    assert stray_key not in storage.get_stored_keys()
+    assert wardrobe_key in storage.get_stored_keys()
+
+
+def test_p5_1c_maintenance_retention_cleanup_integrates_extraction_cleanup(api_env):
+    """POST /v1/tryon/maintenance/retention-cleanup executes extraction cleanup in the same lifecycle."""
+    from app.config.settings import get_settings
+
+    api_env["monkeypatch"].setenv(
+        "FANSIVIBE_OPERATOR_API_KEY", "test-operator-key-0123456789abcdef012345"
+    )
+    get_settings.cache_clear()
+
+    client: TestClient = api_env["client"]
+    storage: FakeStorageAdapter = api_env["storage"]
+    user_a: UUID = api_env["user_a"]
+    SessionLocal = api_env["db"]
+
+    with SessionLocal() as session:
+        _, expired_keys = _seed_expired_garment_run(session, storage, user_id=user_a, age_hours=48)
+        _, fresh_keys = _seed_expired_garment_run(session, storage, user_id=user_a, age_hours=1)
+        session.commit()
+
+    resp = client.post(
+        "/v1/tryon/maintenance/retention-cleanup",
+        headers={"X-Operator-Key": "test-operator-key-0123456789abcdef012345"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["extraction_runs_cleaned"] == 1
+    assert body["extraction_assets_deleted"] == 1
+    assert body["extraction_runs_failed"] == 0
+    assert expired_keys[0] not in storage.get_stored_keys()
+    assert fresh_keys[0] in storage.get_stored_keys()

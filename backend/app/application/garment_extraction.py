@@ -10,18 +10,23 @@ Reuses the existing Fansivibe infrastructure:
 
 from __future__ import annotations
 
+import asyncio
+from collections import OrderedDict
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
 import io
 import logging
 import re
-from typing import Any, Optional
+import threading
+import time
+from typing import Any, AsyncIterator, Optional
 from uuid import UUID, uuid4
 import warnings
 
 from PIL import Image, ImageFile, ImageOps
-from sqlalchemy import select
+from sqlalchemy import and_, case, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.api.errors import ApiError, conflict, not_found, validation
@@ -142,8 +147,188 @@ _SEGMENTATION_UNSUPPORTED = {
     ),
 }
 
-# In-process idempotency cache used only when SQL session `db` is absent (pure unit tests).
-_IN_MEMORY_SAVE_BATCHES: dict[tuple[UUID, UUID, str], dict[str, Any]] = {}
+MAX_SAVE_BATCH_CACHE_ENTRIES = 1024
+SAVE_BATCH_CACHE_TTL_SECONDS = 24 * 3600
+MAX_DB_SAVE_BATCHES_PER_RUN = 20
+
+
+class _BoundedSaveBatchCache:
+    """Thread-safe, bounded, TTL-expiring LRU cache for in-memory save batch idempotency.
+
+    - Enforces `max_entries` capacity via LRU eviction.
+    - Expires entries after `ttl_seconds` (checked on read/write).
+    - Never evicts entries currently marked `in_progress`.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_entries: int = MAX_SAVE_BATCH_CACHE_ENTRIES,
+        ttl_seconds: float = SAVE_BATCH_CACHE_TTL_SECONDS,
+    ) -> None:
+        self.max_entries = max(1, int(max_entries))
+        self.ttl_seconds = max(0.0, float(ttl_seconds))
+        self._lock = threading.Lock()
+        self._entries: OrderedDict[tuple[UUID, UUID, str], tuple[float, dict[str, Any]]] = OrderedDict()
+        self._in_progress: set[tuple[UUID, UUID, str]] = set()
+
+    def _prune_expired_locked(self, now_mono: float) -> None:
+        if self.ttl_seconds <= 0:
+            expired = [k for k in self._entries if k not in self._in_progress]
+            for k in expired:
+                self._entries.pop(k, None)
+            return
+        cutoff = now_mono - self.ttl_seconds
+        expired = [
+            k
+            for k, (ts, _) in self._entries.items()
+            if ts <= cutoff and k not in self._in_progress
+        ]
+        for k in expired:
+            self._entries.pop(k, None)
+
+    def _evict_if_needed_locked(self) -> None:
+        if len(self._entries) < self.max_entries:
+            return
+        # Evict oldest non-in-progress entries until below capacity.
+        for k in list(self._entries.keys()):
+            if len(self._entries) < self.max_entries:
+                break
+            if k not in self._in_progress:
+                self._entries.pop(k, None)
+
+    def mark_in_progress(self, key: tuple[UUID, UUID, str]) -> None:
+        with self._lock:
+            self._in_progress.add(key)
+
+    def clear_in_progress(self, key: tuple[UUID, UUID, str]) -> None:
+        with self._lock:
+            self._in_progress.discard(key)
+
+    def is_in_progress(self, key: tuple[UUID, UUID, str]) -> bool:
+        with self._lock:
+            return key in self._in_progress
+
+    def get(self, key: tuple[UUID, UUID, str], default: Any = None) -> Any:
+        now_mono = time.monotonic()
+        with self._lock:
+            self._prune_expired_locked(now_mono)
+            item = self._entries.get(key)
+            if item is None:
+                return default
+            self._entries.move_to_end(key)
+            return item[1]
+
+    def __getitem__(self, key: tuple[UUID, UUID, str]) -> dict[str, Any]:
+        val = self.get(key, None)
+        if val is None:
+            raise KeyError(key)
+        return val
+
+    def __setitem__(self, key: tuple[UUID, UUID, str], value: dict[str, Any]) -> None:
+        now_mono = time.monotonic()
+        with self._lock:
+            self._prune_expired_locked(now_mono)
+            if key in self._entries:
+                self._entries.move_to_end(key)
+            else:
+                self._evict_if_needed_locked()
+            self._entries[key] = (now_mono, value)
+
+    def __contains__(self, key: object) -> bool:
+        if not isinstance(key, tuple) or len(key) != 3:
+            return False
+        return self.get(key, None) is not None  # type: ignore[arg-type]
+
+    def __len__(self) -> int:
+        now_mono = time.monotonic()
+        with self._lock:
+            self._prune_expired_locked(now_mono)
+            return len(self._entries)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+            self._in_progress.clear()
+
+    def pop(self, key: tuple[UUID, UUID, str], default: Any = None) -> Any:
+        with self._lock:
+            item = self._entries.pop(key, None)
+            self._in_progress.discard(key)
+            return item[1] if item is not None else default
+
+    def keys(self) -> list[tuple[UUID, UUID, str]]:
+        now_mono = time.monotonic()
+        with self._lock:
+            self._prune_expired_locked(now_mono)
+            return list(self._entries.keys())
+
+
+# In-process idempotency cache used when SQL session `db` is absent (pure unit tests).
+# Bounded (LRU + 24h TTL) and never evicts in-progress operations.
+_IN_MEMORY_SAVE_BATCHES = _BoundedSaveBatchCache()
+
+_SAVE_RUN_LOCKS_GUARD = threading.Lock()
+_SAVE_RUN_LOCKS: dict[tuple[int, UUID, UUID], tuple[asyncio.Lock, int]] = {}
+
+
+@asynccontextmanager
+async def _acquire_save_run_lock(
+    *,
+    user_id: UUID,
+    run_id: UUID,
+    db: Session | None,
+) -> AsyncIterator[None]:
+    """Serialize concurrent save requests for the same (user_id, run_id).
+
+    Uses an in-process per-loop asyncio.Lock plus a PostgreSQL session advisory
+    lock when backed by PostgreSQL so concurrent requests cannot duplicate saves.
+    """
+    loop_id = id(asyncio.get_running_loop())
+    lock_key = (loop_id, user_id, run_id)
+    with _SAVE_RUN_LOCKS_GUARD:
+        entry = _SAVE_RUN_LOCKS.get(lock_key)
+        if entry is None:
+            async_lock = asyncio.Lock()
+            _SAVE_RUN_LOCKS[lock_key] = (async_lock, 1)
+        else:
+            async_lock, waiters = entry
+            _SAVE_RUN_LOCKS[lock_key] = (async_lock, waiters + 1)
+
+    pg_lock_name: str | None = None
+    try:
+        async with async_lock:
+            if db is not None:
+                try:
+                    bind = db.get_bind()
+                    if bind is not None and bind.dialect.name == "postgresql":
+                        pg_lock_name = f"garment_save:{user_id}:{run_id}"
+                        db.execute(
+                            text("SELECT pg_advisory_lock(hashtext(:k))"),
+                            {"k": pg_lock_name},
+                        )
+                except Exception:
+                    pg_lock_name = None
+            try:
+                yield
+            finally:
+                if pg_lock_name is not None and db is not None:
+                    try:
+                        db.execute(
+                            text("SELECT pg_advisory_unlock(hashtext(:k))"),
+                            {"k": pg_lock_name},
+                        )
+                    except Exception:
+                        pass
+    finally:
+        with _SAVE_RUN_LOCKS_GUARD:
+            cur = _SAVE_RUN_LOCKS.get(lock_key)
+            if cur is not None:
+                _, waiters = cur
+                if waiters <= 1:
+                    _SAVE_RUN_LOCKS.pop(lock_key, None)
+                else:
+                    _SAVE_RUN_LOCKS[lock_key] = (cur[0], waiters - 1)
 
 
 class GarmentImageValidationError(Exception):
@@ -576,26 +761,87 @@ def _get_canonical_wardrobe_crop_key(user_id: UUID, upload_id: UUID) -> str:
     return f"users/{user_id}/wardrobe/{upload_id}/canonical.webp"
 
 
-async def delete_run_extraction_assets(
+@dataclass(frozen=True)
+class ExtractionAssetDeleteResult:
+    """Detailed result of deleting temporary extraction assets for a run."""
+
+    deleted_count: int
+    failed_keys: tuple[str, ...] = ()
+    list_failed: bool = False
+
+    @property
+    def all_succeeded(self) -> bool:
+        return not self.list_failed and not self.failed_keys
+
+
+@dataclass
+class ExtractionCleanupSummary:
+    """Summary of a bounded expired-extraction cleanup run."""
+
+    runs_claimed: int = 0
+    runs_cleaned: int = 0
+    runs_failed: int = 0
+    assets_deleted: int = 0
+    storage_errors: int = 0
+
+
+def _mark_run_assets_cleaned(
+    db: Session | None,
+    *,
+    user_id: UUID,
+    run_id: UUID,
+    deleted_count: int,
+) -> None:
+    if db is None:
+        return
+    run_row = db.execute(
+        select(AnalysisRuns).where(
+            AnalysisRuns.id == run_id,
+            AnalysisRuns.user_id == user_id,
+        )
+    ).scalar_one_or_none()
+    if run_row is None:
+        return
+    updated_result = dict(run_row.result) if isinstance(run_row.result, dict) else {}
+    updated_result["assets_cleanup"] = {
+        "status": "cleaned",
+        "cleaned_at": datetime.now(timezone.utc).isoformat(),
+        "deleted_count": int(deleted_count),
+    }
+    run_row.result = updated_result
+    db.commit()
+
+
+async def delete_run_extraction_assets_detailed(
     storage: ObjectStoragePort,
     *,
     user_id: UUID,
     run_id: UUID,
     candidate_ids: set[str] | None = None,
     result_snapshot: dict[str, Any] | None = None,
-) -> int:
-    """Delete temporary extraction objects under `users/{user_id}/extractions/{run_id}/`."""
+) -> ExtractionAssetDeleteResult:
+    """Delete temporary extraction objects under `users/{user_id}/extractions/{run_id}/`.
+
+    One failing object never aborts deletion of unrelated objects in the same run.
+    Returns `ExtractionAssetDeleteResult` so callers know whether any listing or
+    deletion failed and can keep failed runs retryable.
+    """
     prefix = extraction_prefix(user_id, run_id)
     keys_to_delete: set[str] = set()
+    list_failed = False
 
     if candidate_ids is None and hasattr(storage, "list_keys"):
         try:
             listed = await storage.list_keys(prefix)  # type: ignore[attr-defined]
             for k in listed:
                 validate_scoped_object_key(k, user_id=str(user_id))
-                keys_to_delete.add(k)
-        except Exception:
-            pass
+                if k.startswith(prefix):
+                    keys_to_delete.add(k)
+        except Exception as exc:
+            list_failed = True
+            logger.warning(
+                "Failed to list temporary extraction assets under %s: %s", prefix, exc
+            )
 
     if isinstance(result_snapshot, dict):
         for cand in result_snapshot.get("candidates") or []:
@@ -610,6 +856,7 @@ async def delete_run_extraction_assets(
                 keys_to_delete.add(ckey)
 
     deleted = 0
+    failed_keys: list[str] = []
     for key in sorted(keys_to_delete):
         try:
             if await storage.object_exists(key):
@@ -618,8 +865,33 @@ async def delete_run_extraction_assets(
             else:
                 await storage.delete_object(key)
         except Exception as exc:
+            failed_keys.append(key)
             logger.warning("Failed to delete temporary extraction asset %s: %s", key, exc)
-    return deleted
+
+    return ExtractionAssetDeleteResult(
+        deleted_count=deleted,
+        failed_keys=tuple(failed_keys),
+        list_failed=list_failed,
+    )
+
+
+async def delete_run_extraction_assets(
+    storage: ObjectStoragePort,
+    *,
+    user_id: UUID,
+    run_id: UUID,
+    candidate_ids: set[str] | None = None,
+    result_snapshot: dict[str, Any] | None = None,
+) -> int:
+    """Delete temporary extraction objects under `users/{user_id}/extractions/{run_id}/`."""
+    res = await delete_run_extraction_assets_detailed(
+        storage,
+        user_id=user_id,
+        run_id=run_id,
+        candidate_ids=candidate_ids,
+        result_snapshot=result_snapshot,
+    )
+    return res.deleted_count
 
 
 class SaveExtractedGarments:
@@ -650,7 +922,25 @@ class SaveExtractedGarments:
         self._db = db
 
     @staticmethod
-    def _batch_fingerprint(items: list[dict[str, Any]]) -> str:
+    def _normalize_confidence(raw: Any) -> float | None:
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            return None
+        val = float(raw)
+        if 0.0 <= val <= 1.0:
+            return val
+        return None
+
+    @classmethod
+    def _resolve_extraction_confidence(
+        cls, sel: dict[str, Any], candidate: dict[str, Any]
+    ) -> float | None:
+        explicit = cls._normalize_confidence(sel.get("extractionConfidence"))
+        if explicit is not None:
+            return explicit
+        return cls._normalize_confidence(candidate.get("confidence"))
+
+    @classmethod
+    def _batch_fingerprint(cls, items: list[dict[str, Any]]) -> str:
         canonical = [
             {
                 "candidateId": str(it["candidateId"]).strip(),
@@ -659,6 +949,8 @@ class SaveExtractedGarments:
                 "color": str(it["color"]).strip().lower(),
                 "material": (str(it["material"]).strip().lower() if it.get("material") else None),
                 "fit": (str(it["fit"]).strip() if it.get("fit") else None),
+                "extractionConfidence": cls._normalize_confidence(it.get("extractionConfidence")),
+                "fitConfidence": cls._normalize_confidence(it.get("fitConfidence")),
                 "isFavorite": bool(it.get("isFavorite", False)),
             }
             for it in items
@@ -667,11 +959,54 @@ class SaveExtractedGarments:
         import json
         return hashlib.sha256(json.dumps(canonical, sort_keys=True).encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _record_from_row(row: WardrobeItems) -> WardrobeItemRecord:
+        return WardrobeItemRecord(
+            id=row.id,
+            user_id=row.user_id,
+            name=row.name,
+            category=row.category_id,
+            color=row.color_id,
+            material=row.material_id,
+            is_favorite=row.is_favorite,
+            image_ref=row.image_ref,
+            fit=row.fit,
+            fit_confidence=row.fit_confidence,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
     def _find_existing_wardrobe_item_for_candidate(
-        self, *, user_id: UUID, run_id: UUID, candidate_id: str
+        self,
+        *,
+        user_id: UUID,
+        run_id: UUID,
+        candidate_id: str,
+        run_result: dict[str, Any] | None = None,
     ) -> WardrobeItemRecord | None:
         if self._db is None:
+            try:
+                items, _ = self._wardrobe.get_for_user(
+                    user_id=user_id,
+                    page=1,
+                    page_size=100,
+                    category=None,
+                    color=None,
+                    sort="created_at",
+                    order="desc",
+                )
+                for item in items:
+                    ref = item.image_ref
+                    if (
+                        isinstance(ref, dict)
+                        and str(ref.get("sourceRunId")) == str(run_id)
+                        and str(ref.get("candidateId")) == candidate_id
+                    ):
+                        return item
+            except Exception:
+                pass
             return None
+
         idemp_key = f"extract:{run_id}:{candidate_id}"
         auth = self._db.execute(
             select(MediaUploadAuthorization).where(
@@ -679,30 +1014,200 @@ class SaveExtractedGarments:
                 MediaUploadAuthorization.idempotency_key == idemp_key,
             )
         ).scalar_one_or_none()
-        if auth is None:
-            return None
-        upload_id_str = str(auth.upload_id)
         rows = self._db.execute(
             select(WardrobeItems).where(WardrobeItems.user_id == user_id)
         ).scalars().all()
+        if auth is not None:
+            upload_id_str = str(auth.upload_id)
+            for row in rows:
+                ref = row.image_ref
+                if isinstance(ref, dict) and str(ref.get("uploadId")) == upload_id_str:
+                    return self._record_from_row(row)
+
         for row in rows:
             ref = row.image_ref
-            if isinstance(ref, dict) and str(ref.get("uploadId")) == upload_id_str:
-                return WardrobeItemRecord(
-                    id=row.id,
-                    user_id=row.user_id,
-                    name=row.name,
-                    category=row.category_id,
-                    color=row.color_id,
-                    material=row.material_id,
-                    is_favorite=row.is_favorite,
-                    image_ref=row.image_ref,
-                    fit=row.fit,
-                    fit_confidence=row.fit_confidence,
-                    created_at=row.created_at,
-                    updated_at=row.updated_at,
-                )
+            if (
+                isinstance(ref, dict)
+                and str(ref.get("sourceRunId")) == str(run_id)
+                and str(ref.get("candidateId")) == candidate_id
+            ):
+                return self._record_from_row(row)
+
+        if isinstance(run_result, dict):
+            saved_map = run_result.get("saved_candidates")
+            if isinstance(saved_map, dict):
+                saved_id_raw = saved_map.get(candidate_id)
+                if isinstance(saved_id_raw, str):
+                    try:
+                        saved_uuid = UUID(saved_id_raw)
+                        for row in rows:
+                            if row.id == saved_uuid:
+                                return self._record_from_row(row)
+                    except ValueError:
+                        pass
         return None
+
+    def _record_saved_candidate_on_run(
+        self,
+        *,
+        user_id: UUID,
+        run_id: UUID,
+        candidate_id: str,
+        wardrobe_item_id: UUID,
+    ) -> None:
+        if self._db is None:
+            return
+        run_row = self._db.execute(
+            select(AnalysisRuns).where(
+                AnalysisRuns.id == run_id,
+                AnalysisRuns.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if run_row is None or not isinstance(run_row.result, dict):
+            return
+        updated_result = dict(run_row.result)
+        saved_map = dict(updated_result.get("saved_candidates") or {})
+        saved_map[candidate_id] = str(wardrobe_item_id)
+        updated_result["saved_candidates"] = saved_map
+        run_row.result = updated_result
+        self._db.commit()
+
+    def _is_postgres_db(self) -> bool:
+        if self._db is None:
+            return False
+        try:
+            bind = self._db.get_bind()
+            return bind is not None and getattr(bind.dialect, "name", "") == "postgresql"
+        except Exception:
+            return False
+
+    def _persist_failed_promotion_cleanup(
+        self,
+        *,
+        user_id: UUID,
+        run_id: UUID,
+        candidate_id: str,
+        upload_id: UUID,
+        canonical_key: str,
+        staging_key: str,
+        size_bytes: int,
+        sha256: str,
+        width: int,
+        height: int,
+    ) -> None:
+        """Durably record `delete_pending` when promoted object cleanup fails after DB rollback."""
+        if self._db is None:
+            return
+        idemp_key = f"extract:{run_id}:{candidate_id}"
+        now = datetime.now(timezone.utc)
+        try:
+            self._db.rollback()
+            stmt = select(MediaUploadAuthorization).where(
+                MediaUploadAuthorization.user_id == user_id,
+                MediaUploadAuthorization.idempotency_key == idemp_key,
+            )
+            if self._is_postgres_db():
+                stmt = stmt.with_for_update()
+            auth = self._db.execute(stmt).scalar_one_or_none()
+            if auth is not None:
+                auth.status = "delete_pending"
+                auth.failure_reason = "STORAGE_DELETE_FAILED"
+                auth.canonical_key = canonical_key
+                auth.canonical_sha256 = sha256
+                auth.canonical_size_bytes = size_bytes
+                auth.canonical_width = width
+                auth.canonical_height = height
+                auth.processing_attempts = (auth.processing_attempts or 0) + 1
+            else:
+                self._db.add(
+                    MediaUploadAuthorization(
+                        user_id=user_id,
+                        idempotency_key=idemp_key,
+                        upload_id=upload_id,
+                        key_version="kver_extract",
+                        request_fingerprint=hashlib.sha256(
+                            f"{user_id}:{run_id}:{candidate_id}:{sha256}".encode("utf-8")
+                        ).hexdigest(),
+                        staging_key=staging_key,
+                        content_type="image/webp",
+                        size_bytes=size_bytes,
+                        created_at=now,
+                        expires_at=now + timedelta(hours=24),
+                        status="delete_pending",
+                        failure_reason="STORAGE_DELETE_FAILED",
+                        canonical_key=canonical_key,
+                        canonical_sha256=sha256,
+                        canonical_size_bytes=size_bytes,
+                        canonical_width=width,
+                        canonical_height=height,
+                        processing_attempts=1,
+                        completed_at=None,
+                    )
+                )
+            self._db.commit()
+        except Exception:
+            try:
+                self._db.rollback()
+            except Exception:
+                pass
+            logger.exception(
+                "Failed to durably record delete_pending cleanup for %s",
+                canonical_key,
+            )
+
+    async def _cleanup_promoted_object_after_db_failure(
+        self,
+        *,
+        user_id: UUID,
+        run_id: UUID,
+        candidate_id: str,
+        image_ref: dict[str, Any] | None,
+        staging_key: str | None = None,
+    ) -> None:
+        """Delete a promoted storage object after a failed DB save, or durably queue delete_pending."""
+        if not image_ref or not isinstance(image_ref.get("objectKey"), str):
+            return
+        canonical_key = image_ref["objectKey"]
+        upload_id_raw = image_ref.get("uploadId")
+        try:
+            upload_id = UUID(str(upload_id_raw))
+        except Exception:
+            upload_id = uuid4()
+
+        try:
+            await self._storage.delete_object(canonical_key)
+        except Exception:
+            self._persist_failed_promotion_cleanup(
+                user_id=user_id,
+                run_id=run_id,
+                candidate_id=candidate_id,
+                upload_id=upload_id,
+                canonical_key=canonical_key,
+                staging_key=staging_key or canonical_key,
+                size_bytes=int(image_ref.get("sizeBytes") or 1),
+                sha256=str(image_ref.get("contentHash") or ("0" * 64)),
+                width=int(image_ref.get("width") or 1),
+                height=int(image_ref.get("height") or 1),
+            )
+            return
+
+        if self._db is not None:
+            idemp_key = f"extract:{run_id}:{candidate_id}"
+            try:
+                auth = self._db.execute(
+                    select(MediaUploadAuthorization).where(
+                        MediaUploadAuthorization.user_id == user_id,
+                        MediaUploadAuthorization.idempotency_key == idemp_key,
+                    )
+                ).scalar_one_or_none()
+                if auth is not None and auth.status == "delete_pending":
+                    self._db.delete(auth)
+                    self._db.commit()
+            except Exception:
+                try:
+                    self._db.rollback()
+                except Exception:
+                    pass
 
     async def _promote_crop_to_wardrobe_media(
         self,
@@ -710,6 +1215,7 @@ class SaveExtractedGarments:
         user_id: UUID,
         run_id: UUID,
         candidate: dict[str, Any],
+        extraction_confidence: float | None = None,
     ) -> dict[str, Any] | None:
         crop_key = candidate.get("crop_key")
         if not isinstance(crop_key, str) or not crop_key:
@@ -739,12 +1245,13 @@ class SaveExtractedGarments:
         idemp_key = f"extract:{run_id}:{cand_id}"
         existing_auth = None
         if self._db is not None:
-            existing_auth = self._db.execute(
-                select(MediaUploadAuthorization).where(
-                    MediaUploadAuthorization.user_id == user_id,
-                    MediaUploadAuthorization.idempotency_key == idemp_key,
-                )
-            ).scalar_one_or_none()
+            stmt = select(MediaUploadAuthorization).where(
+                MediaUploadAuthorization.user_id == user_id,
+                MediaUploadAuthorization.idempotency_key == idemp_key,
+            )
+            if self._is_postgres_db():
+                stmt = stmt.with_for_update()
+            existing_auth = self._db.execute(stmt).scalar_one_or_none()
 
         upload_id = existing_auth.upload_id if existing_auth is not None else uuid4()
         canonical_key = (
@@ -754,47 +1261,26 @@ class SaveExtractedGarments:
         )
         now = datetime.now(timezone.utc)
 
+        custom_meta = {
+            "user_id": str(user_id),
+            "upload_id": str(upload_id),
+            "source_run_id": str(run_id),
+            "candidate_id": cand_id,
+            "sha256": cand_sha,
+            "width": str(width),
+            "height": str(height),
+        }
+        if extraction_confidence is not None:
+            custom_meta["extraction_confidence"] = str(extraction_confidence)
+
         await self._storage.put_object(
             key=canonical_key,
             data=crop_bytes,
             content_type="image/webp",
-            custom_metadata={
-                "user_id": str(user_id),
-                "upload_id": str(upload_id),
-                "source_run_id": str(run_id),
-                "candidate_id": cand_id,
-                "sha256": cand_sha,
-                "width": str(width),
-                "height": str(height),
-            },
+            custom_metadata=custom_meta,
         )
 
-        if self._db is not None and existing_auth is None:
-            auth_row = MediaUploadAuthorization(
-                user_id=user_id,
-                idempotency_key=idemp_key,
-                upload_id=upload_id,
-                key_version="kver_extract",
-                request_fingerprint=hashlib.sha256(
-                    f"{user_id}:{run_id}:{cand_id}:{cand_sha}".encode("utf-8")
-                ).hexdigest(),
-                staging_key=crop_key,
-                content_type="image/webp",
-                size_bytes=len(crop_bytes),
-                created_at=now,
-                expires_at=now + timedelta(hours=24),
-                status="published",
-                canonical_key=canonical_key,
-                canonical_sha256=cand_sha,
-                canonical_size_bytes=len(crop_bytes),
-                canonical_width=width,
-                canonical_height=height,
-                completed_at=now,
-            )
-            self._db.add(auth_row)
-            self._db.commit()
-
-        return {
+        ref: dict[str, Any] = {
             "uploadId": str(upload_id),
             "objectKey": canonical_key,
             "mediaType": "image/webp",
@@ -804,7 +1290,186 @@ class SaveExtractedGarments:
             "contentHash": cand_sha,
             "uploadedAt": now.isoformat(),
             "status": "ready",
+            "sourceRunId": str(run_id),
+            "candidateId": cand_id,
         }
+        if extraction_confidence is not None:
+            ref["extractionConfidence"] = extraction_confidence
+
+        if self._db is not None:
+            try:
+                if existing_auth is None:
+                    auth_row = MediaUploadAuthorization(
+                        user_id=user_id,
+                        idempotency_key=idemp_key,
+                        upload_id=upload_id,
+                        key_version="kver_extract",
+                        request_fingerprint=hashlib.sha256(
+                            f"{user_id}:{run_id}:{cand_id}:{cand_sha}".encode("utf-8")
+                        ).hexdigest(),
+                        staging_key=crop_key,
+                        content_type="image/webp",
+                        size_bytes=len(crop_bytes),
+                        created_at=now,
+                        expires_at=now + timedelta(hours=24),
+                        status="published",
+                        canonical_key=canonical_key,
+                        canonical_sha256=cand_sha,
+                        canonical_size_bytes=len(crop_bytes),
+                        canonical_width=width,
+                        canonical_height=height,
+                        completed_at=now,
+                    )
+                    self._db.add(auth_row)
+                else:
+                    existing_auth.status = "published"
+                    existing_auth.failure_reason = None
+                    existing_auth.canonical_key = canonical_key
+                    existing_auth.canonical_sha256 = cand_sha
+                    existing_auth.canonical_size_bytes = len(crop_bytes)
+                    existing_auth.canonical_width = width
+                    existing_auth.canonical_height = height
+                    existing_auth.completed_at = now
+                # Flush only (no commit): MediaUploadAuthorization commits atomically
+                # with WardrobeItems in AddWardrobeItem.
+                self._db.flush()
+            except Exception as exc:
+                self._db.rollback()
+                await self._cleanup_promoted_object_after_db_failure(
+                    user_id=user_id,
+                    run_id=run_id,
+                    candidate_id=cand_id,
+                    image_ref=ref,
+                    staging_key=crop_key,
+                )
+                raise ApiError(
+                    status_code=500,
+                    code="DATABASE_ERROR",
+                    message="Failed to prepare media authorization for extracted garment.",
+                ) from exc
+
+        return ref
+
+    def _lookup_db_save_batch(
+        self,
+        *,
+        user_id: UUID,
+        run_id: UUID,
+        idempotency_key: str,
+        fingerprint: str,
+    ) -> dict[str, Any] | None:
+        if self._db is None:
+            return None
+        run_row = self._db.execute(
+            select(AnalysisRuns).where(
+                AnalysisRuns.id == run_id,
+                AnalysisRuns.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if run_row is None or not isinstance(run_row.result, dict):
+            return None
+        batches = run_row.result.get("save_batches")
+        if not isinstance(batches, dict):
+            return None
+        entry = batches.get(idempotency_key)
+        if not isinstance(entry, dict):
+            return None
+        if entry.get("fingerprint") != fingerprint:
+            raise conflict("duplicate")
+        if entry.get("status") != "completed":
+            return None
+
+        saved_item_ids = entry.get("saved_item_ids")
+        if not isinstance(saved_item_ids, list):
+            return None
+
+        saved_records: list[WardrobeItemRecord] = []
+        saved_entries: list[dict[str, Any]] = []
+        for item_meta in saved_item_ids:
+            if not isinstance(item_meta, dict):
+                continue
+            cand_id = item_meta.get("candidate_id")
+            raw_wid = item_meta.get("wardrobe_item_id")
+            if not isinstance(cand_id, str) or not isinstance(raw_wid, str):
+                continue
+            try:
+                wid = UUID(raw_wid)
+            except ValueError:
+                continue
+            row = self._db.execute(
+                select(WardrobeItems).where(
+                    WardrobeItems.id == wid,
+                    WardrobeItems.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                continue
+            rec = self._record_from_row(row)
+            ext_conf = (
+                self._normalize_confidence(rec.image_ref.get("extractionConfidence"))
+                if isinstance(rec.image_ref, dict)
+                else None
+            )
+            saved_records.append(rec)
+            saved_entries.append(
+                {
+                    "candidate_id": cand_id,
+                    "record": rec,
+                    "extraction_confidence": ext_conf,
+                }
+            )
+
+        return {
+            "saved_records": saved_records,
+            "saved_entries": saved_entries,
+            "failed_items": [],
+            "cleaned_up_assets": bool(entry.get("cleaned_up_assets", False)),
+        }
+
+    def _record_db_save_batch(
+        self,
+        *,
+        user_id: UUID,
+        run_id: UUID,
+        idempotency_key: str,
+        fingerprint: str,
+        saved_entries: list[dict[str, Any]],
+        cleaned_up_assets: bool,
+    ) -> None:
+        if self._db is None:
+            return
+        run_row = self._db.execute(
+            select(AnalysisRuns).where(
+                AnalysisRuns.id == run_id,
+                AnalysisRuns.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if run_row is None or not isinstance(run_row.result, dict):
+            return
+        updated_result = dict(run_row.result)
+        batches = dict(updated_result.get("save_batches") or {})
+        batches[idempotency_key] = {
+            "fingerprint": fingerprint,
+            "status": "completed",
+            "saved_item_ids": [
+                {
+                    "candidate_id": e["candidate_id"],
+                    "wardrobe_item_id": str(e["record"].id),
+                }
+                for e in saved_entries
+            ],
+            "cleaned_up_assets": bool(cleaned_up_assets),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        # Bound per-run stored batch keys to prevent unbounded JSONB growth.
+        while len(batches) > MAX_DB_SAVE_BATCHES_PER_RUN:
+            oldest_key = next(iter(batches))
+            if oldest_key == idempotency_key:
+                break
+            batches.pop(oldest_key, None)
+        updated_result["save_batches"] = batches
+        run_row.result = updated_result
+        self._db.commit()
 
     async def execute(
         self,
@@ -817,25 +1482,69 @@ class SaveExtractedGarments:
         if not items:
             raise validation([{"field": "items", "error": "at least one garment must be selected"}])
 
-        record: AnalysisRunRecord | None = self._runs.get_for_user(
-            user_id=user_id, run_id=run_id
-        )
-        if record is None:
-            raise not_found()
-        if record.run_type != "garment":
-            raise validation([{"field": "run_id", "error": "run is not a garment extraction run"}])
-        if record.status != "completed" or not isinstance(record.result, dict):
-            raise validation([{"field": "run_id", "error": "garment extraction run is not completed"}])
-
         clean_key = idempotency_key.strip() if idempotency_key else None
         fingerprint = self._batch_fingerprint(items)
-        if clean_key:
-            cache_key = (user_id, run_id, clean_key)
-            cached = _IN_MEMORY_SAVE_BATCHES.get(cache_key)
-            if cached is not None:
-                if cached["fingerprint"] != fingerprint:
-                    raise conflict("duplicate")
-                return cached["response"]
+        cache_key = (user_id, run_id, clean_key) if clean_key else None
+
+        if cache_key is not None:
+            _IN_MEMORY_SAVE_BATCHES.mark_in_progress(cache_key)
+        try:
+            async with _acquire_save_run_lock(user_id=user_id, run_id=run_id, db=self._db):
+                record: AnalysisRunRecord | None = self._runs.get_for_user(
+                    user_id=user_id, run_id=run_id
+                )
+                if record is None:
+                    raise not_found()
+                if record.run_type != "garment":
+                    raise validation(
+                        [{"field": "run_id", "error": "run is not a garment extraction run"}]
+                    )
+                if record.status != "completed" or not isinstance(record.result, dict):
+                    raise validation(
+                        [{"field": "run_id", "error": "garment extraction run is not completed"}]
+                    )
+
+                if clean_key:
+                    if self._db is not None:
+                        db_cached = self._lookup_db_save_batch(
+                            user_id=user_id,
+                            run_id=run_id,
+                            idempotency_key=clean_key,
+                            fingerprint=fingerprint,
+                        )
+                        if db_cached is not None:
+                            return db_cached
+                    else:
+                        cached = _IN_MEMORY_SAVE_BATCHES.get(cache_key)
+                        if cached is not None:
+                            if cached["fingerprint"] != fingerprint:
+                                raise conflict("duplicate")
+                            return cached["response"]
+
+                return await self._execute_locked(
+                    user_id=user_id,
+                    run_id=run_id,
+                    record=record,
+                    items=items,
+                    clean_key=clean_key,
+                    fingerprint=fingerprint,
+                    cache_key=cache_key,
+                )
+        finally:
+            if cache_key is not None:
+                _IN_MEMORY_SAVE_BATCHES.clear_in_progress(cache_key)
+
+    async def _execute_locked(
+        self,
+        *,
+        user_id: UUID,
+        run_id: UUID,
+        record: AnalysisRunRecord,
+        items: list[dict[str, Any]],
+        clean_key: str | None,
+        fingerprint: str,
+        cache_key: tuple[UUID, UUID, str] | None,
+    ) -> dict[str, Any]:
 
         candidates_by_id: dict[str, dict[str, Any]] = {}
         for c in record.result.get("candidates") or []:
@@ -849,6 +1558,8 @@ class SaveExtractedGarments:
         )
 
         saved_records: list[WardrobeItemRecord] = []
+        saved_entries: list[dict[str, Any]] = []
+        saved_by_candidate_id: dict[str, dict[str, Any]] = {}
         saved_candidate_ids: set[str] = set()
         failed_items: list[dict[str, str]] = []
 
@@ -864,11 +1575,38 @@ class SaveExtractedGarments:
                 })
                 continue
 
+            if cand_id in saved_by_candidate_id:
+                continue
+
+            extraction_confidence = self._resolve_extraction_confidence(sel, candidate)
+            # Fit confidence is distinct from extraction confidence; never fabricate it
+            # from candidate/extraction confidence.
+            fit_confidence = self._normalize_confidence(sel.get("fitConfidence"))
+
             existing = self._find_existing_wardrobe_item_for_candidate(
-                user_id=user_id, run_id=run_id, candidate_id=cand_id
+                user_id=user_id,
+                run_id=run_id,
+                candidate_id=cand_id,
+                run_result=record.result,
             )
             if existing is not None:
+                existing_ext_conf = (
+                    self._normalize_confidence(existing.image_ref.get("extractionConfidence"))
+                    if isinstance(existing.image_ref, dict)
+                    else None
+                )
+                entry = {
+                    "candidate_id": cand_id,
+                    "record": existing,
+                    "extraction_confidence": (
+                        existing_ext_conf
+                        if existing_ext_conf is not None
+                        else extraction_confidence
+                    ),
+                }
                 saved_records.append(existing)
+                saved_entries.append(entry)
+                saved_by_candidate_id[cand_id] = entry
                 saved_candidate_ids.add(cand_id)
                 continue
 
@@ -892,6 +1630,7 @@ class SaveExtractedGarments:
                     user_id=user_id,
                     run_id=run_id,
                     candidate=candidate,
+                    extraction_confidence=extraction_confidence,
                 )
             except ApiError as exc:
                 failed_items.append({
@@ -901,6 +1640,14 @@ class SaveExtractedGarments:
                 })
                 continue
 
+            extraction_meta: dict[str, Any] = {
+                "sourceRunId": str(run_id),
+                "candidateId": cand_id,
+            }
+            if extraction_confidence is not None:
+                extraction_meta["extractionConfidence"] = extraction_confidence
+
+            item_committed = False
             try:
                 created = add_item(
                     user_id=user_id,
@@ -911,49 +1658,89 @@ class SaveExtractedGarments:
                     isFavorite=bool(sel.get("isFavorite", False)),
                     image_ref=image_ref,
                     fit=sel.get("fit"),
-                    fit_confidence=sel.get("fitConfidence"),
+                    fit_confidence=fit_confidence,
+                    extraction_provenance=extraction_meta,
                 )
-                saved_records.append(created)
-                saved_candidate_ids.add(cand_id)
+                item_committed = True
             except ApiError as exc:
-                # Roll back promoted canonical object if DB save failed
-                if image_ref and isinstance(image_ref.get("objectKey"), str):
-                    try:
-                        await self._storage.delete_object(image_ref["objectKey"])
-                    except Exception:
-                        pass
+                if self._db is not None:
+                    self._wardrobe.rollback()
+                await self._cleanup_promoted_object_after_db_failure(
+                    user_id=user_id,
+                    run_id=run_id,
+                    candidate_id=cand_id,
+                    image_ref=image_ref,
+                    staging_key=candidate.get("crop_key") if isinstance(candidate.get("crop_key"), str) else None,
+                )
                 failed_items.append({
                     "candidateId": cand_id,
                     "name": name,
                     "error": exc.message,
                 })
+                continue
             except Exception:
-                if image_ref and isinstance(image_ref.get("objectKey"), str):
-                    try:
-                        await self._storage.delete_object(image_ref["objectKey"])
-                    except Exception:
-                        pass
+                if self._db is not None:
+                    self._wardrobe.rollback()
+                await self._cleanup_promoted_object_after_db_failure(
+                    user_id=user_id,
+                    run_id=run_id,
+                    candidate_id=cand_id,
+                    image_ref=image_ref,
+                    staging_key=candidate.get("crop_key") if isinstance(candidate.get("crop_key"), str) else None,
+                )
                 failed_items.append({
                     "candidateId": cand_id,
                     "name": name,
                     "error": "Failed to save garment to wardrobe.",
                 })
+                continue
+
+            if item_committed:
+                try:
+                    self._record_saved_candidate_on_run(
+                        user_id=user_id,
+                        run_id=run_id,
+                        candidate_id=cand_id,
+                        wardrobe_item_id=created.id,
+                    )
+                except Exception:
+                    try:
+                        if self._db is not None:
+                            self._db.rollback()
+                    except Exception:
+                        pass
+                entry = {
+                    "candidate_id": cand_id,
+                    "record": created,
+                    "extraction_confidence": extraction_confidence,
+                }
+                saved_records.append(created)
+                saved_entries.append(entry)
+                saved_by_candidate_id[cand_id] = entry
+                saved_candidate_ids.add(cand_id)
 
         # Clean up temporary extraction assets:
         # - If all selected items succeeded, purge all temporary assets for this run (including unselected).
         # - If partial failure occurred, purge only the succeeded candidates' temporary crops so failed ones can be retried.
         cleaned_up_all = False
         if not failed_items and saved_records:
-            await delete_run_extraction_assets(
+            del_res = await delete_run_extraction_assets_detailed(
                 self._storage,
                 user_id=user_id,
                 run_id=run_id,
                 candidate_ids=None,
                 result_snapshot=record.result,
             )
-            cleaned_up_all = True
+            cleaned_up_all = del_res.all_succeeded
+            if cleaned_up_all:
+                _mark_run_assets_cleaned(
+                    self._db,
+                    user_id=user_id,
+                    run_id=run_id,
+                    deleted_count=del_res.deleted_count,
+                )
         elif saved_candidate_ids:
-            await delete_run_extraction_assets(
+            await delete_run_extraction_assets_detailed(
                 self._storage,
                 user_id=user_id,
                 run_id=run_id,
@@ -963,14 +1750,25 @@ class SaveExtractedGarments:
 
         result_payload = {
             "saved_records": saved_records,
+            "saved_entries": saved_entries,
             "failed_items": failed_items,
             "cleaned_up_assets": cleaned_up_all,
         }
         if clean_key and not failed_items:
-            _IN_MEMORY_SAVE_BATCHES[(user_id, run_id, clean_key)] = {
-                "fingerprint": fingerprint,
-                "response": result_payload,
-            }
+            if self._db is not None:
+                self._record_db_save_batch(
+                    user_id=user_id,
+                    run_id=run_id,
+                    idempotency_key=clean_key,
+                    fingerprint=fingerprint,
+                    saved_entries=saved_entries,
+                    cleaned_up_assets=cleaned_up_all,
+                )
+            elif cache_key is not None:
+                _IN_MEMORY_SAVE_BATCHES[cache_key] = {
+                    "fingerprint": fingerprint,
+                    "response": result_payload,
+                }
         return result_payload
 
 
@@ -982,9 +1780,11 @@ class CleanupExtractionAssets:
         *,
         runs: AnalysisRunRepository,
         storage: ObjectStoragePort,
+        db: Session | None = None,
     ) -> None:
         self._runs = runs
         self._storage = storage
+        self._db = db
 
     async def execute(self, *, user_id: UUID, run_id: UUID) -> dict[str, Any]:
         record = self._runs.get_for_user(user_id=user_id, run_id=run_id)
@@ -993,18 +1793,216 @@ class CleanupExtractionAssets:
         if record.run_type != "garment":
             raise validation([{"field": "run_id", "error": "run is not a garment extraction run"}])
 
-        deleted = await delete_run_extraction_assets(
+        del_res = await delete_run_extraction_assets_detailed(
             self._storage,
             user_id=user_id,
             run_id=run_id,
             candidate_ids=None,
             result_snapshot=record.result if isinstance(record.result, dict) else None,
         )
+        if del_res.all_succeeded:
+            _mark_run_assets_cleaned(
+                self._db,
+                user_id=user_id,
+                run_id=run_id,
+                deleted_count=del_res.deleted_count,
+            )
         return {
             "runId": run_id,
-            "deletedCount": deleted,
-            "alreadyCleaned": deleted == 0,
+            "deletedCount": del_res.deleted_count,
+            "alreadyCleaned": del_res.deleted_count == 0 and del_res.all_succeeded,
         }
+
+
+def _claim_expired_extraction_runs(
+    db: Session,
+    *,
+    cutoff: datetime,
+    now: datetime,
+    batch_limit: int,
+    lease_seconds: int,
+) -> list[tuple[UUID, UUID, str, dict[str, Any] | None]]:
+    """Claim a bounded batch of expired garment runs using FOR UPDATE SKIP LOCKED.
+
+    Unattempted/cleaning-expired runs are ordered before previously failed runs so
+    persistently failing objects cannot starve newer expired runs, while failed
+    runs remain retryable.
+    """
+    bind = db.get_bind()
+    is_pg = bind is not None and bind.dialect.name == "postgresql"
+
+    if is_pg:
+        cleanup_obj = AnalysisRuns.result["assets_cleanup"]
+        cleanup_status = cleanup_obj["status"].as_string()
+        lease_expires = cleanup_obj["lease_expires_at"].as_string()
+
+        eligible_filter = and_(
+            AnalysisRuns.run_type == "garment",
+            AnalysisRuns.created_at < cutoff,
+            or_(
+                AnalysisRuns.result.is_(None),
+                text("NOT (analysis_runs.result ? 'assets_cleanup')"),
+                and_(
+                    cleanup_status.is_distinct_from("cleaned"),
+                    or_(
+                        cleanup_status.is_distinct_from("cleaning"),
+                        lease_expires < now.isoformat(),
+                    ),
+                ),
+            ),
+        )
+        failed_rank = case((cleanup_status == "failed", 1), else_=0)
+        stmt = (
+            select(AnalysisRuns)
+            .where(eligible_filter)
+            .order_by(failed_rank.asc(), AnalysisRuns.created_at.asc(), AnalysisRuns.id.asc())
+            .limit(batch_limit)
+            .with_for_update(skip_locked=True)
+        )
+        rows = db.execute(stmt).scalars().all()
+    else:
+        all_rows = db.execute(
+            select(AnalysisRuns)
+            .where(
+                AnalysisRuns.run_type == "garment",
+                AnalysisRuns.created_at < cutoff,
+            )
+            .order_by(AnalysisRuns.created_at.asc(), AnalysisRuns.id.asc())
+        ).scalars().all()
+        unattempted: list[AnalysisRuns] = []
+        failed: list[AnalysisRuns] = []
+        for r in all_rows:
+            meta = r.result.get("assets_cleanup") if isinstance(r.result, dict) else None
+            if not isinstance(meta, dict):
+                unattempted.append(r)
+                continue
+            st = meta.get("status")
+            if st == "cleaned":
+                continue
+            if st == "cleaning":
+                exp_raw = meta.get("lease_expires_at")
+                if isinstance(exp_raw, str):
+                    try:
+                        if datetime.fromisoformat(exp_raw) >= now:
+                            continue
+                    except ValueError:
+                        pass
+                unattempted.append(r)
+            elif st == "failed":
+                failed.append(r)
+            else:
+                unattempted.append(r)
+        rows = (unattempted + failed)[:batch_limit]
+
+    claimed: list[tuple[UUID, UUID, str, dict[str, Any] | None]] = []
+    lease_until = (now + timedelta(seconds=lease_seconds)).isoformat()
+    for row in rows:
+        claim_token = str(uuid4())
+        updated_result = dict(row.result) if isinstance(row.result, dict) else {}
+        prev_meta = updated_result.get("assets_cleanup")
+        prev_attempts = int(prev_meta.get("attempts", 0)) if isinstance(prev_meta, dict) else 0
+        snapshot = dict(row.result) if isinstance(row.result, dict) else None
+        updated_result["assets_cleanup"] = {
+            "status": "cleaning",
+            "claim_token": claim_token,
+            "lease_expires_at": lease_until,
+            "attempts": prev_attempts + 1,
+        }
+        row.result = updated_result
+        claimed.append((row.id, row.user_id, claim_token, snapshot))
+
+    db.commit()
+    return claimed
+
+
+def _finalize_extraction_run_cleanup(
+    db: Session,
+    *,
+    run_id: UUID,
+    claim_token: str,
+    del_res: ExtractionAssetDeleteResult,
+    now: datetime,
+) -> None:
+    bind = db.get_bind()
+    is_pg = bind is not None and bind.dialect.name == "postgresql"
+    stmt = select(AnalysisRuns).where(AnalysisRuns.id == run_id)
+    if is_pg:
+        stmt = stmt.with_for_update()
+    row = db.execute(stmt).scalar_one_or_none()
+    if row is None or not isinstance(row.result, dict):
+        return
+    meta = row.result.get("assets_cleanup")
+    if not isinstance(meta, dict) or meta.get("claim_token") != claim_token:
+        # Lease was reclaimed by another worker; do not overwrite its state.
+        return
+
+    updated_result = dict(row.result)
+    attempts = int(meta.get("attempts", 1))
+    if del_res.all_succeeded:
+        updated_result["assets_cleanup"] = {
+            "status": "cleaned",
+            "cleaned_at": now.isoformat(),
+            "deleted_count": int(del_res.deleted_count),
+            "attempts": attempts,
+        }
+    else:
+        updated_result["assets_cleanup"] = {
+            "status": "failed",
+            "last_error_at": now.isoformat(),
+            "failed_keys_count": len(del_res.failed_keys),
+            "list_failed": del_res.list_failed,
+            "attempts": attempts,
+        }
+    row.result = updated_result
+    db.commit()
+
+
+async def cleanup_expired_extraction_assets_detailed(
+    storage: ObjectStoragePort,
+    db: Session,
+    *,
+    older_than_hours: int = 24,
+    batch_limit: int = 200,
+    lease_seconds: int = 300,
+    now: datetime | None = None,
+) -> ExtractionCleanupSummary:
+    """Claim and delete temporary extraction assets for expired garment runs in bounded batches."""
+    current_time = now or datetime.now(timezone.utc)
+    cutoff = current_time - timedelta(hours=older_than_hours)
+    summary = ExtractionCleanupSummary()
+
+    claimed = _claim_expired_extraction_runs(
+        db,
+        cutoff=cutoff,
+        now=current_time,
+        batch_limit=max(1, int(batch_limit)),
+        lease_seconds=max(1, int(lease_seconds)),
+    )
+    summary.runs_claimed = len(claimed)
+
+    for run_id, user_id, claim_token, snapshot in claimed:
+        del_res = await delete_run_extraction_assets_detailed(
+            storage,
+            user_id=user_id,
+            run_id=run_id,
+            candidate_ids=None,
+            result_snapshot=snapshot,
+        )
+        summary.assets_deleted += del_res.deleted_count
+        summary.storage_errors += len(del_res.failed_keys) + (1 if del_res.list_failed else 0)
+        if del_res.all_succeeded:
+            summary.runs_cleaned += 1
+        else:
+            summary.runs_failed += 1
+        _finalize_extraction_run_cleanup(
+            db,
+            run_id=run_id,
+            claim_token=claim_token,
+            del_res=del_res,
+            now=datetime.now(timezone.utc) if now is None else current_time,
+        )
+
+    return summary
 
 
 async def cleanup_expired_extraction_assets(
@@ -1013,26 +2011,16 @@ async def cleanup_expired_extraction_assets(
     *,
     older_than_hours: int = 24,
     batch_limit: int = 200,
+    lease_seconds: int = 300,
+    now: datetime | None = None,
 ) -> int:
     """Delete temporary extraction assets for abandoned/expired garment runs."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
-    rows = db.execute(
-        select(AnalysisRuns)
-        .where(
-            AnalysisRuns.run_type == "garment",
-            AnalysisRuns.created_at < cutoff,
-        )
-        .order_by(AnalysisRuns.created_at.asc())
-        .limit(batch_limit)
-    ).scalars().all()
-
-    total_deleted = 0
-    for row in rows:
-        total_deleted += await delete_run_extraction_assets(
-            storage,
-            user_id=row.user_id,
-            run_id=row.id,
-            candidate_ids=None,
-            result_snapshot=row.result if isinstance(row.result, dict) else None,
-        )
-    return total_deleted
+    summary = await cleanup_expired_extraction_assets_detailed(
+        storage,
+        db,
+        older_than_hours=older_than_hours,
+        batch_limit=batch_limit,
+        lease_seconds=lease_seconds,
+        now=now,
+    )
+    return summary.assets_deleted

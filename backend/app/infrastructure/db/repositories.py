@@ -3362,7 +3362,17 @@ class TryOnJobRepositorySQL:
             retry_of_job_id=row.retry_of_job_id,
             processing_started_at=row.processing_started_at,
             completed_at=row.completed_at,
+            worker_id=row.worker_id,
+            lease_token=row.lease_token,
+            lease_expires_at=row.lease_expires_at,
         )
+
+    def _is_postgres(self) -> bool:
+        try:
+            bind = self._session.get_bind()
+            return bind is not None and bind.dialect.name == "postgresql"
+        except Exception:
+            return False
 
     def create(
         self,
@@ -3379,6 +3389,8 @@ class TryOnJobRepositorySQL:
         person_media_ref: Optional[dict[str, Any]] = None,
         idempotency_key: Optional[str] = None,
         request_fingerprint: Optional[str] = None,
+        worker_id: Optional[str] = None,
+        lease_expires_at: Optional[datetime] = None,
     ) -> TryOnJobRecord:
         row = TryOnJobModel(
             id=job_id,
@@ -3393,6 +3405,8 @@ class TryOnJobRepositorySQL:
             person_media_ref=person_media_ref,
             idempotency_key=idempotency_key,
             request_fingerprint=request_fingerprint,
+            worker_id=worker_id,
+            lease_expires_at=lease_expires_at,
         )
         self._session.add(row)
         self._session.commit()
@@ -3418,6 +3432,8 @@ class TryOnJobRepositorySQL:
         daily_quota: int,
         concurrent_limit: int,
         global_concurrent_limit: int = 10,
+        worker_id: Optional[str] = None,
+        lease_expires_at: Optional[datetime] = None,
     ) -> tuple[TryOnJobRecord, bool]:
         """Atomically verify idempotency and daily/per-user/global concurrency quotas."""
         from app.api.errors import conflict, rate_limited
@@ -3490,6 +3506,8 @@ class TryOnJobRepositorySQL:
                 person_media_ref=person_media_ref,
                 idempotency_key=idempotency_key,
                 request_fingerprint=request_fingerprint,
+                worker_id=worker_id,
+                lease_expires_at=lease_expires_at,
             )
             self._session.add(row)
             self._session.commit()
@@ -3537,7 +3555,38 @@ class TryOnJobRepositorySQL:
         status: str,
         processing_started_at: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
+        expected_lease_token: Optional[UUID] = None,
     ) -> Optional[TryOnJobRecord]:
+        if expected_lease_token is not None:
+            values: dict[str, Any] = {"status": status}
+            if processing_started_at is not None:
+                values["processing_started_at"] = processing_started_at
+            if completed_at is not None:
+                values["completed_at"] = completed_at
+            if status in ("completed", "cancelled", "failed"):
+                values["worker_id"] = None
+                values["lease_token"] = None
+                values["lease_expires_at"] = None
+            res = self._session.execute(
+                update(TryOnJobModel)
+                .where(
+                    TryOnJobModel.id == job_id,
+                    TryOnJobModel.lease_token == expected_lease_token,
+                    TryOnJobModel.status.notin_(["completed", "cancelled"]),
+                )
+                .values(**values)
+            )
+            if (res.rowcount or 0) == 0:
+                self._session.rollback()
+                return None
+            self._session.commit()
+            row = self._session.execute(
+                select(TryOnJobModel)
+                .where(TryOnJobModel.id == job_id)
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
+            return self._to_record(row) if row else None
+
         row = self._session.execute(
             select(TryOnJobModel)
             .where(TryOnJobModel.id == job_id)
@@ -3553,6 +3602,10 @@ class TryOnJobRepositorySQL:
             row.processing_started_at = processing_started_at
         if completed_at is not None:
             row.completed_at = completed_at
+        if status in ("completed", "cancelled", "failed"):
+            row.worker_id = None
+            row.lease_token = None
+            row.lease_expires_at = None
         self._session.commit()
         self._session.refresh(row)
         return self._to_record(row)
@@ -3563,7 +3616,36 @@ class TryOnJobRepositorySQL:
         job_id: UUID,
         result_media_ref: dict[str, Any],
         completed_at: datetime,
+        expected_lease_token: Optional[UUID] = None,
     ) -> Optional[TryOnJobRecord]:
+        if expected_lease_token is not None:
+            res = self._session.execute(
+                update(TryOnJobModel)
+                .where(
+                    TryOnJobModel.id == job_id,
+                    TryOnJobModel.status == "processing",
+                    TryOnJobModel.lease_token == expected_lease_token,
+                )
+                .values(
+                    status="completed",
+                    result_media_ref=result_media_ref,
+                    completed_at=completed_at,
+                    worker_id=None,
+                    lease_token=None,
+                    lease_expires_at=None,
+                )
+            )
+            if (res.rowcount or 0) == 0:
+                self._session.rollback()
+                return None
+            self._session.commit()
+            row = self._session.execute(
+                select(TryOnJobModel)
+                .where(TryOnJobModel.id == job_id)
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
+            return self._to_record(row) if row else None
+
         row = self._session.execute(
             select(TryOnJobModel)
             .where(TryOnJobModel.id == job_id)
@@ -3577,6 +3659,9 @@ class TryOnJobRepositorySQL:
         row.status = "completed"
         row.result_media_ref = result_media_ref
         row.completed_at = completed_at
+        row.worker_id = None
+        row.lease_token = None
+        row.lease_expires_at = None
         self._session.commit()
         self._session.refresh(row)
         return self._to_record(row)
@@ -3588,7 +3673,37 @@ class TryOnJobRepositorySQL:
         error_code: str,
         error_message: str,
         completed_at: datetime,
+        expected_lease_token: Optional[UUID] = None,
     ) -> Optional[TryOnJobRecord]:
+        if expected_lease_token is not None:
+            res = self._session.execute(
+                update(TryOnJobModel)
+                .where(
+                    TryOnJobModel.id == job_id,
+                    TryOnJobModel.status == "processing",
+                    TryOnJobModel.lease_token == expected_lease_token,
+                )
+                .values(
+                    status="failed",
+                    error_code=error_code,
+                    error_message=error_message,
+                    completed_at=completed_at,
+                    worker_id=None,
+                    lease_token=None,
+                    lease_expires_at=None,
+                )
+            )
+            if (res.rowcount or 0) == 0:
+                self._session.rollback()
+                return None
+            self._session.commit()
+            row = self._session.execute(
+                select(TryOnJobModel)
+                .where(TryOnJobModel.id == job_id)
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
+            return self._to_record(row) if row else None
+
         row = self._session.execute(
             select(TryOnJobModel)
             .where(TryOnJobModel.id == job_id)
@@ -3603,6 +3718,9 @@ class TryOnJobRepositorySQL:
         row.error_code = error_code
         row.error_message = error_message
         row.completed_at = completed_at
+        row.worker_id = None
+        row.lease_token = None
+        row.lease_expires_at = None
         self._session.commit()
         self._session.refresh(row)
         return self._to_record(row)
@@ -3613,6 +3731,8 @@ class TryOnJobRepositorySQL:
         job_id: UUID,
         retry_count: int,
         status: str = "queued",
+        worker_id: Optional[str] = None,
+        lease_expires_at: Optional[datetime] = None,
     ) -> Optional[TryOnJobRecord]:
         res = self._session.execute(
             update(TryOnJobModel)
@@ -3627,6 +3747,9 @@ class TryOnJobRepositorySQL:
                 error_message=None,
                 processing_started_at=None,
                 completed_at=None,
+                worker_id=worker_id,
+                lease_token=None,
+                lease_expires_at=lease_expires_at,
             )
         )
         if (res.rowcount or 0) == 0:
@@ -3645,24 +3768,300 @@ class TryOnJobRepositorySQL:
         *,
         job_id: UUID,
         processing_started_at: datetime,
+        worker_id: Optional[str] = None,
+        lease_token: Optional[UUID] = None,
+        lease_seconds: int = 60,
     ) -> bool:
         """Atomically claim a queued job for processing (returns False if already claimed/terminal)."""
-        res = self._session.execute(
-            update(TryOnJobModel)
-            .where(
-                TryOnJobModel.id == job_id,
-                TryOnJobModel.status == "queued",
+        if self._is_postgres():
+            lease_exp_expr: Any = func.clock_timestamp() + text("make_interval(secs => :lease_secs)")
+            res = self._session.execute(
+                update(TryOnJobModel)
+                .where(
+                    TryOnJobModel.id == job_id,
+                    TryOnJobModel.status == "queued",
+                )
+                .values(
+                    status="processing",
+                    processing_started_at=processing_started_at,
+                    worker_id=worker_id,
+                    lease_token=lease_token,
+                    lease_expires_at=lease_exp_expr,
+                )
+                .execution_options(synchronize_session=False),
+                {"lease_secs": max(1, int(lease_seconds))},
             )
-            .values(
-                status="processing",
-                processing_started_at=processing_started_at,
+        else:
+            from datetime import timedelta, timezone as _tz
+            exp = datetime.now(_tz.utc) + timedelta(seconds=max(1, int(lease_seconds)))
+            res = self._session.execute(
+                update(TryOnJobModel)
+                .where(
+                    TryOnJobModel.id == job_id,
+                    TryOnJobModel.status == "queued",
+                )
+                .values(
+                    status="processing",
+                    processing_started_at=processing_started_at,
+                    worker_id=worker_id,
+                    lease_token=lease_token,
+                    lease_expires_at=exp,
+                )
             )
-        )
         if (res.rowcount or 0) == 0:
             self._session.rollback()
             return False
         self._session.commit()
         return True
+
+    def claim_processing_lease(
+        self,
+        *,
+        job_id: UUID,
+        worker_id: str,
+        lease_token: UUID,
+        lease_seconds: int = 60,
+    ) -> bool:
+        """Atomically claim or take over an unleased/expired processing job."""
+        from sqlalchemy import or_
+
+        if self._is_postgres():
+            db_now = func.clock_timestamp()
+            lease_exp_expr: Any = func.clock_timestamp() + text("make_interval(secs => :lease_secs)")
+            res = self._session.execute(
+                update(TryOnJobModel)
+                .where(
+                    TryOnJobModel.id == job_id,
+                    TryOnJobModel.status == "processing",
+                    or_(
+                        TryOnJobModel.worker_id.is_(None),
+                        TryOnJobModel.worker_id == worker_id,
+                        TryOnJobModel.lease_expires_at.is_(None),
+                        TryOnJobModel.lease_expires_at <= db_now,
+                    ),
+                )
+                .values(
+                    worker_id=worker_id,
+                    lease_token=lease_token,
+                    lease_expires_at=lease_exp_expr,
+                )
+                .execution_options(synchronize_session=False),
+                {"lease_secs": max(1, int(lease_seconds))},
+            )
+        else:
+            from datetime import timedelta, timezone as _tz
+            now_utc = datetime.now(_tz.utc)
+            exp = now_utc + timedelta(seconds=max(1, int(lease_seconds)))
+            res = self._session.execute(
+                update(TryOnJobModel)
+                .where(
+                    TryOnJobModel.id == job_id,
+                    TryOnJobModel.status == "processing",
+                    or_(
+                        TryOnJobModel.worker_id.is_(None),
+                        TryOnJobModel.worker_id == worker_id,
+                        TryOnJobModel.lease_expires_at.is_(None),
+                        TryOnJobModel.lease_expires_at <= now_utc,
+                    ),
+                )
+                .values(
+                    worker_id=worker_id,
+                    lease_token=lease_token,
+                    lease_expires_at=exp,
+                )
+            )
+        if (res.rowcount or 0) == 0:
+            self._session.rollback()
+            return False
+        self._session.commit()
+        return True
+
+    def renew_lease(
+        self,
+        *,
+        job_id: UUID,
+        worker_id: str,
+        lease_token: UUID,
+        lease_seconds: int = 60,
+    ) -> bool:
+        """Atomically extend an active processing lease if still owned and unexpired."""
+        from sqlalchemy import or_
+
+        if self._is_postgres():
+            db_now = func.clock_timestamp()
+            lease_exp_expr: Any = func.clock_timestamp() + text("make_interval(secs => :lease_secs)")
+            res = self._session.execute(
+                update(TryOnJobModel)
+                .where(
+                    TryOnJobModel.id == job_id,
+                    TryOnJobModel.status == "processing",
+                    TryOnJobModel.worker_id == worker_id,
+                    TryOnJobModel.lease_token == lease_token,
+                    or_(
+                        TryOnJobModel.lease_expires_at.is_(None),
+                        TryOnJobModel.lease_expires_at > db_now,
+                    ),
+                )
+                .values(
+                    lease_expires_at=lease_exp_expr,
+                    updated_at=db_now,
+                )
+                .execution_options(synchronize_session=False),
+                {"lease_secs": max(1, int(lease_seconds))},
+            )
+        else:
+            from datetime import timedelta, timezone as _tz
+            now_utc = datetime.now(_tz.utc)
+            exp = now_utc + timedelta(seconds=max(1, int(lease_seconds)))
+            res = self._session.execute(
+                update(TryOnJobModel)
+                .where(
+                    TryOnJobModel.id == job_id,
+                    TryOnJobModel.status == "processing",
+                    TryOnJobModel.worker_id == worker_id,
+                    TryOnJobModel.lease_token == lease_token,
+                    or_(
+                        TryOnJobModel.lease_expires_at.is_(None),
+                        TryOnJobModel.lease_expires_at > now_utc,
+                    ),
+                )
+                .values(
+                    lease_expires_at=exp,
+                    updated_at=now_utc,
+                )
+            )
+        if (res.rowcount or 0) == 0:
+            self._session.rollback()
+            return False
+        self._session.commit()
+        return True
+
+    def recover_abandoned_jobs(
+        self,
+        *,
+        worker_id: Optional[str] = None,
+        error_code: str = "INTERRUPTED_BY_RESTART",
+        stale_older_than: Optional[datetime] = None,
+        now: Optional[datetime] = None,
+    ) -> list[tuple[TryOnJobRecord, str]]:
+        """Atomically recover abandoned queued/processing jobs without touching live foreign leases.
+
+        Returns list of (updated_record, prior_status) tuples.
+        """
+        from sqlalchemy import case, or_
+
+        if self._is_postgres():
+            db_now = now if now is not None else func.clock_timestamp()
+            ownership_or_expired = [
+                TryOnJobModel.lease_expires_at.is_(None),
+                TryOnJobModel.lease_expires_at <= db_now,
+            ]
+            if worker_id is not None:
+                ownership_or_expired.append(TryOnJobModel.worker_id == worker_id)
+
+            conditions = [
+                TryOnJobModel.status.in_(["queued", "processing"]),
+                or_(*ownership_or_expired),
+            ]
+            if stale_older_than is not None:
+                conditions.append(
+                    func.coalesce(
+                        TryOnJobModel.processing_started_at,
+                        TryOnJobModel.updated_at,
+                        TryOnJobModel.created_at,
+                    )
+                    <= stale_older_than
+                )
+
+            if error_code == "STALE_JOB_TIMEOUT":
+                err_msg_expr: Any = "Job processing stalled and was safely closed. Please retry."
+            else:
+                err_msg_expr = case(
+                    (
+                        TryOnJobModel.status == "processing",
+                        "Job processing was interrupted by server restart during inference. Please retry.",
+                    ),
+                    else_="Job processing was interrupted by server restart while queued. Please retry.",
+                )
+
+            # Capture prior status via a CTE or subquery? In PostgreSQL UPDATE ... RETURNING returns NEW values.
+            # We can use a CTE with FOR UPDATE SKIP LOCKED to capture prior status atomically!
+            cte = (
+                select(
+                    TryOnJobModel.id.label("target_id"),
+                    TryOnJobModel.status.label("prior_status"),
+                )
+                .where(*conditions)
+                .with_for_update(skip_locked=True)
+                .cte("abandoned_targets")
+            )
+            stmt = (
+                update(TryOnJobModel)
+                .where(TryOnJobModel.id == cte.c.target_id)
+                .values(
+                    status="failed",
+                    error_code=error_code,
+                    error_message=err_msg_expr,
+                    completed_at=db_now,
+                    worker_id=None,
+                    lease_token=None,
+                    lease_expires_at=None,
+                    updated_at=db_now,
+                )
+                .returning(TryOnJobModel, cte.c.prior_status)
+            )
+            rows = self._session.execute(stmt).all()
+            if not rows:
+                self._session.rollback()
+                return []
+            self._session.commit()
+            return [(self._to_record(r[0]), str(r[1])) for r in rows]
+
+        # Non-PostgreSQL fallback
+        from datetime import timezone as _tz
+        current_time = now or datetime.now(_tz.utc)
+        ownership_or_expired = [
+            TryOnJobModel.lease_expires_at.is_(None),
+            TryOnJobModel.lease_expires_at <= current_time,
+        ]
+        if worker_id is not None:
+            ownership_or_expired.append(TryOnJobModel.worker_id == worker_id)
+        conditions = [
+            TryOnJobModel.status.in_(["queued", "processing"]),
+            or_(*ownership_or_expired),
+        ]
+        if stale_older_than is not None:
+            conditions.append(
+                func.coalesce(
+                    TryOnJobModel.processing_started_at,
+                    TryOnJobModel.updated_at,
+                    TryOnJobModel.created_at,
+                )
+                <= stale_older_than
+            )
+        rows = self._session.execute(select(TryOnJobModel).where(*conditions)).scalars().all()
+        results: list[tuple[TryOnJobRecord, str]] = []
+        for row in rows:
+            prior_status = row.status
+            row.status = "failed"
+            row.error_code = error_code
+            row.error_message = (
+                "Job processing stalled and was safely closed. Please retry."
+                if error_code == "STALE_JOB_TIMEOUT"
+                else (
+                    "Job processing was interrupted by server restart during inference. Please retry."
+                    if prior_status == "processing"
+                    else "Job processing was interrupted by server restart while queued. Please retry."
+                )
+            )
+            row.completed_at = current_time
+            row.worker_id = None
+            row.lease_token = None
+            row.lease_expires_at = None
+            results.append((self._to_record(row), prior_status))
+        if results:
+            self._session.commit()
+        return results
 
     def delete(
         self,
@@ -3827,7 +4226,29 @@ class TryOnJobRepositorySQL:
         *,
         job_id: UUID,
         person_media_ref: dict[str, Any],
+        expected_lease_token: Optional[UUID] = None,
     ) -> Optional[TryOnJobRecord]:
+        if expected_lease_token is not None:
+            res = self._session.execute(
+                update(TryOnJobModel)
+                .where(
+                    TryOnJobModel.id == job_id,
+                    TryOnJobModel.status == "processing",
+                    TryOnJobModel.lease_token == expected_lease_token,
+                )
+                .values(person_media_ref=dict(person_media_ref))
+            )
+            if (res.rowcount or 0) == 0:
+                self._session.rollback()
+                return None
+            self._session.commit()
+            row = self._session.execute(
+                select(TryOnJobModel)
+                .where(TryOnJobModel.id == job_id)
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
+            return self._to_record(row) if row else None
+
         row = self._session.execute(
             select(TryOnJobModel)
             .where(TryOnJobModel.id == job_id)

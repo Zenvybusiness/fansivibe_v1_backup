@@ -74,7 +74,7 @@ class TryOnScreen extends StatefulWidget {
 
   /// Optional device image saver seam for tests.
   final Future<TryOnSaveOutcome> Function(Uint8List bytes, String jobId)?
-      saveResultImage;
+  saveResultImage;
 
   /// Optional capabilities override for deterministic testing.
   final TryOnCapabilities? capabilities;
@@ -129,6 +129,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
   bool _wardrobeLoaded = false;
   String? _wardrobeLoadError;
   String? _garmentSelectionWarning;
+  int _wardrobeLoadGeneration = 0;
 
   _Phase _phase = _Phase.input;
   TryOnFailure? _failure;
@@ -154,8 +155,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
   bool get _strictValidation =>
       widget.strictImageValidation ?? (widget.pickImage == null);
 
-  bool get _isWardrobeFlow =>
-      widget.outfitSource == TryOnOutfitSource.wardrobe;
+  bool get _isWardrobeFlow => widget.outfitSource == TryOnOutfitSource.wardrobe;
 
   Duration get _effectivePollInterval {
     if (widget.pollInterval != TryOnScreen.defaultPollInterval) {
@@ -196,10 +196,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initializeScreenData() async {
-    await Future.wait([
-      _loadCapabilities(),
-      _loadWardrobeItems(),
-    ]);
+    await Future.wait([_loadCapabilities(), _loadWardrobeItems()]);
     if (!mounted) return;
     await _attemptJobRecovery();
   }
@@ -228,6 +225,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _pollSessionToken++;
+    _wardrobeLoadGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -260,22 +258,51 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadWardrobeItems() async {
+    if (!mounted) return;
+    final generation = ++_wardrobeLoadGeneration;
     setState(() {
       _isLoadingWardrobe = true;
       _wardrobeLoadError = null;
     });
     try {
-      final items = await _wardrobeRepo.listItems(pageSize: 100);
-      if (!mounted) return;
+      const pageSize = 100;
+      const maxPages = 100;
+      final allItems = <WardrobeItemData>[];
+      final seenIds = <String>{};
+
+      for (var page = 1; page <= maxPages; page++) {
+        final pageItems = await _wardrobeRepo.listItems(
+          page: page,
+          pageSize: pageSize,
+        );
+        if (!mounted || generation != _wardrobeLoadGeneration) return;
+
+        var addedThisPage = 0;
+        for (final item in pageItems) {
+          if (seenIds.add(item.id)) {
+            allItems.add(item);
+            addedThisPage++;
+          }
+        }
+
+        if (pageItems.isEmpty ||
+            pageItems.length < pageSize ||
+            (page > 1 && addedThisPage == 0)) {
+          break;
+        }
+      }
+
+      if (!mounted || generation != _wardrobeLoadGeneration) return;
       setState(() {
-        _wardrobeItems = items;
+        _wardrobeItems = allItems;
         _wardrobeLoaded = true;
         _isLoadingWardrobe = false;
         // Enforce ownership for wardrobe-sourced selections when wardrobe loaded.
         if (_isWardrobeFlow && _selectedGarmentIds.isNotEmpty) {
-          final ownedIds = items.map((e) => e.id).toSet();
-          final validIds =
-              _selectedGarmentIds.where(ownedIds.contains).toList();
+          final ownedIds = allItems.map((e) => e.id).toSet();
+          final validIds = _selectedGarmentIds
+              .where(ownedIds.contains)
+              .toList();
           if (validIds.length != _selectedGarmentIds.length) {
             _selectedGarmentIds
               ..clear()
@@ -287,7 +314,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
         _syncSelectedMap();
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _wardrobeLoadGeneration) return;
       setState(() {
         _isLoadingWardrobe = false;
         _wardrobeLoadError = 'Could not load your Digital Wardrobe.';
@@ -376,7 +403,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
         _resultBytes = imgOutcome.bytes;
         _imageFetchError = imgOutcome.bytes == null
             ? (imgOutcome.errorMessage ??
-                'Could not load the generated image. Tap retry below.')
+                  'Could not load the generated image. Tap retry below.')
             : null;
         _recoveredJobBanner = true;
         if (status.garmentIds.isNotEmpty) {
@@ -408,24 +435,26 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       final code = e.code.toLowerCase();
       final msg = (e.message ?? '').toLowerCase();
-      final isPermission = code.contains('denied') ||
+      final isPermission =
+          code.contains('denied') ||
           code.contains('permission') ||
           code.contains('access') ||
           msg.contains('permission') ||
           msg.contains('denied');
-      final isPermanent = code.contains('permanent') ||
+      final isPermanent =
+          code.contains('permanent') ||
           code == 'camera_access_denied' ||
           code == 'photo_access_denied' ||
           msg.contains('permanently');
       setState(() {
         _imageError = isPermission
             ? (source == ImageSource.camera
-                ? (isPermanent
-                    ? 'Camera permission denied. Open device Settings to enable camera access, or choose a photo from gallery.'
-                    : 'Camera permission denied. Enable camera access in settings or choose from gallery.')
-                : (isPermanent
-                    ? 'Photo library permission denied. Open device Settings to enable photo access.'
-                    : 'Photo library permission denied. Enable photo access in settings to select a photo.'))
+                  ? (isPermanent
+                        ? 'Camera permission denied. Open device Settings to enable camera access, or choose a photo from gallery.'
+                        : 'Camera permission denied. Enable camera access in settings or choose from gallery.')
+                  : (isPermanent
+                        ? 'Photo library permission denied. Open device Settings to enable photo access.'
+                        : 'Photo library permission denied. Enable photo access in settings to select a photo.'))
             : 'Could not access photo (${e.message ?? e.code}).';
       });
       return;
@@ -645,14 +674,16 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
                               children: [
                                 Text(
                                   'Select Digital Wardrobe Garment',
-                                  style: FansivibeTypography.titleLargeWithFamily,
+                                  style:
+                                      FansivibeTypography.titleLargeWithFamily,
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
                                   _capabilities.maxGarments == 1
                                       ? 'Choose 1 garment to try on'
                                       : 'Choose up to ${_capabilities.maxGarments} garments (${_selectedGarmentIds.length}/${_capabilities.maxGarments})',
-                                  style: FansivibeTypography.labelMediumWithFamily
+                                  style: FansivibeTypography
+                                      .labelMediumWithFamily
                                       .copyWith(
                                         color: FansivibeColors.textSecondary,
                                       ),
@@ -747,8 +778,9 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
                                 const Divider(height: 1),
                             itemBuilder: (context, index) {
                               final item = _wardrobeItems[index];
-                              final isChosen =
-                                  _selectedGarmentIds.contains(item.id);
+                              final isChosen = _selectedGarmentIds.contains(
+                                item.id,
+                              );
                               return ListTile(
                                 contentPadding: const EdgeInsets.symmetric(
                                   vertical: 4,
@@ -856,9 +888,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
     if (_isWardrobeFlow && _wardrobeLoaded && _wardrobeLoadError == null) {
       final owned = _wardrobeItems.map((e) => e.id).toSet();
       if (_selectedGarmentIds.any((id) => !owned.contains(id))) {
-        _showSnackBar(
-          'Selected garment is not in your Digital Wardrobe.',
-        );
+        _showSnackBar('Selected garment is not in your Digital Wardrobe.');
         return;
       }
     }
@@ -964,7 +994,8 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
         setState(() {
           _phase = _Phase.failed;
           _failure = TryOnFailure.unauthorized;
-          _failureDetail = outcome.errorMessage ??
+          _failureDetail =
+              outcome.errorMessage ??
               'Your session expired. Please sign in again.';
         });
         return true;
@@ -975,8 +1006,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
         setState(() {
           _phase = _Phase.failed;
           _failure = TryOnFailure.notFound;
-          _failureDetail =
-              'This try-on job could not be found or has expired.';
+          _failureDetail = 'This try-on job could not be found or has expired.';
         });
         return true;
       }
@@ -1014,7 +1044,8 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
           setState(() {
             _phase = _Phase.failed;
             _failure = TryOnFailure.unauthorized;
-            _failureDetail = imgOutcome.errorMessage ??
+            _failureDetail =
+                imgOutcome.errorMessage ??
                 'Your session expired. Please sign in again.';
             _pendingIdempotencyKey = null;
           });
@@ -1025,7 +1056,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
           _resultBytes = imgOutcome.bytes;
           _imageFetchError = imgOutcome.bytes == null
               ? (imgOutcome.errorMessage ??
-                  'Result is ready, but loading the image failed. Check connection and retry.')
+                    'Result is ready, but loading the image failed. Check connection and retry.')
               : null;
           _pendingIdempotencyKey = null;
         });
@@ -1045,7 +1076,8 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
         setState(() {
           _phase = _Phase.failed;
           _failure = TryOnFailure.unknown;
-          _failureDetail = status.errorMessage ??
+          _failureDetail =
+              status.errorMessage ??
               (!status.isMock
                   ? 'Cancelled locally. An already-submitted remote generation may still consume a credit.'
                   : 'Try-on request was cancelled.');
@@ -1134,7 +1166,8 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
       setState(() {
         _phase = _Phase.failed;
         _failure = TryOnFailure.unknown;
-        _failureDetail = res.errorMessage ??
+        _failureDetail =
+            res.errorMessage ??
             (!res.isMock
                 ? 'Cancelled locally. An already-submitted remote generation may still consume a credit.'
                 : 'Try-on request cancelled by user.');
@@ -1229,9 +1262,9 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
     if (bytes == null || bytes.isEmpty) {
       const msg = 'Image is not loaded yet.';
       if (feedbackContext != null && feedbackContext.mounted) {
-        ScaffoldMessenger.of(feedbackContext).showSnackBar(
-          const SnackBar(content: Text(msg)),
-        );
+        ScaffoldMessenger.of(
+          feedbackContext,
+        ).showSnackBar(const SnackBar(content: Text(msg)));
       } else {
         _showSnackBar(msg);
       }
@@ -1252,9 +1285,9 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
         _ => outcome.message ?? 'Could not save result to your device.',
       };
       if (feedbackContext != null && feedbackContext.mounted) {
-        ScaffoldMessenger.of(feedbackContext).showSnackBar(
-          SnackBar(content: Text(msg)),
-        );
+        ScaffoldMessenger.of(
+          feedbackContext,
+        ).showSnackBar(SnackBar(content: Text(msg)));
       } else {
         _showSnackBar(msg);
       }
@@ -1332,7 +1365,8 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final showEmptyLegacyOutfit = !_isWardrobeFlow &&
+    final showEmptyLegacyOutfit =
+        !_isWardrobeFlow &&
         widget.garmentIds.isEmpty &&
         _selectedGarmentIds.isEmpty &&
         _phase == _Phase.input;
@@ -1518,21 +1552,21 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
         final totalSeconds = _effectiveMaxPollDuration.inSeconds;
         final elapsedSeconds = _pollingStartedAt != null
             ? _currentTime()
-                .difference(_pollingStartedAt!)
-                .inSeconds
-                .clamp(0, totalSeconds)
+                  .difference(_pollingStartedAt!)
+                  .inSeconds
+                  .clamp(0, totalSeconds)
             : 0;
         final progressValue =
             (_backendProgress != null && _backendProgress! > 0)
-                ? (_backendProgress! / 100.0).clamp(0.0, 1.0)
-                : (totalSeconds > 0 && elapsedSeconds > 0
-                    ? (elapsedSeconds / totalSeconds).clamp(0.0, 1.0)
-                    : null);
+            ? (_backendProgress! / 100.0).clamp(0.0, 1.0)
+            : (totalSeconds > 0 && elapsedSeconds > 0
+                  ? (elapsedSeconds / totalSeconds).clamp(0.0, 1.0)
+                  : null);
         final statusLabel = _lastJobState == TryOnJobState.queued
             ? 'Queued for virtual try-on…'
             : (_isMock
-                ? 'Rendering test preview… (poll ${_pollCount + 1})'
-                : 'Generating virtual try-on… (${elapsedSeconds}s / ${totalSeconds}s)');
+                  ? 'Rendering test preview… (poll ${_pollCount + 1})'
+                  : 'Generating virtual try-on… (${elapsedSeconds}s / ${totalSeconds}s)');
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1608,9 +1642,9 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
                         Text(
                           isNetwork
                               ? 'We lost connection while checking your try-on job. '
-                                  'Check status once your connection returns without creating a duplicate request.'
+                                    'Check status once your connection returns without creating a duplicate request.'
                               : 'Your try-on is taking longer than expected, but it has not failed. '
-                                  'Check status to continue waiting without starting a duplicate request.',
+                                    'Check status to continue waiting without starting a duplicate request.',
                           style: FansivibeTypography.bodyMediumWithFamily,
                         ),
                       ],
@@ -1912,8 +1946,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
   Widget _buildReviewCard() {
     final hasPhoto = _personBytes != null && _personBytes!.isNotEmpty;
     final garmentCount = _selectedGarmentIds.length;
-    final maxMb =
-        (_capabilities.maxPersonImageBytes / (1024 * 1024)).round();
+    final maxMb = (_capabilities.maxPersonImageBytes / (1024 * 1024)).round();
 
     return Container(
       width: double.infinity,
@@ -1950,8 +1983,8 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
                 child: Text(
                   hasPhoto
                       ? (_personDimensions != null
-                          ? 'Person photo ready (${_personDimensions!.$1}×${_personDimensions!.$2})'
-                          : 'Person photo ready')
+                            ? 'Person photo ready (${_personDimensions!.$1}×${_personDimensions!.$2})'
+                            : 'Person photo ready')
                       : 'No person photo selected (JPEG/PNG/WebP, up to $maxMb MB)',
                   style: FansivibeTypography.bodyMediumWithFamily,
                 ),
@@ -1991,15 +2024,12 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
       builder: (context, constraints) {
         final scale = MediaQuery.textScalerOf(context).scale(14) / 14.0;
         final stackVertically =
-            constraints.maxWidth < 340 || (scale > 1.1 && constraints.maxWidth < 420);
+            constraints.maxWidth < 340 ||
+            (scale > 1.1 && constraints.maxWidth < 420);
         if (stackVertically) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              first,
-              const SizedBox(height: 10),
-              second,
-            ],
+            children: [first, const SizedBox(height: 10), second],
           );
         }
         return Row(
@@ -2016,8 +2046,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
   Widget _buildInput({required bool enabled}) {
     final bytes = _personBytes;
     final hasPhoto = bytes != null && bytes.isNotEmpty;
-    final ctaLabel =
-        _isMock ? 'Preview Try-On (Test Data)' : 'Generate Try-On';
+    final ctaLabel = _isMock ? 'Preview Try-On (Test Data)' : 'Generate Try-On';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2215,7 +2244,9 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
 
   bool _isSvgBytes(Uint8List bytes) {
     if (bytes.length < 4) return false;
-    final prefix = utf8.decode(bytes.take(64).toList(), allowMalformed: true).trimLeft();
+    final prefix = utf8
+        .decode(bytes.take(64).toList(), allowMalformed: true)
+        .trimLeft();
     return prefix.startsWith('<svg') ||
         (prefix.startsWith('<?xml') && prefix.contains('<svg'));
   }
@@ -2246,7 +2277,9 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
                     child: isSvgMock
                         ? _MockSvgPreviewCard(
                             garmentLabels: _selectedGarmentIds
-                                .map((id) => _selectedGarmentMap[id]?.name ?? id)
+                                .map(
+                                  (id) => _selectedGarmentMap[id]?.name ?? id,
+                                )
                                 .toList(),
                           )
                         : Image.memory(
@@ -2340,7 +2373,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
         Text(
           _isMock
               ? 'Mock preview ready. This is UI test data — not an AI-generated '
-                  'try-on, and it cannot be saved or shared as one.'
+                    'try-on, and it cannot be saved or shared as one.'
               : 'Virtual Try-On generation complete. Result saved privately to your profile.',
           style: FansivibeTypography.bodyMediumWithFamily,
         ),
@@ -2351,9 +2384,7 @@ class _TryOnScreenState extends State<TryOnScreen> with WidgetsBindingObserver {
             runSpacing: 6,
             children: [
               for (final id in _selectedGarmentIds)
-                Chip(
-                  label: Text(_selectedGarmentMap[id]?.name ?? id),
-                ),
+                Chip(label: Text(_selectedGarmentMap[id]?.name ?? id)),
             ],
           ),
         ],

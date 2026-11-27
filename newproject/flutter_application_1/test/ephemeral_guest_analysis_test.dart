@@ -147,29 +147,30 @@ void main() {
   });
 
   group('ephemeral client transport', () {
-    test('hairstyle ephemeral posts without auth and parses the snapshot',
-        () async {
-      String? seenAuth;
-      String? seenPath;
-      final client = HairstyleClient(
-        client: MockClient((request) async {
-          seenPath = request.url.path;
-          seenAuth = request.headers['Authorization'];
-          expect(request.headers.containsKey('Idempotency-Key'), isFalse);
-          return http.Response(jsonEncode(_hairstyleSnapshot()), 200);
-        }),
-      );
-      final outcome = await client.submitHairstyleEphemeral(
-        imageBytes: _png(),
-      );
-      expect(seenPath, '/v1/analysis/hairstyle/ephemeral');
-      expect(seenAuth, isNull);
-      expect(outcome.snapshot?['appearance']?['faceShape'], 'Oval');
-      expect(outcome.failureReason, isNull);
-    });
+    test(
+      'hairstyle ephemeral posts without auth and parses the snapshot',
+      () async {
+        String? seenAuth;
+        String? seenPath;
+        final client = HairstyleClient(
+          client: MockClient((request) async {
+            seenPath = request.url.path;
+            seenAuth = request.headers['Authorization'];
+            expect(request.headers.containsKey('Idempotency-Key'), isFalse);
+            return http.Response(jsonEncode(_hairstyleSnapshot()), 200);
+          }),
+        );
+        final outcome = await client.submitHairstyleEphemeral(
+          imageBytes: _png(),
+        );
+        expect(seenPath, '/v1/analysis/hairstyle/ephemeral');
+        expect(seenAuth, isNull);
+        expect(outcome.snapshot?['appearance']?['faceShape'], 'Oval');
+        expect(outcome.failureReason, isNull);
+      },
+    );
 
-    test('hairstyle ephemeral sends no auth even when authenticated',
-        () async {
+    test('hairstyle ephemeral sends no auth even when authenticated', () async {
       _asAuthenticated();
       String? seenAuth;
       final client = HairstyleClient(
@@ -178,9 +179,7 @@ void main() {
           return http.Response(jsonEncode(_hairstyleSnapshot()), 200);
         }),
       );
-      final outcome = await client.submitHairstyleEphemeral(
-        imageBytes: _png(),
-      );
+      final outcome = await client.submitHairstyleEphemeral(imageBytes: _png());
       expect(seenAuth, isNull);
       expect(outcome.snapshot, isNotNull);
     });
@@ -203,46 +202,49 @@ void main() {
           ),
         ),
       );
-      final outcome = await client.submitHairstyleEphemeral(
-        imageBytes: _png(),
-      );
+      final outcome = await client.submitHairstyleEphemeral(imageBytes: _png());
       expect(outcome.snapshot, isNull);
       expect(outcome.failureReason, 'no_face_detected');
     });
 
-    test('authenticated hairstyle submit still sends auth (unchanged)',
-        () async {
-      String? seenAuth;
-      final client = HairstyleClient(
-        client: MockClient((request) async {
-          seenAuth = request.headers['Authorization'];
-          return http.Response('{"run_id": "run-1"}', 202);
-        }),
-      );
-      await client.submitHairstyleAnalysis(imageBytes: _png());
-      expect(seenAuth, 'Bearer dev');
-    });
+    test(
+      'authenticated hairstyle submit still sends auth (unchanged)',
+      () async {
+        String? seenAuth;
+        final client = HairstyleClient(
+          client: MockClient((request) async {
+            seenAuth = request.headers['Authorization'];
+            return http.Response('{"run_id": "run-1"}', 202);
+          }),
+        );
+        await client.submitHairstyleAnalysis(imageBytes: _png());
+        expect(seenAuth, 'Bearer dev');
+      },
+    );
 
-    test('outfit ephemeral posts without auth and parses the snapshot',
-        () async {
-      String? seenPath;
-      String? seenAuth;
-      final client = OutfitScanClient(
-        client: MockClient((request) async {
-          seenPath = request.url.path;
-          seenAuth = request.headers['Authorization'];
-          return http.Response(jsonEncode(_hairstyleSnapshot()), 200);
-        }),
-      );
-      final outcome = await client.submitOutfitEphemeralBytes(_png());
-      expect(seenPath, '/v1/analysis/outfit/ephemeral');
-      expect(seenAuth, isNull);
-      expect(outcome.snapshot?['recommendations']?['top']?['id'],
-          'textured_quiff');
-    });
+    test(
+      'outfit ephemeral posts without auth and parses the snapshot',
+      () async {
+        String? seenPath;
+        String? seenAuth;
+        final client = OutfitScanClient(
+          client: MockClient((request) async {
+            seenPath = request.url.path;
+            seenAuth = request.headers['Authorization'];
+            return http.Response(jsonEncode(_hairstyleSnapshot()), 200);
+          }),
+        );
+        final outcome = await client.submitOutfitEphemeralBytes(_png());
+        expect(seenPath, '/v1/analysis/outfit/ephemeral');
+        expect(seenAuth, isNull);
+        expect(
+          outcome.snapshot?['recommendations']?['top']?['id'],
+          'textured_quiff',
+        );
+      },
+    );
 
-    test('grooming ephemeral posts the request profile without auth',
-        () async {
+    test('grooming ephemeral posts the request profile without auth', () async {
       String? seenPath;
       String? seenAuth;
       Map<String, dynamic>? seenBody;
@@ -262,22 +264,24 @@ void main() {
       expect(outcome.snapshot?['appearance']?['faceShape'], 'oval');
     });
 
-    test('garment ephemeral posts without auth and parses the observation',
-        () async {
-      String? seenPath;
-      String? seenAuth;
-      final client = GarmentClient(
-        client: MockClient((request) async {
-          seenPath = request.url.path;
-          seenAuth = request.headers['Authorization'];
-          return http.Response(jsonEncode(_garmentSnapshot()), 200);
-        }),
-      );
-      final outcome = await client.submitGarmentEphemeralBytes(_png());
-      expect(seenPath, '/v1/analysis/garment/ephemeral');
-      expect(seenAuth, isNull);
-      expect(outcome.snapshot?['category'], 'tops');
-    });
+    test(
+      'garment ephemeral posts without auth and parses the observation',
+      () async {
+        String? seenPath;
+        String? seenAuth;
+        final client = GarmentClient(
+          client: MockClient((request) async {
+            seenPath = request.url.path;
+            seenAuth = request.headers['Authorization'];
+            return http.Response(jsonEncode(_garmentSnapshot()), 200);
+          }),
+        );
+        final outcome = await client.submitGarmentEphemeralBytes(_png());
+        expect(seenPath, '/v1/analysis/garment/ephemeral');
+        expect(seenAuth, isNull);
+        expect(outcome.snapshot?['category'], 'tops');
+      },
+    );
   });
 
   group('pending ephemeral result slot', () {
@@ -291,7 +295,8 @@ void main() {
       final decoded = jsonDecode(raw) as Map<String, dynamic>;
       expect(decoded['feature'], 'hairstyle');
       expect(
-        (decoded['snapshot'] as Map<String, dynamic>)['appearance']?['faceShape'],
+        (decoded['snapshot']
+            as Map<String, dynamic>)['appearance']?['faceShape'],
         'Oval',
       );
     });
@@ -358,8 +363,9 @@ void main() {
   });
 
   group('guest hairstyle reaches analysis, not sign-in', () {
-    testWidgets('processing runs ephemeral and lands on the result',
-        (tester) async {
+    testWidgets('processing runs ephemeral and lands on the result', (
+      tester,
+    ) async {
       _asGuest();
       final service = HairstyleService(
         client: HairstyleClient(
@@ -375,10 +381,8 @@ void main() {
         routes: [
           GoRoute(
             path: '/processing',
-            builder: (_, __) => FaceProcessingScreen(
-              service: service,
-              imageBytes: _png(),
-            ),
+            builder: (_, __) =>
+                FaceProcessingScreen(service: service, imageBytes: _png()),
           ),
           GoRoute(
             path: '/result',
@@ -407,8 +411,9 @@ void main() {
       );
     });
 
-    testWidgets('authenticated users still take the run-based path',
-        (tester) async {
+    testWidgets('authenticated users still take the run-based path', (
+      tester,
+    ) async {
       _asAuthenticated();
       final service = ControllableHairstyleService();
       final router = GoRouter(
@@ -416,10 +421,8 @@ void main() {
         routes: [
           GoRoute(
             path: '/processing',
-            builder: (_, __) => FaceProcessingScreen(
-              service: service,
-              imageBytes: _png(),
-            ),
+            builder: (_, __) =>
+                FaceProcessingScreen(service: service, imageBytes: _png()),
           ),
           GoRoute(
             path: '/result',
@@ -440,8 +443,9 @@ void main() {
   });
 
   group('guest outfit scan reaches analysis, not sign-in', () {
-    testWidgets('gallery pick → Analyze lands on the analysis screen',
-        (tester) async {
+    testWidgets('gallery pick → Analyze lands on the analysis screen', (
+      tester,
+    ) async {
       _asGuest();
       String? seenAuth;
       final client = OutfitScanClient(
@@ -494,10 +498,7 @@ void main() {
       expect(seenAuth, isNull);
       expect(find.text('Outfit Analysis'), findsOneWidget);
       expect(find.text('sign-in-marker'), findsNothing);
-      expect(
-        peekPendingEphemeralResult()?.feature,
-        EphemeralFeature.outfit,
-      );
+      expect(peekPendingEphemeralResult()?.feature, EphemeralFeature.outfit);
     });
   });
 
@@ -576,10 +577,7 @@ void main() {
 
       expect(find.text('Structured Goatee'), findsOneWidget);
       expect(find.text('sign-in-marker'), findsNothing);
-      expect(
-        peekPendingEphemeralResult()?.feature,
-        EphemeralFeature.grooming,
-      );
+      expect(peekPendingEphemeralResult()?.feature, EphemeralFeature.grooming);
     });
   });
 
@@ -637,8 +635,10 @@ void main() {
 
       expect(garments.ephemeralCalls, 1);
       expect(garments.authedCalls, 0);
+      expect(find.text('Add via AI Extraction'), findsOneWidget);
+      expect(find.text('Extracted Garments (1)'), findsOneWidget);
       expect(
-        find.text('AI suggestion — confirmed below, edit if needed'),
+        find.textContaining('Guest mode: items save locally on this device.'),
         findsOneWidget,
       );
       expect(find.text('sign-in-marker'), findsNothing);
@@ -646,8 +646,9 @@ void main() {
   });
 
   group('pending result banner restores the stashed snapshot', () {
-    testWidgets('scan banner View reopens the analysis, Dismiss clears',
-        (tester) async {
+    testWidgets('scan banner View reopens the analysis, Dismiss clears', (
+      tester,
+    ) async {
       _asGuest();
       stashPendingEphemeralResult(
         feature: EphemeralFeature.outfit,
@@ -660,9 +661,7 @@ void main() {
             path: '/scan',
             builder: (_, __) => OutfitScanScreen(
               client: OutfitScanClient(
-                client: MockClient(
-                  (request) async => http.Response('{}', 500),
-                ),
+                client: MockClient((request) async => http.Response('{}', 500)),
               ),
             ),
           ),
@@ -702,9 +701,7 @@ void main() {
             path: '/scan',
             builder: (_, __) => OutfitScanScreen(
               client: OutfitScanClient(
-                client: MockClient(
-                  (request) async => http.Response('{}', 500),
-                ),
+                client: MockClient((request) async => http.Response('{}', 500)),
               ),
             ),
           ),
@@ -724,9 +721,7 @@ void main() {
   });
 
   group('guest Save still opens the existing auth flow', () {
-    testWidgets('hairstyle Save records intent without saving', (
-      tester,
-    ) async {
+    testWidgets('hairstyle Save records intent without saving', (tester) async {
       _asGuest();
       final service = StubSaveHairstyleService();
       final router = GoRouter(
@@ -765,9 +760,7 @@ void main() {
       );
     });
 
-    testWidgets('grooming Save records intent without saving', (
-      tester,
-    ) async {
+    testWidgets('grooming Save records intent without saving', (tester) async {
       _asGuest();
       final router = GoRouter(
         initialLocation: '/result',
@@ -779,9 +772,7 @@ void main() {
               beardStyle: 'structured_goatee',
               beardDensity: '',
               beardColor: '',
-              result: GroomingAnalysisResult.fromSnapshot(
-                _groomingSnapshot(),
-              ),
+              result: GroomingAnalysisResult.fromSnapshot(_groomingSnapshot()),
             ),
           ),
           GoRoute(
@@ -801,17 +792,17 @@ void main() {
       expect(takePendingAuthIntent(), isNotNull);
     });
 
-    testWidgets('outfit Save still prompts without faking persistence',
-        (tester) async {
+    testWidgets('outfit Save still prompts without faking persistence', (
+      tester,
+    ) async {
       _asGuest();
       final router = GoRouter(
         initialLocation: '/analysis',
         routes: [
           GoRoute(
             path: '/analysis',
-            builder: (_, __) => OutfitAnalysisScreen(
-              analysisResult: _hairstyleSnapshot(),
-            ),
+            builder: (_, __) =>
+                OutfitAnalysisScreen(analysisResult: _hairstyleSnapshot()),
           ),
           GoRoute(
             path: '/sign-in',
@@ -829,17 +820,13 @@ void main() {
       expect(find.text('sign-in-marker'), findsOneWidget);
     });
 
-    testWidgets('authenticated hairstyle Save works normally', (
-      tester,
-    ) async {
+    testWidgets('authenticated hairstyle Save works normally', (tester) async {
       _asAuthenticated();
       final service = StubSaveHairstyleService();
       await tester.pumpWidget(
         MaterialApp(
           home: HairstyleResultScreen(
-            result: HairstyleAnalysisResult.fromRunResult(
-              _hairstyleSnapshot(),
-            ),
+            result: HairstyleAnalysisResult.fromRunResult(_hairstyleSnapshot()),
             service: service,
           ),
         ),

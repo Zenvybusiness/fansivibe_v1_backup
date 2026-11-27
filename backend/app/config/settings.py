@@ -153,6 +153,12 @@ class Settings(BaseSettings):
     tryon_stale_job_timeout_s: int = Field(
         default=300, alias="FANSIVIBE_TRYON_STALE_JOB_TIMEOUT_S"
     )
+    tryon_worker_lease_seconds: int = Field(
+        default=60, alias="FANSIVIBE_TRYON_WORKER_LEASE_SECONDS"
+    )
+    tryon_worker_heartbeat_interval_seconds: int = Field(
+        default=15, alias="FANSIVIBE_TRYON_WORKER_HEARTBEAT_INTERVAL_SECONDS"
+    )
 
     # Commercial Virtual Try-On Provider Configuration (Phase 5D)
     tryon_commercial_provider_name: str = Field(
@@ -223,6 +229,9 @@ class Settings(BaseSettings):
     )
     tryon_retention_cancelled_jobs_hours: int = Field(
         default=12, alias="TRYON_RETENTION_CANCELLED_JOBS_HOURS"
+    )
+    extraction_retention_hours: int = Field(
+        default=24, alias="EXTRACTION_RETENTION_HOURS"
     )
     log_level: str = Field(
         default="INFO", alias="FANSIVIBE_LOG_LEVEL"
@@ -774,6 +783,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "FANSIVIBE_TRYON_STALE_JOB_TIMEOUT_S must be at least 30."
             )
+        if self.tryon_worker_lease_seconds < 10:
+            raise ValueError(
+                "FANSIVIBE_TRYON_WORKER_LEASE_SECONDS must be at least 10."
+            )
+        if self.tryon_worker_heartbeat_interval_seconds < 2:
+            raise ValueError(
+                "FANSIVIBE_TRYON_WORKER_HEARTBEAT_INTERVAL_SECONDS must be at least 2."
+            )
+        if self.tryon_worker_heartbeat_interval_seconds >= self.tryon_worker_lease_seconds:
+            raise ValueError(
+                "FANSIVIBE_TRYON_WORKER_HEARTBEAT_INTERVAL_SECONDS must be less than FANSIVIBE_TRYON_WORKER_LEASE_SECONDS."
+            )
         if self.tryon_commercial_connect_timeout_s <= 0:
             raise ValueError(
                 "TRYON_COMMERCIAL_CONNECT_TIMEOUT_S must be greater than 0."
@@ -801,6 +822,10 @@ class Settings(BaseSettings):
         if self.tryon_retention_cancelled_jobs_hours < 1:
             raise ValueError(
                 "TRYON_RETENTION_CANCELLED_JOBS_HOURS must be at least 1."
+            )
+        if self.extraction_retention_hours < 1:
+            raise ValueError(
+                "EXTRACTION_RETENTION_HOURS must be at least 1."
             )
         if self.rate_limit_auth_per_minute < 1:
             raise ValueError(
@@ -1011,6 +1036,16 @@ def validate_production_startup(settings: Settings) -> None:
         raise ValueError(
             "Production MEDIA_UPLOAD_HMAC_SECRET must be distinct from FANSIVIBE_AUTH_SECRET."
         )
+    raw_workers = os.environ.get("UVICORN_WORKERS") or os.environ.get("WEB_CONCURRENCY")
+    if raw_workers is not None:
+        try:
+            worker_count = int(raw_workers)
+        except ValueError:
+            worker_count = 1
+        if worker_count > 1 and not str(settings.database_url).startswith("postgresql"):
+            raise ValueError(
+                "Multi-worker execution (UVICORN_WORKERS/WEB_CONCURRENCY > 1) requires a shared PostgreSQL DATABASE_URL."
+            )
 
 
 @lru_cache

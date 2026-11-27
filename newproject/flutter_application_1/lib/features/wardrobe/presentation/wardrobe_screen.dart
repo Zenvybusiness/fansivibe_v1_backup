@@ -34,11 +34,7 @@ class WardrobeScreen extends StatefulWidget {
   /// control the list and insights without networking.
   /// [insightRepository] is retained for backward compatibility with tests
   /// that supply an insight repository.
-  const WardrobeScreen({
-    super.key,
-    this.insightRepository,
-    this.repository,
-  });
+  const WardrobeScreen({super.key, this.insightRepository, this.repository});
 
   final WardrobeRepository? insightRepository;
   final WardrobeRepository? repository;
@@ -53,6 +49,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   List<WardrobeItemData> _items = [];
   bool _isLoading = true;
   String? _errorMessage;
+  int _loadGeneration = 0;
   late Future<WardrobeInsightData?> _insightFuture;
   late Future<WearSummary?> _wearSummaryFuture;
   bool get _showFirstTimeExperience {
@@ -95,14 +92,15 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       return;
     }
     _repository =
-        widget.repository ?? widget.insightRepository ?? WardrobeRepositoryImpl();
+        widget.repository ??
+        widget.insightRepository ??
+        WardrobeRepositoryImpl();
     // Independent from the item list: the list renders immediately while
     // the insight resolves on its own. Single fetch — no refetch storms.
     _insightFuture = _repository.getInsight();
     // Independent from the insight: same seam, separate future, separate
     // slot — W-7 loading/error/204 behavior is unchanged by this fetch.
-    _wearSummaryFuture =
-        Future.sync(() => _repository.getWearSummary());
+    _wearSummaryFuture = Future.sync(() => _repository.getWearSummary());
     _loadItems();
   }
 
@@ -126,24 +124,52 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
 
   Future<void> _loadItems() async {
     if (!mounted) return;
+    final generation = ++_loadGeneration;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final items = await _repository.listItems(pageSize: 100);
-      if (!mounted) return;
+      const pageSize = 100;
+      const maxPages = 100;
+      final allItems = <WardrobeItemData>[];
+      final seenIds = <String>{};
+
+      for (var page = 1; page <= maxPages; page++) {
+        final pageItems = await _repository.listItems(
+          page: page,
+          pageSize: pageSize,
+        );
+        if (!mounted || generation != _loadGeneration) return;
+
+        var addedThisPage = 0;
+        for (final item in pageItems) {
+          if (seenIds.add(item.id)) {
+            allItems.add(attachLocalPhoto(item));
+            addedThisPage++;
+          }
+        }
+
+        if (pageItems.isEmpty ||
+            pageItems.length < pageSize ||
+            (page > 1 && addedThisPage == 0)) {
+          break;
+        }
+      }
+
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         // Backend rows carry metadata only: rehydrate each item's photo
         // from the on-device mirror by id (imageless rows pass through).
-        _items = items.map(attachLocalPhoto).toList();
+        _items = allItems;
         _isLoading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
-        _errorMessage = 'Failed to load wardrobe. Please check your connection.';
+        _errorMessage =
+            'Failed to load wardrobe. Please check your connection.';
         _isLoading = false;
       });
     }
@@ -252,7 +278,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                                 LearningService.instance.styleType ??
                                 'Style not set',
                             favoritesCount: _favoritesCount,
-                            categoryCount: WardrobeMockData.categories.length - 1,
+                            categoryCount:
+                                WardrobeMockData.categories.length - 1,
                           ),
                           const SizedBox(height: FansivibeSpacing.sm + 4),
                           _InsightSlot(future: _insightFuture),
@@ -298,7 +325,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                                               (c) => c.id == _selectedCategory,
                                             )
                                             .name,
-                                  style: FansivibeTypography.labelMediumWithFamily
+                                  style: FansivibeTypography
+                                      .labelMediumWithFamily
                                       .copyWith(
                                         fontWeight: FontWeight.w600,
                                         color: FansivibeColors.onSurface,
@@ -445,7 +473,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     if (result != null && context.mounted) {
       if (result is List<WardrobeItemData>) {
         for (final item in result) {
-          if (!isGuestUser) {
+          if (!isGuestUser &&
+              !LearningService.instance.wardrobe.any((e) => e.id == item.id)) {
             LearningService.instance.addItem(_toEntry(item));
           }
         }
@@ -466,7 +495,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
           ),
         );
       } else if (result is WardrobeItemData) {
-        if (!isGuestUser) {
+        if (!isGuestUser &&
+            !LearningService.instance.wardrobe.any((e) => e.id == result.id)) {
           LearningService.instance.addItem(_toEntry(result));
         }
         UserSession.hasSavedWardrobeItem = true;
@@ -488,15 +518,14 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   void _handleImportFromPhotos(BuildContext context) async {
     final dynamic result = await Navigator.of(context).push(
       MaterialPageRoute<dynamic>(
-        builder: (_) => WardrobeExtractionScreen(
-          repository: _repository,
-        ),
+        builder: (_) => WardrobeExtractionScreen(repository: _repository),
       ),
     );
     if (result != null && context.mounted) {
       if (result is List<WardrobeItemData>) {
         for (final item in result) {
-          if (!isGuestUser) {
+          if (!isGuestUser &&
+              !LearningService.instance.wardrobe.any((e) => e.id == item.id)) {
             LearningService.instance.addItem(_toEntry(item));
           }
         }
@@ -517,7 +546,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
           ),
         );
       } else if (result is WardrobeItemData) {
-        if (!isGuestUser) {
+        if (!isGuestUser &&
+            !LearningService.instance.wardrobe.any((e) => e.id == result.id)) {
           LearningService.instance.addItem(_toEntry(result));
         }
         UserSession.hasSavedWardrobeItem = true;
@@ -539,7 +569,10 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   void _handleItemTap(BuildContext context, WardrobeItemData item) async {
     // Phase 2.1 guests open the same details over the local repository
     // (wired in initState) — no prompt, no backend fetch.
-    await context.pushNamed<String>(RouteNames.wardrobeItemDetails, extra: item.id);
+    await context.pushNamed<String>(
+      RouteNames.wardrobeItemDetails,
+      extra: item.id,
+    );
     if (mounted) {
       _loadItems();
     }

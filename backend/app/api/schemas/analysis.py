@@ -158,6 +158,7 @@ class ExtractedGarmentSelection(BaseModel):
     color: str = Field(min_length=1, max_length=64)
     material: Optional[str] = Field(default=None, max_length=64)
     fit: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    extractionConfidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     fitConfidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     isFavorite: bool = False
 
@@ -178,11 +179,18 @@ class SaveExtractedGarmentFailure(BaseModel):
     error: str
 
 
+class SavedExtractedWardrobeItem(WardrobeItem):
+    """Saved wardrobe item paired with its originating extraction candidate ID."""
+
+    candidateId: str
+    extractionConfidence: Optional[float] = None
+
+
 class SaveExtractedGarmentsResponse(BaseModel):
     """Response for `POST /v1/analysis/garment/runs/{run_id}/save`."""
 
     runId: UUID
-    savedItems: list[WardrobeItem]
+    savedItems: list[SavedExtractedWardrobeItem]
     failedItems: list[SaveExtractedGarmentFailure] = Field(default_factory=list)
     cleanedUpAssets: bool = False
 

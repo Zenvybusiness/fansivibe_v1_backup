@@ -21,6 +21,7 @@ import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
 
 enum ExtractionUiStage { idle, extracting, selection, saving, error }
 
@@ -55,15 +56,20 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
   late final GarmentClient _garmentClient;
   late final MediaClient _mediaClient;
   late final WardrobeRepository _repository;
+  late final bool _ownsGarmentClient;
+  late final bool _ownsMediaClient;
 
   Uint8List? _imageBytes;
   String? _filename;
   ExtractionUiStage _stage = ExtractionUiStage.idle;
   String? _statusMessage;
   String? _errorMessage;
+  String? _cleanupNotice;
   bool _stillAnalyzing = false;
   Timer? _stillAnalyzingTimer;
 
+  final Map<String, WardrobeItemData> _savedItemsByCandidateId = {};
+  final Map<String, String> _candidateSaveErrorsById = {};
   List<GarmentCandidate> _candidates = [];
   String? _idempotencyKey;
   String? _currentRunId;
@@ -71,10 +77,14 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
   String? _partialExtractionNotice;
   bool _isSaving = false;
   bool _assetsCleaned = false;
+  bool _disposed = false;
+  int _extractionGeneration = 0;
 
   @override
   void initState() {
     super.initState();
+    _ownsGarmentClient = widget.garmentClient == null;
+    _ownsMediaClient = widget.mediaClient == null;
     _garmentClient = widget.garmentClient ?? GarmentClient();
     _mediaClient = widget.mediaClient ?? MediaClient();
     _repository =
@@ -88,34 +98,87 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       _imageBytes = widget.initialImageBytes;
       _filename = widget.initialFilename ?? 'wardrobe_item.jpg';
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _startExtraction();
+        if (!mounted || _disposed) return;
+        _handleSelectedImage(
+          widget.initialImageBytes!,
+          widget.initialFilename ?? 'wardrobe_item.jpg',
+        );
       });
     }
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _extractionGeneration++;
     _stillAnalyzingTimer?.cancel();
-    _cleanupCurrentRunAssets();
-    _garmentClient.dispose();
-    _mediaClient.dispose();
+    _garmentClient.cancelPolling();
+    final runId = _currentRunId;
+    if (runId != null &&
+        !_assetsCleaned &&
+        !isGuestUser &&
+        AuthSession.isAuthenticated) {
+      unawaited(
+        _garmentClient
+            .cleanupExtractionAssets(runId: runId)
+            .catchError((_) => false)
+            .whenComplete(_disposeOwnedClients),
+      );
+    } else {
+      _disposeOwnedClients();
+    }
     super.dispose();
   }
 
-  void _cleanupCurrentRunAssets() {
+  void _disposeOwnedClients() {
+    if (_ownsGarmentClient) {
+      _garmentClient.dispose();
+    }
+    if (_ownsMediaClient) {
+      _mediaClient.dispose();
+    }
+  }
+
+  Future<bool> _cleanupCurrentRunAssets({bool surfaceFailure = false}) async {
     final runId = _currentRunId;
-    if (runId == null || _assetsCleaned) return;
-    if (isGuestUser || !AuthSession.isAuthenticated) return;
-    _assetsCleaned = true;
-    unawaited(_garmentClient.cleanupExtractionAssets(runId: runId));
+    if (runId == null || _assetsCleaned) return true;
+    if (isGuestUser || !AuthSession.isAuthenticated) {
+      _assetsCleaned = true;
+      return true;
+    }
+    final cleaned = await _garmentClient.cleanupExtractionAssets(runId: runId);
+    if (cleaned) {
+      _assetsCleaned = true;
+      return true;
+    }
+    if (surfaceFailure && mounted && !_disposed) {
+      setState(() {
+        _cleanupNotice =
+            'Could not remove temporary preview images right now; they will expire automatically.';
+      });
+    }
+    return false;
   }
 
   Future<void> _captureWithCamera() async {
     if (widget.takePhoto != null) {
-      final file = await widget.takePhoto!();
-      if (file == null || !mounted) return;
-      final bytes = await file.readAsBytes();
-      _handleSelectedImage(bytes, file.name);
+      try {
+        final file = await widget.takePhoto!();
+        if (file == null || !mounted || _disposed) return;
+        final bytes = await file.readAsBytes();
+        if (!mounted || _disposed) return;
+        _handleSelectedImage(
+          bytes,
+          file.name.isNotEmpty ? file.name : 'wardrobe_item.jpg',
+        );
+      } catch (_) {
+        if (!mounted || _disposed) return;
+        setState(() {
+          _stage = ExtractionUiStage.error;
+          _errorMessage =
+              'Could not capture photo. Please check camera permissions and try again.';
+        });
+      }
       return;
     }
 
@@ -128,7 +191,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       ),
     );
 
-    if (result != null && mounted) {
+    if (result != null && mounted && !_disposed) {
       _handleSelectedImage(result.bytes, result.filename);
     }
   }
@@ -144,14 +207,15 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
           ));
 
       final file = await picker(ImageSource.gallery);
-      if (file == null || !mounted) return;
+      if (file == null || !mounted || _disposed) return;
       final bytes = await file.readAsBytes();
+      if (!mounted || _disposed) return;
       _handleSelectedImage(
         bytes,
         file.name.isNotEmpty ? file.name : 'wardrobe_item.jpg',
       );
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || _disposed) return;
       setState(() {
         _stage = ExtractionUiStage.error;
         _errorMessage =
@@ -163,6 +227,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
   void _handleSelectedImage(Uint8List bytes, String filename) {
     if (bytes.isEmpty) {
       setState(() {
+        _imageBytes = null;
         _stage = ExtractionUiStage.error;
         _errorMessage =
             'The selected image is empty. Please choose another image.';
@@ -172,6 +237,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
 
     if (bytes.length > GarmentClient.maxImageBytes) {
       setState(() {
+        _imageBytes = null;
         _stage = ExtractionUiStage.error;
         _errorMessage =
             'Image exceeds 20 MB size limit. Please select a smaller photo.';
@@ -183,6 +249,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     if (mime == null ||
         (mime != 'image/jpeg' && mime != 'image/png' && mime != 'image/webp')) {
       setState(() {
+        _imageBytes = null;
         _stage = ExtractionUiStage.error;
         _errorMessage =
             'Unsupported image format. Please select a JPEG, PNG, or WebP photo.';
@@ -190,14 +257,23 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       return;
     }
 
+    if (_currentRunId != null && !_assetsCleaned) {
+      unawaited(_cleanupCurrentRunAssets());
+    }
+
     setState(() {
       _imageBytes = bytes;
       _filename = filename;
       _errorMessage = null;
+      _cleanupNotice = null;
       _partialExtractionNotice = null;
+      _idempotencyKey = null;
       _currentRunId = null;
       _saveIdempotencyKey = null;
       _assetsCleaned = false;
+      _candidates = [];
+      _savedItemsByCandidateId.clear();
+      _candidateSaveErrorsById.clear();
     });
 
     _startExtraction();
@@ -207,26 +283,37 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     final bytes = _imageBytes;
     if (bytes == null) return;
 
+    final gen = ++_extractionGeneration;
+    if (_currentRunId != null && !_assetsCleaned) {
+      unawaited(_cleanupCurrentRunAssets());
+    }
+
     setState(() {
       _stage = ExtractionUiStage.extracting;
       _statusMessage = 'Uploading photo…';
       _stillAnalyzing = false;
       _errorMessage = null;
+      _cleanupNotice = null;
       _partialExtractionNotice = null;
+      _currentRunId = null;
       _saveIdempotencyKey = null;
       _assetsCleaned = false;
+      _savedItemsByCandidateId.clear();
+      _candidateSaveErrorsById.clear();
     });
 
     _stillAnalyzingTimer?.cancel();
     _stillAnalyzingTimer = Timer(const Duration(seconds: 15), () {
-      if (!mounted || _stage != ExtractionUiStage.extracting) return;
+      if (!mounted || _disposed || _stage != ExtractionUiStage.extracting) {
+        return;
+      }
       setState(() {
         _stillAnalyzing = true;
       });
     });
 
     if (isGuestUser) {
-      await _extractEphemeral(bytes);
+      await _extractEphemeral(bytes, gen);
       return;
     }
 
@@ -237,8 +324,21 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       idempotencyKey: key,
     );
 
-    if (!mounted) return;
+    if (_disposed || !mounted || gen != _extractionGeneration) {
+      if (runId != null && !isGuestUser && AuthSession.isAuthenticated) {
+        unawaited(
+          _garmentClient
+              .cleanupExtractionAssets(runId: runId)
+              .catchError((_) => false),
+        );
+      }
+      return;
+    }
     if (runId == null) {
+      _stillAnalyzingTimer?.cancel();
+      if (_garmentClient.lastSubmitErrorCode == 'CONFLICT') {
+        _idempotencyKey = null;
+      }
       setState(() {
         _stage = ExtractionUiStage.error;
         _errorMessage =
@@ -252,11 +352,23 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     setState(() => _statusMessage = 'Extracting garments with AI…');
     final run = await _garmentClient.pollGarmentRun(runId: runId);
 
-    if (!mounted) return;
+    if (_disposed || !mounted || gen != _extractionGeneration) {
+      if (!isGuestUser && AuthSession.isAuthenticated) {
+        unawaited(
+          _garmentClient
+              .cleanupExtractionAssets(runId: runId)
+              .catchError((_) => false),
+        );
+      }
+      return;
+    }
+    _stillAnalyzingTimer?.cancel();
     if (run == null) {
       setState(() {
         _stage = ExtractionUiStage.error;
-        _errorMessage = 'Garment analysis timed out. Please try again.';
+        _errorMessage =
+            _garmentClient.lastPollError ??
+            'Garment analysis timed out. Please try again.';
       });
       return;
     }
@@ -281,13 +393,14 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     _handleAnalysisResult(resultMap, runId: runId);
   }
 
-  Future<void> _extractEphemeral(Uint8List bytes) async {
+  Future<void> _extractEphemeral(Uint8List bytes, int gen) async {
     final outcome = await _garmentClient.submitGarmentEphemeralBytes(
       bytes,
       filename: _filename ?? 'wardrobe_item.jpg',
     );
 
-    if (!mounted) return;
+    if (_disposed || !mounted || gen != _extractionGeneration) return;
+    _stillAnalyzingTimer?.cancel();
     final snapshot = outcome.snapshot;
     if (snapshot == null) {
       setState(() {
@@ -312,14 +425,31 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       return;
     }
 
-    final candidates = List<GarmentCandidate>.from(result.candidates);
-    if (candidates.isEmpty) {
+    final rawCandidates = List<GarmentCandidate>.from(result.candidates);
+    if (rawCandidates.isEmpty) {
       setState(() {
         _stage = ExtractionUiStage.error;
         _errorMessage =
             'No clothing item was clearly detected in this photo. Please retake with the item centered and in good lighting.';
       });
       return;
+    }
+
+    final usedIds = <String>{};
+    final candidates = <GarmentCandidate>[];
+    for (var i = 0; i < rawCandidates.length; i++) {
+      final raw = rawCandidates[i];
+      var cid = (raw.id ?? '').trim();
+      if (cid.isEmpty || usedIds.contains(cid)) {
+        var suffix = i + 1;
+        cid = 'cand_$suffix';
+        while (usedIds.contains(cid)) {
+          suffix++;
+          cid = 'cand_$suffix';
+        }
+      }
+      usedIds.add(cid);
+      candidates.add(raw.id == cid ? raw : raw.copyWith(id: cid));
     }
 
     String? partialNotice;
@@ -352,15 +482,23 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     for (var i = 0; i < candidates.length; i++) {
       final c = candidates[i];
       if (!c.hasCrop || c.id == null) continue;
+      if (_disposed || !mounted || _currentRunId != runId) return;
       final cropBytes = await _garmentClient.fetchCandidateCropBytes(
         runId: runId,
         candidateId: c.id!,
       );
-      if (!mounted || cropBytes == null) continue;
+      if (_disposed || !mounted || _currentRunId != runId) return;
       setState(() {
         final idx = _candidates.indexWhere((item) => item.id == c.id);
         if (idx != -1) {
-          _candidates[idx] = _candidates[idx].copyWith(cropBytes: cropBytes);
+          if (cropBytes != null && cropBytes.isNotEmpty) {
+            _candidates[idx] = _candidates[idx].copyWith(cropBytes: cropBytes);
+          } else {
+            _candidates[idx] = _candidates[idx].copyWith(
+              cropError:
+                  _candidates[idx].cropError ?? 'Crop preview unavailable',
+            );
+          }
         }
       });
     }
@@ -377,6 +515,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       case 'low_confidence':
         return 'The photo was too unclear or dimly lit to analyze confidently. '
             'Please retake with better lighting.';
+      case 'empty_image':
       case 'invalid_image':
         return 'The selected image is invalid or corrupted. Please choose a valid JPEG, PNG, or WebP photo.';
       case 'oversized_image':
@@ -386,7 +525,12 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       case 'analyzer_timeout':
         return 'The analysis service took too long to reply. Please try again.';
       case 'analyzer_unavailable':
-        return 'AI extraction service is currently unavailable. Please check your setup.';
+      case 'service_unavailable':
+        return 'AI extraction service is currently unavailable. Please try again later.';
+      case 'rate_limited':
+        return 'Too many extraction requests right now. Please wait a moment and try again.';
+      case 'unreachable':
+        return 'Could not reach the extraction service. Please check your connection and try again.';
       case 'invalid_analyzer_response':
         return 'The AI service returned an unreadable response. Please try again.';
       default:
@@ -481,6 +625,9 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     await _saveViaRepositoryLoop(selectedCandidates);
   }
 
+  String _candidateIdOf(GarmentCandidate candidate) =>
+      (candidate.id ?? '').trim();
+
   Future<void> _saveViaExtractionEndpoint(
     List<GarmentCandidate> selectedCandidates,
   ) async {
@@ -520,53 +667,113 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       return;
     }
 
-    final savedUiItems = <WardrobeItemData>[];
-    for (var i = 0; i < result.savedItems.length; i++) {
-      final dto = result.savedItems[i];
+    final selectedById = <String, GarmentCandidate>{};
+    for (final c in selectedCandidates) {
+      final cid = _candidateIdOf(c);
+      if (cid.isNotEmpty) {
+        selectedById[cid] = c;
+      }
+    }
+    final alreadySavedIds = _candidates
+        .where((c) => c.isSaved)
+        .map(_candidateIdOf)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    final newlySavedById = <String, WardrobeItemData>{};
+    for (final dto in result.savedItems) {
+      final candId = (dto.candidateId ?? dto.imageRef?.candidateId)?.trim();
+      if (candId == null || candId.isEmpty) {
+        continue;
+      }
+      // Preserve previously saved candidate results; never overwrite on retry.
+      if (alreadySavedIds.contains(candId) ||
+          _savedItemsByCandidateId.containsKey(candId)) {
+        continue;
+      }
+      final matchingCand = selectedById[candId];
+      if (matchingCand == null) {
+        continue;
+      }
       var uiItem = mapItemDtoToUi(dto);
-      final matchingCand = i < selectedCandidates.length
-          ? selectedCandidates[i]
-          : null;
-      final localBytes = matchingCand?.cropBytes;
+      final localBytes = matchingCand.cropBytes;
       if (localBytes != null && localBytes.isNotEmpty) {
         final prepared = await prepareWardrobePhoto(localBytes);
         uiItem = uiItem.copyWith(imageBytes: prepared ?? localBytes);
-        LearningService.instance.updateItem(
-          uiItem.id,
-          wardrobeEntryFromItem(uiItem),
-        );
       }
-      savedUiItems.add(uiItem);
+      final entry = wardrobeEntryFromItem(uiItem);
+      if (LearningService.instance.wardrobe.any((e) => e.id == uiItem.id)) {
+        LearningService.instance.updateItem(uiItem.id, entry);
+      } else {
+        LearningService.instance.addItem(entry);
+      }
+      newlySavedById[candId] = uiItem;
+      _savedItemsByCandidateId[candId] = uiItem;
+      _candidateSaveErrorsById.remove(candId);
+    }
+
+    if (newlySavedById.isNotEmpty) {
+      UserSession.hasSavedWardrobeItem = true;
     }
 
     if (result.cleanedUpAssets) {
       _assetsCleaned = true;
     }
 
-    if (!mounted) return;
-    if (result.failedItems.isEmpty && savedUiItems.isNotEmpty) {
+    if (!mounted || _disposed) return;
+    final failedIds = <String>{};
+    for (final failure in result.failedItems) {
+      final fid = failure.candidateId.trim();
+      if (fid.isNotEmpty) {
+        failedIds.add(fid);
+        _candidateSaveErrorsById[fid] = failure.error;
+      }
+    }
+    final updatedCandidates = _candidates.map((c) {
+      if (c.isSaved) {
+        return c;
+      }
+      final cid = _candidateIdOf(c);
+      if (newlySavedById.containsKey(cid) && !failedIds.contains(cid)) {
+        return c.copyWith(isSelected: false, isSaved: true);
+      }
+      return c;
+    }).toList();
+
+    final hasRemainingSelected = updatedCandidates.any(
+      (c) => c.isSelected && !c.isSaved,
+    );
+    if (result.failedItems.isEmpty &&
+        !hasRemainingSelected &&
+        _savedItemsByCandidateId.isNotEmpty) {
       _saveIdempotencyKey = null;
       _assetsCleaned = true;
-      Navigator.of(context).pop<List<WardrobeItemData>>(savedUiItems);
+      final orderedSavedItems = _orderedSavedItems(updatedCandidates);
+      Navigator.of(context).pop<List<WardrobeItemData>>(orderedSavedItems);
       return;
     }
 
-    final failedIds = result.failedItems.map((f) => f.candidateId).toSet();
     final failedNames = result.failedItems.map((f) => f.name).join(', ');
     setState(() {
       _stage = ExtractionUiStage.selection;
       _saveIdempotencyKey = null;
-      _candidates = _candidates.map((c) {
-        final wasSelected = selectedCandidates.contains(c);
-        if (wasSelected && !failedIds.contains(c.id)) {
-          return c.copyWith(isSelected: false, isSaved: true);
-        }
-        return c;
-      }).toList();
-      _errorMessage = savedUiItems.isNotEmpty
-          ? 'Saved ${savedUiItems.length} item(s). Failed to save: $failedNames. You can retry saving remaining items.'
-          : 'Failed to save: $failedNames. Please edit details and try again.';
+      _candidates = updatedCandidates;
+      _errorMessage = newlySavedById.isNotEmpty
+          ? 'Saved ${newlySavedById.length} item(s). Failed to save: $failedNames. You can retry saving remaining items.'
+          : (failedNames.isNotEmpty
+                ? 'Failed to save: $failedNames. Please edit details and try again.'
+                : 'Could not verify saved candidates. Please try again.');
     });
+  }
+
+  List<WardrobeItemData> _orderedSavedItems(List<GarmentCandidate> candidates) {
+    final ordered = candidates
+        .map((c) => _savedItemsByCandidateId[_candidateIdOf(c)])
+        .whereType<WardrobeItemData>()
+        .toList();
+    return ordered.isNotEmpty
+        ? ordered
+        : _savedItemsByCandidateId.values.toList();
   }
 
   Future<void> _saveViaRepositoryLoop(
@@ -630,15 +837,21 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     }
 
     final savedItems = <WardrobeItemData>[];
-    final savedCandidates = <GarmentCandidate>[];
+    final savedCandidateIds = <String>{};
     final failedCandidates = <GarmentCandidate>[];
 
     for (final candidate in selectedCandidates) {
+      final cid = _candidateIdOf(candidate);
+      if (cid.isNotEmpty && _savedItemsByCandidateId.containsKey(cid)) {
+        savedCandidateIds.add(cid);
+        continue;
+      }
       final categoryCode = candidate.category ?? 'tops';
       final colorCode = candidate.color ?? 'Black';
-      final name =
-          candidate.subcategory ??
-          '${candidate.color ?? ''} ${candidate.category ?? 'Item'}'.trim();
+      final rawName = candidate.subcategory?.trim();
+      final name = (rawName != null && rawName.isNotEmpty)
+          ? rawName
+          : '${candidate.color ?? ''} ${candidate.category ?? 'Item'}'.trim();
 
       try {
         final created = await _repository.createItem(
@@ -648,40 +861,66 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
           material: candidate.material,
           imageRef: cloudMediaRef,
           fit: candidate.fit,
-          fitConfidence: candidate.confidence,
         );
 
         if (created != null) {
-          final bytesToAttach = candidate.cropBytes ?? photoBytes;
-          final attached = created.copyWith(imageBytes: bytesToAttach);
-          if (bytesToAttach != null) {
-            LearningService.instance.updateItem(
-              attached.id,
-              wardrobeEntryFromItem(attached),
-            );
+          final rawBytes = candidate.cropBytes ?? photoBytes;
+          final prepared = rawBytes != null && rawBytes.isNotEmpty
+              ? (await prepareWardrobePhoto(rawBytes) ?? rawBytes)
+              : null;
+          final attached = created.copyWith(imageBytes: prepared);
+          final entry = wardrobeEntryFromItem(attached);
+          if (LearningService.instance.wardrobe.any(
+            (e) => e.id == attached.id,
+          )) {
+            LearningService.instance.updateItem(attached.id, entry);
+          } else {
+            LearningService.instance.addItem(entry);
           }
           savedItems.add(attached);
-          savedCandidates.add(candidate);
+          if (cid.isNotEmpty) {
+            savedCandidateIds.add(cid);
+            _savedItemsByCandidateId.putIfAbsent(cid, () => attached);
+            _candidateSaveErrorsById.remove(cid);
+          }
         } else {
           failedCandidates.add(candidate);
+          if (cid.isNotEmpty) {
+            _candidateSaveErrorsById[cid] = 'Could not save this item.';
+          }
         }
       } catch (_) {
         failedCandidates.add(candidate);
+        if (cid.isNotEmpty) {
+          _candidateSaveErrorsById[cid] = 'Could not save this item.';
+        }
       }
     }
 
-    _isSaving = false;
-    if (!mounted) return;
+    if (savedItems.isNotEmpty) {
+      UserSession.hasSavedWardrobeItem = true;
+    }
 
-    if (failedCandidates.isEmpty && savedItems.isNotEmpty) {
-      _cleanupCurrentRunAssets();
-      Navigator.of(context).pop<List<WardrobeItemData>>(savedItems);
+    _isSaving = false;
+    if (!mounted || _disposed) return;
+
+    if (failedCandidates.isEmpty &&
+        (savedItems.isNotEmpty || _savedItemsByCandidateId.isNotEmpty)) {
+      await _cleanupCurrentRunAssets();
+      if (!mounted || _disposed) return;
+      Navigator.of(context).pop<List<WardrobeItemData>>(
+        _savedItemsByCandidateId.isNotEmpty
+            ? _orderedSavedItems(_candidates)
+            : savedItems,
+      );
     } else if (savedItems.isNotEmpty && failedCandidates.isNotEmpty) {
       setState(() {
         _stage = ExtractionUiStage.selection;
         // Deselect saved candidates to prevent duplicate saves on retry
         _candidates = _candidates.map((c) {
-          if (savedCandidates.contains(c)) {
+          if (c.isSaved) return c;
+          final cid = _candidateIdOf(c);
+          if (savedCandidateIds.contains(cid)) {
             return c.copyWith(isSelected: false, isSaved: true);
           }
           return c;
@@ -700,6 +939,71 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     }
   }
 
+  Future<void> _cancelExtractionInProgress() async {
+    _extractionGeneration++;
+    _stillAnalyzingTimer?.cancel();
+    _garmentClient.cancelPolling();
+    await _cleanupCurrentRunAssets(surfaceFailure: true);
+    if (!mounted || _disposed) return;
+    setState(() {
+      _stage = ExtractionUiStage.idle;
+      _stillAnalyzing = false;
+      _statusMessage = null;
+      _errorMessage = null;
+      _imageBytes = null;
+      _currentRunId = null;
+      _idempotencyKey = null;
+      _saveIdempotencyKey = null;
+      _candidates = [];
+      _savedItemsByCandidateId.clear();
+      _candidateSaveErrorsById.clear();
+    });
+  }
+
+  Future<void> _retakePhoto() async {
+    _extractionGeneration++;
+    _stillAnalyzingTimer?.cancel();
+    _garmentClient.cancelPolling();
+    await _cleanupCurrentRunAssets(surfaceFailure: true);
+    if (!mounted || _disposed) return;
+    setState(() {
+      _stage = ExtractionUiStage.idle;
+      _stillAnalyzing = false;
+      _statusMessage = null;
+      _imageBytes = null;
+      _errorMessage = null;
+      _partialExtractionNotice = null;
+      _currentRunId = null;
+      _idempotencyKey = null;
+      _saveIdempotencyKey = null;
+      _candidates = [];
+      _savedItemsByCandidateId.clear();
+      _candidateSaveErrorsById.clear();
+    });
+  }
+
+  Future<void> _handleExit() async {
+    _extractionGeneration++;
+    _stillAnalyzingTimer?.cancel();
+    _garmentClient.cancelPolling();
+    final cleaned = await _cleanupCurrentRunAssets();
+    if (!mounted || _disposed) return;
+    if (!cleaned) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not immediately clean up temporary preview images; they will expire automatically.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+    final savedResult = _savedItemsByCandidateId.isNotEmpty
+        ? _orderedSavedItems(_candidates)
+        : null;
+    Navigator.of(context).pop<List<WardrobeItemData>?>(savedResult);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -710,7 +1014,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
         title: const Text('Add via AI Extraction'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _handleExit,
         ),
       ),
       body: SafeArea(
@@ -757,6 +1061,27 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
+        if (_cleanupNotice != null) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(FansivibeSpacing.sm),
+            margin: const EdgeInsets.only(bottom: FansivibeSpacing.md),
+            decoration: BoxDecoration(
+              color: FansivibeColors.accentGold.withValues(alpha: 0.12),
+              borderRadius: FansivibeRadius.smBorder,
+              border: Border.all(
+                color: FansivibeColors.accentGold.withValues(alpha: 0.35),
+              ),
+            ),
+            child: Text(
+              _cleanupNotice!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: FansivibeColors.textPrimary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
         Icon(
           Icons.auto_awesome_rounded,
           size: 64,
@@ -811,7 +1136,16 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
             child: SizedBox(
               width: 140,
               height: 140,
-              child: Image.memory(_imageBytes!, fit: BoxFit.cover),
+              child: Image.memory(
+                _imageBytes!,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Center(
+                  child: Icon(
+                    Icons.image_not_supported_outlined,
+                    color: FansivibeColors.textSecondary,
+                  ),
+                ),
+              ),
             ),
           ),
           const SizedBox(height: FansivibeSpacing.xl),
@@ -835,6 +1169,16 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
                 color: FansivibeColors.textSecondary,
               ),
               textAlign: TextAlign.center,
+            ),
+          ),
+        ],
+        if (_stage == ExtractionUiStage.extracting) ...[
+          const SizedBox(height: FansivibeSpacing.xl),
+          SizedBox(
+            width: double.infinity,
+            child: FansiButton.secondary(
+              label: 'Cancel Extraction',
+              onPressed: _cancelExtractionInProgress,
             ),
           ),
         ],
@@ -887,32 +1231,12 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
               ? FansiButton.secondary(
                   label: 'Try Another Photo',
                   icon: Icons.photo_library_outlined,
-                  onPressed: () {
-                    _cleanupCurrentRunAssets();
-                    setState(() {
-                      _stage = ExtractionUiStage.idle;
-                      _imageBytes = null;
-                      _errorMessage = null;
-                      _partialExtractionNotice = null;
-                      _currentRunId = null;
-                      _saveIdempotencyKey = null;
-                    });
-                  },
+                  onPressed: _retakePhoto,
                 )
               : FansiButton.primary(
                   label: 'Try Another Photo',
                   icon: Icons.refresh_rounded,
-                  onPressed: () {
-                    _cleanupCurrentRunAssets();
-                    setState(() {
-                      _stage = ExtractionUiStage.idle;
-                      _imageBytes = null;
-                      _errorMessage = null;
-                      _partialExtractionNotice = null;
-                      _currentRunId = null;
-                      _saveIdempotencyKey = null;
-                    });
-                  },
+                  onPressed: _retakePhoto,
                 ),
         ),
       ],
@@ -936,7 +1260,14 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
                 child: SizedBox(
                   width: 52,
                   height: 52,
-                  child: Image.memory(_imageBytes!, fit: BoxFit.cover),
+                  child: Image.memory(
+                    _imageBytes!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.image_not_supported_outlined,
+                      color: FansivibeColors.textSecondary,
+                    ),
+                  ),
                 ),
               ),
             const SizedBox(width: FansivibeSpacing.md),
@@ -964,6 +1295,26 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
           ],
         ),
         const SizedBox(height: FansivibeSpacing.md),
+        if (isGuestUser) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(FansivibeSpacing.sm),
+            decoration: BoxDecoration(
+              color: FansivibeColors.surfaceContainerHigh,
+              borderRadius: FansivibeRadius.smBorder,
+              border: Border.all(
+                color: FansivibeColors.accentGold.withValues(alpha: 0.25),
+              ),
+            ),
+            child: Text(
+              'Guest mode: items save locally on this device. Sign in to sync with your cloud wardrobe and access server-cropped previews.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: FansivibeColors.textSecondary,
+              ),
+            ),
+          ),
+          const SizedBox(height: FansivibeSpacing.sm),
+        ],
         if (_partialExtractionNotice != null) ...[
           Container(
             padding: const EdgeInsets.all(FansivibeSpacing.sm),
@@ -976,6 +1327,22 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
             ),
             child: Text(
               _partialExtractionNotice!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: FansivibeColors.textPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(height: FansivibeSpacing.sm),
+        ],
+        if (_cleanupNotice != null) ...[
+          Container(
+            padding: const EdgeInsets.all(FansivibeSpacing.sm),
+            decoration: BoxDecoration(
+              color: FansivibeColors.accentGold.withValues(alpha: 0.12),
+              borderRadius: FansivibeRadius.smBorder,
+            ),
+            child: Text(
+              _cleanupNotice!,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: FansivibeColors.textPrimary,
               ),
@@ -1007,8 +1374,12 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
                 const SizedBox(height: FansivibeSpacing.sm),
             itemBuilder: (context, index) {
               final candidate = _candidates[index];
+              final cid = _candidateIdOf(candidate);
               return _CandidateCard(
                 candidate: candidate,
+                saveError: cid.isNotEmpty
+                    ? _candidateSaveErrorsById[cid]
+                    : null,
                 onToggle: () => _toggleCandidateSelection(index),
                 onInspect: () => _inspectCandidate(index),
                 onEdit: () => _editCandidate(index),
@@ -1026,15 +1397,23 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
           ),
         ),
         const SizedBox(height: FansivibeSpacing.xs),
-        SizedBox(
-          width: double.infinity,
-          child: FansiButton.secondary(
-            label: 'Cancel',
-            onPressed: () {
-              _cleanupCurrentRunAssets();
-              Navigator.of(context).pop();
-            },
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: FansiButton.secondary(
+                label: 'Retake Photo',
+                icon: Icons.camera_alt_outlined,
+                onPressed: _retakePhoto,
+              ),
+            ),
+            const SizedBox(width: FansivibeSpacing.sm),
+            Expanded(
+              child: FansiButton.secondary(
+                label: 'Cancel',
+                onPressed: _handleExit,
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -1047,12 +1426,14 @@ class _CandidateCard extends StatelessWidget {
     required this.onToggle,
     required this.onInspect,
     required this.onEdit,
+    this.saveError,
   });
 
   final GarmentCandidate candidate;
   final VoidCallback onToggle;
   final VoidCallback onInspect;
   final VoidCallback onEdit;
+  final String? saveError;
 
   @override
   Widget build(BuildContext context) {
@@ -1101,9 +1482,16 @@ class _CandidateCard extends StatelessWidget {
                             ? Image.memory(
                                 candidate.cropBytes!,
                                 fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Icon(
+                                  Icons.broken_image_outlined,
+                                  color: FansivibeColors.textSecondary,
+                                  size: 24,
+                                ),
                               )
                             : Icon(
-                                Icons.checkroom_outlined,
+                                candidate.cropError != null
+                                    ? Icons.broken_image_outlined
+                                    : Icons.checkroom_outlined,
                                 color: FansivibeColors.accentGold.withValues(
                                   alpha: 0.8,
                                 ),
@@ -1157,11 +1545,10 @@ class _CandidateCard extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 4,
                 children: [
-                  if (candidate.color != null)
-                    _MetadataPill(
-                      label: 'Color: ${candidate.color}',
-                      icon: Icons.palette_outlined,
-                    ),
+                  _MetadataPill(
+                    label: 'Color: ${candidate.color ?? 'Not detected'}',
+                    icon: Icons.palette_outlined,
+                  ),
                   if (candidate.secondaryColors != null &&
                       candidate.secondaryColors!.isNotEmpty)
                     _MetadataPill(
@@ -1199,10 +1586,25 @@ class _CandidateCard extends StatelessWidget {
                       label: 'Condition: ${candidate.condition}',
                       icon: Icons.verified_outlined,
                     ),
-                  if (candidate.hasCrop)
-                    const _MetadataPill(
-                      label: 'BBox crop',
+                  if (candidate.cropError != null &&
+                      candidate.cropBytes == null)
+                    _MetadataPill(
+                      label: candidate.hasSegmentationMask
+                          ? 'Crop unavailable'
+                          : 'Crop unavailable • no mask',
+                      icon: Icons.broken_image_outlined,
+                    )
+                  else if (candidate.hasCrop)
+                    _MetadataPill(
+                      label: candidate.hasSegmentationMask
+                          ? 'BBox crop'
+                          : 'BBox crop • no mask',
                       icon: Icons.crop_rounded,
+                    )
+                  else if (!candidate.hasSegmentationMask)
+                    const _MetadataPill(
+                      label: 'No mask (photo ref)',
+                      icon: Icons.layers_outlined,
                     ),
                   if (candidate.confidence != null)
                     _MetadataPill(
@@ -1212,6 +1614,16 @@ class _CandidateCard extends StatelessWidget {
                     ),
                 ],
               ),
+              if (saveError != null) ...[
+                const SizedBox(height: FansivibeSpacing.xs),
+                Text(
+                  saveError!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: FansivibeColors.error,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
               if (candidate.description != null &&
                   candidate.description!.isNotEmpty) ...[
                 const SizedBox(height: FansivibeSpacing.xs),
@@ -1286,7 +1698,29 @@ class _CandidateInspectSheet extends StatelessWidget {
                   borderRadius: FansivibeRadius.baseBorder,
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxHeight: 220),
-                    child: Image.memory(displayBytes, fit: BoxFit.contain),
+                    child: Image.memory(
+                      displayBytes,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) {
+                        if (candidate.cropBytes != null &&
+                            fallbackPhotoBytes != null) {
+                          return Image.memory(
+                            fallbackPhotoBytes!,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => const Icon(
+                              Icons.broken_image_outlined,
+                              size: 48,
+                              color: FansivibeColors.textSecondary,
+                            ),
+                          );
+                        }
+                        return const Icon(
+                          Icons.broken_image_outlined,
+                          size: 48,
+                          color: FansivibeColors.textSecondary,
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -1301,9 +1735,11 @@ class _CandidateInspectSheet extends StatelessWidget {
               child: Text(
                 candidate.cropBytes != null
                     ? 'Extracted via bounding-box crop. $segReason'
-                    : (candidate.hasCrop
-                          ? 'Bounding-box crop stored privately. $segReason'
-                          : 'No bounding-box crop extracted; showing full photo reference. $segReason'),
+                    : (candidate.cropError != null
+                          ? 'Crop preview unavailable (${candidate.cropError}); showing full photo reference. $segReason'
+                          : (candidate.hasCrop
+                                ? 'Bounding-box crop stored privately. $segReason'
+                                : 'No bounding-box crop extracted; showing full photo reference. $segReason')),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: FansivibeColors.textSecondary,
                 ),
@@ -1468,11 +1904,20 @@ class _CandidateEditSheet extends StatefulWidget {
 }
 
 class _CandidateEditSheetState extends State<_CandidateEditSheet> {
+  static const List<String> _validCategories = [
+    'tops',
+    'bottoms',
+    'outerwear',
+    'footwear',
+    'accessories',
+  ];
+
   late final TextEditingController _nameController;
   late String _category;
   String? _color;
   String? _material;
   String? _fit;
+  String? _nameError;
 
   static String? _matchColorOption(String? raw) {
     if (raw == null) return null;
@@ -1505,7 +1950,8 @@ class _CandidateEditSheetState extends State<_CandidateEditSheet> {
     _nameController = TextEditingController(
       text: widget.candidate.subcategory ?? widget.candidate.category ?? 'Item',
     );
-    _category = widget.candidate.category ?? 'tops';
+    final rawCat = widget.candidate.category ?? 'tops';
+    _category = _validCategories.contains(rawCat) ? rawCat : 'tops';
     final candColor = widget.candidate.color;
     if (candColor != null && candColor.trim().isNotEmpty) {
       final cleanColor = candColor.trim().toLowerCase().replaceAll('_', ' ');
@@ -1565,9 +2011,15 @@ class _CandidateEditSheetState extends State<_CandidateEditSheet> {
             const SizedBox(height: FansivibeSpacing.md),
             TextField(
               controller: _nameController,
-              decoration: const InputDecoration(
+              onChanged: (_) {
+                if (_nameError != null) {
+                  setState(() => _nameError = null);
+                }
+              },
+              decoration: InputDecoration(
                 labelText: 'Item Name',
-                border: OutlineInputBorder(),
+                errorText: _nameError,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: FansivibeSpacing.md),
@@ -1650,8 +2102,13 @@ class _CandidateEditSheetState extends State<_CandidateEditSheet> {
               child: FansiButton.primary(
                 label: 'Done',
                 onPressed: () {
+                  final trimmedName = _nameController.text.trim();
+                  if (trimmedName.isEmpty) {
+                    setState(() => _nameError = 'Please enter an item name.');
+                    return;
+                  }
                   final updated = widget.candidate.copyWith(
-                    subcategory: _nameController.text.trim(),
+                    subcategory: trimmedName,
                     category: _category,
                     color: _color,
                     material: _material,

@@ -313,9 +313,25 @@ class LearningService extends ChangeNotifier implements LearningRepository {
     if (ids.isEmpty) return;
     _mutate(() {
       _model = _model.copyWith(
-        wardrobe:
-            _model.wardrobe.where((item) => !ids.contains(item.id)).toList(),
+        wardrobe: _model.wardrobe
+            .where((item) => !ids.contains(item.id))
+            .toList(),
       );
+    });
+  }
+
+  /// Removes all authenticated server-backed wardrobe mirrors while preserving
+  /// genuine device-local guest entries (`local-*` and test seeds).
+  ///
+  /// Called on logout, session expiry, and account switching so one account's
+  /// items and cached photos never leak into Guest mode or another session.
+  void clearAuthenticatedWardrobeMirrors() {
+    final preserved = _model.wardrobe
+        .where((item) => item.isGuestLocal)
+        .toList();
+    if (preserved.length == _model.wardrobe.length) return;
+    _mutate(() {
+      _model = _model.copyWith(wardrobe: preserved);
     });
   }
 
@@ -334,9 +350,9 @@ class LearningService extends ChangeNotifier implements LearningRepository {
     _mutate(
       () {
         _model = _model.copyWith(
-          wardrobe: _model.wardrobe.map((existing) =>
-              existing.id == itemId ? item : existing,
-          ).toList(),
+          wardrobe: _model.wardrobe
+              .map((existing) => existing.id == itemId ? item : existing)
+              .toList(),
         );
       },
       signalType: 'item_updated',

@@ -1732,6 +1732,7 @@ class TryOnJobModel(Base):
     __table_args__ = (
         Index("ix_tryon_jobs_user_created", "user_id", "created_at"),
         Index("ix_tryon_jobs_status", "status"),
+        Index("ix_tryon_jobs_status_lease_expires", "status", "lease_expires_at"),
         UniqueConstraint("user_id", "idempotency_key", name="uq_tryon_jobs_user_idempotency"),
     )
 
@@ -1793,6 +1794,15 @@ class TryOnJobModel(Base):
         nullable=True,
     )
     processing_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    worker_id: Mapped[Optional[str]] = mapped_column(
+        String(128), nullable=True
+    )
+    lease_token: Mapped[Optional[UUID]] = mapped_column(
+        Uuid, nullable=True
+    )
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(

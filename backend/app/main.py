@@ -150,20 +150,25 @@ async def lifespan(app: FastAPI):
 
     # Recover interrupted try-on jobs on startup to ensure durability invariants
     try:
-        from app.application.tryon import recover_interrupted_jobs
+        from app.application.tryon import get_worker_id, recover_interrupted_jobs
         from app.infrastructure.db.repositories import TryOnJobRepositorySQL
         from app.infrastructure.db.session import SessionLocal
 
         with SessionLocal() as db_session:
             job_sql_repo = TryOnJobRepositorySQL(db_session)
-            recovered_count = recover_interrupted_jobs(job_sql_repo)
+            recovered_count = recover_interrupted_jobs(
+                job_sql_repo, worker_id=get_worker_id()
+            )
             if recovered_count > 0:
                 logger.info(
                     "Recovered %d interrupted try-on jobs on startup.",
                     recovered_count,
                 )
     except Exception as exc:
-        logger.debug("Try-on startup recovery skipped: %s", exc)
+        logger.warning(
+            "Try-on startup recovery failed [event=tryon_startup_recovery_failed, err=%s]",
+            type(exc).__name__,
+        )
 
     warmup_task: Optional[asyncio.Task] = None
     if not current_settings.disable_reasoning:

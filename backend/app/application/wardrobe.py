@@ -16,7 +16,17 @@ from sqlalchemy.orm import Session
 
 from app.api.errors import ApiError, conflict, database_failure, not_found, validation
 from app.api.schemas.wardrobe import WardrobeInsight
-from app.application.media import validate_media_association
+from app.application.media import (
+    find_wardrobe_media_authorization,
+    has_live_wardrobe_media_reference,
+    parse_media_upload_id,
+    validate_media_association,
+)
+from app.domain.ports.storage import (
+    ObjectStoragePort,
+    StorageError,
+    resolve_wardrobe_image_key,
+)
 
 from app.domain.ports.repositories import (
     LearningSignalRepository,
@@ -159,6 +169,7 @@ class AddWardrobeItem:
         image_ref: Any | None = None,
         fit: str | None = None,
         fit_confidence: float | None = None,
+        extraction_provenance: dict[str, Any] | None = None,
     ) -> WardrobeItemRecord:
         if len(name) < 1 or len(name) > 100:
             raise validation(
@@ -172,6 +183,11 @@ class AddWardrobeItem:
                 user_id=user_id,
                 image_ref=image_ref,
             )
+        if trusted_image_ref is not None and isinstance(trusted_image_ref, dict) and extraction_provenance:
+            trusted_image_ref = {
+                **trusted_image_ref,
+                **{k: v for k, v in extraction_provenance.items() if v is not None},
+            }
 
         try:
             record = self._wardrobe.create(
@@ -234,6 +250,123 @@ class GetWardrobeItem:
         return record
 
 
+_EXTRACTION_PROVENANCE_KEYS: tuple[str, ...] = (
+    "sourceRunId",
+    "candidateId",
+    "extractionConfidence",
+    "source_run_id",
+    "candidate_id",
+    "extraction_confidence",
+)
+
+
+def _extract_media_ref_identity(
+    image_ref: Any, *, user_id: UUID
+) -> tuple[str | None, UUID | None]:
+    """Extract validated storage object key and uploadId from an image_ref dict."""
+    if not isinstance(image_ref, dict):
+        return None, None
+    key: str | None = None
+    try:
+        key = resolve_wardrobe_image_key(image_ref, user_id=user_id).key
+    except StorageError:
+        key = None
+    upload_id = parse_media_upload_id(image_ref)
+    return key, upload_id
+
+
+def _merge_extraction_provenance(
+    new_image_ref: Any, old_image_ref: Any
+) -> Any:
+    """Preserve extraction provenance fields across image replacement."""
+    if not isinstance(new_image_ref, dict) or not isinstance(old_image_ref, dict):
+        return new_image_ref
+    merged = dict(new_image_ref)
+    for field in _EXTRACTION_PROVENANCE_KEYS:
+        if field in old_image_ref and old_image_ref[field] is not None and field not in merged:
+            merged[field] = old_image_ref[field]
+    return merged
+
+
+async def _cleanup_unreferenced_wardrobe_media(
+    *,
+    db: Session | None,
+    storage: ObjectStoragePort | None,
+    user_id: UUID,
+    old_image_ref: Any,
+    new_image_ref: Any = None,
+) -> None:
+    """Safely delete old wardrobe storage object and MediaUploadAuthorization if unreferenced.
+
+    Must only be called AFTER the wardrobe item DB delete/update has committed.
+    """
+    old_key, old_upload_id = _extract_media_ref_identity(old_image_ref, user_id=user_id)
+    if old_key is None and old_upload_id is None:
+        return
+
+    if new_image_ref is not None:
+        new_key, new_upload_id = _extract_media_ref_identity(new_image_ref, user_id=user_id)
+        if old_key is not None and new_key == old_key:
+            return
+        if old_upload_id is not None and new_upload_id == old_upload_id:
+            return
+
+    if db is None:
+        if storage is not None and old_key is not None:
+            await storage.delete_object(old_key)
+        return
+
+    auth = find_wardrobe_media_authorization(
+        db,
+        user_id=user_id,
+        object_key=old_key,
+        upload_id=old_upload_id,
+        for_update=True,
+    )
+    if has_live_wardrobe_media_reference(
+        db,
+        user_id=user_id,
+        object_key=old_key,
+        upload_id=old_upload_id,
+    ):
+        db.rollback()
+        return
+
+    if auth is not None and auth.canonical_key and auth.canonical_key != old_key:
+        if has_live_wardrobe_media_reference(
+            db,
+            user_id=user_id,
+            object_key=auth.canonical_key,
+            upload_id=auth.upload_id,
+        ):
+            db.rollback()
+            return
+
+    if auth is not None:
+        auth.status = "delete_pending"
+        db.commit()
+
+    if storage is not None and old_key is not None:
+        try:
+            await storage.delete_object(old_key)
+        except Exception as exc:
+            if auth is not None:
+                auth.status = "delete_pending"
+                auth.failure_reason = "STORAGE_DELETE_FAILED"
+                auth.processing_attempts = (auth.processing_attempts or 0) + 1
+                db.commit()
+                return
+            raise ApiError(
+                status_code=503,
+                code="STORAGE_ERROR",
+                message="Wardrobe media deletion failed in storage.",
+            ) from exc
+
+    if auth is not None:
+        db.delete(auth)
+        db.commit()
+
+
 class UpdateWardrobeItem:
     """UC-W4 — `PATCH /v1/wardrobe/items/{item_id}` (W-4).
 
@@ -255,7 +388,7 @@ class UpdateWardrobeItem:
         self._wardrobe = wardrobe
         self._db = db
 
-    def __call__(
+    def _update_sync(
         self,
         *,
         user_id: UUID,
@@ -272,10 +405,12 @@ class UpdateWardrobeItem:
         fit_set: bool = False,
         fit_confidence: float | None = None,
         fit_confidence_set: bool = False,
-    ) -> WardrobeItemRecord:
+    ) -> tuple[WardrobeItemRecord, Any]:
         record = self._wardrobe.get_by_id(user_id=user_id, item_id=item_id)
         if record is None:
             raise not_found()
+
+        old_image_ref = record.image_ref
 
         if name is not None and (len(name) < 1 or len(name) > 100):
             raise validation(
@@ -283,11 +418,15 @@ class UpdateWardrobeItem:
             )
 
         trusted_image_ref = image_ref
-        if image_ref_set and image_ref is not None and self._db is not None:
-            trusted_image_ref = validate_media_association(
-                db=self._db,
-                user_id=user_id,
-                image_ref=image_ref,
+        if image_ref_set and image_ref is not None:
+            if self._db is not None:
+                trusted_image_ref = validate_media_association(
+                    db=self._db,
+                    user_id=user_id,
+                    image_ref=image_ref,
+                )
+            trusted_image_ref = _merge_extraction_provenance(
+                trusted_image_ref, old_image_ref
             )
 
         try:
@@ -320,6 +459,87 @@ class UpdateWardrobeItem:
         if updated is None:
             # Lost a race with a concurrent delete after the owner check.
             raise not_found()
+        return updated, old_image_ref
+
+    def __call__(
+        self,
+        *,
+        user_id: UUID,
+        item_id: UUID,
+        name: str | None,
+        category: str | None,
+        color: str | None,
+        material: str | None,
+        material_set: bool = False,
+        isFavorite: bool | None,
+        image_ref: Any | None = None,
+        image_ref_set: bool = False,
+        fit: str | None = None,
+        fit_set: bool = False,
+        fit_confidence: float | None = None,
+        fit_confidence_set: bool = False,
+    ) -> WardrobeItemRecord:
+        updated, _ = self._update_sync(
+            user_id=user_id,
+            item_id=item_id,
+            name=name,
+            category=category,
+            color=color,
+            material=material,
+            material_set=material_set,
+            isFavorite=isFavorite,
+            image_ref=image_ref,
+            image_ref_set=image_ref_set,
+            fit=fit,
+            fit_set=fit_set,
+            fit_confidence=fit_confidence,
+            fit_confidence_set=fit_confidence_set,
+        )
+        return updated
+
+    async def execute(
+        self,
+        *,
+        user_id: UUID,
+        item_id: UUID,
+        name: str | None,
+        category: str | None,
+        color: str | None,
+        material: str | None,
+        material_set: bool = False,
+        isFavorite: bool | None,
+        image_ref: Any | None = None,
+        image_ref_set: bool = False,
+        fit: str | None = None,
+        fit_set: bool = False,
+        fit_confidence: float | None = None,
+        fit_confidence_set: bool = False,
+        storage: ObjectStoragePort | None = None,
+    ) -> WardrobeItemRecord:
+        updated, old_image_ref = self._update_sync(
+            user_id=user_id,
+            item_id=item_id,
+            name=name,
+            category=category,
+            color=color,
+            material=material,
+            material_set=material_set,
+            isFavorite=isFavorite,
+            image_ref=image_ref,
+            image_ref_set=image_ref_set,
+            fit=fit,
+            fit_set=fit_set,
+            fit_confidence=fit_confidence,
+            fit_confidence_set=fit_confidence_set,
+        )
+        if image_ref_set and old_image_ref is not None:
+            await _cleanup_unreferenced_wardrobe_media(
+                db=self._db,
+                storage=storage,
+                user_id=user_id,
+                old_image_ref=old_image_ref,
+                new_image_ref=updated.image_ref,
+            )
         return updated
 
 
@@ -331,8 +551,28 @@ class DeleteWardrobeItem:
     Successful delete → 204 No Content.
     """
 
-    def __init__(self, *, wardrobe: WardrobeItemRepository) -> None:
+    def __init__(
+        self,
+        *,
+        wardrobe: WardrobeItemRepository,
+        db: Session | None = None,
+    ) -> None:
         self._wardrobe = wardrobe
+        self._db = db
+
+    def _delete_sync(
+        self,
+        *,
+        user_id: UUID,
+        item_id: UUID,
+    ) -> Any:
+        record = self._wardrobe.get_by_id(user_id=user_id, item_id=item_id)
+        if record is None:
+            raise not_found()
+        old_image_ref = record.image_ref
+        self._wardrobe.delete(user_id=user_id, item_id=item_id)
+        self._wardrobe.commit()
+        return old_image_ref
 
     def __call__(
         self,
@@ -340,11 +580,23 @@ class DeleteWardrobeItem:
         user_id: UUID,
         item_id: UUID,
     ) -> None:
-        record = self._wardrobe.get_by_id(user_id=user_id, item_id=item_id)
-        if record is None:
-            raise not_found()
-        self._wardrobe.delete(user_id=user_id, item_id=item_id)
-        self._wardrobe.commit()
+        self._delete_sync(user_id=user_id, item_id=item_id)
+
+    async def execute(
+        self,
+        *,
+        user_id: UUID,
+        item_id: UUID,
+        storage: ObjectStoragePort | None = None,
+    ) -> None:
+        old_image_ref = self._delete_sync(user_id=user_id, item_id=item_id)
+        if old_image_ref is not None:
+            await _cleanup_unreferenced_wardrobe_media(
+                db=self._db,
+                storage=storage,
+                user_id=user_id,
+                old_image_ref=old_image_ref,
+            )
 
 
 class GetWardrobeInsight:

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
@@ -18,8 +19,16 @@ WardrobeItemData mapItemDtoToUi(WardrobeItem item) => WardrobeItemData(
   color: item.color,
   material: item.material,
   isFavorite: item.isFavorite,
+  fit: item.fit,
+  fitConfidence: item.fitConfidence,
+  sourceRunId: item.sourceRunId ?? item.imageRef?.sourceRunId,
+  candidateId: item.candidateId ?? item.imageRef?.candidateId,
+  extractionConfidence:
+      item.extractionConfidence ?? item.imageRef?.extractionConfidence,
   imageRef: item.imageRef,
   imageUrl: item.imageUrl ?? item.imageRef?.downloadUrl ?? item.imageRef?.url,
+  createdAt: item.createdAt,
+  updatedAt: item.updatedAt,
 );
 
 /// Maps a backend [WardrobeInsight] DTO to the UI-facing [WardrobeInsightData].
@@ -82,8 +91,10 @@ WardrobeInsightData? mapWearSummaryToUi(WearSummary summary) {
     final n = summary.unwornItemIds.length;
     parts.add('$n ${_plural(n, 'item', 'items')} not logged yet.');
   }
-  final topCategory =
-      _topCategoryLine(summary.wearsByCategory, summary.totalWears);
+  final topCategory = _topCategoryLine(
+    summary.wearsByCategory,
+    summary.totalWears,
+  );
   if (topCategory.isNotEmpty) parts.add(topCategory);
   return WardrobeInsightData(
     title: 'Wear Summary',
@@ -249,11 +260,7 @@ abstract class WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) =>
-      logWear(
-        itemIds: itemIds,
-        wornAt: wornAt,
-        idempotencyKey: idempotencyKey,
-      );
+      logWear(itemIds: itemIds, wornAt: wornAt, idempotencyKey: idempotencyKey);
 }
 
 /// Extension on [WardrobeRepository] to update item media without breaking test mocks.
@@ -284,6 +291,73 @@ extension WardrobeRepositoryMediaExtension on WardrobeRepository {
     } catch (_) {}
     return updateItem(itemId: itemId);
   }
+
+  /// Updates metadata and/or media fields (including explicit clears) without
+  /// breaking existing [WardrobeRepository] test mocks.
+  Future<WardrobeItemData?> updateItemDetails({
+    required String itemId,
+    String? name,
+    String? category,
+    String? color,
+    String? material,
+    bool clearMaterial = false,
+    bool? isFavorite,
+    String? fit,
+    bool clearFit = false,
+    double? fitConfidence,
+    MediaRef? imageRef,
+    bool clearImageRef = false,
+    Uint8List? imageBytes,
+  }) async {
+    final self = this;
+    if (self is WardrobeRepositoryImpl) {
+      return self.updateItemDetailsDirect(
+        itemId: itemId,
+        name: name,
+        category: category,
+        color: color,
+        material: material,
+        clearMaterial: clearMaterial,
+        isFavorite: isFavorite,
+        fit: fit,
+        clearFit: clearFit,
+        fitConfidence: fitConfidence,
+        imageRef: imageRef,
+        clearImageRef: clearImageRef,
+      );
+    }
+    try {
+      final dynamic dyn = self;
+      final res = await dyn.updateItemDetailsDirect(
+        itemId: itemId,
+        name: name,
+        category: category,
+        color: color,
+        material: material,
+        clearMaterial: clearMaterial,
+        isFavorite: isFavorite,
+        fit: fit,
+        clearFit: clearFit,
+        fitConfidence: fitConfidence,
+        imageRef: imageRef,
+        clearImageRef: clearImageRef,
+        imageBytes: imageBytes,
+      );
+      if (res is WardrobeItemData?) {
+        return res;
+      }
+    } catch (_) {}
+    return updateItem(
+      itemId: itemId,
+      name: name,
+      category: category,
+      color: color,
+      material: material,
+      isFavorite: isFavorite,
+      fit: fit,
+      fitConfidence: fitConfidence,
+    );
+  }
 }
 
 /// UUID v4 regex pattern for backend wardrobe ID verification.
@@ -302,7 +376,8 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
 
   /// Creates a [WardrobeRepositoryImpl] with an optional [WardrobeClient] for testing.
   /// Without a client, uses the default [WardrobeClient].
-  WardrobeRepositoryImpl({WardrobeClient? client}) : _client = client ?? WardrobeClient();
+  WardrobeRepositoryImpl({WardrobeClient? client})
+    : _client = client ?? WardrobeClient();
 
   @override
   Future<List<WardrobeItemData>> listItems({
@@ -413,6 +488,43 @@ class WardrobeRepositoryImpl implements WardrobeRepository {
   }) async {
     final apiItem = await _client.updateItem(
       itemId: itemId,
+      imageRef: imageRef,
+      clearImageRef: clearImageRef,
+    );
+    if (apiItem != null) {
+      return mapItemDtoToUi(apiItem);
+    }
+    return null;
+  }
+
+  Future<WardrobeItemData?> updateItemDetailsDirect({
+    required String itemId,
+    String? name,
+    String? category,
+    String? color,
+    String? material,
+    bool clearMaterial = false,
+    bool? isFavorite,
+    String? fit,
+    bool clearFit = false,
+    double? fitConfidence,
+    MediaRef? imageRef,
+    bool clearImageRef = false,
+    Uint8List? imageBytes,
+  }) async {
+    final apiItem = await _client.updateItem(
+      itemId: itemId,
+      name: name,
+      category: category == null ? null : _vocabCode(category),
+      color: color == null ? null : _vocabCode(color),
+      material: clearMaterial
+          ? null
+          : (material == null ? null : _vocabCode(material)),
+      clearMaterial: clearMaterial,
+      isFavorite: isFavorite,
+      fit: clearFit ? null : fit,
+      clearFit: clearFit,
+      fitConfidence: fitConfidence,
       imageRef: imageRef,
       clearImageRef: clearImageRef,
     );

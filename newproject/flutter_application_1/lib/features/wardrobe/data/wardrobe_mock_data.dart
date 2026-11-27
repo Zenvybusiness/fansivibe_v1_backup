@@ -32,11 +32,18 @@ class WardrobeItemData {
     required this.color,
     this.material,
     this.isFavorite = false,
+    this.fit,
+    this.fitConfidence,
+    this.sourceRunId,
+    this.candidateId,
+    this.extractionConfidence,
     this.imageBytes,
     this.imageRef,
     this.imageUrl,
     this.localOriginalPath,
     this.cloudBackupStatus,
+    this.createdAt,
+    this.updatedAt,
   });
 
   final String id;
@@ -45,6 +52,11 @@ class WardrobeItemData {
   final String color;
   final String? material;
   final bool isFavorite;
+  final String? fit;
+  final double? fitConfidence;
+  final String? sourceRunId;
+  final String? candidateId;
+  final double? extractionConfidence;
 
   /// Exact user photo bytes, or null when the item has no photo.
   final Uint8List? imageBytes;
@@ -61,30 +73,55 @@ class WardrobeItemData {
   /// Cloud backup status: 'local_only', 'uploading', 'backed_up', 'failed'.
   final String? cloudBackupStatus;
 
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
   WardrobeItemData copyWith({
     String? id,
     String? name,
     String? category,
     String? color,
     String? material,
+    bool clearMaterial = false,
     bool? isFavorite,
+    String? fit,
+    bool clearFit = false,
+    double? fitConfidence,
+    String? sourceRunId,
+    String? candidateId,
+    double? extractionConfidence,
     Uint8List? imageBytes,
+    bool clearImageBytes = false,
     MediaRef? imageRef,
+    bool clearImageRef = false,
     String? imageUrl,
+    bool clearImageUrl = false,
     String? localOriginalPath,
+    bool clearLocalOriginalPath = false,
     String? cloudBackupStatus,
+    DateTime? createdAt,
+    DateTime? updatedAt,
   }) => WardrobeItemData(
     id: id ?? this.id,
     name: name ?? this.name,
     category: category ?? this.category,
     color: color ?? this.color,
-    material: material ?? this.material,
+    material: clearMaterial ? null : (material ?? this.material),
     isFavorite: isFavorite ?? this.isFavorite,
-    imageBytes: imageBytes ?? this.imageBytes,
-    imageRef: imageRef ?? this.imageRef,
-    imageUrl: imageUrl ?? this.imageUrl,
-    localOriginalPath: localOriginalPath ?? this.localOriginalPath,
+    fit: clearFit ? null : (fit ?? this.fit),
+    fitConfidence: fitConfidence ?? this.fitConfidence,
+    sourceRunId: sourceRunId ?? this.sourceRunId,
+    candidateId: candidateId ?? this.candidateId,
+    extractionConfidence: extractionConfidence ?? this.extractionConfidence,
+    imageBytes: clearImageBytes ? null : (imageBytes ?? this.imageBytes),
+    imageRef: clearImageRef ? null : (imageRef ?? this.imageRef),
+    imageUrl: clearImageUrl ? null : (imageUrl ?? this.imageUrl),
+    localOriginalPath: clearLocalOriginalPath
+        ? null
+        : (localOriginalPath ?? this.localOriginalPath),
     cloudBackupStatus: cloudBackupStatus ?? this.cloudBackupStatus,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
   );
 }
 
@@ -530,7 +567,9 @@ abstract final class AddItemConfig {
         return config;
       }
     }
-    if (code.contains('shoe') || code.contains('boot') || code.contains('foot')) {
+    if (code.contains('shoe') ||
+        code.contains('boot') ||
+        code.contains('foot')) {
       return categories.firstWhere((c) => c.id == 'shoes');
     }
     if (code.contains('layer') ||

@@ -66,6 +66,7 @@ class SaveExtractedGarmentsResult {
     this.cleanedUpAssets = false,
     this.errorMessage,
     this.isConflict = false,
+    this.isUnauthorized = false,
   });
 
   final List<WardrobeItem> savedItems;
@@ -73,6 +74,7 @@ class SaveExtractedGarmentsResult {
   final bool cleanedUpAssets;
   final String? errorMessage;
   final bool isConflict;
+  final bool isUnauthorized;
 
   bool get hasSavedItems => savedItems.isNotEmpty;
   bool get hasFailures => failedItems.isNotEmpty || errorMessage != null;
@@ -119,6 +121,12 @@ class GarmentClient {
 
   String? lastSubmitError;
   String? lastSubmitErrorCode;
+  String? lastPollError;
+  String? lastPollErrorCode;
+  bool _pollCancelled = false;
+
+  /// Requests early cancellation of an in-flight [pollGarmentRun] loop.
+  void cancelPolling() => _pollCancelled = true;
 
   /// Submits a garment photo for analysis.
   ///
@@ -199,6 +207,18 @@ class GarmentClient {
       lastSubmitErrorCode = 'PAYLOAD_TOO_LARGE';
       return;
     }
+    if (response.statusCode == 504) {
+      lastSubmitError =
+          'Garment extraction timed out while contacting the server. Please try again.';
+      lastSubmitErrorCode = 'TIMEOUT';
+      return;
+    }
+    if (response.statusCode == 502 || response.statusCode == 503) {
+      lastSubmitError =
+          'AI extraction service is currently unavailable. Please try again.';
+      lastSubmitErrorCode = 'SERVICE_UNAVAILABLE';
+      return;
+    }
     try {
       final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
       final error = decoded?['error'];
@@ -229,6 +249,8 @@ class GarmentClient {
   /// Fetches one garment run (200 with data, other statuses bare, 0 when
   /// unreachable — never throws).
   Future<GarmentAnalysisRun> getGarmentRun({required String runId}) async {
+    lastPollError = null;
+    lastPollErrorCode = null;
     try {
       final response = await _client
           .get(
@@ -241,31 +263,75 @@ class GarmentClient {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
         return GarmentAnalysisRun(statusCode: 200, data: decoded);
       }
+      if (response.statusCode == 401) {
+        lastPollError = 'Please sign in again to continue garment extraction.';
+        lastPollErrorCode = 'UNAUTHORIZED';
+      } else if (response.statusCode == 404) {
+        lastPollError =
+            'This extraction run could not be found. Please try again.';
+        lastPollErrorCode = 'NOT_FOUND';
+      } else if (response.statusCode == 504) {
+        lastPollError = 'Garment analysis timed out. Please try again.';
+        lastPollErrorCode = 'TIMEOUT';
+      } else if (response.statusCode == 502 || response.statusCode == 503) {
+        lastPollError =
+            'AI extraction service is currently unavailable. Please try again.';
+        lastPollErrorCode = 'SERVICE_UNAVAILABLE';
+      } else if (response.statusCode >= 500) {
+        lastPollError =
+            'Garment extraction failed on the server (HTTP ${response.statusCode}). Please try again.';
+        lastPollErrorCode = 'SERVER_ERROR';
+      }
       return GarmentAnalysisRun(statusCode: response.statusCode);
+    } on TimeoutException {
+      lastPollError =
+          'Garment analysis timed out while contacting the server. Please try again.';
+      lastPollErrorCode = 'TIMEOUT';
+      return const GarmentAnalysisRun(statusCode: 0);
     } catch (error) {
+      lastPollError =
+          'Could not reach the server while checking extraction progress. Please try again.';
+      lastPollErrorCode = 'UNREACHABLE';
       debugPrint('Garment backend unreachable during poll: $error');
       return const GarmentAnalysisRun(statusCode: 0);
     }
   }
 
-  /// Polls until the run is completed/failed, the run disappears, or
-  /// [attempts] exhaust. A terminal `failed` run returns promptly.
+  /// Polls until the run is completed/failed, the run disappears, [cancelPolling]
+  /// is called, or [attempts] exhaust. A terminal `failed` run returns promptly.
   Future<GarmentAnalysisRun?> pollGarmentRun({
     required String runId,
     int attempts = 30,
   }) async {
+    _pollCancelled = false;
+    lastPollError = null;
+    lastPollErrorCode = null;
     try {
       for (var attempt = 0; attempt < attempts; attempt++) {
+        if (_pollCancelled) {
+          lastPollErrorCode = 'CANCELLED';
+          return null;
+        }
         final run = await getGarmentRun(runId: runId);
+        if (_pollCancelled) {
+          lastPollErrorCode = 'CANCELLED';
+          return null;
+        }
         if (run.statusCode == 0 ||
             run.statusCode == 404 ||
-            run.statusCode == 401) {
+            run.statusCode == 401 ||
+            run.statusCode >= 500) {
           return null;
         }
         if (run.isCompleted || run.isFailed) return run;
         await Future<void>.delayed(_pollInterval);
       }
+      lastPollError = 'Garment analysis timed out. Please try again.';
+      lastPollErrorCode = 'INFERENCE_TIMEOUT';
     } catch (error) {
+      lastPollError ??=
+          'Could not reach the server while checking extraction progress. Please try again.';
+      lastPollErrorCode ??= 'UNREACHABLE';
       debugPrint('Garment polling failed: $error');
     }
     return null;
@@ -315,7 +381,7 @@ class GarmentClient {
             'color': c.color ?? 'black',
             if (c.material != null) 'material': c.material,
             if (c.fit != null) 'fit': c.fit,
-            if (c.confidence != null) 'fitConfidence': c.confidence,
+            if (c.confidence != null) 'extractionConfidence': c.confidence,
             'isFavorite': false,
           };
         }).toList(),
@@ -346,6 +412,12 @@ class GarmentClient {
           cleanedUpAssets: decoded['cleanedUpAssets'] as bool? ?? false,
         );
       }
+      if (response.statusCode == 401) {
+        return const SaveExtractedGarmentsResult(
+          errorMessage: 'Please sign in to save garments to your wardrobe.',
+          isUnauthorized: true,
+        );
+      }
       if (response.statusCode == 409) {
         return const SaveExtractedGarmentsResult(
           errorMessage:
@@ -353,8 +425,17 @@ class GarmentClient {
           isConflict: true,
         );
       }
-      String msg =
-          'Could not save selected garments (HTTP ${response.statusCode}).';
+      if (response.statusCode == 413) {
+        return const SaveExtractedGarmentsResult(
+          errorMessage:
+              'Selected garment data exceeds the maximum allowed size.',
+        );
+      }
+      String msg = response.statusCode == 504
+          ? 'Saving garments timed out. Please retry.'
+          : (response.statusCode == 502 || response.statusCode == 503)
+          ? 'Wardrobe service is temporarily unavailable. Please try again.'
+          : 'Could not save selected garments (HTTP ${response.statusCode}).';
       try {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
         final err = decoded?['error'];
@@ -407,9 +488,15 @@ class GarmentClient {
     Uint8List bytes, {
     String filename = 'wardrobe_item.jpg',
   }) async {
-    if (bytes.isEmpty || bytes.length > maxImageBytes) {
-      debugPrint('Garment ephemeral refused image (${bytes.length} bytes).');
+    if (bytes.isEmpty) {
+      debugPrint('Garment ephemeral refused empty image.');
       return (snapshot: null, failureReason: 'empty_image');
+    }
+    if (bytes.length > maxImageBytes) {
+      debugPrint(
+        'Garment ephemeral refused oversized image (${bytes.length} bytes).',
+      );
+      return (snapshot: null, failureReason: 'oversized_image');
     }
     try {
       final uri = Uri.parse('$_baseUrl/v1/analysis/garment/ephemeral');
@@ -435,6 +522,8 @@ class GarmentClient {
         'Garment ephemeral responded ${response.statusCode}: ${response.body}',
       );
       return (snapshot: null, failureReason: _ephemeralFailureReason(response));
+    } on TimeoutException {
+      return (snapshot: null, failureReason: 'analyzer_timeout');
     } catch (error) {
       debugPrint('Garment ephemeral unreachable: $error');
       return (snapshot: null, failureReason: 'unreachable');
@@ -442,8 +531,12 @@ class GarmentClient {
   }
 
   static String _ephemeralFailureReason(http.Response response) {
+    if (response.statusCode == 413) return 'oversized_image';
     if (response.statusCode == 429) return 'rate_limited';
-    if (response.statusCode == 503) return 'service_unavailable';
+    if (response.statusCode == 504) return 'analyzer_timeout';
+    if (response.statusCode == 502 || response.statusCode == 503) {
+      return 'service_unavailable';
+    }
     try {
       final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
       final error = decoded?['error'];

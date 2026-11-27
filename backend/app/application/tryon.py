@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 import io
 import logging
+import os
+import socket
 import threading
 import time
 from typing import Any, Optional
@@ -133,6 +135,9 @@ class InMemoryTryOnJobRepository:
                     processing_started_at=old.processing_started_at,
                     completed_at=old.completed_at,
                     image_bytes=image_bytes,
+                    worker_id=old.worker_id,
+                    lease_token=old.lease_token,
+                    lease_expires_at=old.lease_expires_at,
                 )
 
     def get_image_bytes(self, job_id: UUID) -> Optional[bytes]:
@@ -154,6 +159,8 @@ class InMemoryTryOnJobRepository:
         person_media_ref: Optional[dict[str, Any]] = None,
         idempotency_key: Optional[str] = None,
         request_fingerprint: Optional[str] = None,
+        worker_id: Optional[str] = None,
+        lease_expires_at: Optional[datetime] = None,
     ) -> TryOnJobRecord:
         now = datetime.now(timezone.utc)
         record = TryOnJobRecord(
@@ -171,6 +178,8 @@ class InMemoryTryOnJobRepository:
             person_media_ref=person_media_ref,
             idempotency_key=idempotency_key,
             request_fingerprint=request_fingerprint,
+            worker_id=worker_id,
+            lease_expires_at=lease_expires_at,
         )
         with self._lock:
             if idempotency_key and (user_id, idempotency_key) in self._idempotency:
@@ -200,6 +209,8 @@ class InMemoryTryOnJobRepository:
         daily_quota: int,
         concurrent_limit: int,
         global_concurrent_limit: int = 10,
+        worker_id: Optional[str] = None,
+        lease_expires_at: Optional[datetime] = None,
     ) -> tuple[TryOnJobRecord, bool]:
         """Atomically verify idempotency and quotas under in-memory lock."""
         from app.telemetry.metrics import get_metrics_collector
@@ -253,6 +264,8 @@ class InMemoryTryOnJobRepository:
                 person_media_ref=person_media_ref,
                 idempotency_key=idempotency_key,
                 request_fingerprint=request_fingerprint,
+                worker_id=worker_id,
+                lease_expires_at=lease_expires_at,
             )
             return record, True
 
@@ -301,14 +314,18 @@ class InMemoryTryOnJobRepository:
         status: str,
         processing_started_at: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
+        expected_lease_token: Optional[UUID] = None,
     ) -> Optional[TryOnJobRecord]:
         with self._lock:
             old = self._jobs.get(job_id)
             if not old:
                 return None
+            if expected_lease_token is not None and old.lease_token != expected_lease_token:
+                return None
             # Stale worker protection: terminal jobs cannot move back to queued/processing
             if old.status in ("completed", "cancelled") and status in ("queued", "processing"):
                 return old
+            is_terminal = status in ("completed", "cancelled", "failed")
             new_rec = TryOnJobRecord(
                 id=old.id,
                 user_id=old.user_id,
@@ -332,6 +349,9 @@ class InMemoryTryOnJobRepository:
                 processing_started_at=processing_started_at or old.processing_started_at,
                 completed_at=completed_at or old.completed_at,
                 image_bytes=old.image_bytes or self._images.get(job_id),
+                worker_id=None if is_terminal else old.worker_id,
+                lease_token=None if is_terminal else old.lease_token,
+                lease_expires_at=None if is_terminal else old.lease_expires_at,
             )
             self._jobs[job_id] = new_rec
             return new_rec
@@ -342,11 +362,15 @@ class InMemoryTryOnJobRepository:
         job_id: UUID,
         result_media_ref: dict[str, Any],
         completed_at: datetime,
+        expected_lease_token: Optional[UUID] = None,
     ) -> Optional[TryOnJobRecord]:
         with self._lock:
             old = self._jobs.get(job_id)
             if not old:
                 return None
+            if expected_lease_token is not None:
+                if old.status != "processing" or old.lease_token != expected_lease_token:
+                    return None
             # Cancelled or failed jobs cannot later become completed (stale worker protection)
             if old.status in ("cancelled", "completed", "failed"):
                 return old
@@ -373,6 +397,9 @@ class InMemoryTryOnJobRepository:
                 processing_started_at=old.processing_started_at,
                 completed_at=completed_at,
                 image_bytes=old.image_bytes or self._images.get(job_id),
+                worker_id=None,
+                lease_token=None,
+                lease_expires_at=None,
             )
             self._jobs[job_id] = new_rec
             return new_rec
@@ -384,11 +411,15 @@ class InMemoryTryOnJobRepository:
         error_code: str,
         error_message: str,
         completed_at: datetime,
+        expected_lease_token: Optional[UUID] = None,
     ) -> Optional[TryOnJobRecord]:
         with self._lock:
             old = self._jobs.get(job_id)
             if not old:
                 return None
+            if expected_lease_token is not None:
+                if old.status != "processing" or old.lease_token != expected_lease_token:
+                    return None
             # Completed or cancelled jobs cannot be overwritten by delayed worker failures
             if old.status in ("completed", "cancelled"):
                 return old
@@ -415,6 +446,9 @@ class InMemoryTryOnJobRepository:
                 processing_started_at=old.processing_started_at,
                 completed_at=completed_at,
                 image_bytes=None,
+                worker_id=None,
+                lease_token=None,
+                lease_expires_at=None,
             )
             self._jobs[job_id] = new_rec
             return new_rec
@@ -425,6 +459,8 @@ class InMemoryTryOnJobRepository:
         job_id: UUID,
         retry_count: int,
         status: str = "queued",
+        worker_id: Optional[str] = None,
+        lease_expires_at: Optional[datetime] = None,
     ) -> Optional[TryOnJobRecord]:
         with self._lock:
             old = self._jobs.get(job_id)
@@ -453,6 +489,9 @@ class InMemoryTryOnJobRepository:
                 processing_started_at=None,
                 completed_at=None,
                 image_bytes=None,
+                worker_id=worker_id,
+                lease_token=None,
+                lease_expires_at=lease_expires_at,
             )
             self._jobs[job_id] = new_rec
             return new_rec
@@ -462,11 +501,15 @@ class InMemoryTryOnJobRepository:
         *,
         job_id: UUID,
         processing_started_at: datetime,
+        worker_id: Optional[str] = None,
+        lease_token: Optional[UUID] = None,
+        lease_seconds: int = 60,
     ) -> bool:
         with self._lock:
             old = self._jobs.get(job_id)
             if not old or old.status != "queued":
                 return False
+            exp = datetime.now(timezone.utc) + timedelta(seconds=max(1, int(lease_seconds)))
             self._jobs[job_id] = TryOnJobRecord(
                 id=old.id,
                 user_id=old.user_id,
@@ -490,8 +533,171 @@ class InMemoryTryOnJobRepository:
                 processing_started_at=processing_started_at,
                 completed_at=old.completed_at,
                 image_bytes=old.image_bytes or self._images.get(job_id),
+                worker_id=worker_id,
+                lease_token=lease_token,
+                lease_expires_at=exp,
             )
             return True
+
+    def claim_processing_lease(
+        self,
+        *,
+        job_id: UUID,
+        worker_id: str,
+        lease_token: UUID,
+        lease_seconds: int = 60,
+    ) -> bool:
+        with self._lock:
+            old = self._jobs.get(job_id)
+            if not old or old.status != "processing":
+                return False
+            now_utc = datetime.now(timezone.utc)
+            if (
+                old.worker_id is not None
+                and old.worker_id != worker_id
+                and old.lease_expires_at is not None
+                and old.lease_expires_at > now_utc
+            ):
+                return False
+            exp = now_utc + timedelta(seconds=max(1, int(lease_seconds)))
+            self._jobs[job_id] = TryOnJobRecord(
+                id=old.id,
+                user_id=old.user_id,
+                outfit_source=old.outfit_source,
+                garment_id=old.garment_id,
+                garment_ids=old.garment_ids,
+                provider=old.provider,
+                status=old.status,
+                consent_version=old.consent_version,
+                consent_accepted_at=old.consent_accepted_at,
+                created_at=old.created_at,
+                updated_at=now_utc,
+                person_media_ref=old.person_media_ref,
+                result_media_ref=old.result_media_ref,
+                idempotency_key=old.idempotency_key,
+                request_fingerprint=old.request_fingerprint,
+                error_code=old.error_code,
+                error_message=old.error_message,
+                retry_count=old.retry_count,
+                retry_of_job_id=old.retry_of_job_id,
+                processing_started_at=old.processing_started_at,
+                completed_at=old.completed_at,
+                image_bytes=old.image_bytes or self._images.get(job_id),
+                worker_id=worker_id,
+                lease_token=lease_token,
+                lease_expires_at=exp,
+            )
+            return True
+
+    def renew_lease(
+        self,
+        *,
+        job_id: UUID,
+        worker_id: str,
+        lease_token: UUID,
+        lease_seconds: int = 60,
+    ) -> bool:
+        with self._lock:
+            old = self._jobs.get(job_id)
+            if not old or old.status != "processing":
+                return False
+            if old.worker_id != worker_id or old.lease_token != lease_token:
+                return False
+            now_utc = datetime.now(timezone.utc)
+            if old.lease_expires_at is not None and old.lease_expires_at <= now_utc:
+                return False
+            exp = now_utc + timedelta(seconds=max(1, int(lease_seconds)))
+            self._jobs[job_id] = TryOnJobRecord(
+                id=old.id,
+                user_id=old.user_id,
+                outfit_source=old.outfit_source,
+                garment_id=old.garment_id,
+                garment_ids=old.garment_ids,
+                provider=old.provider,
+                status=old.status,
+                consent_version=old.consent_version,
+                consent_accepted_at=old.consent_accepted_at,
+                created_at=old.created_at,
+                updated_at=now_utc,
+                person_media_ref=old.person_media_ref,
+                result_media_ref=old.result_media_ref,
+                idempotency_key=old.idempotency_key,
+                request_fingerprint=old.request_fingerprint,
+                error_code=old.error_code,
+                error_message=old.error_message,
+                retry_count=old.retry_count,
+                retry_of_job_id=old.retry_of_job_id,
+                processing_started_at=old.processing_started_at,
+                completed_at=old.completed_at,
+                image_bytes=old.image_bytes or self._images.get(job_id),
+                worker_id=old.worker_id,
+                lease_token=old.lease_token,
+                lease_expires_at=exp,
+            )
+            return True
+
+    def recover_abandoned_jobs(
+        self,
+        *,
+        worker_id: Optional[str] = None,
+        error_code: str = "INTERRUPTED_BY_RESTART",
+        stale_older_than: Optional[datetime] = None,
+        now: Optional[datetime] = None,
+    ) -> list[tuple[TryOnJobRecord, str]]:
+        with self._lock:
+            current_time = now or datetime.now(timezone.utc)
+            recovered: list[tuple[TryOnJobRecord, str]] = []
+            for jid, old in list(self._jobs.items()):
+                if old.status not in ("queued", "processing"):
+                    continue
+                owned_by_caller = worker_id is not None and old.worker_id == worker_id
+                lease_expired = old.lease_expires_at is None or old.lease_expires_at <= current_time
+                if not (owned_by_caller or lease_expired):
+                    continue
+                if stale_older_than is not None:
+                    ts = old.processing_started_at or old.updated_at or old.created_at
+                    if ts > stale_older_than:
+                        continue
+                prior_status = old.status
+                err_msg = (
+                    "Job processing stalled and was safely closed. Please retry."
+                    if error_code == "STALE_JOB_TIMEOUT"
+                    else (
+                        "Job processing was interrupted by server restart during inference. Please retry."
+                        if prior_status == "processing"
+                        else "Job processing was interrupted by server restart while queued. Please retry."
+                    )
+                )
+                updated_rec = TryOnJobRecord(
+                    id=old.id,
+                    user_id=old.user_id,
+                    outfit_source=old.outfit_source,
+                    garment_id=old.garment_id,
+                    garment_ids=old.garment_ids,
+                    provider=old.provider,
+                    status="failed",
+                    consent_version=old.consent_version,
+                    consent_accepted_at=old.consent_accepted_at,
+                    created_at=old.created_at,
+                    updated_at=current_time,
+                    person_media_ref=old.person_media_ref,
+                    result_media_ref=old.result_media_ref,
+                    idempotency_key=old.idempotency_key,
+                    request_fingerprint=old.request_fingerprint,
+                    error_code=error_code,
+                    error_message=err_msg,
+                    retry_count=old.retry_count,
+                    retry_of_job_id=old.retry_of_job_id,
+                    processing_started_at=old.processing_started_at,
+                    completed_at=current_time,
+                    image_bytes=None,
+                    worker_id=None,
+                    lease_token=None,
+                    lease_expires_at=None,
+                )
+                self._jobs[jid] = updated_rec
+                recovered.append((updated_rec, prior_status))
+            return recovered
 
     def delete(
         self,
@@ -633,6 +839,9 @@ class InMemoryTryOnJobRepository:
                 processing_started_at=old.processing_started_at,
                 completed_at=old.completed_at,
                 image_bytes=old.image_bytes,
+                worker_id=old.worker_id,
+                lease_token=old.lease_token,
+                lease_expires_at=old.lease_expires_at,
             )
             return True
 
@@ -641,11 +850,15 @@ class InMemoryTryOnJobRepository:
         *,
         job_id: UUID,
         person_media_ref: dict[str, Any],
+        expected_lease_token: Optional[UUID] = None,
     ) -> Optional[TryOnJobRecord]:
         with self._lock:
             old = self._jobs.get(job_id)
             if not old:
                 return None
+            if expected_lease_token is not None:
+                if old.status != "processing" or old.lease_token != expected_lease_token:
+                    return None
             new_rec = TryOnJobRecord(
                 id=old.id,
                 user_id=old.user_id,
@@ -669,6 +882,9 @@ class InMemoryTryOnJobRepository:
                 processing_started_at=old.processing_started_at,
                 completed_at=old.completed_at,
                 image_bytes=old.image_bytes,
+                worker_id=old.worker_id,
+                lease_token=old.lease_token,
+                lease_expires_at=old.lease_expires_at,
             )
             self._jobs[job_id] = new_rec
             return new_rec
@@ -722,6 +938,12 @@ _POLL_COUNTS: dict[str, int] = {}
 _BYTE_CACHE: dict[str, tuple[bytes, str]] = {}  # job_id -> (person_bytes, content_type)
 _ACTIVE_EXECUTION_IDS: set[UUID] = set()
 _EXECUTION_LOCK = threading.Lock()
+_PROCESS_WORKER_ID: str = f"{socket.gethostname()[:32]}-{os.getpid()}-{uuid4().hex[:8]}"
+
+
+def get_worker_id() -> str:
+    """Return the unique worker identity for this backend process."""
+    return _PROCESS_WORKER_ID
 _LOOP_SEMAPHORES: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, tuple[int, asyncio.Semaphore]]" = (
     weakref.WeakKeyDictionary()
 )
@@ -1173,26 +1395,33 @@ def submit_job(
 
     initial_status = "processing" if settings.tryon_provider == "mock" else "queued"
     create_atomic_fn = getattr(repo, "create_with_quota", None)
+    lease_seconds = int(getattr(settings, "tryon_worker_lease_seconds", 60))
+    initial_lease_exp = datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)
+    supports_leases = callable(getattr(repo, "recover_abandoned_jobs", None))
 
     if callable(create_atomic_fn):
-        created_job, created = create_atomic_fn(
-            job_id=job_id,
-            user_id=user_uuid,
-            outfit_source=outfit_source,
-            garment_id=first_garment_uuid,
-            garment_ids=garment_ids,
-            provider=settings.tryon_provider,
-            status=initial_status,
-            consent_version=consent_version,
-            consent_accepted_at=datetime.now(timezone.utc),
-            person_media_ref=person_media_ref,
-            idempotency_key=idempotency_key,
-            request_fingerprint=digest,
-            day=current_day,
-            daily_quota=daily_quota,
-            concurrent_limit=concurrent_limit,
-            global_concurrent_limit=global_concurrent_limit,
-        )
+        create_kwargs: dict[str, Any] = {
+            "job_id": job_id,
+            "user_id": user_uuid,
+            "outfit_source": outfit_source,
+            "garment_id": first_garment_uuid,
+            "garment_ids": garment_ids,
+            "provider": settings.tryon_provider,
+            "status": initial_status,
+            "consent_version": consent_version,
+            "consent_accepted_at": datetime.now(timezone.utc),
+            "person_media_ref": person_media_ref,
+            "idempotency_key": idempotency_key,
+            "request_fingerprint": digest,
+            "day": current_day,
+            "daily_quota": daily_quota,
+            "concurrent_limit": concurrent_limit,
+            "global_concurrent_limit": global_concurrent_limit,
+        }
+        if supports_leases:
+            create_kwargs["worker_id"] = get_worker_id()
+            create_kwargs["lease_expires_at"] = initial_lease_exp
+        created_job, created = create_atomic_fn(**create_kwargs)
         if created:
             _BYTE_CACHE[str(job_id)] = (sanitized_bytes, canonical_content_type)
             try:
@@ -1271,20 +1500,24 @@ def submit_job(
     _BYTE_CACHE[str(job_id)] = (sanitized_bytes, canonical_content_type)
 
     try:
-        created_job = repo.create(
-            job_id=job_id,
-            user_id=user_uuid,
-            outfit_source=outfit_source,
-            garment_id=first_garment_uuid,
-            garment_ids=garment_ids,
-            provider=settings.tryon_provider,
-            status=initial_status,
-            consent_version=consent_version,
-            consent_accepted_at=datetime.now(timezone.utc),
-            person_media_ref=person_media_ref,
-            idempotency_key=idempotency_key,
-            request_fingerprint=digest,
-        )
+        fallback_create_kwargs: dict[str, Any] = {
+            "job_id": job_id,
+            "user_id": user_uuid,
+            "outfit_source": outfit_source,
+            "garment_id": first_garment_uuid,
+            "garment_ids": garment_ids,
+            "provider": settings.tryon_provider,
+            "status": initial_status,
+            "consent_version": consent_version,
+            "consent_accepted_at": datetime.now(timezone.utc),
+            "person_media_ref": person_media_ref,
+            "idempotency_key": idempotency_key,
+            "request_fingerprint": digest,
+        }
+        if supports_leases:
+            fallback_create_kwargs["worker_id"] = get_worker_id()
+            fallback_create_kwargs["lease_expires_at"] = initial_lease_exp
+        created_job = repo.create(**fallback_create_kwargs)
     except Exception:
         _BYTE_CACHE.pop(str(job_id), None)
         # Check if an idempotency race occurred
@@ -1442,19 +1675,150 @@ async def _execute_tryon_inference_impl(
         return
 
     now = datetime.now(timezone.utc)
+    settings = get_settings()
+    worker_id = get_worker_id()
+    lease_token = uuid4()
+    lease_seconds = int(getattr(settings, "tryon_worker_lease_seconds", 60))
+    heartbeat_interval_s = float(getattr(settings, "tryon_worker_heartbeat_interval_seconds", 15))
+    supports_leases = callable(getattr(repo, "renew_lease", None))
+    active_lease_token: Optional[UUID] = lease_token if supports_leases else None
+
     if job.status == "queued":
         claim_fn = getattr(repo, "claim_queued_job", None)
         if callable(claim_fn):
-            if not claim_fn(job_id=job_id, processing_started_at=now):
+            claim_kwargs: dict[str, Any] = {
+                "job_id": job_id,
+                "processing_started_at": now,
+            }
+            if supports_leases:
+                claim_kwargs["worker_id"] = worker_id
+                claim_kwargs["lease_token"] = lease_token
+                claim_kwargs["lease_seconds"] = lease_seconds
+            if not claim_fn(**claim_kwargs):
                 logger.info(
                     "TryOn queued job already claimed or terminal [event=tryon_claim_skipped, job_id=%s]",
                     job_id,
                 )
                 return
             job = repo.get_by_id(user_id=user_id, job_id=job_id) or job
+    elif job.status == "processing":
+        claim_proc_fn = getattr(repo, "claim_processing_lease", None)
+        if callable(claim_proc_fn):
+            if not claim_proc_fn(
+                job_id=job_id,
+                worker_id=worker_id,
+                lease_token=lease_token,
+                lease_seconds=lease_seconds,
+            ):
+                logger.info(
+                    "TryOn processing job owned by another live worker [event=tryon_claim_skipped, job_id=%s]",
+                    job_id,
+                )
+                return
+            job = repo.get_by_id(user_id=user_id, job_id=job_id) or job
 
+    def _renew_lease_sync() -> bool:
+        if not supports_leases:
+            return True
+        session_obj = getattr(repo, "_session", None)
+        if session_obj is not None:
+            try:
+                from sqlalchemy.orm import sessionmaker
+                from app.infrastructure.db.repositories import TryOnJobRepositorySQL
+
+                bind = session_obj.get_bind()
+                if bind is not None:
+                    LocalSession = sessionmaker(bind=bind, expire_on_commit=False)
+                    with LocalSession() as hb_session:
+                        return TryOnJobRepositorySQL(hb_session).renew_lease(
+                            job_id=job_id,
+                            worker_id=worker_id,
+                            lease_token=lease_token,
+                            lease_seconds=lease_seconds,
+                        )
+            except Exception as exc:
+                logger.warning(
+                    "TryOn lease heartbeat failed [event=tryon_lease_heartbeat_error, job_id=%s, err=%s]",
+                    job_id,
+                    type(exc).__name__,
+                )
+                return True
+        return bool(
+            repo.renew_lease(
+                job_id=job_id,
+                worker_id=worker_id,
+                lease_token=lease_token,
+                lease_seconds=lease_seconds,
+            )
+        )
+
+    async def _lease_heartbeat_loop() -> None:
+        while True:
+            await asyncio.sleep(max(0.5, heartbeat_interval_s))
+            renewed = await asyncio.to_thread(_renew_lease_sync)
+            if not renewed:
+                logger.warning(
+                    "TryOn worker lost processing lease [event=tryon_lease_lost, job_id=%s, worker_id=%s]",
+                    job_id,
+                    worker_id,
+                )
+                return
+
+    heartbeat_task: Optional[asyncio.Task[None]] = None
+    if supports_leases:
+        heartbeat_task = asyncio.create_task(_lease_heartbeat_loop())
+
+    try:
+        await _execute_tryon_inference_body(
+            job_id=job_id,
+            user_id=user_id,
+            job=job,
+            repo=repo,
+            storage=storage,
+            wardrobe_repo=wardrobe_repo,
+            seed=seed,
+            now=now,
+            t0=t0,
+            active_lease_token=active_lease_token,
+        )
+    finally:
+        if heartbeat_task is not None and not heartbeat_task.done():
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+
+async def _execute_tryon_inference_body(
+    *,
+    job_id: UUID,
+    user_id: UUID,
+    job: TryOnJobRecord,
+    repo: Any,
+    storage: Optional[ObjectStoragePort],
+    wardrobe_repo: Optional[WardrobeItemRepository],
+    seed: str,
+    now: datetime,
+    t0: float,
+    active_lease_token: Optional[UUID],
+) -> None:
+    from app.telemetry.metrics import get_metrics_collector
+
+    collector = get_metrics_collector()
     settings = get_settings()
     provider_name = settings.tryon_provider
+
+    def _fail_fenced(error_code: str, error_message: str) -> None:
+        kwargs: dict[str, Any] = {
+            "job_id": job_id,
+            "error_code": error_code,
+            "error_message": error_message,
+            "completed_at": datetime.now(timezone.utc),
+        }
+        if active_lease_token is not None:
+            kwargs["expected_lease_token"] = active_lease_token
+        repo.update_failure(**kwargs)
 
     # Enforce hard prerequisite: if job has a person_media_ref, person image MUST be durably stored
     person_bytes: Optional[bytes] = None
@@ -1518,7 +1882,16 @@ async def _execute_tryon_inference_impl(
         cached_person = _BYTE_CACHE.pop(str(job_id), None)
         person_bytes = cached_person[0] if cached_person else None
 
-    repo.update_status(job_id=job_id, status="processing", processing_started_at=now)
+    status_kwargs: dict[str, Any] = {
+        "job_id": job_id,
+        "status": "processing",
+        "processing_started_at": now,
+    }
+    if active_lease_token is not None:
+        status_kwargs["expected_lease_token"] = active_lease_token
+    if repo.update_status(**status_kwargs) is None and active_lease_token is not None:
+        logger.info("TryOn job %s lost lease before inference start; aborting.", job_id)
+        return
 
     # Resolve garment bytes / signed URL and validate category
     garment_bytes: Optional[bytes] = None
@@ -1694,7 +2067,14 @@ async def _execute_tryon_inference_impl(
         person_ref_copy["genlook"] = dict(genlook_meta)
         update_fn = getattr(repo, "update_person_media_ref", None)
         if callable(update_fn):
-            update_fn(job_id=job_id, person_media_ref=person_ref_copy)
+            if active_lease_token is not None:
+                update_fn(
+                    job_id=job_id,
+                    person_media_ref=person_ref_copy,
+                    expected_lease_token=active_lease_token,
+                )
+            else:
+                update_fn(job_id=job_id, person_media_ref=person_ref_copy)
 
     # Execute provider render
     try:
@@ -2058,10 +2438,11 @@ async def _execute_tryon_inference_impl(
             duration_s=duration_s,
         )
         logger.warning(
-            "TryOn provider transient error [event=tryon_job_failed, job_id=%s, user_id=%s, provider=%s, error_code=PROVIDER_TRANSIENT_FAILURE, duration_ms=%.1f, retry_count=%d]",
+            "TryOn provider transient error [event=tryon_job_failed, job_id=%s, user_id=%s, provider=%s, error_code=PROVIDER_TRANSIENT_FAILURE, provider_error_code=%s, duration_ms=%.1f, retry_count=%d]",
             job_id,
             user_id,
             provider_name,
+            getattr(e, "provider_error_code", None) or "unknown",
             duration_s * 1000,
             job.retry_count,
         )
@@ -2139,6 +2520,13 @@ async def _execute_tryon_inference_impl(
             correlation_id=corr_id,
         )
     except ProviderPayloadError as e:
+        duration_s = time.monotonic() - t0
+        collector.record_tryon_job_terminal(
+            provider=provider_name,
+            status="failed",
+            error_code="INVALID_PROVIDER_OUTPUT",
+            duration_s=duration_s,
+        )
         logger.warning("TryOn provider returned invalid output for job %s: %s", job_id, e.message)
         repo.update_failure(
             job_id=job_id,
@@ -2163,6 +2551,16 @@ async def _execute_tryon_inference_impl(
         if genlook_meta.get("generationId"):
             result_media_ref["generationId"] = genlook_meta["generationId"]
         result_media_ref["creditsCharged"] = genlook_meta.get("creditsCharged", 1)
+
+    # Verify lease ownership before touching object storage so a late worker cannot overwrite a newer attempt
+    if active_lease_token is not None:
+        pre_put = repo.get_by_id(user_id=user_id, job_id=job_id)
+        if pre_put is None or pre_put.status != "processing" or pre_put.lease_token != active_lease_token:
+            logger.info(
+                "Job %s lost lease before result upload; discarding late worker result.",
+                job_id,
+            )
+            return
 
     if storage is not None:
         # Clean up previous attempt output if extension changed on retry
@@ -2196,11 +2594,9 @@ async def _execute_tryon_inference_impl(
                 user_id,
                 type(e).__name__,
             )
-            repo.update_failure(
-                job_id=job_id,
-                error_code="STORAGE_FAILURE",
-                error_message="Failed to securely store generated try-on result.",
-                completed_at=datetime.now(timezone.utc),
+            _fail_fenced(
+                "STORAGE_FAILURE",
+                "Failed to securely store generated try-on result.",
             )
             return
 
@@ -2211,27 +2607,46 @@ async def _execute_tryon_inference_impl(
         if storage is not None:
             try:
                 await storage.delete_object(result_key)
-            except Exception:
-                pass
+            except Exception as exc:
+                collector.record_tryon_storage_error(operation="orphan_result_delete")
+                logger.warning(
+                    "Failed to delete orphaned cancelled result [event=tryon_storage_error, operation=orphan_result_delete, job_id=%s, err=%s]",
+                    job_id,
+                    type(exc).__name__,
+                )
         return
 
     # Cache result bytes only for in-memory test repository
     if isinstance(repo, InMemoryTryOnJobRepository):
         repo.set_image_bytes(job_id, result_bytes)
 
-    # Complete job
-    updated = repo.update_result(
-        job_id=job_id,
-        result_media_ref=result_media_ref,
-        completed_at=datetime.now(timezone.utc),
-    )
+    # Complete job (fenced by active_lease_token when supported)
+    result_kwargs: dict[str, Any] = {
+        "job_id": job_id,
+        "result_media_ref": result_media_ref,
+        "completed_at": datetime.now(timezone.utc),
+    }
+    if active_lease_token is not None:
+        result_kwargs["expected_lease_token"] = active_lease_token
+    updated = repo.update_result(**result_kwargs)
     if updated is None or updated.status != "completed":
-        logger.info("Job %s was %s at update_result boundary; deleting orphaned result.", job_id, getattr(updated, "status", "missing"))
-        if storage is not None:
+        current = repo.get_by_id(user_id=user_id, job_id=job_id)
+        logger.info(
+            "Job %s was %s at update_result boundary; lease fenced=%s.",
+            job_id,
+            getattr(current, "status", "missing"),
+            updated is None,
+        )
+        if storage is not None and (current is None or current.status != "completed"):
             try:
                 await storage.delete_object(result_key)
-            except Exception:
-                pass
+            except Exception as exc:
+                collector.record_tryon_storage_error(operation="orphan_result_delete")
+                logger.warning(
+                    "Failed to delete orphaned result [event=tryon_storage_error, operation=orphan_result_delete, job_id=%s, err=%s]",
+                    job_id,
+                    type(exc).__name__,
+                )
     else:
         duration_s = time.monotonic() - t0
         credits_charged = int(result_media_ref.get("creditsCharged", 0)) if provider_name == "genlook" else 0
@@ -2412,11 +2827,18 @@ def retry_job(
         collector.record_tryon_quota_rejection("global_concurrency")
         raise rate_limited(retry_after_s=10)
 
-    updated = repo.update_retry(
-        job_id=job_uuid,
-        retry_count=job.retry_count + 1,
-        status="processing",
-    )
+    lease_seconds = int(getattr(settings, "tryon_worker_lease_seconds", 60))
+    retry_kwargs: dict[str, Any] = {
+        "job_id": job_uuid,
+        "retry_count": job.retry_count + 1,
+        "status": "processing",
+    }
+    if callable(getattr(repo, "recover_abandoned_jobs", None)):
+        retry_kwargs["worker_id"] = get_worker_id()
+        retry_kwargs["lease_expires_at"] = datetime.now(timezone.utc) + timedelta(
+            seconds=lease_seconds
+        )
+    updated = repo.update_retry(**retry_kwargs)
     if not updated:
         # Either job vanished or a concurrent retry already claimed it into processing
         latest = repo.get_by_id(user_id=user_uuid, job_id=job_uuid)
@@ -2560,16 +2982,42 @@ def reset_for_tests() -> None:
 
 def recover_interrupted_jobs(
     job_repo: Optional[TryOnJobRepository] = None,
+    *,
+    worker_id: Optional[str] = None,
+    now: Optional[datetime] = None,
 ) -> int:
-    """Recover jobs left in queued or processing status on backend restart.
+    """Recover abandoned queued/processing jobs on backend restart.
 
-    Transition orphaned jobs to failed status with clear reason codes:
-    - INTERRUPTED_BY_RESTART, preserving generationId / pendingIdempotencyKey
-      so retries never cause duplicate billing or duplicate inference.
+    Only recovers jobs that are unleased, whose lease has expired, or that
+    belong to the restarting worker_id. Never interrupts another live worker's
+    active leased job. Preserves generationId / pendingIdempotencyKey so retries
+    never cause duplicate billing or duplicate inference.
     """
+    from app.telemetry.metrics import get_metrics_collector
+
     repo = job_repo or _IN_MEMORY_REPO
+    collector = get_metrics_collector()
+    recover_fn = getattr(repo, "recover_abandoned_jobs", None)
+    if callable(recover_fn):
+        recovered_rows = recover_fn(
+            worker_id=worker_id,
+            error_code="INTERRUPTED_BY_RESTART",
+            now=now,
+        )
+        for job, prior_status in recovered_rows:
+            _BYTE_CACHE.pop(str(job.id), None)
+            _POLL_COUNTS.pop(str(job.id), None)
+            collector.record_tryon_interrupted_jobs_recovered()
+            logger.warning(
+                "Recovered interrupted try-on job [event=tryon_interrupted_job_recovered, job_id=%s, user_id=%s, prior_status=%s]",
+                job.id,
+                job.user_id,
+                prior_status,
+            )
+        return len(recovered_rows)
+
     count = 0
-    now = datetime.now(timezone.utc)
+    current_time = now or datetime.now(timezone.utc)
     for st in ("processing", "queued"):
         jobs = repo.find_by_status(status=st)
         for job in jobs:
@@ -2582,11 +3030,18 @@ def recover_interrupted_jobs(
                 job_id=job.id,
                 error_code="INTERRUPTED_BY_RESTART",
                 error_message=msg,
-                completed_at=now,
+                completed_at=current_time,
             )
             _BYTE_CACHE.pop(str(job.id), None)
             _POLL_COUNTS.pop(str(job.id), None)
             count += 1
+            collector.record_tryon_interrupted_jobs_recovered()
+            logger.warning(
+                "Recovered interrupted try-on job [event=tryon_interrupted_job_recovered, job_id=%s, user_id=%s, prior_status=%s]",
+                job.id,
+                job.user_id,
+                st,
+            )
     return count
 
 
@@ -2595,12 +3050,13 @@ def recover_stale_jobs(
     job_repo: Optional[TryOnJobRepository] = None,
     stale_after_s: int | None = None,
     now: Optional[datetime] = None,
+    worker_id: Optional[str] = None,
 ) -> int:
-    """Recover active queued/processing jobs stuck beyond stale_after_s without restart."""
+    """Recover stale active queued/processing jobs whose lease has expired."""
+    from app.telemetry.metrics import get_metrics_collector
+
     repo = job_repo or _IN_MEMORY_REPO
-    find_stale_fn = getattr(repo, "find_stale_active_jobs", None)
-    if not callable(find_stale_fn):
-        return 0
+    collector = get_metrics_collector()
     cfg = get_settings()
     threshold_s = (
         int(stale_after_s)
@@ -2609,12 +3065,39 @@ def recover_stale_jobs(
     )
     current_time = now or datetime.now(timezone.utc)
     cutoff = current_time - timedelta(seconds=max(30, threshold_s))
+
+    recover_fn = getattr(repo, "recover_abandoned_jobs", None)
+    if callable(recover_fn):
+        recovered_rows = recover_fn(
+            worker_id=worker_id,
+            error_code="STALE_JOB_TIMEOUT",
+            stale_older_than=cutoff,
+            now=current_time,
+        )
+        for job, prior_status in recovered_rows:
+            _BYTE_CACHE.pop(str(job.id), None)
+            _POLL_COUNTS.pop(str(job.id), None)
+            collector.record_tryon_stale_jobs_recovered()
+            logger.warning(
+                "Recovered stale active try-on job [event=tryon_stale_job_recovered, job_id=%s, user_id=%s, prior_status=%s]",
+                job.id,
+                job.user_id,
+                prior_status,
+            )
+        return len(recovered_rows)
+
+    find_stale_fn = getattr(repo, "find_stale_active_jobs", None)
+    if not callable(find_stale_fn):
+        return 0
     stale_jobs = find_stale_fn(older_than=cutoff)
     recovered = 0
     for job in stale_jobs:
-        with _EXECUTION_LOCK:
-            if job.id in _ACTIVE_EXECUTION_IDS:
-                continue
+        if (
+            job.lease_expires_at is not None
+            and job.lease_expires_at > current_time
+            and (worker_id is None or job.worker_id != worker_id)
+        ):
+            continue
         repo.update_failure(
             job_id=job.id,
             error_code="STALE_JOB_TIMEOUT",
@@ -2624,6 +3107,7 @@ def recover_stale_jobs(
         _BYTE_CACHE.pop(str(job.id), None)
         _POLL_COUNTS.pop(str(job.id), None)
         recovered += 1
+        collector.record_tryon_stale_jobs_recovered()
         logger.warning(
             "Recovered stale active try-on job [event=tryon_stale_job_recovered, job_id=%s, user_id=%s, prior_status=%s]",
             job.id,

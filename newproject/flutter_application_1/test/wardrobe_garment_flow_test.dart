@@ -154,12 +154,7 @@ class _RecordingRepo implements WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) =>
-      logWear(
-        itemIds: itemIds,
-        wornAt: wornAt,
-        idempotencyKey: idempotencyKey,
-      );
-
+      logWear(itemIds: itemIds, wornAt: wornAt, idempotencyKey: idempotencyKey);
 }
 
 void main() {
@@ -206,10 +201,7 @@ void main() {
         throwsFormatException,
       );
       final omitted = _garmentResult()..remove('confidence');
-      expect(
-        GarmentAnalysisResult.fromJson(omitted).confidence,
-        isNull,
-      );
+      expect(GarmentAnalysisResult.fromJson(omitted).confidence, isNull);
     });
 
     test('wrong attribute types throw', () {
@@ -229,31 +221,33 @@ void main() {
       );
       addTearDown(client.dispose);
 
-      expect(
-        await client.submitGarmentAnalysisBytes(kPng),
-        'run-1',
-      );
+      expect(await client.submitGarmentAnalysisBytes(kPng), 'run-1');
     });
 
-    test('rejection and empty/oversized bytes resolve null, never fake', () async {
-      final rejecting = GarmentClient(
-        client: MockClient((_) async => http.Response('{}', 500)),
-      );
-      addTearDown(rejecting.dispose);
-      expect(await rejecting.submitGarmentAnalysisBytes(kPng), isNull);
+    test(
+      'rejection and empty/oversized bytes resolve null, never fake',
+      () async {
+        final rejecting = GarmentClient(
+          client: MockClient((_) async => http.Response('{}', 500)),
+        );
+        addTearDown(rejecting.dispose);
+        expect(await rejecting.submitGarmentAnalysisBytes(kPng), isNull);
 
-      final any = GarmentClient(
-        client: MockClient((_) async => http.Response('{"run_id": "x"}', 202)),
-      );
-      addTearDown(any.dispose);
-      expect(await any.submitGarmentAnalysisBytes(Uint8List(0)), isNull);
-      expect(
-        await any.submitGarmentAnalysisBytes(
-          Uint8List(GarmentClient.maxImageBytes + 1),
-        ),
-        isNull,
-      );
-    });
+        final any = GarmentClient(
+          client: MockClient(
+            (_) async => http.Response('{"run_id": "x"}', 202),
+          ),
+        );
+        addTearDown(any.dispose);
+        expect(await any.submitGarmentAnalysisBytes(Uint8List(0)), isNull);
+        expect(
+          await any.submitGarmentAnalysisBytes(
+            Uint8List(GarmentClient.maxImageBytes + 1),
+          ),
+          isNull,
+        );
+      },
+    );
 
     test('poll returns completed runs with result and input media', () async {
       final client = GarmentClient(
@@ -302,46 +296,49 @@ void main() {
       expect(run.failureReason, 'no_garment_detected');
     });
 
-    test('poll timeout resolves null (retryable, no duplicate analysis)', () async {
-      final client = GarmentClient(
-        client: MockClient(
-          (_) async => http.Response(
-            jsonEncode({'run_id': 'run-1', 'status': 'pending'}),
-            200,
+    test(
+      'poll timeout resolves null (retryable, no duplicate analysis)',
+      () async {
+        final client = GarmentClient(
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({'run_id': 'run-1', 'status': 'pending'}),
+              200,
+            ),
           ),
-        ),
-        pollInterval: Duration.zero,
-      );
-      addTearDown(client.dispose);
+          pollInterval: Duration.zero,
+        );
+        addTearDown(client.dispose);
 
-      expect(await client.pollGarmentRun(runId: 'run-1', attempts: 2), isNull);
-    });
+        expect(
+          await client.pollGarmentRun(runId: 'run-1', attempts: 2),
+          isNull,
+        );
+      },
+    );
 
-    test('poll stops promptly on 401 instead of looping to exhaustion',
-        () async {
-      var calls = 0;
-      final client = GarmentClient(
-        client: MockClient((_) async {
-          calls++;
-          return http.Response(
-            jsonEncode({'detail': 'Token expired'}),
-            401,
-          );
-        }),
-        pollInterval: Duration.zero,
-      );
-      addTearDown(client.dispose);
+    test(
+      'poll stops promptly on 401 instead of looping to exhaustion',
+      () async {
+        var calls = 0;
+        final client = GarmentClient(
+          client: MockClient((_) async {
+            calls++;
+            return http.Response(jsonEncode({'detail': 'Token expired'}), 401);
+          }),
+          pollInterval: Duration.zero,
+        );
+        addTearDown(client.dispose);
 
-      expect(await client.pollGarmentRun(runId: 'run-1'), isNull);
-      expect(calls, equals(1));
-    });
+        expect(await client.pollGarmentRun(runId: 'run-1'), isNull);
+        expect(calls, equals(1));
+      },
+    );
   });
 
   group('WardrobePhotoScreen', () {
     testWidgets('shows Take Photo and Choose from Gallery', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: WardrobePhotoScreen()),
-      );
+      await tester.pumpWidget(const MaterialApp(home: WardrobePhotoScreen()));
 
       expect(find.text('Take Photo'), findsOneWidget);
       expect(find.text('Choose from Gallery'), findsOneWidget);
@@ -461,8 +458,7 @@ void main() {
       final liveRepo = WardrobeRepositoryImpl(
         client: WardrobeClient(
           client: MockClient((request) async {
-            postedBody =
-                jsonDecode(request.body) as Map<String, dynamic>;
+            postedBody = jsonDecode(request.body) as Map<String, dynamic>;
             return http.Response(
               jsonEncode({
                 'id': 'server-uuid',
@@ -489,33 +485,19 @@ void main() {
       await tester.tap(find.text('Analyze Item'));
       await tester.pumpAndSettle();
 
-      // Single submit (no duplicate taps), real values rendered.
+      // Single submit (no duplicate taps); delegates to unified WardrobeExtractionScreen.
       expect(garments.submitCalls, 1);
-      expect(
-        find.text('AI suggestion — confirmed below, edit if needed'),
-        findsOneWidget,
-      );
-      // Prefill proof: the test never taps Type/Color/Texture chips, yet
-      // the save below carries the AI-matched values.
+      expect(find.text('Add via AI Extraction'), findsOneWidget);
+      expect(find.text('Extracted Garments (1)'), findsOneWidget);
+      expect(find.text('Save Selected to Wardrobe (1)'), findsOneWidget);
 
-      // Save carries the confirmed values plus the run photo reference.
-      await tester.scrollUntilVisible(
-        find.text('Save Item'),
-        200.0,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.tap(find.text('Save Item'));
+      await tester.tap(find.text('Save Selected to Wardrobe (1)'));
       await tester.pumpAndSettle();
 
       final payload = postedBody!;
       expect(payload['category'], 'tops');
       expect(payload['color'], 'black');
       expect(payload['material'], 'cotton');
-      final imageRef = payload['imageRef'] as Map<String, dynamic>?;
-      expect(imageRef, isNotNull);
-      expect(imageRef!['objectKey'], 'users/u/scans/r/input.jpg');
-      expect(imageRef['contentHash'], 'abc123');
-      expect(imageRef['sourceRunId'], 'run-1');
       // Post-save actions (C-04): screen stays with confirmation and the
       // build action; Done pops with the server item.
       expect(find.text('Build with this item'), findsOneWidget);

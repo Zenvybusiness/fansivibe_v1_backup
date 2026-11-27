@@ -510,8 +510,13 @@ def test_migration_head_is_current():
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
     # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
-    # Current source head is 0036 (post-P0-4 media lifecycle revisions 0033-0036).
-    assert tuple(script.get_heads()) == ("0036",)
+    # Current source head is 0040 (tryon_worker_leases, following 0039 rate_limit_buckets).
+    heads = tuple(script.get_heads())
+    assert heads == ("0040",)
+
+    chain = [rev.revision for rev in script.walk_revisions(base="0024", head=heads[0])]
+    assert chain[0] == "0040"
+    assert chain[-4:] == ["0027", "0026", "0025", "0024"]
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None

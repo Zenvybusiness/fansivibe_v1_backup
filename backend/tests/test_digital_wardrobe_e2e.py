@@ -589,11 +589,38 @@ def _ensure_user(Session, user_id=None, auth_provider="dev", auth_subject="dev-u
         return user.id
 
 
+def _require_live_ollama_qwen(required_model: str = "qwen3-vl:4b-instruct") -> None:
+    """Skip only when live Ollama is explicitly disabled, unreachable, or missing the model."""
+    import os
+    import httpx
+
+    if os.getenv("FANSIVIBE_SKIP_LIVE_OLLAMA") == "1":
+        pytest.skip("Skipped via FANSIVIBE_SKIP_LIVE_OLLAMA=1")
+
+    try:
+        ping = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
+    except Exception as exc:
+        pytest.skip(f"Ollama service unavailable at http://localhost:11434: {exc}")
+
+    if ping.status_code != 200:
+        pytest.skip(
+            f"Ollama service unavailable at http://localhost:11434 (HTTP {ping.status_code})"
+        )
+
+    installed_models = [m.get("name", "") for m in ping.json().get("models", [])]
+    if not any(
+        name == required_model or name == f"{required_model}:latest"
+        for name in installed_models
+    ):
+        pytest.skip(f"Required Ollama model '{required_model}' is not installed locally")
+
+
 # --- Live AI Vision Verification (Section 5) ---
 
 def test_real_ollama_vision_extraction():
     """Verify live Ollama model qwen3-vl:4b-instruct with real pixels."""
     import time
+    _require_live_ollama_qwen()
     jpeg_bytes = _make_two_garment_jpeg()
     adapter = OllamaVisionGarmentAdapter(
         host="http://localhost:11434",
@@ -602,16 +629,11 @@ def test_real_ollama_vision_extraction():
     )
     user_id = uuid4()
     t0 = time.time()
-    try:
-        profile = adapter.analyze(
-            media_ref={"key": "test/two_items.jpg"},
-            user_id=user_id,
-            image_bytes=jpeg_bytes,
-        )
-    except GarmentAnalysisError as exc:
-        if exc.reason in ("analyzer_unavailable", "analyzer_timeout"):
-            pytest.skip(f"Ollama server not reachable: {exc.reason}")
-        raise
+    profile = adapter.analyze(
+        media_ref={"key": "test/two_items.jpg"},
+        user_id=user_id,
+        image_bytes=jpeg_bytes,
+    )
     dur = time.time() - t0
     assert profile.confidence >= 0.7
     assert len(profile.candidates) >= 1
@@ -628,12 +650,19 @@ def test_real_ollama_vision_extraction():
 
 # --- Complete Real User Journey 18-Step Integration Verification (Section 2, 3, 4, 7) ---
 
-def test_complete_real_user_journey_18_steps(db):
+def test_complete_real_user_journey_18_steps(db, monkeypatch):
     """Execute and verify the complete 18-step Digital Wardrobe journey against PostgreSQL and storage."""
     import time
     import asyncio
     from app.api.deps import get_storage_adapter
+    from app.config.settings import get_settings
     from app.infrastructure.db.models import WardrobeItems
+
+    _require_live_ollama_qwen()
+    monkeypatch.setenv("FANSIVIBE_VISION_MODEL", "qwen3-vl:4b-instruct")
+    monkeypatch.setenv("FANSIVIBE_VISION_TIMEOUT_S", "60.0")
+    monkeypatch.delenv("FANSIVIBE_DISABLE_VISION", raising=False)
+    get_settings.cache_clear()
 
     timings: dict[str, float] = {}
 

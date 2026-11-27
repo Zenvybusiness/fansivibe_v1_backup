@@ -1,5 +1,3 @@
-
-
 /// Media reference for item images, as defined in §13.3 of WARDROBE_API.md.
 class MediaRef {
   const MediaRef({
@@ -16,6 +14,8 @@ class MediaRef {
     this.isGenerated,
     this.uploadedAt,
     this.sourceRunId,
+    this.candidateId,
+    this.extractionConfidence,
   });
 
   final String objectKey;
@@ -36,6 +36,11 @@ class MediaRef {
   /// ignored by readers, so older rows without it still parse.
   final String? sourceRunId;
 
+  /// Originating extraction candidate id and extraction confidence when saved
+  /// from AI garment extraction (kept distinct from fit confidence).
+  final String? candidateId;
+  final double? extractionConfidence;
+
   MediaRef copyWith({
     String? objectKey,
     String? mediaType,
@@ -50,58 +55,74 @@ class MediaRef {
     bool? isGenerated,
     DateTime? uploadedAt,
     String? sourceRunId,
-  }) =>
-      MediaRef(
-        objectKey: objectKey ?? this.objectKey,
-        mediaType: mediaType ?? this.mediaType,
-        uploadId: uploadId ?? this.uploadId,
-        downloadUrl: downloadUrl ?? this.downloadUrl,
-        url: url ?? this.url,
-        expiresAt: expiresAt ?? this.expiresAt,
-        width: width ?? this.width,
-        height: height ?? this.height,
-        sizeBytes: sizeBytes ?? this.sizeBytes,
-        contentHash: contentHash ?? this.contentHash,
-        isGenerated: isGenerated ?? this.isGenerated,
-        uploadedAt: uploadedAt ?? this.uploadedAt,
-        sourceRunId: sourceRunId ?? this.sourceRunId,
-      );
+    String? candidateId,
+    double? extractionConfidence,
+  }) => MediaRef(
+    objectKey: objectKey ?? this.objectKey,
+    mediaType: mediaType ?? this.mediaType,
+    uploadId: uploadId ?? this.uploadId,
+    downloadUrl: downloadUrl ?? this.downloadUrl,
+    url: url ?? this.url,
+    expiresAt: expiresAt ?? this.expiresAt,
+    width: width ?? this.width,
+    height: height ?? this.height,
+    sizeBytes: sizeBytes ?? this.sizeBytes,
+    contentHash: contentHash ?? this.contentHash,
+    isGenerated: isGenerated ?? this.isGenerated,
+    uploadedAt: uploadedAt ?? this.uploadedAt,
+    sourceRunId: sourceRunId ?? this.sourceRunId,
+    candidateId: candidateId ?? this.candidateId,
+    extractionConfidence: extractionConfidence ?? this.extractionConfidence,
+  );
 
   factory MediaRef.fromJson(Map<String, dynamic> json) => MediaRef(
-        objectKey: (json['objectKey'] ?? json['canonicalKey'] ?? json['canonical_key'] ?? '') as String,
-        mediaType: (json['mediaType'] ?? json['media_type'] ?? 'image/webp') as String,
-        uploadId: (json['uploadId'] ?? json['upload_id']) as String?,
-        downloadUrl: (json['downloadUrl'] ?? json['download_url'] ?? json['url']) as String?,
-        url: (json['url'] ?? json['downloadUrl'] ?? json['download_url']) as String?,
-        expiresAt: json['expiresAt'] != null
-            ? DateTime.tryParse(json['expiresAt'] as String)
-            : null,
-        width: (json['width'] as num?)?.toInt(),
-        height: (json['height'] as num?)?.toInt(),
-        sizeBytes: ((json['sizeBytes'] ?? json['size_bytes']) as num?)?.toInt(),
-        contentHash: (json['contentHash'] ?? json['sha256']) as String?,
-        isGenerated: json['isGenerated'] as bool?,
-        uploadedAt: json['uploadedAt'] != null
-            ? DateTime.tryParse(json['uploadedAt'] as String)
-            : null,
-        sourceRunId: json['sourceRunId'] as String?,
-      );
+    objectKey:
+        (json['objectKey'] ??
+                json['canonicalKey'] ??
+                json['canonical_key'] ??
+                '')
+            as String,
+    mediaType:
+        (json['mediaType'] ?? json['media_type'] ?? 'image/webp') as String,
+    uploadId: (json['uploadId'] ?? json['upload_id']) as String?,
+    downloadUrl:
+        (json['downloadUrl'] ?? json['download_url'] ?? json['url']) as String?,
+    url:
+        (json['url'] ?? json['downloadUrl'] ?? json['download_url']) as String?,
+    expiresAt: json['expiresAt'] != null
+        ? DateTime.tryParse(json['expiresAt'] as String)
+        : null,
+    width: (json['width'] as num?)?.toInt(),
+    height: (json['height'] as num?)?.toInt(),
+    sizeBytes: ((json['sizeBytes'] ?? json['size_bytes']) as num?)?.toInt(),
+    contentHash: (json['contentHash'] ?? json['sha256']) as String?,
+    isGenerated: json['isGenerated'] as bool?,
+    uploadedAt: json['uploadedAt'] != null
+        ? DateTime.tryParse(json['uploadedAt'] as String)
+        : null,
+    sourceRunId: json['sourceRunId'] as String?,
+    candidateId: json['candidateId'] as String?,
+    extractionConfidence: (json['extractionConfidence'] as num?)?.toDouble(),
+  );
 
   Map<String, dynamic> toJson() => {
-        if (uploadId != null) 'uploadId': uploadId,
-        'objectKey': objectKey,
-        'mediaType': mediaType,
-        if (width != null) 'width': width,
-        if (height != null) 'height': height,
-        if (sizeBytes != null) 'sizeBytes': sizeBytes,
-        if (contentHash != null) 'contentHash': contentHash,
-        if (isGenerated != null) 'isGenerated': isGenerated,
-        if (uploadedAt != null) 'uploadedAt': uploadedAt!.toIso8601String(),
-        if (sourceRunId != null) 'sourceRunId': sourceRunId,
-        if (downloadUrl != null) 'downloadUrl': downloadUrl,
-        if (url != null) 'url': url,
-        if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
-      };
+    if (uploadId != null) 'uploadId': uploadId,
+    'objectKey': objectKey,
+    'mediaType': mediaType,
+    if (width != null) 'width': width,
+    if (height != null) 'height': height,
+    if (sizeBytes != null) 'sizeBytes': sizeBytes,
+    if (contentHash != null) 'contentHash': contentHash,
+    if (isGenerated != null) 'isGenerated': isGenerated,
+    if (uploadedAt != null) 'uploadedAt': uploadedAt!.toIso8601String(),
+    if (sourceRunId != null) 'sourceRunId': sourceRunId,
+    if (candidateId != null) 'candidateId': candidateId,
+    if (extractionConfidence != null)
+      'extractionConfidence': extractionConfidence,
+    if (downloadUrl != null) 'downloadUrl': downloadUrl,
+    if (url != null) 'url': url,
+    if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
+  };
 }
 
 /// Vocabulary item from the knowledge catalog, as defined in §5.6 of WARDROBE_API.md.
@@ -119,18 +140,18 @@ class VocabularyItem {
   final bool active;
 
   factory VocabularyItem.fromJson(Map<String, dynamic> json) => VocabularyItem(
-        code: json['code'] as String,
-        label: json['label'] as String,
-        sortOrder: json['sortOrder'] as int?,
-        active: json['active'] as bool? ?? true,
-      );
+    code: json['code'] as String,
+    label: json['label'] as String,
+    sortOrder: json['sortOrder'] as int?,
+    active: json['active'] as bool? ?? true,
+  );
 
   Map<String, dynamic> toJson() => {
-        'code': code,
-        'label': label,
-        'sortOrder': sortOrder,
-        'active': active,
-      };
+    'code': code,
+    'label': label,
+    'sortOrder': sortOrder,
+    'active': active,
+  };
 }
 
 /// The full wardrobe item DTO returned by the API, as defined in §4.7 and §5.1 of
@@ -145,6 +166,9 @@ class WardrobeItem {
     this.isFavorite = false,
     this.fit,
     this.fitConfidence,
+    this.sourceRunId,
+    this.candidateId,
+    this.extractionConfidence,
     this.imageRef,
     this.imageUrl,
     this.createdAt,
@@ -161,6 +185,11 @@ class WardrobeItem {
   // null when absent. Readback only — never fabricated client-side.
   final String? fit;
   final double? fitConfidence;
+  // P5.1A: originating extraction candidate id & extraction confidence, kept
+  // separate from fitConfidence.
+  final String? sourceRunId;
+  final String? candidateId;
+  final double? extractionConfidence;
   final MediaRef? imageRef;
   final String? imageUrl;
   final DateTime? createdAt;
@@ -175,65 +204,86 @@ class WardrobeItem {
     bool? isFavorite,
     String? fit,
     double? fitConfidence,
+    String? sourceRunId,
+    String? candidateId,
+    double? extractionConfidence,
     MediaRef? imageRef,
     String? imageUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
-  }) =>
-      WardrobeItem(
-        id: id ?? this.id,
-        name: name ?? this.name,
-        category: category ?? this.category,
-        color: color ?? this.color,
-        material: material ?? this.material,
-        isFavorite: isFavorite ?? this.isFavorite,
-        fit: fit ?? this.fit,
-        fitConfidence: fitConfidence ?? this.fitConfidence,
-        imageRef: imageRef ?? this.imageRef,
-        imageUrl: imageUrl ?? this.imageUrl,
-        createdAt: createdAt ?? this.createdAt,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
+  }) => WardrobeItem(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    category: category ?? this.category,
+    color: color ?? this.color,
+    material: material ?? this.material,
+    isFavorite: isFavorite ?? this.isFavorite,
+    fit: fit ?? this.fit,
+    fitConfidence: fitConfidence ?? this.fitConfidence,
+    sourceRunId: sourceRunId ?? this.sourceRunId,
+    candidateId: candidateId ?? this.candidateId,
+    extractionConfidence: extractionConfidence ?? this.extractionConfidence,
+    imageRef: imageRef ?? this.imageRef,
+    imageUrl: imageUrl ?? this.imageUrl,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
 
-  factory WardrobeItem.fromJson(Map<String, dynamic> json) => WardrobeItem(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        category: json['category'] as String,
-        color: json['color'] as String,
-        material: json['material'] as String?,
-        isFavorite: json['isFavorite'] as bool? ?? false,
-        fit: json['fit'] as String?,
-        fitConfidence: (json['fitConfidence'] as num?)?.toDouble(),
-        imageRef: json['imageRef'] != null
-            ? MediaRef.fromJson(json['imageRef'] as Map<String, dynamic>)
-            : null,
-        imageUrl: json['imageUrl'] as String? ??
-            (json['imageRef'] != null
-                ? ((json['imageRef'] as Map<String, dynamic>)['downloadUrl'] ??
-                    (json['imageRef'] as Map<String, dynamic>)['url']) as String?
-                : null),
-        createdAt: json['createdAt'] != null
-            ? DateTime.tryParse(json['createdAt'] as String)
-            : null,
-        updatedAt: json['updatedAt'] != null
-            ? DateTime.tryParse(json['updatedAt'] as String)
-            : null,
-      );
+  factory WardrobeItem.fromJson(Map<String, dynamic> json) {
+    final parsedImageRef = json['imageRef'] != null
+        ? MediaRef.fromJson(json['imageRef'] as Map<String, dynamic>)
+        : null;
+    return WardrobeItem(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      category: json['category'] as String,
+      color: json['color'] as String,
+      material: json['material'] as String?,
+      isFavorite: json['isFavorite'] as bool? ?? false,
+      fit: json['fit'] as String?,
+      fitConfidence: (json['fitConfidence'] as num?)?.toDouble(),
+      sourceRunId:
+          json['sourceRunId'] as String? ?? parsedImageRef?.sourceRunId,
+      candidateId:
+          json['candidateId'] as String? ?? parsedImageRef?.candidateId,
+      extractionConfidence:
+          (json['extractionConfidence'] as num?)?.toDouble() ??
+          parsedImageRef?.extractionConfidence,
+      imageRef: parsedImageRef,
+      imageUrl:
+          json['imageUrl'] as String? ??
+          (json['imageRef'] != null
+              ? ((json['imageRef'] as Map<String, dynamic>)['downloadUrl'] ??
+                        (json['imageRef'] as Map<String, dynamic>)['url'])
+                    as String?
+              : null),
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'] as String)
+          : null,
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.tryParse(json['updatedAt'] as String)
+          : null,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'category': category,
-        'color': color,
-        'material': material,
-        'isFavorite': isFavorite,
-        'fit': fit,
-        'fitConfidence': fitConfidence,
-        'imageRef': imageRef?.toJson(),
-        if (imageUrl != null) 'imageUrl': imageUrl,
-        if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
-        if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
-      };
+    'id': id,
+    'name': name,
+    'category': category,
+    'color': color,
+    'material': material,
+    'isFavorite': isFavorite,
+    'fit': fit,
+    'fitConfidence': fitConfidence,
+    if (sourceRunId != null) 'sourceRunId': sourceRunId,
+    if (candidateId != null) 'candidateId': candidateId,
+    if (extractionConfidence != null)
+      'extractionConfidence': extractionConfidence,
+    'imageRef': imageRef?.toJson(),
+    if (imageUrl != null) 'imageUrl': imageUrl,
+    if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
+    if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
+  };
 }
 
 /// The payload for creating a new wardrobe item (POST /v1/wardrobe/items), as defined
@@ -267,16 +317,17 @@ class WardrobeItemCreate {
     double? fitConfidence,
     MediaRef? imageRef,
   }) => WardrobeItemCreate(
-        name: name ?? this.name,
-        category: category ?? this.category,
-        color: color ?? this.color,
-        material: material ?? this.material,
-        fit: fit ?? this.fit,
-        fitConfidence: fitConfidence ?? this.fitConfidence,
-        imageRef: imageRef ?? this.imageRef,
-      );
+    name: name ?? this.name,
+    category: category ?? this.category,
+    color: color ?? this.color,
+    material: material ?? this.material,
+    fit: fit ?? this.fit,
+    fitConfidence: fitConfidence ?? this.fitConfidence,
+    imageRef: imageRef ?? this.imageRef,
+  );
 
-  factory WardrobeItemCreate.fromJson(Map<String, dynamic> json) => WardrobeItemCreate(
+  factory WardrobeItemCreate.fromJson(Map<String, dynamic> json) =>
+      WardrobeItemCreate(
         name: json['name'] as String,
         category: json['category'] as String,
         color: json['color'] as String,
@@ -289,14 +340,14 @@ class WardrobeItemCreate {
       );
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'category': category,
-        'color': color,
-        'material': material,
-        if (fit != null) 'fit': fit,
-        if (fitConfidence != null) 'fitConfidence': fitConfidence,
-        'imageRef': imageRef?.toJson(),
-      };
+    'name': name,
+    'category': category,
+    'color': color,
+    'material': material,
+    if (fit != null) 'fit': fit,
+    if (fitConfidence != null) 'fitConfidence': fitConfidence,
+    'imageRef': imageRef?.toJson(),
+  };
 }
 
 /// The partial payload for updating a wardrobe item (PATCH /v1/wardrobe/items/{item_id}),
@@ -335,18 +386,19 @@ class WardrobeItemPatch {
     MediaRef? imageRef,
     bool? clearImageRef,
   }) => WardrobeItemPatch(
-        name: name ?? this.name,
-        category: category ?? this.category,
-        color: color ?? this.color,
-        material: material ?? this.material,
-        isFavorite: isFavorite ?? this.isFavorite,
-        fit: fit ?? this.fit,
-        fitConfidence: fitConfidence ?? this.fitConfidence,
-        imageRef: imageRef ?? this.imageRef,
-        clearImageRef: clearImageRef ?? this.clearImageRef,
-      );
+    name: name ?? this.name,
+    category: category ?? this.category,
+    color: color ?? this.color,
+    material: material ?? this.material,
+    isFavorite: isFavorite ?? this.isFavorite,
+    fit: fit ?? this.fit,
+    fitConfidence: fitConfidence ?? this.fitConfidence,
+    imageRef: imageRef ?? this.imageRef,
+    clearImageRef: clearImageRef ?? this.clearImageRef,
+  );
 
-  factory WardrobeItemPatch.fromJson(Map<String, dynamic> json) => WardrobeItemPatch(
+  factory WardrobeItemPatch.fromJson(Map<String, dynamic> json) =>
+      WardrobeItemPatch(
         name: json['name'] as String?,
         category: json['category'] as String?,
         color: json['color'] as String?,
@@ -361,18 +413,18 @@ class WardrobeItemPatch {
       );
 
   Map<String, dynamic> toJson() => {
-        if (name != null) 'name': name!,
-        if (category != null) 'category': category!,
-        if (color != null) 'color': color!,
-        if (material != null) 'material': material!,
-        if (isFavorite != null) 'isFavorite': isFavorite!,
-        if (fit != null) 'fit': fit!,
-        if (fitConfidence != null) 'fitConfidence': fitConfidence!,
-        if (clearImageRef)
-          'imageRef': null
-        else if (imageRef != null)
-          'imageRef': imageRef!.toJson(),
-      };
+    if (name != null) 'name': name!,
+    if (category != null) 'category': category!,
+    if (color != null) 'color': color!,
+    if (material != null) 'material': material!,
+    if (isFavorite != null) 'isFavorite': isFavorite!,
+    if (fit != null) 'fit': fit!,
+    if (fitConfidence != null) 'fitConfidence': fitConfidence!,
+    if (clearImageRef)
+      'imageRef': null
+    else if (imageRef != null)
+      'imageRef': imageRef!.toJson(),
+  };
 }
 
 /// The list envelope returned by `GET /v1/wardrobe/items`, as defined in §4.4 and
@@ -391,22 +443,20 @@ class ListEnvelope {
   final int total;
 
   factory ListEnvelope.fromJson(Map<String, dynamic> json) => ListEnvelope(
-        items: (json['items'] as List<dynamic>? ?? const [])
-            .map((e) => WardrobeItem.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        page: json['page'] as int? ?? 1,
-        pageSize: json['page_size'] as int? ?? 20,
-        total: json['total'] as int? ?? 0,
-      );
+    items: (json['items'] as List<dynamic>? ?? const [])
+        .map((e) => WardrobeItem.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    page: json['page'] as int? ?? 1,
+    pageSize: json['page_size'] as int? ?? 20,
+    total: json['total'] as int? ?? 0,
+  );
 
   List<WardrobeItem> get sortedByCreatedAt =>
-      items
-          .where((item) => item.createdAt != null)
-          .map((item) => item)
-          .toList()
-          ..sort((a, b) => b.createdAt!.compareTo(a.createdAt!));
+      items.where((item) => item.createdAt != null).map((item) => item).toList()
+        ..sort((a, b) => b.createdAt!.compareTo(a.createdAt!));
 
-  List<WardrobeItem> get sortedByName => items..sort((a, b) => a.name.compareTo(b.name));
+  List<WardrobeItem> get sortedByName =>
+      items..sort((a, b) => a.name.compareTo(b.name));
 
   bool get isEmpty => items.isEmpty;
 
@@ -416,18 +466,18 @@ class ListEnvelope {
     int? pageSize,
     int? total,
   }) => ListEnvelope(
-        items: items ?? this.items,
-        page: page ?? this.page,
-        pageSize: pageSize ?? this.pageSize,
-        total: total ?? this.total,
-      );
+    items: items ?? this.items,
+    page: page ?? this.page,
+    pageSize: pageSize ?? this.pageSize,
+    total: total ?? this.total,
+  );
 
   Map<String, dynamic> toJson() => {
-        'items': items.map((e) => e.toJson()).toList(),
-        'page': page,
-        'page_size': pageSize,
-        'total': total,
-      };
+    'items': items.map((e) => e.toJson()).toList(),
+    'page': page,
+    'page_size': pageSize,
+    'total': total,
+  };
 }
 
 /// The derived wardrobe insight DTO returned by `GET /v1/wardrobe/insight`
@@ -456,15 +506,15 @@ class WardrobeInsight {
     String? insight,
     String? action,
     String? route,
-  }) =>
-      WardrobeInsight(
-        title: title ?? this.title,
-        insight: insight ?? this.insight,
-        action: action ?? this.action,
-        route: route ?? this.route,
-      );
+  }) => WardrobeInsight(
+    title: title ?? this.title,
+    insight: insight ?? this.insight,
+    action: action ?? this.action,
+    route: route ?? this.route,
+  );
 
-  factory WardrobeInsight.fromJson(Map<String, dynamic> json) => WardrobeInsight(
+  factory WardrobeInsight.fromJson(Map<String, dynamic> json) =>
+      WardrobeInsight(
         title: json['title'] as String,
         insight: json['insight'] as String,
         action: json['action'] as String?,
@@ -472,11 +522,11 @@ class WardrobeInsight {
       );
 
   Map<String, dynamic> toJson() => {
-        'title': title,
-        'insight': insight,
-        'action': action,
-        'route': route,
-      };
+    'title': title,
+    'insight': insight,
+    'action': action,
+    'route': route,
+  };
 }
 
 /// The payload for logging a wear event (`POST /v1/wardrobe/wears`),
@@ -486,18 +536,12 @@ class WardrobeInsight {
 /// client never translates local mock IDs into backend UUIDs. [wornAt]
 /// is omitted from the wire body when null (server defaults to now).
 class WearEventLogRequest {
-  const WearEventLogRequest({
-    required this.itemIds,
-    this.wornAt,
-  });
+  const WearEventLogRequest({required this.itemIds, this.wornAt});
 
   final List<String> itemIds;
   final DateTime? wornAt;
 
-  WearEventLogRequest copyWith({
-    List<String>? itemIds,
-    DateTime? wornAt,
-  }) =>
+  WearEventLogRequest copyWith({List<String>? itemIds, DateTime? wornAt}) =>
       WearEventLogRequest(
         itemIds: itemIds ?? this.itemIds,
         wornAt: wornAt ?? this.wornAt,
@@ -514,9 +558,9 @@ class WearEventLogRequest {
       );
 
   Map<String, dynamic> toJson() => {
-        'itemIds': itemIds,
-        if (wornAt != null) 'wornAt': wornAt!.toUtc().toIso8601String(),
-      };
+    'itemIds': itemIds,
+    if (wornAt != null) 'wornAt': wornAt!.toUtc().toIso8601String(),
+  };
 }
 
 /// One persisted wear-event row returned by the wear surface.
@@ -536,24 +580,24 @@ class WearEvent {
   final DateTime? createdAt;
 
   factory WearEvent.fromJson(Map<String, dynamic> json) => WearEvent(
-        id: json['id'] as String,
-        wardrobeItemId: json['wardrobeItemId'] as String,
-        wornAt: json['wornAt'] != null
-            ? DateTime.tryParse(json['wornAt'] as String)
-            : null,
-        wearGroupId: json['wearGroupId'] as String,
-        createdAt: json['createdAt'] != null
-            ? DateTime.tryParse(json['createdAt'] as String)
-            : null,
-      );
+    id: json['id'] as String,
+    wardrobeItemId: json['wardrobeItemId'] as String,
+    wornAt: json['wornAt'] != null
+        ? DateTime.tryParse(json['wornAt'] as String)
+        : null,
+    wearGroupId: json['wearGroupId'] as String,
+    createdAt: json['createdAt'] != null
+        ? DateTime.tryParse(json['createdAt'] as String)
+        : null,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'wardrobeItemId': wardrobeItemId,
-        if (wornAt != null) 'wornAt': wornAt!.toUtc().toIso8601String(),
-        'wearGroupId': wearGroupId,
-        if (createdAt != null) 'createdAt': createdAt!.toUtc().toIso8601String(),
-      };
+    'id': id,
+    'wardrobeItemId': wardrobeItemId,
+    if (wornAt != null) 'wornAt': wornAt!.toUtc().toIso8601String(),
+    'wearGroupId': wearGroupId,
+    if (createdAt != null) 'createdAt': createdAt!.toUtc().toIso8601String(),
+  };
 }
 
 /// The response for `POST /v1/wardrobe/wears` (STEP 15.4/15.4B).
@@ -586,11 +630,11 @@ class WearEventLogResponse {
       );
 
   Map<String, dynamic> toJson() => {
-        'wears': wears.map((e) => e.toJson()).toList(),
-        'wearGroupId': wearGroupId,
-        if (wornAt != null) 'wornAt': wornAt!.toUtc().toIso8601String(),
-        'created': created,
-      };
+    'wears': wears.map((e) => e.toJson()).toList(),
+    'wearGroupId': wearGroupId,
+    if (wornAt != null) 'wornAt': wornAt!.toUtc().toIso8601String(),
+    'created': created,
+  };
 }
 
 /// The read-only wear summary DTO returned by
@@ -637,63 +681,55 @@ class WearSummary {
     List<String>? unwornItemIds,
     List<String>? recentlyWornItemIds,
     Map<String, int>? wearsByCategory,
-  }) =>
-      WearSummary(
-        totalWears: totalWears ?? this.totalWears,
-        wearCounts: wearCounts ?? this.wearCounts,
-        lastWorn: lastWorn ?? this.lastWorn,
-        mostWornItemIds: mostWornItemIds ?? this.mostWornItemIds,
-        leastWornItemIds: leastWornItemIds ?? this.leastWornItemIds,
-        unwornItemIds: unwornItemIds ?? this.unwornItemIds,
-        recentlyWornItemIds:
-            recentlyWornItemIds ?? this.recentlyWornItemIds,
-        wearsByCategory: wearsByCategory ?? this.wearsByCategory,
-      );
+  }) => WearSummary(
+    totalWears: totalWears ?? this.totalWears,
+    wearCounts: wearCounts ?? this.wearCounts,
+    lastWorn: lastWorn ?? this.lastWorn,
+    mostWornItemIds: mostWornItemIds ?? this.mostWornItemIds,
+    leastWornItemIds: leastWornItemIds ?? this.leastWornItemIds,
+    unwornItemIds: unwornItemIds ?? this.unwornItemIds,
+    recentlyWornItemIds: recentlyWornItemIds ?? this.recentlyWornItemIds,
+    wearsByCategory: wearsByCategory ?? this.wearsByCategory,
+  );
 
   factory WearSummary.fromJson(Map<String, dynamic> json) => WearSummary(
-        totalWears: json['totalWears'] as int,
-        wearCounts:
-            ((json['wearCounts'] as Map<String, dynamic>?) ?? const {})
-                .map((key, value) => MapEntry(key, value as int)),
-        lastWorn: ((json['lastWorn'] as Map<String, dynamic>?) ?? const {})
-            .map(
-              (key, value) => MapEntry(
-                key,
-                value == null ? null : DateTime.parse(value as String),
-              ),
-            ),
-        mostWornItemIds:
-            (json['mostWornItemIds'] as List<dynamic>? ?? const [])
-                .map((e) => e as String)
-                .toList(),
-        leastWornItemIds:
-            (json['leastWornItemIds'] as List<dynamic>? ?? const [])
-                .map((e) => e as String)
-                .toList(),
-        unwornItemIds:
-            (json['unwornItemIds'] as List<dynamic>? ?? const [])
-                .map((e) => e as String)
-                .toList(),
-        recentlyWornItemIds:
-            (json['recentlyWornItemIds'] as List<dynamic>? ?? const [])
-                .map((e) => e as String)
-                .toList(),
-        wearsByCategory:
-            ((json['wearsByCategory'] as Map<String, dynamic>?) ?? const {})
-                .map((key, value) => MapEntry(key, value as int)),
-      );
+    totalWears: json['totalWears'] as int,
+    wearCounts: ((json['wearCounts'] as Map<String, dynamic>?) ?? const {}).map(
+      (key, value) => MapEntry(key, value as int),
+    ),
+    lastWorn: ((json['lastWorn'] as Map<String, dynamic>?) ?? const {}).map(
+      (key, value) =>
+          MapEntry(key, value == null ? null : DateTime.parse(value as String)),
+    ),
+    mostWornItemIds: (json['mostWornItemIds'] as List<dynamic>? ?? const [])
+        .map((e) => e as String)
+        .toList(),
+    leastWornItemIds: (json['leastWornItemIds'] as List<dynamic>? ?? const [])
+        .map((e) => e as String)
+        .toList(),
+    unwornItemIds: (json['unwornItemIds'] as List<dynamic>? ?? const [])
+        .map((e) => e as String)
+        .toList(),
+    recentlyWornItemIds:
+        (json['recentlyWornItemIds'] as List<dynamic>? ?? const [])
+            .map((e) => e as String)
+            .toList(),
+    wearsByCategory:
+        ((json['wearsByCategory'] as Map<String, dynamic>?) ?? const {}).map(
+          (key, value) => MapEntry(key, value as int),
+        ),
+  );
 
   Map<String, dynamic> toJson() => {
-        'totalWears': totalWears,
-        'wearCounts': wearCounts,
-        'lastWorn': lastWorn.map(
-          (key, value) =>
-              MapEntry(key, value?.toUtc().toIso8601String()),
-        ),
-        'mostWornItemIds': mostWornItemIds,
-        'leastWornItemIds': leastWornItemIds,
-        'unwornItemIds': unwornItemIds,
-        'recentlyWornItemIds': recentlyWornItemIds,
-        'wearsByCategory': wearsByCategory,
-      };
+    'totalWears': totalWears,
+    'wearCounts': wearCounts,
+    'lastWorn': lastWorn.map(
+      (key, value) => MapEntry(key, value?.toUtc().toIso8601String()),
+    ),
+    'mostWornItemIds': mostWornItemIds,
+    'leastWornItemIds': leastWornItemIds,
+    'unwornItemIds': unwornItemIds,
+    'recentlyWornItemIds': recentlyWornItemIds,
+    'wearsByCategory': wearsByCategory,
+  };
 }

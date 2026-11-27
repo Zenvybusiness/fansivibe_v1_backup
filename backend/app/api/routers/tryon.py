@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict
 import json
+import logging
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -38,6 +39,7 @@ from app.domain.ports.tryon_provider import ProviderPayloadError
 from app.infrastructure.db.session import get_db
 
 router = APIRouter(prefix="/v1/tryon", tags=["tryon"])
+logger = logging.getLogger("fansivibe.api.tryon")
 
 
 @router.get(
@@ -389,7 +391,15 @@ async def get_tryon_image(
                 job.result_media_ref["key"],
                 max_bytes=tryon_app._MAX_RESULT_BYTES,
             )
-        except Exception:
+        except Exception as exc:
+            from app.telemetry.metrics import get_metrics_collector
+
+            get_metrics_collector().record_tryon_storage_error(operation="result_download")
+            logger.warning(
+                "Failed to read try-on result from storage [event=tryon_storage_error, operation=result_download, job_id=%s, err=%s]",
+                job_id,
+                type(exc).__name__,
+            )
             content = None
 
     if content is None:
@@ -691,6 +701,43 @@ async def get_tryon_health(
     }
 
 
+_LOW_PROVIDER_CREDITS_WARNING_THRESHOLD = 10
+
+
+def _record_credit_health_telemetry(provider_name: str, payload: dict[str, Any]) -> None:
+    from app.telemetry.metrics import get_metrics_collector
+
+    collector = get_metrics_collector()
+    err_name = payload.get("error")
+    if err_name == "ProviderAuthError":
+        collector.record_tryon_provider_outcome(provider=provider_name, outcome="auth_error")
+        logger.error(
+            "TryOn provider auth failure during credit check [event=tryon_credits_auth_failed, provider=%s]",
+            provider_name,
+        )
+        return
+    if err_name:
+        collector.record_tryon_provider_outcome(
+            provider=provider_name, outcome="credits_check_error"
+        )
+        logger.warning(
+            "TryOn provider credit check unavailable [event=tryon_credits_check_failed, provider=%s, err=%s]",
+            provider_name,
+            err_name,
+        )
+        return
+
+    balance = payload.get("credit_balance")
+    if isinstance(balance, (int, float)):
+        collector.set_tryon_provider_credit_balance(provider=provider_name, balance=float(balance))
+        if balance <= _LOW_PROVIDER_CREDITS_WARNING_THRESHOLD:
+            logger.warning(
+                "TryOn provider credits low [event=tryon_low_provider_credits, provider=%s, credit_balance=%s]",
+                provider_name,
+                balance,
+            )
+
+
 @router.get(
     "/health/credits",
     status_code=status.HTTP_200_OK,
@@ -735,8 +782,20 @@ async def get_tryon_provider_credits() -> dict[str, Any]:
                 ),
             )
             g_provider = GenlookTryOnProvider(g_config)
-            return await asyncio.to_thread(g_provider.check_health)
+            health_payload = await asyncio.to_thread(g_provider.check_health)
+            _record_credit_health_telemetry("genlook", health_payload)
+            return health_payload
         except Exception as exc:
+            from app.telemetry.metrics import get_metrics_collector
+
+            get_metrics_collector().record_tryon_provider_outcome(
+                provider="genlook", outcome="credits_check_error"
+            )
+            logger.error(
+                "TryOn provider credit check failed [event=tryon_credits_check_failed, provider=%s, err=%s]",
+                provider_name,
+                type(exc).__name__,
+            )
             return {
                 "provider": provider_name,
                 "status": "unavailable",
@@ -787,12 +846,80 @@ async def run_retention_cleanup(
 ) -> dict[str, Any]:
     """Execute retention policy cleanup across storage and database."""
     from app.api.rate_limit import prune_expired_buckets
-
-    summary = await tryon_app.cleanup_retention_data(
-        job_repo=job_repo,
-        storage=storage,
+    from app.application.garment_extraction import (
+        ExtractionCleanupSummary,
+        cleanup_expired_extraction_assets_detailed,
     )
-    pruned_buckets = prune_expired_buckets(getattr(job_repo, "_session", None))
+    from app.application.media import (
+        PendingMediaCleanupSummary,
+        cleanup_pending_media_deletions,
+    )
+
+    from app.telemetry.metrics import get_metrics_collector
+
+    cfg = get_settings()
+    collector = get_metrics_collector()
+    try:
+        summary = await tryon_app.cleanup_retention_data(
+            job_repo=job_repo,
+            storage=storage,
+            settings=cfg,
+        )
+        db_session = getattr(job_repo, "_session", None)
+        pruned_buckets = prune_expired_buckets(db_session)
+        if cfg.tryon_retention_enabled and db_session is not None and storage is not None:
+            extraction_summary = await cleanup_expired_extraction_assets_detailed(
+                storage,
+                db_session,
+                older_than_hours=cfg.extraction_retention_hours,
+            )
+        else:
+            extraction_summary = ExtractionCleanupSummary()
+
+        if db_session is not None and storage is not None:
+            media_cleanup_summary = await cleanup_pending_media_deletions(
+                storage,
+                db_session,
+            )
+        else:
+            media_cleanup_summary = PendingMediaCleanupSummary()
+    except Exception as exc:
+        collector.record_tryon_retention_cleanup(outcome="error")
+        logger.error(
+            "Retention cleanup failed [event=tryon_retention_cleanup_failed, err=%s]",
+            type(exc).__name__,
+        )
+        raise
+
+    has_partial_failure = (
+        summary.storage_errors > 0
+        or extraction_summary.runs_failed > 0
+        or extraction_summary.storage_errors > 0
+        or media_cleanup_summary.failed > 0
+    )
+    if has_partial_failure:
+        collector.record_tryon_retention_cleanup(outcome="partial_failure")
+        logger.warning(
+            "Retention cleanup completed with partial failures "
+            "[event=tryon_retention_cleanup_partial_failure, storage_errors=%d, "
+            "extraction_runs_failed=%d, extraction_storage_errors=%d, media_deletions_failed=%d]",
+            summary.storage_errors,
+            extraction_summary.runs_failed,
+            extraction_summary.storage_errors,
+            media_cleanup_summary.failed,
+        )
+    else:
+        collector.record_tryon_retention_cleanup(outcome="success")
+
     result = asdict(summary)
     result["rate_limit_buckets_pruned"] = pruned_buckets
+    result["extraction_runs_claimed"] = extraction_summary.runs_claimed
+    result["extraction_runs_cleaned"] = extraction_summary.runs_cleaned
+    result["extraction_runs_failed"] = extraction_summary.runs_failed
+    result["extraction_assets_deleted"] = extraction_summary.assets_deleted
+    result["extraction_storage_errors"] = extraction_summary.storage_errors
+    result["media_deletions_checked"] = media_cleanup_summary.checked
+    result["media_deletions_completed"] = media_cleanup_summary.deleted
+    result["media_deletions_restored"] = media_cleanup_summary.restored
+    result["media_deletions_failed"] = media_cleanup_summary.failed
     return result

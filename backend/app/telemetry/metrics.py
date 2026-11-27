@@ -58,6 +58,11 @@ class MetricsCollector:
         self._tryon_provider_outcomes: dict[tuple[str, str], int] = defaultdict(int)
         self._tryon_auth_failures: dict[tuple[str, str], int] = defaultdict(int)
         self._tryon_active_jobs: int = 0
+        self._tryon_provider_credit_balance: dict[str, float] = {}
+        self._tryon_stale_jobs_recovered: int = 0
+        self._tryon_interrupted_jobs_recovered: int = 0
+        self._tryon_retention_cleanup_runs: dict[str, int] = defaultdict(int)
+        self._tryon_retention_last_success_ts: float = 0.0
 
     def record_http_request(
         self, method: str, path: str, status_code: int, duration_s: float
@@ -152,6 +157,32 @@ class MetricsCollector:
         with self._lock:
             self._tryon_active_jobs = max(0, active)
 
+    def set_tryon_provider_credit_balance(self, *, provider: str, balance: float) -> None:
+        """Update last-observed provider credit balance gauge."""
+        with self._lock:
+            self._tryon_provider_credit_balance[provider or "unknown"] = float(balance)
+
+    def record_tryon_stale_jobs_recovered(self, count: int = 1) -> None:
+        """Record stale Try-On jobs recovered by maintenance."""
+        if count <= 0:
+            return
+        with self._lock:
+            self._tryon_stale_jobs_recovered += int(count)
+
+    def record_tryon_interrupted_jobs_recovered(self, count: int = 1) -> None:
+        """Record interrupted Try-On jobs recovered on startup."""
+        if count <= 0:
+            return
+        with self._lock:
+            self._tryon_interrupted_jobs_recovered += int(count)
+
+    def record_tryon_retention_cleanup(self, *, outcome: str) -> None:
+        """Record a Try-On retention cleanup execution outcome."""
+        with self._lock:
+            self._tryon_retention_cleanup_runs[outcome or "unknown"] += 1
+            if outcome == "success":
+                self._tryon_retention_last_success_ts = time.time()
+
     def get_status_count(self, status_code: int) -> int:
         """Return the count of requests for a specific HTTP status code."""
         with self._lock:
@@ -192,6 +223,11 @@ class MetricsCollector:
                     for (ep, code), cnt in self._tryon_auth_failures.items()
                 },
                 "tryon_active_jobs": self._tryon_active_jobs,
+                "tryon_provider_credit_balance": dict(self._tryon_provider_credit_balance),
+                "tryon_stale_jobs_recovered_total": self._tryon_stale_jobs_recovered,
+                "tryon_interrupted_jobs_recovered_total": self._tryon_interrupted_jobs_recovered,
+                "tryon_retention_cleanup_runs": dict(self._tryon_retention_cleanup_runs),
+                "tryon_retention_last_success_timestamp_seconds": self._tryon_retention_last_success_ts,
             }
 
     def format_prometheus(self) -> str:
@@ -314,6 +350,28 @@ class MetricsCollector:
             lines.append("# HELP fansivibe_tryon_active_jobs Currently executing Try-On background jobs.")
             lines.append("# TYPE fansivibe_tryon_active_jobs gauge")
             lines.append(f"fansivibe_tryon_active_jobs {self._tryon_active_jobs}")
+
+            lines.append("# HELP fansivibe_tryon_provider_credit_balance Last observed Try-On provider credit balance.")
+            lines.append("# TYPE fansivibe_tryon_provider_credit_balance gauge")
+            for prov, bal in sorted(self._tryon_provider_credit_balance.items()):
+                lines.append(f'fansivibe_tryon_provider_credit_balance{{provider="{prov}"}} {bal}')
+
+            lines.append("# HELP fansivibe_tryon_stale_jobs_recovered_total Stale Try-On jobs recovered by maintenance.")
+            lines.append("# TYPE fansivibe_tryon_stale_jobs_recovered_total counter")
+            lines.append(f"fansivibe_tryon_stale_jobs_recovered_total {self._tryon_stale_jobs_recovered}")
+
+            lines.append("# HELP fansivibe_tryon_interrupted_jobs_recovered_total Interrupted Try-On jobs recovered on startup.")
+            lines.append("# TYPE fansivibe_tryon_interrupted_jobs_recovered_total counter")
+            lines.append(f"fansivibe_tryon_interrupted_jobs_recovered_total {self._tryon_interrupted_jobs_recovered}")
+
+            lines.append("# HELP fansivibe_tryon_retention_cleanup_runs_total Try-On retention cleanup executions by outcome.")
+            lines.append("# TYPE fansivibe_tryon_retention_cleanup_runs_total counter")
+            for outcome, cnt in sorted(self._tryon_retention_cleanup_runs.items()):
+                lines.append(f'fansivibe_tryon_retention_cleanup_runs_total{{outcome="{outcome}"}} {cnt}')
+
+            lines.append("# HELP fansivibe_tryon_retention_last_success_timestamp_seconds Unix timestamp of last clean retention cleanup.")
+            lines.append("# TYPE fansivibe_tryon_retention_last_success_timestamp_seconds gauge")
+            lines.append(f"fansivibe_tryon_retention_last_success_timestamp_seconds {self._tryon_retention_last_success_ts:.3f}")
 
         return "\n".join(lines) + "\n"
 

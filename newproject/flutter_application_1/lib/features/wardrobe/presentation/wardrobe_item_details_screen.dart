@@ -1,6 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
-import 'package:fansivibe/features/learning/data/models.dart';
+import 'package:fansivibe/features/media/data/media_client.dart';
+import 'package:fansivibe/features/media/domain/image_pipeline.dart';
+import 'package:fansivibe/features/media/domain/original_file_manager.dart';
+import 'package:fansivibe/features/media/presentation/wardrobe_cache_manager.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_client.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_item_photo.dart';
@@ -8,13 +14,11 @@ import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
 import 'package:fansivibe/features/wardrobe/data/local_wardrobe_repository.dart';
 import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widgets.dart';
+import 'package:fansivibe/shared/components/fansi_image_well.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
-/// Converts a [WardrobeItemData] to a [WardrobeEntry] for LearningService sync,
-/// preserving the stored photo when the item carries no new bytes.
-WardrobeEntry _toEntry(WardrobeItemData item) => wardrobeEntryFromItem(item);
 
 /// Strict backend-UUID gate for wear capture (DEC-012, §10.2).
 ///
@@ -31,31 +35,38 @@ final RegExp _backendUuidPattern = RegExp(
 
 bool _isBackendUuid(String id) => _backendUuidPattern.hasMatch(id);
 
-
 /// The Wardrobe Item Details screen (WARDROBE-004).
 class WardrobeItemDetailsScreen extends StatefulWidget {
   const WardrobeItemDetailsScreen({
     required this.itemId,
     this.item,
     this.repository,
+    this.mediaClient,
+    this.photoGalleryPick,
+    this.cacheManager,
     super.key,
   });
 
   final String itemId;
   final WardrobeItemData? item;
   final WardrobeRepository? repository;
+  final MediaClient? mediaClient;
+  final Future<XFile?> Function(ImageSource source)? photoGalleryPick;
+  final WardrobeCacheManager? cacheManager;
 
   @override
   State<WardrobeItemDetailsScreen> createState() =>
       _WardrobeItemDetailsScreenState();
 }
 
-class _WardrobeItemDetailsScreenState
-    extends State<WardrobeItemDetailsScreen> {
+class _WardrobeItemDetailsScreenState extends State<WardrobeItemDetailsScreen> {
   late WardrobeRepository _repository;
+  late final MediaClient _mediaClient;
+  late final WardrobeCacheManager _cacheManager;
   WardrobeItemData? _item;
   bool _isLoading = true;
   bool _isEditing = false;
+  bool _isSaving = false;
   bool _isDeleting = false;
   bool _isLoggingWear = false;
   // Idempotency key for the current logical wear action (STEP 17.5).
@@ -68,16 +79,21 @@ class _WardrobeItemDetailsScreenState
   String? _newCategory;
   String? _newColor;
   String? _newMaterial;
+  String? _newFit;
   bool? _newFavorite;
-  bool _canEdit = true;
+  Uint8List? _pendingPhotoBytes;
+  bool _pendingPhotoRemoved = false;
 
   @override
   void initState() {
     super.initState();
+    _mediaClient = widget.mediaClient ?? MediaClient();
+    _cacheManager = widget.cacheManager ?? WardrobeCacheManager.instance;
     // Signed-out screens read/edit/delete through the local repository —
     // same screen, zero API calls. Injected fakes without savedLocally keep
     // exercising the authenticated backend path (per guest_mode.dart contract).
-    if (isGuestUser || (!AuthSession.isAuthenticated && widget.repository == null)) {
+    if (isGuestUser ||
+        (!AuthSession.isAuthenticated && widget.repository == null)) {
       _repository = LocalWardrobeRepository();
     } else {
       _repository = widget.repository ?? WardrobeRepositoryImpl();
@@ -90,7 +106,8 @@ class _WardrobeItemDetailsScreenState
 
   void _onAuthChanged() {
     if (!mounted) return;
-    if (isGuestUser || (!AuthSession.isAuthenticated && widget.repository == null)) {
+    if (isGuestUser ||
+        (!AuthSession.isAuthenticated && widget.repository == null)) {
       _repository = LocalWardrobeRepository();
     } else {
       _repository = widget.repository ?? WardrobeRepositoryImpl();
@@ -101,116 +118,335 @@ class _WardrobeItemDetailsScreenState
   @override
   void dispose() {
     AuthSession.authVersion.removeListener(_onAuthChanged);
+    if (widget.mediaClient == null) {
+      _mediaClient.dispose();
+    }
     super.dispose();
+  }
+
+  bool _hasPhoto(WardrobeItemData item) =>
+      (item.imageBytes != null && item.imageBytes!.isNotEmpty) ||
+      (item.imageUrl != null && item.imageUrl!.isNotEmpty) ||
+      item.imageRef != null ||
+      (item.localOriginalPath != null && item.localOriginalPath!.isNotEmpty);
+
+  void _syncDraftFields(WardrobeItemData item) {
+    _newName = item.name;
+    _newCategory = item.category;
+    _newColor = item.color;
+    _newMaterial = item.material;
+    _newFit = item.fit;
+    _newFavorite = item.isFavorite;
+    _pendingPhotoBytes = null;
+    _pendingPhotoRemoved = false;
   }
 
   Future<void> _loadItem() async {
     final item = await _repository.getItem(itemId: widget.itemId);
+    if (!mounted) return;
     setState(() {
       // Backend rows carry metadata only: rehydrate the photo from the
       // on-device mirror by id (imageless rows pass through).
-      _item = item == null ? null : attachLocalPhoto(item);
+      final resolved = item == null ? null : attachLocalPhoto(item);
+      _item = resolved;
       _isLoading = false;
       _isLoggingWear = false;
       _wearIdempotencyKey = null;
-      if (item != null) {
-        _newName = item.name;
-        _newCategory = item.category;
-        _newColor = item.color;
-        _newMaterial = item.material;
-        _newFavorite = item.isFavorite;
+      if (resolved != null) {
+        _syncDraftFields(resolved);
       }
     });
   }
 
   void _toggleEdit() {
-    // Phase 2.1 guests edit on-device through the local repository —
-    // no prompt, no backend call.
-    setState(() {
-      _isEditing = !_isEditing;
-      if (!_isEditing) {
-        // Save changes
-        _saveChanges();
+    if (_isSaving) return;
+    if (!_isEditing) {
+      final current = _item;
+      if (current != null) {
+        _syncDraftFields(current);
       }
+      setState(() {
+        _isEditing = true;
+      });
+    } else {
+      _saveChanges();
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+      ),
+    );
+  }
+
+  void _invalidateItemCache(WardrobeItemData item) {
+    final keys = <String?>{
+      item.imageRef?.contentHash,
+      item.imageRef?.objectKey,
+      item.id,
+    };
+    for (final key in keys) {
+      if (key != null && key.isNotEmpty) {
+        _cacheManager.invalidate(key);
+      }
+    }
+  }
+
+  Future<void> _pickReplacementPhoto() async {
+    if (_isSaving) return;
+    final picker =
+        widget.photoGalleryPick ??
+        (source) => ImagePicker().pickImage(source: source);
+    try {
+      final picked = await picker(ImageSource.gallery);
+      if (picked == null || !mounted) return;
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+      if (bytes.isEmpty) {
+        _showErrorSnackBar('Selected image is empty. Please choose another.');
+        return;
+      }
+      setState(() {
+        _pendingPhotoBytes = bytes;
+        _pendingPhotoRemoved = false;
+      });
+    } catch (_) {
+      _showErrorSnackBar('Could not load selected image. Please try again.');
+    }
+  }
+
+  void _removePhotoDraft() {
+    if (_isSaving) return;
+    setState(() {
+      _pendingPhotoBytes = null;
+      _pendingPhotoRemoved = true;
     });
   }
 
   Future<void> _saveChanges() async {
-    if (!_formKey.currentState!.validate()) {
+    if (_isSaving) return;
+    if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
 
-    setState(() {
-      _canEdit = false;
-    });
+    final current = _item;
+    if (current == null) return;
 
-    // Build WardrobeItemPatch with only the fields that changed
-    final changes = <String, dynamic>{};
+    final nameChanged = _newName != current.name;
+    final categoryChanged = _newCategory != current.category;
+    final colorChanged = _newColor != current.color;
+    final materialChanged = _newMaterial != current.material;
+    final clearMaterial = materialChanged && _newMaterial == null;
+    final fitChanged = _newFit != current.fit;
+    final clearFit = fitChanged && _newFit == null;
+    final favoriteChanged = _newFavorite != current.isFavorite;
+    final photoReplaced =
+        _pendingPhotoBytes != null && _pendingPhotoBytes!.isNotEmpty;
+    final photoRemoved = _pendingPhotoRemoved && !photoReplaced;
 
-    if (_newName != _item?.name) {
-      changes['name'] = _newName;
-    }
-    if (_newCategory != _item?.category) {
-      changes['category'] = _newCategory;
-    }
-    if (_newColor != _item?.color) {
-      changes['color'] = _newColor;
-    }
-    if (_newMaterial != _item?.material) {
-      changes['material'] = _newMaterial;
-    }
-    if (_newFavorite != _item?.isFavorite) {
-      changes['isFavorite'] = _newFavorite;
-    }
-
-    if (changes.isEmpty) {
-      // No changes detected, just close edit mode
+    if (!nameChanged &&
+        !categoryChanged &&
+        !colorChanged &&
+        !materialChanged &&
+        !fitChanged &&
+        !favoriteChanged &&
+        !photoReplaced &&
+        !photoRemoved) {
       setState(() {
         _isEditing = false;
-        _canEdit = true;
       });
       return;
     }
 
+    setState(() {
+      _isSaving = true;
+    });
+
+    Uint8List? preparedPhotoBytes;
+    String? newLocalOriginalPath;
+    MediaRef? newImageRef;
+
     try {
-      final updatedItem = await _repository.updateItem(
+      if (photoReplaced) {
+        preparedPhotoBytes = await prepareWardrobePhoto(_pendingPhotoBytes);
+        if (!mounted) return;
+
+        final uploadBytes = _pendingPhotoBytes!;
+        if (AuthSession.isAuthenticated && !isGuestUser) {
+          final detectedMime = detectImageMimeType(uploadBytes);
+          if (uploadBytes.length > 2 * 1024 * 1024 ||
+              (detectedMime != 'image/jpeg' && detectedMime != 'image/webp')) {
+            setState(() {
+              _isSaving = false;
+            });
+            _showErrorSnackBar(
+              'Please choose a JPEG or WebP image under 2 MB.',
+            );
+            return;
+          }
+
+          final clientSha = sha256Hex(uploadBytes);
+          final dims = await getImageDimensions(uploadBytes);
+          final idempotencyKey =
+              'edit_${widget.itemId}_${clientSha.substring(0, 16)}_${DateTime.now().millisecondsSinceEpoch}';
+
+          final authRes = await _mediaClient.authorizeUpload(
+            clientSizeBytes: uploadBytes.length,
+            clientSha256: clientSha,
+            idempotencyKey: idempotencyKey,
+            mimeType: detectedMime!,
+            clientDeclaredWidth: dims?.$1,
+            clientDeclaredHeight: dims?.$2,
+          );
+          if (authRes == null) {
+            if (!mounted) return;
+            setState(() {
+              _isSaving = false;
+            });
+            _showErrorSnackBar(
+              'Failed to upload replacement photo. Please try again.',
+            );
+            return;
+          }
+
+          final uploaded = await _mediaClient.uploadBytesDirect(
+            presignedPutUrl: authRes.presignedPutUrl,
+            bytes: uploadBytes,
+            contentType: detectedMime,
+          );
+          if (!uploaded) {
+            if (!mounted) return;
+            setState(() {
+              _isSaving = false;
+            });
+            _showErrorSnackBar(
+              'Failed to upload replacement photo. Please try again.',
+            );
+            return;
+          }
+
+          final pubRes = await _mediaClient.completeUpload(
+            uploadId: authRes.uploadId,
+          );
+          if (pubRes == null || pubRes.status != 'published') {
+            if (!mounted) return;
+            setState(() {
+              _isSaving = false;
+            });
+            _showErrorSnackBar(
+              'Failed to publish replacement photo. Please try again.',
+            );
+            return;
+          }
+
+          newImageRef = MediaRef(
+            objectKey: pubRes.canonicalKey,
+            mediaType: pubRes.mediaType,
+            uploadId: pubRes.uploadId,
+            width: pubRes.width,
+            height: pubRes.height,
+            sizeBytes: pubRes.sizeBytes,
+            contentHash: pubRes.sha256,
+            sourceRunId: current.sourceRunId ?? current.imageRef?.sourceRunId,
+            candidateId: current.candidateId ?? current.imageRef?.candidateId,
+            extractionConfidence:
+                current.extractionConfidence ??
+                current.imageRef?.extractionConfidence,
+          );
+        }
+
+        if (preparedPhotoBytes != null && preparedPhotoBytes.isNotEmpty) {
+          newLocalOriginalPath = await OriginalFileManager.instance
+              .saveOriginal(idOrHash: '', bytes: preparedPhotoBytes);
+        }
+      }
+
+      final updatedItem = await _repository.updateItemDetails(
         itemId: widget.itemId,
-        name: changes['name'] as String?,
-        category: changes['category'] as String?,
-        color: changes['color'] as String?,
-        material: changes['material'] as String?,
-        isFavorite: changes['isFavorite'] as bool?,
+        name: nameChanged ? _newName : null,
+        category: categoryChanged ? _newCategory : null,
+        color: colorChanged ? _newColor : null,
+        material: (materialChanged && !clearMaterial) ? _newMaterial : null,
+        clearMaterial: clearMaterial,
+        isFavorite: favoriteChanged ? _newFavorite : null,
+        fit: (fitChanged && !clearFit) ? _newFit : null,
+        clearFit: clearFit,
+        imageRef: newImageRef,
+        clearImageRef: photoRemoved,
+        imageBytes: preparedPhotoBytes,
       );
 
       if (!mounted) return;
 
       if (updatedItem != null) {
-        // Success: treat as source of truth and sync with LearningService
+        if (photoReplaced || photoRemoved) {
+          _invalidateItemCache(current);
+        }
+
+        final effectiveUpdated = updatedItem.copyWith(
+          imageBytes: photoRemoved
+              ? null
+              : (preparedPhotoBytes ??
+                    updatedItem.imageBytes ??
+                    current.imageBytes),
+          clearImageBytes: photoRemoved,
+          localOriginalPath: photoRemoved
+              ? null
+              : (newLocalOriginalPath ??
+                    updatedItem.localOriginalPath ??
+                    current.localOriginalPath),
+          clearLocalOriginalPath: photoRemoved,
+          imageRef: photoRemoved
+              ? null
+              : (updatedItem.imageRef ?? newImageRef ?? current.imageRef),
+          clearImageRef: photoRemoved,
+          imageUrl: photoRemoved
+              ? null
+              : (photoReplaced
+                    ? (updatedItem.imageUrl ??
+                          updatedItem.imageRef?.downloadUrl ??
+                          updatedItem.imageRef?.url)
+                    : (updatedItem.imageUrl ?? current.imageUrl)),
+          clearImageUrl: photoRemoved,
+          fitConfidence: updatedItem.fitConfidence ?? current.fitConfidence,
+          sourceRunId: updatedItem.sourceRunId ?? current.sourceRunId,
+          candidateId: updatedItem.candidateId ?? current.candidateId,
+          extractionConfidence:
+              updatedItem.extractionConfidence ?? current.extractionConfidence,
+          createdAt: updatedItem.createdAt ?? current.createdAt,
+          updatedAt: updatedItem.updatedAt ?? current.updatedAt,
+        );
+
         setState(() {
-          _item = updatedItem;
-          _newName = updatedItem.name;
-          _newCategory = updatedItem.category;
-          _newColor = updatedItem.color;
-          _newMaterial = updatedItem.material;
-          _newFavorite = updatedItem.isFavorite;
+          _item = effectiveUpdated;
+          _syncDraftFields(effectiveUpdated);
           _isEditing = false;
-          _canEdit = true;
+          _isSaving = false;
         });
-        // Synchronize the server-returned item into LearningService so
-        // WardrobeScreen's listener updates its grid accordingly.
-        LearningService.instance.updateItem(updatedItem.id, _toEntry(updatedItem));
+
+        LearningService.instance.updateItem(
+          effectiveUpdated.id,
+          wardrobeEntryFromItem(effectiveUpdated, clearImage: photoRemoved),
+        );
       } else {
-        // API failure
         setState(() {
-          _canEdit = true;
+          _isSaving = false;
         });
+        _showErrorSnackBar('Failed to save changes. Please try again.');
       }
     } catch (e) {
-      // Network/error failure
       if (!mounted) return;
       setState(() {
-        _canEdit = true;
+        _isSaving = false;
       });
+      _showErrorSnackBar(
+        'Failed to save changes. Please check your connection and try again.',
+      );
     }
   }
 
@@ -253,15 +489,15 @@ class _WardrobeItemDetailsScreenState
         // Success: remove from LearningService and close screen
         LearningService.instance.removeItem(itemId);
         if (!mounted) return;
-ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Item removed from wardrobe'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.0),
-        ),
-      ),
-    );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Item removed from wardrobe'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8.0),
+            ),
+          ),
+        );
         if (!mounted) return;
         Navigator.of(context).pop();
       } else {
@@ -270,15 +506,15 @@ ScaffoldMessenger.of(context).showSnackBar(
           _isDeleting = false;
         });
         if (!mounted) return;
-ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Failed to delete item. Please try again.'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.0),
-        ),
-      ),
-    );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete item. Please try again.'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8.0),
+            ),
+          ),
+        );
       }
     } catch (e) {
       // Network/error failure
@@ -288,14 +524,14 @@ ScaffoldMessenger.of(context).showSnackBar(
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Failed to delete item. Please check your connection.'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.0),
+        SnackBar(
+          content: Text('Failed to delete item. Please check your connection.'),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8.0),
+          ),
         ),
-      ),
-    );
+      );
     }
   }
 
@@ -357,9 +593,7 @@ ScaffoldMessenger.of(context).showSnackBar(
               : (result.created ? 'Wear logged' : 'Already logged'),
         ),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.0),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
       ),
     );
   }
@@ -369,13 +603,54 @@ ScaffoldMessenger.of(context).showSnackBar(
   }
 
   Widget _buildMissingItemScreen(BuildContext context) {
-    return const Center(
-      child: Text('Item not found'),
+    return const Center(child: Text('Item not found'));
+  }
+
+  Widget _buildPhotoEditorPreview(WardrobeItemData item) {
+    if (_pendingPhotoRemoved) {
+      return FansiImageWell(
+        icon: wardrobeIconFor(item.category),
+        color: wardrobeSwatchFor(item.color),
+        iconSize: 40,
+        showLabel: false,
+      );
+    }
+    if (_pendingPhotoBytes != null && _pendingPhotoBytes!.isNotEmpty) {
+      return Image.memory(
+        _pendingPhotoBytes!,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, __, ___) => FansiImageWell(
+          icon: wardrobeIconFor(item.category),
+          color: wardrobeSwatchFor(item.color),
+          iconSize: 40,
+          showLabel: false,
+        ),
+      );
+    }
+    if (_hasPhoto(item)) {
+      return WardrobeItemImage(item: item, iconSize: 48);
+    }
+    return FansiImageWell(
+      icon: wardrobeIconFor(item.category),
+      color: wardrobeSwatchFor(item.color),
+      iconSize: 40,
+      showLabel: false,
     );
   }
 
   Widget _buildEditingForm(BuildContext context, WardrobeItemData item) {
     final theme = Theme.of(context);
+    final hasActivePhoto =
+        !_pendingPhotoRemoved &&
+        (_pendingPhotoBytes != null || _hasPhoto(item));
+    final fitOptions = <String>[
+      ...AddItemConfig.fitOptions,
+      if (_newFit != null &&
+          _newFit!.isNotEmpty &&
+          !AddItemConfig.fitOptions.contains(_newFit))
+        _newFit!,
+    ];
 
     return Form(
       key: _formKey,
@@ -391,7 +666,36 @@ ScaffoldMessenger.of(context).showSnackBar(
                 color: FansivibeColors.textPrimary,
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
+
+            // Photo management section
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                height: 180,
+                width: double.infinity,
+                child: _buildPhotoEditorPreview(item),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _isSaving ? null : _pickReplacementPhoto,
+                  icon: const Icon(Icons.photo_camera_outlined, size: 16),
+                  label: Text(hasActivePhoto ? 'Replace Photo' : 'Add Photo'),
+                ),
+                if (hasActivePhoto)
+                  OutlinedButton.icon(
+                    onPressed: _isSaving ? null : _removePhotoDraft,
+                    icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                    label: const Text('Remove Photo'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
 
             // Name field
             TextFormField(
@@ -438,7 +742,10 @@ ScaffoldMessenger.of(context).showSnackBar(
                 DropdownMenuItem(value: 'bottoms', child: Text('Bottoms')),
                 DropdownMenuItem(value: 'outerwear', child: Text('Outerwear')),
                 DropdownMenuItem(value: 'footwear', child: Text('Footwear')),
-                DropdownMenuItem(value: 'accessories', child: Text('Accessories')),
+                DropdownMenuItem(
+                  value: 'accessories',
+                  child: Text('Accessories'),
+                ),
               ],
               onChanged: (value) {
                 setState(() {
@@ -489,6 +796,32 @@ ScaffoldMessenger.of(context).showSnackBar(
             ),
             const SizedBox(height: 16),
 
+            // Fit field
+            DropdownButtonFormField<String?>(
+              initialValue: _newFit,
+              decoration: InputDecoration(
+                labelText: 'Fit (optional)',
+                border: OutlineInputBorder(
+                  borderRadius: FansivibeRadius.baseBorder,
+                ),
+              ),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Not specified'),
+                ),
+                ...fitOptions.map(
+                  (f) => DropdownMenuItem<String?>(value: f, child: Text(f)),
+                ),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _newFit = value;
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+
             // Favorite toggle
             ListTile(
               title: const Text('Favorite'),
@@ -511,24 +844,28 @@ ScaffoldMessenger.of(context).showSnackBar(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
-                  onPressed: () {
-                    setState(() {
-                      _isEditing = false;
-                    });
-                  },
+                  onPressed: _isSaving
+                      ? null
+                      : () {
+                          setState(() {
+                            _syncDraftFields(item);
+                            _isEditing = false;
+                          });
+                        },
                   child: const Text('Cancel'),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton(
-                  onPressed: _saveChanges,
-                  child: _isEditing && _canEdit
+                  onPressed: _isSaving ? null : _saveChanges,
+                  child: _isSaving
                       ? const SizedBox(
                           height: 16,
                           width: 16,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(FansivibeColors.background),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              FansivibeColors.background,
+                            ),
                           ),
                         )
                       : const Text('Save'),
@@ -559,7 +896,7 @@ ScaffoldMessenger.of(context).showSnackBar(
           // Item photo (bounded hero, same slot as the wardrobe card) —
           // only when the item has a photo, so manual entries keep their
           // exact existing layout. Undecodable bytes fall back safely.
-          if (item.imageBytes != null && item.imageBytes!.isNotEmpty) ...[
+          if (_hasPhoto(item)) ...[
             const SizedBox(height: 16),
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
@@ -620,10 +957,22 @@ ScaffoldMessenger.of(context).showSnackBar(
           ),
           const SizedBox(height: 12),
 
+          if (item.fit != null && item.fit!.isNotEmpty) ...[
+            _metadataRow(
+              theme,
+              icon: Icons.straighten_rounded,
+              label: 'Fit',
+              value: item.fit!,
+            ),
+            const SizedBox(height: 12),
+          ],
+
           // Favorite
           _metadataRow(
             theme,
-            icon: item.isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+            icon: item.isFavorite
+                ? Icons.favorite_rounded
+                : Icons.favorite_border_rounded,
             label: 'Status',
             value: item.isFavorite ? 'Favorite' : 'Not favorite',
             valueColor: item.isFavorite ? FansivibeColors.accentGold : null,
@@ -671,8 +1020,9 @@ ScaffoldMessenger.of(context).showSnackBar(
                         width: 16,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(FansivibeColors.background),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            FansivibeColors.background,
+                          ),
                         ),
                       )
                     : const Text('Delete'),
@@ -787,7 +1137,7 @@ ScaffoldMessenger.of(context).showSnackBar(
             ? [
                 IconButton(
                   icon: const Icon(Icons.save_rounded),
-                  onPressed: _saveChanges,
+                  onPressed: _isSaving ? null : _saveChanges,
                 ),
               ]
             : [
@@ -797,9 +1147,7 @@ ScaffoldMessenger.of(context).showSnackBar(
                 ),
               ],
       ),
-      body: SafeArea(
-        child: _buildContent(context),
-      ),
+      body: SafeArea(child: _buildContent(context)),
     );
   }
 }

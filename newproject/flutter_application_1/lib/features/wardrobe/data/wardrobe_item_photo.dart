@@ -5,6 +5,8 @@ import 'dart:ui' as ui;
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
 
 /// Photo bytes carried with a wardrobe item, and their persistence.
 ///
@@ -87,8 +89,10 @@ Future<(int, int)?> _decodeBounds(Uint8List bytes) async {
 /// renderable bytes from the existing mirror; entries without a photo
 /// (manual items, pre-fix rows) return unchanged.
 WardrobeItemData attachLocalPhoto(WardrobeItemData item) {
+  final guest = isGuestUser;
   for (final entry in LearningService.instance.wardrobe) {
     if (entry.id != item.id) continue;
+    if (guest && !entry.isGuestLocal) continue;
     final bytes = decodeWardrobePhoto(entry.imageBase64);
     if (bytes == null) return item;
     if (item.imageBytes != null && item.imageBytes!.isNotEmpty) return item;
@@ -100,16 +104,28 @@ WardrobeItemData attachLocalPhoto(WardrobeItemData item) {
 /// Converts UI data to a mirror [WardrobeEntry], preserving the stored
 /// photo when the incoming item carries no new bytes (edits must not wipe
 /// the photo). New bytes win; both null stays imageless.
-WardrobeEntry wardrobeEntryFromItem(WardrobeItemData item) {
-  String? base64 = encodeWardrobePhoto(item.imageBytes);
-  if (base64 == null) {
-    for (final entry in LearningService.instance.wardrobe) {
-      if (entry.id == item.id) {
-        base64 = entry.imageBase64;
-        break;
+WardrobeEntry wardrobeEntryFromItem(
+  WardrobeItemData item, {
+  bool? isAuthenticatedMirror,
+  bool clearImage = false,
+}) {
+  String? base64 = clearImage ? null : encodeWardrobePhoto(item.imageBytes);
+  var existingMirror = false;
+  for (final entry in LearningService.instance.wardrobe) {
+    if (entry.id == item.id) {
+      if (!clearImage) {
+        base64 ??= entry.imageBase64;
       }
+      existingMirror = entry.isAuthenticatedMirror;
+      break;
     }
   }
+  final authenticatedMirror =
+      isAuthenticatedMirror ??
+      (existingMirror ||
+          (AuthSession.isAuthenticated &&
+              !isGuestUser &&
+              !item.id.startsWith('local-')));
   return WardrobeEntry(
     id: item.id,
     name: item.name,
@@ -117,6 +133,15 @@ WardrobeEntry wardrobeEntryFromItem(WardrobeItemData item) {
     color: item.color,
     material: item.material,
     isFavorite: item.isFavorite,
+    fit: item.fit,
+    fitConfidence: item.fitConfidence,
+    sourceRunId: item.sourceRunId ?? item.imageRef?.sourceRunId,
+    candidateId: item.candidateId ?? item.imageRef?.candidateId,
+    extractionConfidence:
+        item.extractionConfidence ?? item.imageRef?.extractionConfidence,
     imageBase64: base64,
+    isAuthenticatedMirror: authenticatedMirror,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
   );
 }
