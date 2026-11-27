@@ -45,6 +45,11 @@ from uuid import UUID
 
 from app.api.errors import ApiError, ai_failure, internal_error
 from app.domain.ports.external import WeatherError, WeatherProvider
+from app.domain.ports.storage import (
+    ObjectStoragePort,
+    StorageError,
+    resolve_wardrobe_image_key,
+)
 from app.domain.ports.repositories import (
     EventTypeRepository,
     TodayLookAlternative,
@@ -59,6 +64,11 @@ from app.domain.services.analysis_rules import (
     rank_outfit_candidates,
     score_outfit_candidate,
     select_best_outfit_candidate,
+)
+from app.domain.services.vibe_mapping import (
+    VibeAttributes,
+    resolve_effective_occasions,
+    resolve_vibe_attributes,
 )
 from app.domain.value_objects import WeatherContext, WeatherLocation
 
@@ -112,6 +122,7 @@ def resolve_weather_location(
     longitude: Optional[float] = None,
     user_state: Optional[UserStateRepository] = None,
     user_id: Optional[UUID] = None,
+    profile: Optional[Any] = None,
 ) -> Optional[WeatherLocation]:
     """Resolve coarse WeatherLocation following the 4-level priority order:
     1. Explicit coordinates / city passed in the current request.
@@ -139,12 +150,12 @@ def resolve_weather_location(
             )
 
     # Priority 2 & 3: Stored settings
-    if user_state is not None and user_id is not None:
+    if profile is None and user_state is not None and user_id is not None:
         try:
             profile = user_state.get_profile(user_id=user_id)
         except Exception:
             profile = None
-        if profile is not None and isinstance(profile.settings, dict):
+    if profile is not None and isinstance(profile.settings, dict):
             settings = profile.settings
             loc_data = (
                 settings.get("weather_location")
@@ -331,6 +342,53 @@ class _DerivationFailed(Exception):
     """Unexpected engine failure during candidate derivation."""
 
 
+async def _resolve_component_image_url(
+    record: Any,
+    storage: Optional[ObjectStoragePort],
+) -> Optional[str]:
+    """Resolve an owner-validated image URL for a wardrobe component.
+
+    Prefers canonical `image_ref` validated via `resolve_wardrobe_image_key`
+    and presigned via `storage`; accepts an explicit `http(s)://` `image_url`
+    only when present on test/mock records. Never fabricates or returns a
+    foreign/invalid reference.
+    """
+    image_ref = getattr(record, "image_ref", None)
+    if isinstance(image_ref, dict) and storage is not None:
+        owner_id = getattr(record, "user_id", None)
+        if owner_id is not None:
+            try:
+                key = resolve_wardrobe_image_key(image_ref, user_id=owner_id).key
+            except (StorageError, ValueError) as exc:
+                logger.warning(
+                    "Invalid wardrobe image reference for component image resolution (%s)",
+                    type(exc).__name__,
+                )
+                return None
+            try:
+                url = await storage.generate_presigned_get_url(key=key, expires_in_s=900)
+                if isinstance(url, str) and url.strip():
+                    return url.strip()
+            except StorageError as exc:
+                logger.warning(
+                    "Storage presign failed for wardrobe component image (%s)",
+                    type(exc).__name__,
+                )
+                return None
+            except Exception as exc:
+                logger.warning(
+                    "Unexpected error presigning wardrobe component image (%s)",
+                    type(exc).__name__,
+                )
+                return None
+    direct_url = getattr(record, "image_url", None)
+    if isinstance(direct_url, str):
+        cleaned = direct_url.strip()
+        if cleaned.startswith(("http://", "https://")):
+            return cleaned
+    return None
+
+
 async def _derive_today_look(
     *,
     events: UserEventRepository,
@@ -340,9 +398,11 @@ async def _derive_today_look(
     user_id: UUID,
     key: Optional[str],
     weather_provider: Optional[WeatherProvider] = None,
+    storage: Optional[ObjectStoragePort] = None,
     city: Optional[str] = None,
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
+    vibe: Optional[str] = None,
 ) -> Optional[TodayLookRecommendation]:
     """Shared derivation for GET (variant) and POST (seed).
 
@@ -361,11 +421,23 @@ async def _derive_today_look(
     if nearest:
         event_code = nearest[0].event_type
 
-    occasions = [event_code] if event_code is not None else []
-    occasions.extend(
-        item
-        for item in _preferred_occasions(user_state=user_state, user_id=user_id)
-        if isinstance(item, str) and item not in occasions
+    try:
+        profile = user_state.get_profile(user_id=user_id)
+    except Exception:
+        profile = None
+
+    style_dna = _style_dna(profile=profile)
+    effective_vibe = (
+        vibe.strip()
+        if isinstance(vibe, str) and vibe.strip()
+        else (style_dna.get("styleType") if style_dna else None)
+    )
+    vibe_attrs = resolve_vibe_attributes(effective_vibe)
+
+    _, occasions = resolve_effective_occasions(
+        event_code=event_code,
+        preferred_occasions=_preferred_occasions(profile=profile),
+        vibe_attrs=vibe_attrs,
     )
 
     # Weather location resolution & provider orchestration (Stage 2 P1-3)
@@ -375,6 +447,7 @@ async def _derive_today_look(
         longitude=longitude,
         user_state=user_state,
         user_id=user_id,
+        profile=profile,
     )
     weather_context: Optional[WeatherContext] = None
     if weather_provider is not None and weather_location is not None:
@@ -405,6 +478,8 @@ async def _derive_today_look(
             category=record.category,
             color=record.color,
             material=record.material,
+            fit=getattr(record, "fit", None),
+            fit_confidence=getattr(record, "fit_confidence", None),
             is_favorite=record.is_favorite,
         )
         for record in wardrobe
@@ -418,6 +493,10 @@ async def _derive_today_look(
                     items_by_id,
                     frozenset(),
                     occasions,
+                    preferred_palette=(
+                        vibe_attrs.preferred_palette if vibe_attrs else None
+                    ),
+                    preferred_fit=vibe_attrs.preferred_fit if vibe_attrs else None,
                     weather_context=weather_context,
                 )
                 for candidate in generate_outfit_candidates(adapted)
@@ -434,17 +513,26 @@ async def _derive_today_look(
     if winner is None:  # pragma: no cover — defensive; ranked non-empty.
         return None
     by_record = {str(record.id): record for record in wardrobe}
+    component_image_urls: dict[str, str] = {}
+    for item_id in _candidate_member_ids(winner):
+        record = by_record.get(str(item_id))
+        if record is not None and str(record.id) not in component_image_urls:
+            resolved_url = await _resolve_component_image_url(record, storage)
+            if resolved_url is not None:
+                component_image_urls[str(record.id)] = resolved_url
     return _to_recommendation(
         event_types=event_types,
         event_code=event_code,
         occasions=occasions,
-        user_state=user_state,
-        user_id=user_id,
+        profile=profile,
         winner=winner,
         ranked=ranked,
         by_record=by_record,
         total_items=len(wardrobe),
         weather_context=weather_context,
+        vibe_attrs=vibe_attrs,
+        raw_vibe=effective_vibe,
+        component_image_urls=component_image_urls,
     )
 
 
@@ -464,12 +552,18 @@ def _load_owner_wardrobe(
         page += 1
 
 
-def _preferred_occasions(*, user_state: UserStateRepository, user_id: UUID) -> list:
+def _preferred_occasions(
+    *,
+    user_state: Optional[UserStateRepository] = None,
+    user_id: Optional[UUID] = None,
+    profile: Optional[Any] = None,
+) -> list:
     """Persisted occasion codes for scoring context (read-only)."""
-    try:
-        profile = user_state.get_profile(user_id=user_id)
-    except Exception:
-        return []
+    if profile is None and user_state is not None and user_id is not None:
+        try:
+            profile = user_state.get_profile(user_id=user_id)
+        except Exception:
+            return []
     if profile is None:
         return []
     raw = profile.preferences.get("preferred_occasions")
@@ -478,12 +572,18 @@ def _preferred_occasions(*, user_state: UserStateRepository, user_id: UUID) -> l
     return [item for item in raw if isinstance(item, str)]
 
 
-def _style_dna(*, user_state: UserStateRepository, user_id: UUID) -> Optional[dict]:
+def _style_dna(
+    *,
+    user_state: Optional[UserStateRepository] = None,
+    user_id: Optional[UUID] = None,
+    profile: Optional[Any] = None,
+) -> Optional[dict]:
     """Present-only StyleProfile projection (read-only, gaps tolerated)."""
-    try:
-        profile = user_state.get_profile(user_id=user_id)
-    except Exception:
-        return None
+    if profile is None and user_state is not None and user_id is not None:
+        try:
+            profile = user_state.get_profile(user_id=user_id)
+        except Exception:
+            return None
     if profile is None:
         return None
     stored = profile.style_profile
@@ -509,13 +609,17 @@ def _to_recommendation(
     event_types: EventTypeRepository,
     event_code: Optional[str],
     occasions: list,
-    user_state: UserStateRepository,
-    user_id: UUID,
+    user_state: Optional[UserStateRepository] = None,
+    user_id: Optional[UUID] = None,
+    profile: Optional[Any] = None,
     winner,
     ranked: list,
     by_record: dict,
     total_items: int,
     weather_context: Optional[WeatherContext] = None,
+    vibe_attrs: Optional[VibeAttributes] = None,
+    raw_vibe: Optional[str] = None,
+    component_image_urls: Optional[dict[str, str]] = None,
 ) -> TodayLookRecommendation:
     if event_code is not None:
         type_row = event_types.get_by_code(code=event_code)
@@ -529,11 +633,16 @@ def _to_recommendation(
     selected_item_ids = sorted(set(_candidate_member_ids(winner)))
     components: list[TodayLookComponent] = []
     covered: list[str] = []
+    primary_image_url: Optional[str] = None
+    url_map = component_image_urls or {}
     for category in _OUTFIT_SLOT_ORDER:
         for item_id in getattr(winner, _SLOT_ATTRS[category], ()):
             record = by_record.get(str(item_id))
             if record is None:  # pragma: no cover — defensive; IDs are owned.
                 continue
+            comp_image_url = url_map.get(str(record.id))
+            if primary_image_url is None and isinstance(comp_image_url, str) and comp_image_url:
+                primary_image_url = comp_image_url
             components.append(
                 TodayLookComponent(
                     id=str(record.id),
@@ -541,6 +650,7 @@ def _to_recommendation(
                     category=category,
                     color=record.color,
                     material=record.material,
+                    image_url=comp_image_url if isinstance(comp_image_url, str) and comp_image_url else None,
                 )
             )
         if getattr(winner, _SLOT_ATTRS[category], ()):
@@ -554,6 +664,8 @@ def _to_recommendation(
     reasons = []
     if label is not None:
         reasons.append(f"Picked for a {label} occasion")
+    if vibe_attrs is not None:
+        reasons.append(f"Styled for your {vibe_attrs.display_label} vibe")
     reasons.append(
         f"Covers {count} categor{'y' if count == 1 else 'ies'}: " + ", ".join(covered)
     )
@@ -570,6 +682,12 @@ def _to_recommendation(
         )
         for candidate in ranked[1:3]
     ]
+    rec_digest = hashlib.sha256(",".join(selected_item_ids).encode("utf-8")).hexdigest()[:12]
+    selected_vibe = (
+        vibe_attrs.canonical_id
+        if vibe_attrs is not None
+        else (raw_vibe.strip() if isinstance(raw_vibe, str) and raw_vibe.strip() else None)
+    )
     return TodayLookRecommendation(
         title=title,
         occasion=occasion,
@@ -578,12 +696,17 @@ def _to_recommendation(
         style_score=score,
         components=components,
         reasons=reasons,
-        style_dna=_style_dna(user_state=user_state, user_id=user_id),
+        style_dna=_style_dna(user_state=user_state, user_id=user_id, profile=profile),
         total_items=total_items,
         matching_items=len(selected_item_ids),
         alternatives=alternatives,
         selected_item_ids=selected_item_ids,
         weather=_build_weather_payload(weather_context),
+        recommendation_id=f"today-{rec_digest}",
+        source_type="wardrobe_derived",
+        selected_vibe=selected_vibe,
+        is_personalized=True,
+        image_url=primary_image_url,
     )
 
 
@@ -604,12 +727,14 @@ class GetTodayLook:
         wardrobe_items: WardrobeItemRepository,
         user_state: UserStateRepository,
         weather_provider: Optional[WeatherProvider] = None,
+        storage: Optional[ObjectStoragePort] = None,
     ) -> None:
         self._events = events
         self._event_types = event_types
         self._wardrobe_items = wardrobe_items
         self._user_state = user_state
         self._weather_provider = weather_provider
+        self._storage = storage
 
     async def __call__(
         self,
@@ -619,6 +744,7 @@ class GetTodayLook:
         city: Optional[str] = None,
         latitude: Optional[float] = None,
         longitude: Optional[float] = None,
+        vibe: Optional[str] = None,
     ) -> Optional[TodayLookRecommendation]:
         key = _validate_selector("variant", variant)
         try:
@@ -630,9 +756,11 @@ class GetTodayLook:
                 user_id=user_id,
                 key=key,
                 weather_provider=self._weather_provider,
+                storage=self._storage,
                 city=city,
                 latitude=latitude,
                 longitude=longitude,
+                vibe=vibe,
             )
         except _DerivationFailed:
             raise internal_error()
@@ -656,12 +784,14 @@ class RegenerateTodayLook:
         wardrobe_items: WardrobeItemRepository,
         user_state: UserStateRepository,
         weather_provider: Optional[WeatherProvider] = None,
+        storage: Optional[ObjectStoragePort] = None,
     ) -> None:
         self._events = events
         self._event_types = event_types
         self._wardrobe_items = wardrobe_items
         self._user_state = user_state
         self._weather_provider = weather_provider
+        self._storage = storage
 
     async def __call__(
         self,
@@ -671,6 +801,7 @@ class RegenerateTodayLook:
         city: Optional[str] = None,
         latitude: Optional[float] = None,
         longitude: Optional[float] = None,
+        vibe: Optional[str] = None,
     ) -> Optional[TodayLookRecommendation]:
         key = _validate_selector("seed", seed)
         try:
@@ -682,9 +813,11 @@ class RegenerateTodayLook:
                 user_id=user_id,
                 key=key,
                 weather_provider=self._weather_provider,
+                storage=self._storage,
                 city=city,
                 latitude=latitude,
                 longitude=longitude,
+                vibe=vibe,
             )
         except _DerivationFailed:
             raise ai_failure()

@@ -87,6 +87,29 @@ class UpdatePreferences:
                 )
             else:
                 clean_settings = dict(settings)
+                if "timezone" in clean_settings:
+                    tz_val = clean_settings["timezone"]
+                    if tz_val is not None:
+                        if not isinstance(tz_val, str) or not tz_val.strip():
+                            errors.append(
+                                {
+                                    "field": "settings.timezone",
+                                    "error": "must be a valid IANA timezone name",
+                                }
+                            )
+                        else:
+                            from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+                            try:
+                                ZoneInfo(tz_val.strip())
+                                clean_settings["timezone"] = tz_val.strip()
+                            except (ZoneInfoNotFoundError, KeyError, ValueError):
+                                errors.append(
+                                    {
+                                        "field": "settings.timezone",
+                                        "error": "must be a valid IANA timezone name",
+                                    }
+                                )
                 # Validate and sanitize location settings if present (P1-3)
                 for loc_key in ("weather_location", "weatherLocation", "location"):
                     if loc_key in clean_settings:

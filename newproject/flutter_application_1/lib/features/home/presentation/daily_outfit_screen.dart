@@ -12,6 +12,7 @@ import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
 import 'package:fansivibe/shared/utils/local_storage.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
@@ -270,6 +271,7 @@ class _DailyOutfitScreenState extends State<DailyOutfitScreen>
     setState(() => _saving = false);
     if (saved != null) {
       setState(() => _saved = true);
+      UserSession.notifySavedLooksChanged();
       _showSnackBar('Today\'s look saved');
     } else {
       _showSnackBar('Couldn\'t save this look. Please try again.');

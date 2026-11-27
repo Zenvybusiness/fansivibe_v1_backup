@@ -15,6 +15,7 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
 
 /// Dedicated Saved Look Detail Screen (Stage 2 P1-2).
 ///
@@ -142,6 +143,7 @@ class _SavedLookDetailsScreenState extends State<SavedLookDetailsScreen> {
     if (!mounted) return;
 
     if (outcome != null) {
+      UserSession.notifySavedLooksChanged();
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop(true);
       }

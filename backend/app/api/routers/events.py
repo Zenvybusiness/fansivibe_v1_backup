@@ -33,6 +33,7 @@ from app.application.events import (
     CreateEvent,
     DeleteEvent,
     GenerateEventOutfit,
+    GetEvent,
     ListEvents,
     UpdateEvent,
 )
@@ -158,6 +159,22 @@ def list_events(
         page_size=page_size,
         total=total,
     )
+
+
+@router.get(
+    "/{event_id}",
+    response_model=UserEvent,
+    responses={401: {"model": dict}, 404: {"model": dict}, 422: {"model": dict}},
+)
+def get_event(
+    event_id: UUID = Path(..., description="UUID of the event to retrieve"),
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> UserEvent:
+    """Return full details for one owned event (404-not-403)."""
+    use_case = GetEvent(events=UserEventRepositorySQL(db))
+    record = use_case(user_id=user_id, event_id=event_id)
+    return _to_user_event(record)
 
 
 @router.put(

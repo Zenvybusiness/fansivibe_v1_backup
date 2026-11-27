@@ -136,8 +136,8 @@ def test_current_head_and_historical_chain_from_0016():
     """
     script = ScriptDirectory.from_config(_alembic_config())
     # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
-    # Current source head is 0032.
-    assert tuple(script.get_heads()) == ("0032",)
+    # Current source head is 0041.
+    assert tuple(script.get_heads()) == ("0041",)
 
     revision = script.get_revision("0017")
     assert revision is not None

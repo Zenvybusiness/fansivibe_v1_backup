@@ -64,6 +64,7 @@ class TodayLookClient {
     String? city,
     double? latitude,
     double? longitude,
+    String? vibe,
   }) async {
     try {
       final queryParams = <String, String>{};
@@ -75,6 +76,9 @@ class TodayLookClient {
       }
       if (longitude != null) {
         queryParams['lon'] = longitude.toString();
+      }
+      if (vibe != null && vibe.trim().isNotEmpty) {
+        queryParams['vibe'] = vibe.trim();
       }
 
       final uri = queryParams.isEmpty
@@ -104,6 +108,7 @@ class TodayLookClient {
     String? city,
     double? latitude,
     double? longitude,
+    String? vibe,
   }) async {
     try {
       final queryParams = <String, String>{};
@@ -118,6 +123,9 @@ class TodayLookClient {
       }
       if (longitude != null) {
         queryParams['lon'] = longitude.toString();
+      }
+      if (vibe != null && vibe.trim().isNotEmpty) {
+        queryParams['vibe'] = vibe.trim();
       }
 
       final uri = queryParams.isEmpty

@@ -77,6 +77,7 @@ class TodayLookRepositoryImpl implements TodayLookRepository {
       city: effectiveCity,
       latitude: latitude,
       longitude: longitude,
+      vibe: LocalStorage.vibe,
     );
   }
 
@@ -96,6 +97,7 @@ class TodayLookRepositoryImpl implements TodayLookRepository {
       city: effectiveCity,
       latitude: latitude,
       longitude: longitude,
+      vibe: LocalStorage.vibe,
     );
   }
 

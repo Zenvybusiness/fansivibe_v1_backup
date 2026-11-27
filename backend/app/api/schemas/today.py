@@ -54,6 +54,7 @@ class TodayLookComponent(BaseModel):
     category: str
     color: str
     material: Optional[str] = None
+    imageUrl: Optional[str] = None
 
 
 class TodayLookStyleDna(BaseModel):
@@ -95,3 +96,8 @@ class TodayLook(BaseModel):
     wardrobeContext: TodayLookWardrobeContext
     alternatives: list[TodayLookAlternative] = Field(default_factory=list)
     selectedItemIds: list[str]
+    recommendationId: Optional[str] = None
+    sourceType: str = "wardrobe_derived"
+    selectedVibe: Optional[str] = None
+    isPersonalized: bool = True
+    imageUrl: Optional[str] = None

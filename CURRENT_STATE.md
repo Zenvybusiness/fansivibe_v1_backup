@@ -1,5 +1,307 @@
 # Fansivibe Current State
 
+## TASK SJ2 — FLUTTER STYLE JOURNEY HISTORY UI (executed 2026-11-28, STATUS: COMPLETED & VERIFIED ON FLUTTER REGRESSION SUITE; ZERO COMMITS/PUSHES)
+- **Data & Repository Layer (`newproject/flutter_application_1/lib/features/learning/`)**:
+  - Added `style_journey_models.dart` (`WeeklyProgressItem`, `StyleJourneyComparison`, `StyleJourneyHistory`, `StyleJourneyFailure`, `StyleJourneyHistoryResult`) mirroring SJ1 `GET /v1/learning/journey/history` schemas (`backend/app/api/schemas/learning.py`), with ISO date/timestamp parsing, chronological chart ordering (`chronologicalWeeks`), and date-range labels (`shortStartLabel`, `shortRangeLabel`).
+  - Added `style_journey_client.dart` (`StyleJourneyClient`) using `AppConfig.apiBaseUrl` and `AuthSession.effectiveToken` / `AuthSession.noteStatus` (401 auth-expiry propagation) with typed network/rate-limit/service/server failure classification.
+  - Added `style_journey_repository.dart` (`StyleJourneyRepository`, `StyleJourneyRepositoryImpl`) and exported SJ2 contracts from `learning_summary.dart`.
+- **Home & Style Journey UI (`home_screen.dart`, `existing_user_home_widgets.dart`)**:
+  - Wired `StyleJourneyRepository` into `HomeScreen` with single-fetch initialization, duplicate-request guard (`_historyLoading` + `_historyGeneration`), auth-change reset, `RefreshIndicator` pull-to-refresh, and card-level retry/refresh callbacks while preserving M10 `LearningSummary` score and `BackendStyleStreakCard` streak behavior.
+  - Updated `ExistingUserStyleJourney` to display current week score & date range, previous week comparison and integer point delta (without fabricating percentages or missing historical weeks), chronological weekly score bar chart across recorded weeks only, personal weekly rank and personal best week (including tie indicator), current week activity (`styledDaysCount`, `signalsCount`), new-user empty state, loading state, and error-with-retry state (no fabricated milestones).
+- **Tests (`test/sj2_style_journey_history_test.dart`, 9 tests)**:
+  - Covered history model parsing & chronological ordering, 401 auth expiry, network error classification, weekly chart + comparison + ranking + best week + activity rendering, tied-with-best + negative delta without percentages, new-user empty state, missing-week gap handling (no zero-score week fabrication), loading state, and error retry + refresh.
+- **Exact Changed / Added Files (SJ2)**:
+  - `newproject/flutter_application_1/lib/features/learning/data/style_journey_models.dart` (new)
+  - `newproject/flutter_application_1/lib/features/learning/data/style_journey_client.dart` (new)
+  - `newproject/flutter_application_1/lib/features/learning/data/style_journey_repository.dart` (new)
+  - `newproject/flutter_application_1/lib/features/learning/learning_summary.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/widgets/existing_user_home_widgets.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/home_screen.dart`
+  - `newproject/flutter_application_1/test/sj2_style_journey_history_test.dart` (new, 9 tests)
+  - `CURRENT_STATE.md`
+- **Verification (executed after final code/test edits)**:
+  - `dart format` (7 touched Dart files): `Formatted 1 file (0 changed)`, `exit 0`.
+  - `flutter analyze` (`newproject/flutter_application_1`): `No issues found!` (`1.4s`).
+  - Flutter 5-file suite (`test/sj2_style_journey_history_test.dart`, `test/learning_summary_test.dart`, `test/home_screen_test.dart`, `test/first_time_home_screen_test.dart`, `test/auth_data_boundary_test.dart`): `64 passed, 0 failed, 0 skipped`.
+  - `git diff --check`: `exit 0`.
+
+## TASK SJ1.1 — LEARNING SIGNAL INTEGRITY VERIFICATION (executed 2026-11-28, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG `fansivibe_disposable_test`; ZERO COMMITS/PUSHES)
+- **Root Cause (Pre-Existing Before SJ1)**:
+  - In commit `79298c3`, `CreateOutfitRun.__call__` (`backend/app/application/analysis.py`) was updated to gate `LearningSignals` (`analysis_updated`, `outfit_selected`) and `ActivityDays` (`mark_styled_today`) emission on `profile_persistence == "saved"` (returning `"unknown"` when `self._user_state is None`).
+  - `test_P_outfit_run_signals_share_one_activity_day` (`backend/tests/test_m10a_activity_days.py`) still passed `user_state=None` and only seeded `Users` without `UserState`, causing `profile_persistence == "unknown"` and 0 `LearningSignals` / 0 `ActivityDays` to be written.
+- **Verification of Signal Persistence, Transaction Boundaries, and SJ1 Aggregation**:
+  - Confirmed production `create_outfit_run` (`backend/app/api/routers/analysis.py`) wires `UserStateRepositorySQL(db)`, `LearningSignalRepositorySQL(db)`, and `ActivityDayRepositorySQL(db)` on the same session: `update_style_profile` commits the `UserState` CAS update, then `insert_look_saved` (twice) + `upsert_styled_day` + `commit()` persist both `LearningSignals` and the `ActivityDays` row atomically.
+  - Confirmed `LearningSignalRepositorySQL.list_occurred_at_in_range` queries the exact same `LearningSignals` table (`learning_signals.user_id`, `learning_signals.occurred_at` `DateTime(timezone=True)` UTC) written by `insert_look_saved`.
+  - Confirmed SJ1 `week_utc_range` and `count_week_activity` (`backend/app/application/style_journey.py`) convert local week boundaries `[week_start 00:00, week_start + 7d 00:00)` in the user's IANA timezone to UTC `[start_utc, end_utc)` for `list_occurred_at_in_range` and group returned instants by local calendar date.
+- **Fix Applied**:
+  - Updated `test_P_outfit_run_signals_share_one_activity_day` (`backend/tests/test_m10a_activity_days.py`) to seed `UserState(user_id=user_id)` and wire `user_state=UserStateRepositorySQL(session)`, preserving all existing assertions and production `CreateOutfitRun` behavior.
+- **Exact Changed Files (SJ1.1)**:
+  - `backend/tests/test_m10a_activity_days.py`
+  - `CURRENT_STATE.md`
+- **Verification (executed after final edit on `fansivibe_disposable_test`)**:
+  - `backend/.venv/bin/python -m compileall -q app/ tests/`: `exit 0`.
+  - `test_m10a_activity_days.py -k test_P_outfit_run_signals_share_one_activity_day`: `1 passed, 19 deselected, 0 failed` (`1.06s`).
+  - `test_m10a_activity_days.py` (20) + `test_sj1_style_journey_history.py` (12) + `test_m10b_learning_summary.py` (23): `55 passed, 0 failed, 0 skipped` (`9.83s`).
+  - `git diff --check`: `exit 0`.
+
+## TASK SJ1 — STYLE JOURNEY HISTORICAL PROGRESS (executed 2026-11-28, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG `fansivibe_disposable_test`; ZERO COMMITS/PUSHES)
+- **Weekly Progress History & Immutable Snapshots**:
+  - Added Alembic migration `backend/alembic/versions/0041_style_journey_weekly_snapshots.py` and ORM model `StyleJourneyWeeklySnapshots` (`backend/app/infrastructure/db/models.py`) storing immutable, owner-scoped weekly snapshots (`(user_id, week_start)` unique constraint, `ON DELETE CASCADE`, `week_start`/`week_end`, `timezone`, `style_score` + breakdown, `styled_days_count`, `signals_count`, `aggregation_policy`, `recorded_at`).
+  - Added `WeeklySnapshotRecord`, `StyleJourneySnapshotRepository`, and `LearningSignalRepository.list_occurred_at_in_range` in `backend/app/domain/ports/repositories.py` with SQLAlchemy implementations in `backend/app/infrastructure/db/repositories.py`.
+  - Added `backend/app/application/style_journey.py` (`GetStyleJourneyHistory`, `RecordWeeklySnapshot`, timezone/ISO-week helpers, personal competition ranking `rank_weekly_entries`, `select_best_historical_week`) with consistent user-timezone week boundaries (`?timezone=` override -> `user_state.settings["timezone"]` -> `"UTC"`), strict owner isolation, zero fabrication of missing historical weeks (`previousWeek=None`, `bestHistoricalWeek=None`, `scoreDelta=None`, `trend=None` when absent), and idempotent/immutable snapshot creation (`ON CONFLICT (user_id, week_start) DO NOTHING`).
+  - Added `settings.timezone` IANA validation in `UpdatePreferences` (`backend/app/application/users.py`).
+  - Exposed `GET /v1/learning/journey/history` and `POST /v1/learning/journey/snapshots` in `backend/app/api/routers/learning.py` and `backend/app/api/schemas/learning.py`, while preserving `GET /v1/learning/summary` unchanged.
+  - Added `backend/tests/test_sj1_style_journey_history.py` (12 unit + PostgreSQL integration tests), added `style_journey_weekly_snapshots` to `backend/tests/conftest.py`, and updated Alembic head pins (`0040` -> `0041`) in `test_c10_analysis_idempotency.py`, `test_m8a_events_foundation.py`, and `test_ephemeral_analysis.py`.
+- **Exact Changed / Added Files (SJ1)**:
+  - `backend/alembic/versions/0041_style_journey_weekly_snapshots.py` (new)
+  - `backend/app/infrastructure/db/models.py`
+  - `backend/app/domain/ports/repositories.py`
+  - `backend/app/infrastructure/db/repositories.py`
+  - `backend/app/application/style_journey.py` (new)
+  - `backend/app/application/users.py`
+  - `backend/app/api/schemas/learning.py`
+  - `backend/app/api/routers/learning.py`
+  - `backend/tests/conftest.py`
+  - `backend/tests/test_sj1_style_journey_history.py` (new, 12 tests)
+  - `backend/tests/test_c10_analysis_idempotency.py`
+  - `backend/tests/test_m8a_events_foundation.py`
+  - `backend/tests/test_ephemeral_analysis.py`
+  - `CURRENT_STATE.md`
+- **Verification (executed after final code/test edits on `fansivibe_disposable_test`)**:
+  - `backend/.venv/bin/python -m compileall -q app/ tests/ alembic/`: `exit 0`.
+  - `test_sj1_style_journey_history.py` + `test_m10b_learning_summary.py` + `test_users_api.py` on `fansivibe_disposable_test`: `41 passed, 0 failed, 0 skipped` (`7.60s`).
+  - Alembic migration `0041 -> 0040 -> 0041` + head-pin tests (`test_c10_analysis_idempotency.py`, `test_m8a_events_foundation.py`, `test_ephemeral_analysis.py`): verified.
+  - `git diff --check`: `exit 0`.
+
+## TASK H4.4.2 — FINAL RECOMMENDATION SCORING PARITY (executed 2026-11-28, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG `fansivibe_disposable_test`; ZERO COMMITS/PUSHES)
+- **Scoring Preference Parity Fix**:
+  - Updated `derive_canonical_outfit_recommendation` (`backend/app/ai/tools.py`) so absent `fit` / `color_palette` resolve from `vibe_attrs` (`resolve_vibe_attributes` from `user_state` `style_type` or `UserContext.face.styleType`) and fall back to `None` instead of fabricating `"regular"` or `"neutral"` as scoring preferences.
+  - Updated `GenerateOutfit.derive_with_reason`, `_derive_outfit`, and `_to_recommendation` (`backend/app/application/outfits.py`) with `allow_empty_preferences: bool = False` (preserving M13 `POST /v1/outfits/generate` 422 validation when `fit` or `colorPalette` is omitted/empty, while allowing AI Stylist's neutral `None` fit/palette path and keeping `selected_color_palette` `str` API compatibility via `color_palette or ""` without `"None palette"` / `"None fit"` prose).
+  - Updated `backend/tests/test_assistant_outfit_canonical_delegation.py` (`test_1_recommend_outfit_delegates_to_generate_outfit`) and added 5 focused H4.4.2 tests in `backend/tests/test_h44_recommendation_context_parity.py` covering no style type & no preferred occasions, style type present, explicit fit & palette overrides, garment fit confidence `< 0.6` vs `>= 0.6`, and identical Home vs AI Stylist scoring inputs.
+- **Exact Changed Files (H4.4.2)**:
+  - `backend/app/ai/tools.py`
+  - `backend/app/application/outfits.py`
+  - `backend/tests/test_assistant_outfit_canonical_delegation.py`
+  - `backend/tests/test_h44_recommendation_context_parity.py`
+  - `CURRENT_STATE.md`
+- **Verification (executed after final code/test edits on `fansivibe_disposable_test`)**:
+  - `backend/.venv/bin/python -m compileall -q app/ tests/`: `exit 0`.
+  - Unit/parity/engine/assistant 8-file suite (`test_h41_home_vibe_recommendations.py`, `test_h42_recommendation_quality.py`, `test_h44_recommendation_context_parity.py`, `test_decision_engine.py`, `test_analysis_rules.py`, `test_engine.py`, `test_assistant_outfit_canonical_delegation.py`, `test_assistant_response_harmonization.py`): `269 passed, 0 failed, 0 skipped` (`1.51s`).
+  - Full 15-file H4.4.2 + PostgreSQL recommendation integration suite (`test_h44_recommendation_context_parity.py`, `test_h42_recommendation_quality.py`, `test_h41_home_vibe_recommendations.py`, `test_m9_today_look_api.py`, `test_m8a_events_foundation.py`, `test_m8b_events_api.py`, `test_m8c_event_outfit_api.py`, `test_m13_outfits_api.py`, `test_decision_engine.py`, `test_authenticated_assistant_authority.py`, `test_assistant_outfit_canonical_delegation.py`, `test_assistant_response_harmonization.py`, `test_weather_orchestration.py`, `test_analysis_rules.py`, `test_engine.py` on `fansivibe_disposable_test`): `473 passed, 0 failed, 0 skipped` (`23.79s`).
+  - `git diff --check`: `exit 0`.
+
+## TASK H4.4.1 — CLOSE RECOMMENDATION PARITY GAPS (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG `fansivibe_disposable_test`; ZERO COMMITS/PUSHES)
+- **Default-Occasion Policy & Parity Fix**:
+  - Added shared `resolve_effective_occasions(...)` in `backend/app/domain/services/vibe_mapping.py` used by both Home Today's Look (`backend/app/application/today.py`) and AI Stylist (`backend/app/ai/tools.py`).
+  - Precedence: (1) explicit user-selected occasion (when provided and not `"today"`), (2) nearest upcoming event `event_type`, (3) persisted `preferred_occasions`, (4) style vibe `default_occasion`, (5) `(None, [])` (neutral `0.0` occasion points in `_occasion_points`, never fabricating `"casual"` and never awarding a spurious +5 occasion bonus).
+  - Updated `GenerateOutfit.derive_with_reason` / `_derive_outfit` / `_to_recommendation` (`backend/app/application/outfits.py`) with `allow_empty_occasion: bool = False` (preserving M13 `POST /v1/outfits/generate` 422 validation when `occasion` is omitted/empty, while allowing AI Stylist's neutral `None` occasion path).
+  - Updated `backend/app/ai/engine.py` so slot-swap, alternatives, and garment-query fallbacks use `"today"` (resolved via `resolve_effective_occasions`) instead of fabricating `"casual"`, and omit `"For None,"` prose when no occasion is resolved.
+- **Exact Changed / Added Files (H4.4.1)**:
+  - `backend/app/domain/services/vibe_mapping.py`
+  - `backend/app/application/today.py`
+  - `backend/app/application/outfits.py`
+  - `backend/app/ai/tools.py`
+  - `backend/app/ai/engine.py`
+  - `backend/tests/test_h44_recommendation_context_parity.py`
+  - `CURRENT_STATE.md`
+- **Verification (executed after final code/test edits on `fansivibe_disposable_test`)**:
+  - `backend/.venv/bin/python -m compileall -q app/ tests/`: `exit 0`.
+  - Skipped Event & Today's Look PostgreSQL suites (`test_m8a_events_foundation.py`, `test_m8b_events_api.py`, `test_m8c_event_outfit_api.py`, `test_m9_today_look_api.py`): `109 passed, 0 failed, 0 skipped` (`19.53s`).
+  - Full 15-file H4.4 regression suite (`test_h44_recommendation_context_parity.py`, `test_h42_recommendation_quality.py`, `test_h41_home_vibe_recommendations.py`, `test_m9_today_look_api.py`, `test_m8a_events_foundation.py`, `test_m8b_events_api.py`, `test_m8c_event_outfit_api.py`, `test_m13_outfits_api.py`, `test_decision_engine.py`, `test_authenticated_assistant_authority.py`, `test_assistant_outfit_canonical_delegation.py`, `test_assistant_response_harmonization.py`, `test_weather_orchestration.py`, `test_analysis_rules.py`, `test_engine.py`): `468 passed, 0 failed, 0 skipped` (`25.10s`).
+  - `git diff --check`: `exit 0`.
+
+## TASK H4.4 — HOME AND AI STYLIST RECOMMENDATION CONTEXT PARITY (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG `fansivibe_disposable_test`; ZERO COMMITS/PUSHES)
+- **Root Causes & Fixes**:
+  - **Missing nearest upcoming `UserEvent` in AI Stylist (`backend/app/ai/tools.py`, `backend/app/ai/engine.py`, `backend/app/main.py`)**: `assistant_chat` did not instantiate `UserEventRepositorySQL(db)`, `engine.handle` overwrote `"today"` with `preferred_occasions[0] or "casual"` before calling `tools.derive_canonical_outfit_recommendation`, and `derive_canonical_outfit_recommendation` had no `events` parameter. Wired `UserEventRepositorySQL(db)` -> `engine.handle(..., events=...)` -> `derive_canonical_outfit_recommendation(..., events=...)` using Home's exact `events.list_for_user(user_id=user_id, from_date=_utc_today(), order="asc", page=1, page_size=1)` rule (plus defensive `event_date >= _utc_today()` guard and fail-open exception handling) when `occasion` is `None` or `"today"`, while preserving explicit user occasions.
+  - **Weather context not passed into scoring (`backend/app/main.py`, `backend/app/ai/engine.py`, `backend/app/ai/tools.py`, `backend/app/application/outfits.py`)**: `assistant_chat` previously called `weather_provider.get_weather(weather_loc)` synchronously with a positional argument and read `.current` (failing silently into `except Exception`), and `derive_canonical_outfit_recommendation` only appended `weather_context` to `card_subtitle` instead of passing structured `WeatherContext` into `GenerateOutfit.derive_with_reason` -> `score_outfit_candidate(..., weather_context=...)`. Made `assistant_chat` `async def`, resolved `WeatherContext` via `resolve_weather_location` + `weather_provider.get_weather(latitude=..., longitude=..., city=..., country=...)` (supporting both async `WeatherProvider` and sync test doubles), and added `weather_context: Optional[WeatherContext] = None` to `GenerateOutfit.__call__`, `GenerateOutfit.derive_with_reason`, and `_derive_outfit`.
+  - **Consistent profile occasion/vibe fallback (`backend/app/ai/tools.py`)**: `derive_canonical_outfit_recommendation` now also falls back to `profile.preferences.get("preferred_occasions")` when `preferred_occasions` and `user` are omitted, matching `_derive_today_look`.
+- **Exact Changed / Added Files (H4.4)**:
+  - `backend/app/application/outfits.py`
+  - `backend/app/ai/tools.py`
+  - `backend/app/ai/engine.py`
+  - `backend/app/main.py`
+  - `backend/tests/test_h44_recommendation_context_parity.py` (new, 8 tests)
+  - `CURRENT_STATE.md`
+
+## TASK H4.3 — TEST RELIABILITY AND BACKEND EFFICIENCY (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG `fansivibe_disposable_test`; ZERO COMMITS/PUSHES)
+- **Root Causes & Fixes**:
+  - **H4.1 recommendation test nondeterminism (`backend/tests/test_h41_home_vibe_recommendations.py`)**: `test_selected_vibe_influences_today_look_ranking_and_provenance` used `uuid4()` IDs and paired `olive` + `beige` (which incurred `_color_points` `-10` conflict vs `black` + `charcoal` `+5` harmony, causing `bold` to tie with neutral pairs and depend on random UUID lexical order). Replaced with deterministic UUIDs and an unambiguous candidate set (`mono_top` `black`/`slim`, `warm_top` `olive`/`relaxed`, `shared_bottom` `charcoal`) where `minimalist` selects `mono_top` and `bold` selects `warm_top`.
+  - **Stale Alembic `0036` assertions**: Updated obsolete frozen-head assertions (`("0036",)` / `("0033".."0039")`) in `test_c02_fit.py`, `test_c07_item_added.py`, `test_d2_discovery_foundation.py`, `test_d5_observations.py`, `test_d6_trend_engine.py`, `test_d9b_search_interest.py`, and `test_media_api.py` (plus docstring in `test_media_lifecycle_remediation_p32.py`) to assert single-head + linear reachability to current head (`0040`), without modifying any migration files or database schema.
+  - **Redundant per-request profile reads (`backend/app/application/today.py`, `backend/app/main.py`)**: `_derive_today_look` previously queried `user_state.get_profile` 4 times per request (`_style_dna`, `_preferred_occasions`, `resolve_weather_location`, `_to_recommendation`), and `assistant_chat` (`main.py`) queried it a second time inside `resolve_weather_location` (breaking `test_11_10_server_beats_client` and `test_11_10_resolution_writes_nothing`). Added request-scoped `profile` parameter forwarding in `today.py` (`resolve_weather_location`, `_style_dna`, `_preferred_occasions`, `_to_recommendation`) and `main.py` (`assistant_chat` -> `resolve_weather_location(..., profile=record)`), reducing `get_profile` to 1 call per request without global/cross-request caching.
+  - **Storage error observability (`backend/app/application/today.py`)**: Updated `_resolve_component_image_url` to log safe `logger.warning` messages with exception class name (`type(exc).__name__`) when `resolve_wardrobe_image_key` (`StorageError`, `ValueError`) or `storage.generate_presigned_get_url` (`StorageError`, `Exception`) fails, without logging credentials, signed URLs, private object keys, or user IDs, while preserving graceful `None` fallback.
+  - **Added Regression Tests (`backend/tests/test_h41_home_vibe_recommendations.py`)**: Added `test_today_look_fetches_user_profile_once_per_request` and `test_resolve_component_image_url_logs_safe_warning_on_storage_error`.
+- **Exact Changed Files (H4.3)**:
+  - `backend/app/application/today.py`
+  - `backend/app/main.py`
+  - `backend/tests/test_h41_home_vibe_recommendations.py`
+  - `backend/tests/test_c02_fit.py`
+  - `backend/tests/test_c07_item_added.py`
+  - `backend/tests/test_d2_discovery_foundation.py`
+  - `backend/tests/test_d5_observations.py`
+  - `backend/tests/test_d6_trend_engine.py`
+  - `backend/tests/test_d9b_search_interest.py`
+  - `backend/tests/test_media_api.py`
+  - `backend/tests/test_media_lifecycle_remediation_p32.py`
+  - `CURRENT_STATE.md`
+- **Verification (executed after final code/test edits)**:
+  - `backend/.venv/bin/python -m compileall -q backend/app/ backend/tests/`: `exit 0`.
+  - `tests/test_h41_home_vibe_recommendations.py` x 20 consecutive runs: `19 passed, 0 failed, 0 skipped` on every run.
+  - 6-file backend suite (`tests/test_h42_recommendation_quality.py`, `tests/test_decision_engine.py`, `tests/test_authenticated_assistant_authority.py`, `tests/test_weather_orchestration.py`, `tests/test_m9_today_look_api.py`, `tests/test_analysis_rules.py` on `fansivibe_disposable_test`): `290 passed, 0 failed, 0 skipped` (`8.82s`).
+  - Alembic & migration tests from `backend/`: `test_c02_fit.py`, `test_c07_item_added.py`, `test_d2_discovery_foundation.py`, `test_d5_observations.py`, `test_d6_trend_engine.py`, `test_d9b_search_interest.py`, `test_media_api.py` (`7 passed, 172 deselected`), `test_media_verification.py` (`1 passed, 27 deselected`), `test_production_hardening.py` (`2 passed, 32 deselected`), `test_m8a_events_foundation.py` (`1 passed, 17 deselected`), `test_ephemeral_analysis.py` (`1 passed, 29 deselected`), `test_c10_analysis_idempotency.py` (`1 passed, 8 deselected`).
+  - `git diff --check`: `exit 0`.
+
+## TASK H4.2 — RECOMMENDATION QUALITY AND IMAGE ASSOCIATION VERIFICATION (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG `fansivibe_disposable_test` + FLUTTER RECOMMENDATION SUITE; ZERO COMMITS/PUSHES)
+- **Verified Supported Vibes (9 canonical IDs)**:
+  - `minimalist`, `classic`, `bold`, `trendy`, `streetwear`, `natural`, `bohemian`, `edgy`, `athleisure` (with aliases `minimal`, `modern minimalist`, `timeless`, `formal`, `statement`, `street`, `street style`, `street_style`, `boho`, `sporty`, `athletic`, `casual`).
+  - `backend/app/domain/services/vibe_mapping.py` and `HomeVibeMapping` (`home_vibe_mapping.dart`) align across all 9 canonical IDs.
+- **Defects Found & Fixed**:
+  - **PreferencesScreen vibe corruption & missing onboarding vibes (`preferences_screen.dart`)**: `_normalizeArchetype` previously mapped `'trendy'` to `'Bold'` (wrong palette & occasion), and `'Trendy'`, `'Natural'`, `'Edgy'` (all present in `StyleVibe` onboarding) were absent from `_allArchetypes`. Added `'Trendy'`, `'Natural'`, `'Edgy'` to `_allArchetypes` and fixed `_normalizeArchetype` so `'trendy'` maps to `'Trendy'`.
+  - **Home vs AI Stylist vibe inconsistency (`backend/app/ai/tools.py`)**: `derive_canonical_outfit_recommendation` previously ignored `user_state`'s `style_profile` (`style_type`/`styleType`), defaulting `fit='regular'` and `color_palette='neutral'`. Updated it to resolve `resolve_vibe_attributes(...)` from `user_state.get_profile(user_id=user_id)` when `fit`/`color_palette` are not explicitly overridden (and `default_occasion` when no occasions are set), matching `_derive_today_look` (`backend/app/application/today.py`).
+  - **Today's Look image association from `WardrobeItemRecord.image_ref` (`backend/app/application/today.py`, `backend/app/api/routers/looks.py`)**: `WardrobeItemRecord` stores `image_ref` (not `image_url`), so real PostgreSQL items previously returned `imageUrl: null`. Injected `ObjectStoragePort` (`Depends(get_storage_adapter)`) into `GetTodayLook`/`RegenerateTodayLook` and added `_resolve_component_image_url`, validating ownership with `resolve_wardrobe_image_key` and generating presigned URLs while rejecting foreign/invalid keys (`None`).
+  - **Personalized fallback image leakage & truthful placeholders (`home_screen.dart`, `existing_user_home_widgets.dart`, `discover_editorial_widgets.dart`)**: Removed generic `HomeVibeMapping.heroImageFor` stock-image fallbacks on personalized `TodayLook` (`isPersonalized == true`), personalized `ForYou` items, and live `Trending` items when no item image exists; `ExistingUserHeroCard` now renders a truthful `'No garment photo yet'` Atelier placeholder and `AtelierImage` renders its clean fallback directly on empty paths.
+  - **HomeScreen stale TodayLook on wardrobe/occasion changes (`home_screen.dart`)**: Updated `_onLocalChanged()` to refresh `_todayLookFuture` when authenticated wardrobe items or `LearningService` occasion preferences change.
+- **Exact Changed / Added Files (H4.2)**:
+  - `backend/app/application/today.py`
+  - `backend/app/api/routers/looks.py`
+  - `backend/app/ai/tools.py`
+  - `backend/tests/test_h42_recommendation_quality.py` (new, 13 tests)
+  - `newproject/flutter_application_1/lib/features/profile/presentation/preferences_screen.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/home_screen.dart`
+  - `newproject/flutter_application_1/lib/features/discover/presentation/widgets/discover_editorial_widgets.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/widgets/existing_user_home_widgets.dart`
+  - `newproject/flutter_application_1/test/h42_recommendation_quality_test.dart` (new, 5 tests)
+  - `CURRENT_STATE.md`
+- **Verification (executed after final code/test edits)**:
+  - `backend/.venv/bin/python -m compileall -q backend/app/ backend/tests/`: `exit 0`.
+  - Backend 5-file PostgreSQL + scoring suite (`tests/test_h42_recommendation_quality.py`, `tests/test_m9_today_look_api.py`, `tests/test_analysis_rules.py`, `tests/test_p2s2_explainability.py`, `tests/test_c02_palette.py` on `fansivibe_disposable_test`): `148 passed, 0 failed, 0 skipped` (`8.00s`).
+  - `dart format --output=none --set-exit-if-changed` (5 touched Dart files): `Formatted 5 files (0 changed)`, `exit 0`.
+  - `flutter analyze` (`newproject/flutter_application_1`): `No issues found!` (`1.4s`).
+  - Flutter 8-file suite (`test/h42_recommendation_quality_test.dart`, `test/home_vibe_recommendation_test.dart`, `test/home_screen_test.dart`, `test/first_time_home_screen_test.dart`, `test/preferences_settings_persistence_test.dart`, `test/preferences_sync_test.dart`, `test/profile_screens_test.dart`, `test/guest_phase2_test.dart`): `111 passed, 0 failed, 0 skipped`.
+  - `git diff --check`: `exit 0`.
+
+## TASK H4.1 — HOME RECOMMENDATION SOURCE AND VIBE MATCHING AUDIT + FIX (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON BACKEND UNIT/APPLICATION SUITE + FLUTTER HOME/VIBE REGRESSION SUITE; ZERO COMMITS/PUSHES)
+- **Root Causes Found**:
+  - **Vibe-to-image mismatch on First-Time Home**: `EditorialOutfitVisual` (`newproject/flutter_application_1/lib/features/home/presentation/widgets/first_time_home_widgets.dart`) ignored `vibe` and hardcoded `assets/images/editorial_look_streetwear.jpg` for all vibes; `getCuratedLookForVibe` also lacked explicit `bohemian` and `athleisure`/`sporty` entries.
+  - **Backend `TodayLook` ignored user vibe/styleType & lacked provenance**: `_derive_today_look` (`backend/app/application/today.py`) never mapped `style_profile.style_type` or explicit `vibe` to `preferred_palette`/`preferred_fit` (and omitted `fit`/`fit_confidence` on adapted wardrobe items) in `score_outfit_candidate()`, and `TodayLook` carried no `recommendationId`, `sourceType`, `selectedVibe`, `isPersonalized`, or `imageUrl`.
+  - **Established Home Hero & Curated/Trending sections**: `HomeScreen._buildTodaysLookSlot()` passed no image or provenance to `ExistingUserHeroCard` (defaulting to `discover_hero_quiet_luxury.jpg` and hardcoded `'CURATED #140'`). `ExistingUserCuratedForYou` and `ExistingUserTrending` rendered static editorial fixtures with no connection to `DiscoverRepository` / `TrendingRepository`, no vibe alignment, and no refresh on `LocalStorage.vibe` changes.
+- **Exact Implementation Changes**:
+  - **Backend**:
+    - Added canonical vibe-to-attribute mapping (`resolve_vibe_attributes`, `VibeAttributes`) in `backend/app/domain/services/vibe_mapping.py` covering `minimalist`, `classic`, `bold`, `trendy`, `streetwear`/`street style`, `natural`, `bohemian`, `edgy`, and `athleisure`/`sporty`.
+    - Extended `TodayLookComponent` (`image_url`) and `TodayLookRecommendation` (`recommendation_id`, `source_type`, `selected_vibe`, `is_personalized`, `image_url`) in `backend/app/domain/ports/repositories.py`, `backend/app/api/schemas/today.py`, and `backend/app/api/routers/looks.py` (with optional `?vibe=` on `GET/POST /v1/looks/today`).
+    - Updated `_derive_today_look` (`backend/app/application/today.py`) to resolve user/explicit vibe into `preferred_palette`/`preferred_fit`, pass wardrobe `fit`/`fit_confidence` to `score_outfit_candidate`, and populate deterministic provenance + primary component `image_url`.
+  - **Flutter**:
+    - Added `HomeVibeMapping` (`newproject/flutter_application_1/lib/features/home/data/home_vibe_mapping.dart`) and `HomeRecommendationProvenance` / `HomeRecommendationSourceType` (`newproject/flutter_application_1/lib/features/home/data/home_recommendation_models.dart`).
+    - Extended `TodayLook` / `TodayLookComponent` (`today_look_models.dart`), `TodayLookClient` (`today_look_client.dart`), and `TodayLookRepositoryImpl` (`today_look_repository.dart`) to forward `LocalStorage.vibe` and parse provenance fields.
+    - Added `LocalStorage.vibeVersion` (`local_storage.dart`) and wired `HomeScreen` (`home_screen.dart`) to refresh on vibe changes, pass vibe-matched hero images & provenance to `ExistingUserHeroCard`, and load `ExistingUserCuratedForYou` / `ExistingUserTrending` from `DiscoverRepository` / `TrendingRepository` with truthful editorial/stale/empty fallbacks.
+    - Fixed `EditorialOutfitVisual` and `getCuratedLookForVibe` (`first_time_home_widgets.dart`) to render vibe-matched images and demo provenance.
+- **Exact Changed / Added Files (H4.1)**:
+  - `backend/app/domain/services/vibe_mapping.py` (new)
+  - `backend/app/domain/ports/repositories.py`
+  - `backend/app/api/schemas/today.py`
+  - `backend/app/api/routers/looks.py`
+  - `backend/app/application/today.py`
+  - `backend/tests/test_h41_home_vibe_recommendations.py` (new, 17 tests)
+  - `newproject/flutter_application_1/lib/features/home/data/home_vibe_mapping.dart` (new)
+  - `newproject/flutter_application_1/lib/features/home/data/home_recommendation_models.dart` (new)
+  - `newproject/flutter_application_1/lib/features/home/data/today_look_models.dart`
+  - `newproject/flutter_application_1/lib/features/home/data/today_look_client.dart`
+  - `newproject/flutter_application_1/lib/features/home/data/today_look_repository.dart`
+  - `newproject/flutter_application_1/lib/shared/utils/local_storage.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/widgets/first_time_home_widgets.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/widgets/existing_user_home_widgets.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/home_screen.dart`
+  - `newproject/flutter_application_1/test/home_vibe_recommendation_test.dart` (new, 7 tests)
+  - `CURRENT_STATE.md`
+- **Verification (executed after final code/test edits)**:
+  - `backend/.venv/bin/python -m compileall -q app/ tests/`: `exit 0`.
+  - `backend/.venv/bin/pytest tests/test_h41_home_vibe_recommendations.py -v`: `17 passed, 0 failed, 0 skipped` (`0.87s`).
+  - `dart format` (10 touched Dart files): `Formatted 10 files (0 changed)`.
+  - `flutter analyze` (`newproject/flutter_application_1`): `No issues found!`.
+  - Flutter 7-file suite (`test/home_vibe_recommendation_test.dart`, `test/home_screen_test.dart`, `test/first_time_home_screen_test.dart`, `test/vibe_select_required_test.dart`, `test/home_upcoming_events_test.dart`, `test/home_save_persistence_test.dart`, `test/guest_phase2_test.dart`): `83 passed, 0 failed, 0 skipped`.
+
+## TASK H3 — EVENTS FEATURE FUNCTIONAL AUDIT AND FIX (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON FLUTTER REGRESSION SUITE + DISPOSABLE PG `fansivibe_disposable_test`; ZERO COMMITS/PUSHES)
+- **Verified Capabilities**:
+  - Authenticated create (`POST /v1/events`), list (`GET /v1/events`), single-event detail read (`GET /v1/events/{id}`), full-replace edit (`PUT /v1/events/{id}`), delete (`DELETE /v1/events/{id}`), and outfit generation (`POST /v1/events/{id}/outfit`) are backed by PostgreSQL `user_events` and survive restart.
+  - Strict owner isolation (`user_id` scoping, 404-not-403 on foreign/missing events, 401 when unauthenticated) and no external calendar sync/export claims (`isCalendarSynced: false`, no Google/Apple Calendar or `.ics` integration).
+- **Defects Fixed**:
+  - **Missing single-event read & detail loss on restart/edit**: Added `GetEvent` (`backend/app/application/events.py`) and `GET /v1/events/{event_id}` (`backend/app/api/routers/events.py`), plus `EventsClient.getEvent` / `EventsRepository.getEvent` and `EventDetailsScreen._hydrateEventDetails()`, so `location` and `notes` (omitted from `GET /v1/events` `EventSummary`) are hydrated on detail view and preserved across `PUT` edits.
+  - **Fake fallback location & stale Home Upcoming**: Removed `'Fansivibe Atelier'` fallback in `HomeScreen._buildUpcomingSlot()` (now renders `displayDate • displayTime` when `location` is null, and maps `eventType` via `EventType.byCodeOrNull` so `'date'` displays `'DATE NIGHT'`). Added `UserSession.eventsVersion` / `notifyEventsChanged()` so `HomeScreen` refreshes immediately after create/edit/delete.
+  - **Timezone & date-boundary handling**: Added `localTodayIsoDate()` and `isUpcomingEvent()` (`event_models.dart`), passing `fromDate: localTodayIsoDate()` on `HomeScreen` and `EventListScreen` and filtering past-date and past-time-today events from Home Upcoming. Clamped `AddEventScreen._pickDate()` `firstDate`/`lastDate` around `_selectedDay` when editing.
+  - **Optional time clearing & signed-out/selection states**: Added a clear button (`Clear time`) on `AddEventScreen` so optional time can be cleared back to `null`; updated `EventListScreen` to show `GuestSignInCard` when signed out (not `FansiErrorView`) and refresh/clear `_selectedEvent` after detail edits/deletes.
+  - **Migration head test pin**: Updated `test_current_head_and_historical_chain_from_0016` in `backend/tests/test_m8a_events_foundation.py` from `0032` to `0040`.
+- **Exact Changed Files (H3)**:
+  - `backend/app/application/events.py`
+  - `backend/app/api/routers/events.py`
+  - `backend/tests/test_m8a_events_foundation.py`
+  - `backend/tests/test_m8b_events_api.py`
+  - `newproject/flutter_application_1/lib/shared/utils/user_session.dart`
+  - `newproject/flutter_application_1/lib/features/events/data/event_models.dart`
+  - `newproject/flutter_application_1/lib/features/events/data/events_client.dart`
+  - `newproject/flutter_application_1/lib/features/events/data/events_repository.dart`
+  - `newproject/flutter_application_1/lib/features/events/presentation/add_event_screen.dart`
+  - `newproject/flutter_application_1/lib/features/events/presentation/event_details_screen.dart`
+  - `newproject/flutter_application_1/lib/features/events/presentation/event_list_screen.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/home_screen.dart`
+  - `newproject/flutter_application_1/test/events_api_test.dart`
+  - `newproject/flutter_application_1/test/event_screens_test.dart`
+  - `newproject/flutter_application_1/test/home_upcoming_events_test.dart`
+  - `newproject/flutter_application_1/test/home_save_persistence_test.dart`
+  - `CURRENT_STATE.md`
+- **Verification (executed after final code/test edits)**:
+  - `backend/.venv/bin/python -m compileall -q backend/app/ backend/tests/`: `exit 0`.
+  - Backend 3-file suite (`tests/test_m8a_events_foundation.py`, `tests/test_m8b_events_api.py`, `tests/test_m8c_event_outfit_api.py` on disposable PG `fansivibe_disposable_test`): `74 passed, 0 failed, 0 skipped` (`14.61s`).
+  - `dart format` (12 touched Dart files): `Formatted 12 files (0 changed)`.
+  - `flutter analyze` (`newproject/flutter_application_1`): `No issues found!`.
+  - Flutter 7-file suite (`test/events_api_test.dart`, `test/event_screens_test.dart`, `test/home_upcoming_events_test.dart`, `test/home_screen_test.dart`, `test/home_save_persistence_test.dart`, `test/guest_phase2_test.dart`, `test/auth_pipeline_test.dart`): `112 passed, 0 failed, 0 skipped`.
+
+## TASK H2 — HOME UPCOMING EVENTS: CORRECT EMPTY AND ERROR STATES (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON FLUTTER REGRESSION SUITE; ZERO COMMITS/PUSHES)
+- **Root Cause**:
+  - `HomeScreen._buildUpcomingSlot()` (`newproject/flutter_application_1/lib/features/home/presentation/home_screen.dart`) only checked `page != null && page.items.isNotEmpty` on `FutureBuilder<EventListPage?>`, causing loading, server error, network/offline error, and auth expiry to all fall through to `ExistingUserUpcomingCard(hasEvent: false)` (`Planning something special?` / `CREATE AN EVENT →`).
+  - `EventsClient.listEvents()` (`newproject/flutter_application_1/lib/features/events/data/events_client.dart`) collapsed all HTTP errors and network exceptions into `null`.
+  - `ExistingUserUpcomingCard` (`newproject/flutter_application_1/lib/features/home/presentation/widgets/existing_user_home_widgets.dart`) hardcoded `'CALENDAR SYNCED'` when `hasEvent == true`, even though Fansivibe has no external calendar integration (`GET /v1/events` serves user-created backend events only).
+- **Summary**:
+  - Added `EventListFailure`, `EventListResult`, and `deduplicateEvents()` in `newproject/flutter_application_1/lib/features/events/data/event_models.dart`, plus `EventListPage.fromJson` ID deduplication.
+  - Added `EventsClient.listEventsResult()` (`401 -> AuthSession.notifyUnauthorized() + EventListFailure.unauthorized`, `SocketException`/`TimeoutException`/`http.ClientException` -> `EventListFailure.networkError`, `429`/`503`/`5xx`/malformed -> `rateLimited`/`serviceUnavailable`/`serverError`) while preserving `listEvents()`.
+  - Added `listEventsResult()` to `EventsRepository` / `EventsRepositoryImpl` (`newproject/flutter_application_1/lib/features/events/data/events_repository.dart`).
+  - Updated `HomeScreen` (`_fetchEvents`, `_retryEvents`, `_eventsGeneration`, `_buildUpcomingSlot()`) to distinguish loading (`SummaryLoadingCard`), network error (`SummaryErrorCard` with connection message + Retry), server/auth error (`SummaryErrorCard` with retry), genuine empty response (`ExistingUserUpcomingCard(hasEvent: false)`), and event display (`ExistingUserUpcomingCard(hasEvent: true, isCalendarSynced: false)`), while ignoring stale responses and deduplicating events.
+  - Added `isCalendarSynced` (default `false`) to `ExistingUserUpcomingCard` so `'CALENDAR SYNCED'` is never shown without confirmed external sync.
+- **Exact Changed / Added Files (H2)**:
+  - `newproject/flutter_application_1/lib/features/events/data/event_models.dart`
+  - `newproject/flutter_application_1/lib/features/events/data/events_client.dart`
+  - `newproject/flutter_application_1/lib/features/events/data/events_repository.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/widgets/existing_user_home_widgets.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/home_screen.dart`
+  - `newproject/flutter_application_1/test/home_upcoming_events_test.dart` (new, 10 tests)
+  - `newproject/flutter_application_1/test/home_save_persistence_test.dart`
+  - `newproject/flutter_application_1/test/event_screens_test.dart`
+  - `CURRENT_STATE.md`
+- **Verification (executed after final code/test edits)**:
+  - `dart format` (8 touched Dart files): `Formatted 8 files (0 changed)`.
+  - `flutter analyze` (`newproject/flutter_application_1`): `No issues found!`.
+  - Flutter 8-file suite (`test/home_upcoming_events_test.dart`, `test/home_screen_test.dart`, `test/home_save_persistence_test.dart`, `test/event_screens_test.dart`, `test/events_api_test.dart`, `test/outfit_builder_occasion_transparency_test.dart`, `test/guest_phase2_test.dart`, `test/auth_pipeline_test.dart`): `114 passed, 0 failed, 0 skipped`.
+
+## TASK H1 — HOME SAVE / HEART PERSISTENCE FIX (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON FLUTTER WIDGET/PERSISTENCE SUITE + DISPOSABLE PG `fansivibe_disposable_test`; ZERO COMMITS/PUSHES)
+- **Root Cause**:
+  - `ExistingUserHeroCard` (`newproject/flutter_application_1/lib/features/home/presentation/widgets/existing_user_home_widgets.dart`) stored `_isFavorite` and `_isSaved` as ephemeral widget-local booleans, and `HomeScreen` (`newproject/flutter_application_1/lib/features/home/presentation/home_screen.dart`) neither fetched persisted saved looks from `SavedLooksRepository` nor wired save/unsave callbacks.
+- **Summary**:
+  - Wired `ExistingUserHeroCard` (`isSaved`, `isSaving`, `onToggleSave`) to `HomeScreen` using the existing `TodayLookRepository.saveTodayLook` (`POST /v1/looks/today/save`) and `SavedLooksRepository.listSavedLooks` / `deleteSavedLook` (`GET /v1/looks/saved`, `DELETE /v1/looks/saved/{id}`) contracts — no duplicate save system.
+  - Added paginated saved-look synchronization (`_loadSavedLooks`), canonical matching (`sourceContext == 'daily'`, title, and `selectedItemIds` set), in-flight tap/duplicate-request guarding (`_isSavingTodayLook`, `_isLoadingSavedLooks`), generation-guarded async state (`_savedLookSyncGeneration`), and honest error handling without optimistic false-success states.
+  - Added `UserSession.savedLooksVersion` / `UserSession.notifySavedLooksChanged()` (`newproject/flutter_application_1/lib/shared/utils/user_session.dart`) so `HomeScreen`, `DailyOutfitScreen`, `SavedLooksScreen`, and `SavedLookDetailsScreen` stay synchronized across navigation and mounted shell tabs, and cleared/reloaded state on auth expiry and account switches.
+- **Exact Changed / Added Files (H1)**:
+  - `newproject/flutter_application_1/lib/shared/utils/user_session.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/widgets/existing_user_home_widgets.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/home_screen.dart`
+  - `newproject/flutter_application_1/lib/features/home/presentation/daily_outfit_screen.dart`
+  - `newproject/flutter_application_1/lib/features/profile/presentation/saved_looks_screen.dart`
+  - `newproject/flutter_application_1/lib/features/profile/presentation/saved_look_details_screen.dart`
+  - `newproject/flutter_application_1/test/home_save_persistence_test.dart` (new, 9 tests covering all 10 H1 scenarios)
+  - `CURRENT_STATE.md`
+- **Verification (executed after final code/test edits)**:
+  - `dart format --output=none --set-exit-if-changed` (7 touched Dart files): `Formatted 7 files (0 changed)`, `exit 0`.
+  - `flutter analyze` (`newproject/flutter_application_1`): `No issues found!`.
+  - Flutter 6-file suite (`test/home_save_persistence_test.dart`, `test/home_screen_test.dart`, `test/saved_looks_test.dart`, `test/today_look_screens_test.dart`, `test/weather_aware_daily_look_test.dart`, `test/guest_phase2_test.dart`): `103 passed, 0 failed, 0 skipped`.
+  - Backend 3-file suite (`tests/test_m9_today_look_api.py`, `tests/test_saved_looks.py`, `tests/test_saved_looks_delete_api.py` on disposable PG `fansivibe_disposable_test`): `60 passed, 0 failed, 0 skipped` (`13.16s`).
+
 ## TASK P5.3F — DAILY TRY-ON QUOTA REFUND POLICY (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG `fansivibe_disposable_test` + `FakeStorageAdapter` + MOCK GENLOOK SERVER; ZERO LIVE GENLOOK/R2/PAID INFERENCE; ZERO MIGRATIONS/COMMITS/PUSHES)
 - **Summary**:
   - **Approved Daily Try-On Quota Policy**:

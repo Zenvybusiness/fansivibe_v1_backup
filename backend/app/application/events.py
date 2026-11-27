@@ -228,6 +228,19 @@ class ListEvents:
         )
 
 
+class GetEvent:
+    """Fetch one owned event by ID (owner-scoped 404-not-403)."""
+
+    def __init__(self, *, events: UserEventRepository) -> None:
+        self._events = events
+
+    def __call__(self, *, user_id: UUID, event_id: UUID) -> UserEventRecord:
+        record = self._events.get_for_user(user_id=user_id, event_id=event_id)
+        if record is None:
+            raise not_found()
+        return record
+
+
 class UpdateEvent:
     """Full-replace one owned event (endpoint #28, UC-19).
 

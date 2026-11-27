@@ -408,7 +408,91 @@ void main() {
       );
 
       expect(await repository.listEvents(), isNull);
+      expect(await repository.getEvent(id: _uuid), isNull);
       expect(await repository.deleteEvent(id: _uuid), isNull);
+    });
+  });
+
+  group('H3 Event Audit — getEvent, fromDate & timezone helpers', () {
+    test(
+      'getEvent fetches full event details including location and notes',
+      () async {
+        late Uri seen;
+        final client = EventsClient(
+          client: MockClient((request) async {
+            seen = request.url;
+            expect(request.method, 'GET');
+            return http.Response(jsonEncode(_wireEvent()), 200);
+          }),
+        );
+
+        final item = await client.getEvent(id: _uuid);
+        expect(seen.path, '/v1/events/$_uuid');
+        expect(item, isNotNull);
+        expect(item!.location, 'Grand Ballroom');
+        expect(item.notes, 'Black tie');
+
+        final missing = EventsClient(
+          client: MockClient((_) async => http.Response('{}', 404)),
+        );
+        expect(await missing.getEvent(id: _uuid), isNull);
+      },
+    );
+
+    test(
+      'listEventsResult forwards from query parameter when provided',
+      () async {
+        late Uri seen;
+        final client = EventsClient(
+          client: MockClient((request) async {
+            seen = request.url;
+            return http.Response(
+              jsonEncode({
+                'items': <dynamic>[],
+                'page': 1,
+                'page_size': 5,
+                'total': 0,
+              }),
+              200,
+            );
+          }),
+        );
+
+        await client.listEventsResult(
+          page: 1,
+          pageSize: 5,
+          fromDate: '2026-11-28',
+        );
+        expect(seen.queryParameters['from'], '2026-11-28');
+      },
+    );
+
+    test('isUpcomingEvent filters past dates and past times on today', () {
+      final now = DateTime(2026, 11, 27, 14, 30);
+      expect(localTodayIsoDate(now: now), '2026-11-27');
+
+      final pastDate = EventItem.fromJson(_wireEvent(eventDate: '2026-11-26'));
+      expect(isUpcomingEvent(pastDate, now: now), isFalse);
+
+      final todayPastTime = EventItem.fromJson(
+        _wireEvent(eventDate: '2026-11-27', time: '09:00'),
+      );
+      expect(isUpcomingEvent(todayPastTime, now: now), isFalse);
+
+      final todayFutureTime = EventItem.fromJson(
+        _wireEvent(eventDate: '2026-11-27', time: '19:00'),
+      );
+      expect(isUpcomingEvent(todayFutureTime, now: now), isTrue);
+
+      final todayNoTime = EventItem.fromJson(
+        _wireEvent(eventDate: '2026-11-27', time: null),
+      );
+      expect(isUpcomingEvent(todayNoTime, now: now), isTrue);
+
+      final futureDate = EventItem.fromJson(
+        _wireEvent(eventDate: '2026-11-28', time: '08:00'),
+      );
+      expect(isUpcomingEvent(futureDate, now: now), isTrue);
     });
   });
 }

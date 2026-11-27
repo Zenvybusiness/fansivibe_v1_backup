@@ -38,6 +38,7 @@ from app.domain.services.analysis_rules import (
     select_best_outfit_candidate,
     select_outfit_alternatives,
 )
+from app.domain.value_objects import WeatherContext
 
 _OUTFIT_CLARIFICATION = [
     ClarificationOption(label="Casual", value="casual"),
@@ -76,10 +77,12 @@ def _cards_from(
     generate_outfit: Optional[object] = None,
     wardrobe_items: Optional[object] = None,
     user_state: Optional[object] = None,
+    events: Optional[object] = None,
     fit: Optional[str] = None,
     color_palette: Optional[str] = None,
     mood: Optional[str] = None,
     seed: Optional[str] = None,
+    weather_context: Optional[WeatherContext | str] = None,
 ) -> List[SuggestionCard]:
     cards: List[SuggestionCard] = []
     for it in intents:
@@ -94,10 +97,12 @@ def _cards_from(
                     generate_outfit=generate_outfit,
                     wardrobe_items=wardrobe_items,
                     user_state=user_state,
+                    events=events,
                     fit=fit,
                     color_palette=color_palette,
                     mood=mood,
                     seed=seed,
+                    weather_context=weather_context,
                 )
             )
         elif it == intent.INTENT_HAIRSTYLE:
@@ -141,11 +146,12 @@ def handle(
     generate_outfit: Optional[object] = None,
     wardrobe_items: Optional[object] = None,
     user_state: Optional[object] = None,
+    events: Optional[object] = None,
     fit: Optional[str] = None,
     color_palette: Optional[str] = None,
     mood: Optional[str] = None,
     seed: Optional[str] = None,
-    weather_context: Optional[str] = None,
+    weather_context: Optional[WeatherContext | str] = None,
 ) -> AssistantReply:
     """Handle one assistant turn with multi-turn conversation and weather context."""
     messages = request.messages
@@ -195,7 +201,7 @@ def handle(
     if slot_to_swap or include_alternatives:
         it = intent.INTENT_OUTFIT
         if occasion is None:
-            occasion = request_occasions[0] if request_occasions else "casual"
+            occasion = request_occasions[0] if request_occasions else "today"
 
     # 4. Check for mentioned garment (e.g. "style my black trousers" / "what can I wear with my white shirt")
     garment_query = intent.extract_target_garment_query(user_text)
@@ -208,11 +214,12 @@ def handle(
         else:
             unowned_garment_query = garment_query
         if occasion is None:
-            occasion = request_occasions[0] if request_occasions else "casual"
+            occasion = request_occasions[0] if request_occasions else "today"
 
-    # 5. Handle "today" queries ("What should I wear today?")
+    # 5. Handle "today" queries ("What should I wear today?") — preserve "today"
+    # so derive_canonical_outfit_recommendation resolves upcoming event -> preferred_occasions -> vibe default.
     if occasion == "today" or (occasion is None and "today" in user_text.lower() and it == intent.INTENT_OUTFIT):
-        occasion = request_occasions[0] if request_occasions else "casual"
+        occasion = "today"
 
     # A bare occasion reply (e.g. "date" or "office") is an outfit request.
     if occasion is not None and it in (intent.INTENT_CLARIFY, intent.INTENT_UNKNOWN):
@@ -264,6 +271,7 @@ def handle(
                 generate_outfit=generate_outfit,
                 wardrobe_items=wardrobe_items,
                 user_state=user_state,
+                events=events,
                 fit=fit,
                 color_palette=color_palette,
                 mood=mood,
@@ -294,8 +302,19 @@ def handle(
                 seed=seed,
             )
         if it == intent.INTENT_OUTFIT:
+            resolved_occasion = (
+                outfit_intel.occasion
+                if outfit_intel is not None and outfit_intel.occasion
+                else (occasion if occasion and occasion != "today" else None)
+            )
+            weather_text: Optional[str] = None
+            if isinstance(weather_context, WeatherContext):
+                weather_text = f"{weather_context.condition_text}, {int(round(weather_context.temperature_c))}°C"
+            elif isinstance(weather_context, str) and weather_context.strip():
+                weather_text = weather_context.strip()
+            occasion_prefix = f"For {resolved_occasion}, " if resolved_occasion else ""
             base_text = (
-                f"For {occasion}, I'd go with the {cards[0].title} — "
+                f"{occasion_prefix}I'd go with the {cards[0].title} — "
                 + (cards[0].subtitle or "")
                 + " Tap the card to build it."
             )
@@ -321,15 +340,15 @@ def handle(
                 if comp:
                     if not comp.footwearIds:
                         missing_cats.append("Footwear (e.g. minimalist sneakers or leather loafers)")
-                    if not comp.outerwearIds and occasion in ("formal", "office", "travel"):
+                    if not comp.outerwearIds and resolved_occasion in ("formal", "office", "travel"):
                         missing_cats.append("Outerwear (e.g. structured blazer or tailored coat)")
 
                 text = llm_backend.enrich_stylist_recommendation(
                     user_query=user_text,
-                    occasion=occasion or "casual",
+                    occasion=resolved_occasion or "today",
                     selected_components=selected_components_data,
                     missing_categories=missing_cats if missing_cats else None,
-                    weather_context=weather_context,
+                    weather_context=weather_text,
                     unowned_garment_query=unowned_garment_query,
                     base_text=base_text,
                     conversation_history=[{"role": m.role, "content": m.content} for m in messages[:-1]],

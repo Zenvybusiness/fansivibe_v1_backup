@@ -6,3 +6,5 @@
 
 export 'package:fansivibe/features/learning/data/learning_summary_models.dart';
 export 'package:fansivibe/features/learning/data/learning_summary_repository.dart';
+export 'package:fansivibe/features/learning/data/style_journey_models.dart';
+export 'package:fansivibe/features/learning/data/style_journey_repository.dart';

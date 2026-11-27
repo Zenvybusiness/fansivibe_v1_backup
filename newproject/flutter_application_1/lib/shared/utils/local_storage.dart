@@ -41,13 +41,20 @@ class LocalStorage {
     }
   }
 
+  /// Notifies listeners whenever the stored vibe preference changes.
+  static final ValueNotifier<int> vibeVersion = ValueNotifier<int>(0);
+
   static String? get vibe => _prefs?.getString('vibe');
   static set vibe(String? value) {
     if (_prefs == null) return;
+    final previous = _prefs!.getString('vibe');
     if (value != null) {
       _prefs!.setString('vibe', value);
     } else {
       _prefs!.remove('vibe');
+    }
+    if (previous != value) {
+      vibeVersion.value++;
     }
   }
 

@@ -293,12 +293,12 @@ def test_0025_revision_chain_and_static_contract():
     script = ScriptDirectory.from_config(config)
 
     # D2 added 0026 (discovery foundation); D5 added 0027 (observations);
-    # Current source head is 0040 (tryon_worker_leases, following 0039 rate_limit_buckets).
+    # Current source head is 0041 (style_journey_weekly_snapshots, following 0040 tryon_worker_leases).
     heads = tuple(script.get_heads())
-    assert heads == ("0040",)
+    assert heads == ("0041",)
 
     chain = [rev.revision for rev in script.walk_revisions(base="0024", head=heads[0])]
-    assert chain[0] == "0040"
+    assert chain[0] == "0041"
     assert chain[-4:] == ["0027", "0026", "0025", "0024"]
 
     rev27 = script.get_revision("0027")

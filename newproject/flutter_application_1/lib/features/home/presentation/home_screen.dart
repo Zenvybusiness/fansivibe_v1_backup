@@ -1,17 +1,27 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/discover/discover.dart';
+import 'package:fansivibe/features/events/data/event_mock_data.dart';
 import 'package:fansivibe/features/events/data/event_models.dart';
 import 'package:fansivibe/features/events/data/events_repository.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
+import 'package:fansivibe/features/home/data/home_recommendation_models.dart';
+import 'package:fansivibe/features/home/data/home_vibe_mapping.dart';
+import 'package:fansivibe/features/home/data/today_look_client.dart';
 import 'package:fansivibe/features/home/presentation/first_time_home_screen.dart';
 import 'package:fansivibe/features/home/presentation/widgets/backend_summary_cards.dart';
 import 'package:fansivibe/features/home/presentation/widgets/existing_user_home_widgets.dart';
 import 'package:fansivibe/features/home/today_look.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/learning/learning_summary.dart';
+import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
+import 'package:fansivibe/features/profile/data/saved_looks_repository.dart';
+import 'package:fansivibe/features/trending/data/trending_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart'
     show WardrobeInsightData;
 import 'package:fansivibe/features/wardrobe/data/wardrobe_repository.dart';
@@ -42,6 +52,19 @@ class HomeScreen extends StatefulWidget {
   /// tests inject a fake.
   final EventsRepository? eventsRepository;
 
+  /// Backend saved-looks source (DEC-013). Defaults to live repository;
+  /// tests inject a fake.
+  final SavedLooksRepository? savedLooksRepository;
+
+  /// Backend Discover / For-You recommendation source (H4.1).
+  final DiscoverRepository? discoverRepository;
+
+  /// Backend Trending source (H4.1).
+  final TrendingRepository? trendingRepository;
+
+  /// Backend Style Journey history source (SJ2).
+  final StyleJourneyRepository? styleJourneyRepository;
+
   const HomeScreen({
     super.key,
     this.onboardingData,
@@ -49,6 +72,10 @@ class HomeScreen extends StatefulWidget {
     this.todayLookRepository,
     this.wardrobeRepository,
     this.eventsRepository,
+    this.savedLooksRepository,
+    this.discoverRepository,
+    this.trendingRepository,
+    this.styleJourneyRepository,
   });
 
   @override
@@ -63,7 +90,31 @@ class _HomeScreenState extends State<HomeScreen> {
   late WardrobeRepository _wardrobeRepository;
   Future<WardrobeInsightData?>? _insightFuture;
   late EventsRepository _eventsRepository;
-  Future<EventListPage?>? _eventsFuture;
+  EventListResult? _eventsResult;
+  bool _eventsLoading = false;
+  int _eventsGeneration = 0;
+  late SavedLooksRepository _savedLooksRepository;
+  List<SavedLookItem>? _savedLooks;
+  bool _isLoadingSavedLooks = false;
+  bool _isSavingTodayLook = false;
+  int _savedLookSyncGeneration = 0;
+  bool _ignoringNextSavedLooksNotification = false;
+
+  late DiscoverRepository _discoverRepository;
+  List<HomeCuratedLookItem>? _curatedItems;
+  bool _curatedLoading = false;
+  int _curatedGeneration = 0;
+
+  late TrendingRepository _trendingRepository;
+  List<HomeTrendingItem>? _trendingItems;
+  bool _trendingLoading = false;
+  bool _trendingIsStale = false;
+  int _trendingGeneration = 0;
+
+  late StyleJourneyRepository _styleJourneyRepository;
+  StyleJourneyHistoryResult? _historyResult;
+  bool _historyLoading = false;
+  int _historyGeneration = 0;
 
   /// Account-scoped classification answer. Null until the learning-summary
   /// future resolves. This is a cache of the async server answer for the
@@ -92,8 +143,18 @@ class _HomeScreenState extends State<HomeScreen> {
     _wardrobeRepository = widget.wardrobeRepository ?? WardrobeRepositoryImpl();
     _insightFuture = _wardrobeRepository.getInsight();
     _eventsRepository = widget.eventsRepository ?? EventsRepositoryImpl();
+    _discoverRepository = widget.discoverRepository ?? DiscoverRepositoryImpl();
+    _trendingRepository = widget.trendingRepository ?? TrendingRepositoryImpl();
+    _styleJourneyRepository =
+        widget.styleJourneyRepository ?? StyleJourneyRepositoryImpl();
     if (AuthSession.isAuthenticated && !isGuestUser) {
-      _eventsFuture = _eventsRepository.listEvents(page: 1, pageSize: 5);
+      _fetchEvents(notify: false);
+      _savedLooksRepository =
+          widget.savedLooksRepository ?? SavedLooksRepositoryImpl();
+      _loadSavedLooks();
+      _fetchCuratedLooks(notify: false);
+      _fetchTrending(notify: false);
+      _fetchStyleJourneyHistory(notify: false);
     }
   }
 
@@ -152,6 +213,9 @@ class _HomeScreenState extends State<HomeScreen> {
     // must be dropped so the newly resolved session re-derives its own.
     AuthSession.authVersion.addListener(_onAuthChanged);
     LocalStorage.weatherLocationVersion.addListener(_onWeatherLocationChanged);
+    LocalStorage.vibeVersion.addListener(_onVibeChanged);
+    UserSession.savedLooksVersion.addListener(_onSavedLooksChanged);
+    UserSession.eventsVersion.addListener(_onEventsChanged);
 
     if (isGuestUser) {
       LearningService.instance.load().then((_) {
@@ -169,9 +233,25 @@ class _HomeScreenState extends State<HomeScreen> {
     _summaryFuture = null;
     _todayLookFuture = null;
     _insightFuture = null;
-    _eventsFuture = null;
+    _eventsGeneration++;
+    _eventsLoading = false;
+    _eventsResult = null;
+    _savedLooks = null;
+    _isLoadingSavedLooks = false;
+    _isSavingTodayLook = false;
+    _savedLookSyncGeneration++;
     _serverClassification = null;
     _summaryFailed = false;
+    _curatedGeneration++;
+    _curatedLoading = false;
+    _curatedItems = null;
+    _trendingGeneration++;
+    _trendingLoading = false;
+    _trendingIsStale = false;
+    _trendingItems = null;
+    _historyGeneration++;
+    _historyLoading = false;
+    _historyResult = null;
   }
 
   @override
@@ -224,17 +304,238 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _fetchSummary();
     });
+    _fetchStyleJourneyHistory(force: true);
+  }
+
+  Future<void> _fetchStyleJourneyHistory({
+    bool notify = true,
+    bool force = false,
+  }) async {
+    if (isGuestUser || !AuthSession.isAuthenticated) return;
+    if (_historyLoading && !force) return;
+    final gen = ++_historyGeneration;
+    _historyLoading = true;
+    if (notify && mounted) setState(() {});
+
+    final result = await _styleJourneyRepository.getHistory();
+    if (!mounted || gen != _historyGeneration) return;
+    setState(() {
+      _historyResult = result;
+      _historyLoading = false;
+    });
+  }
+
+  void _retryStyleJourneyHistory() {
+    if (isGuestUser || !AuthSession.isAuthenticated) return;
+    _initEstablishedFuturesIfNeeded();
+    _fetchStyleJourneyHistory(force: true);
+  }
+
+  Future<void> _refreshHome() async {
+    if (isGuestUser || !AuthSession.isAuthenticated) return;
+    _initEstablishedFuturesIfNeeded();
+    setState(() {
+      _fetchSummary();
+      _todayLookFuture = _todayLookRepository.getTodayLook();
+      _insightFuture = _wardrobeRepository.getInsight();
+    });
+    _fetchEvents();
+    await Future.wait<void>([
+      _fetchStyleJourneyHistory(force: true),
+      _loadSavedLooks(),
+    ]);
   }
 
   @override
   void dispose() {
+    _eventsGeneration++;
+    _savedLookSyncGeneration++;
+    _curatedGeneration++;
+    _trendingGeneration++;
+    _historyGeneration++;
     LearningService.instance.removeListener(_onLocalChanged);
     UserSession.savedWardrobeItemNotifier.removeListener(_onLocalChanged);
     AuthSession.authVersion.removeListener(_onAuthChanged);
     LocalStorage.weatherLocationVersion.removeListener(
       _onWeatherLocationChanged,
     );
+    LocalStorage.vibeVersion.removeListener(_onVibeChanged);
+    UserSession.savedLooksVersion.removeListener(_onSavedLooksChanged);
+    UserSession.eventsVersion.removeListener(_onEventsChanged);
     super.dispose();
+  }
+
+  void _onEventsChanged() {
+    if (!mounted || isGuestUser || !AuthSession.isAuthenticated) return;
+    _initEstablishedFuturesIfNeeded();
+    _fetchEvents();
+  }
+
+  void _onSavedLooksChanged() {
+    if (!mounted) return;
+    if (_ignoringNextSavedLooksNotification) {
+      _ignoringNextSavedLooksNotification = false;
+      return;
+    }
+    if (!AuthSession.isAuthenticated || isGuestUser) return;
+    _initEstablishedFuturesIfNeeded();
+    _loadSavedLooks();
+  }
+
+  void _notifySavedLooksChangedFromHome() {
+    _ignoringNextSavedLooksNotification = true;
+    UserSession.notifySavedLooksChanged();
+  }
+
+  Future<void> _loadSavedLooks() async {
+    if (!AuthSession.isAuthenticated || isGuestUser) return;
+    final gen = ++_savedLookSyncGeneration;
+    _isLoadingSavedLooks = true;
+    const pageSize = 100;
+    const maxPages = 50;
+    final loaded = <SavedLookItem>[];
+    final seenIds = <String>{};
+
+    for (var page = 1; page <= maxPages; page++) {
+      final result = await _savedLooksRepository.listSavedLooks(
+        page: page,
+        pageSize: pageSize,
+      );
+      if (!mounted || gen != _savedLookSyncGeneration) return;
+      if (result == null) {
+        _isLoadingSavedLooks = false;
+        setState(() {});
+        return;
+      }
+      var addedThisPage = 0;
+      for (final item in result.items) {
+        if (seenIds.add(item.id)) {
+          loaded.add(item);
+          addedThisPage++;
+        }
+      }
+      if (result.items.isEmpty ||
+          result.items.length < pageSize ||
+          loaded.length >= result.total ||
+          (page > 1 && addedThisPage == 0)) {
+        break;
+      }
+    }
+
+    if (!mounted || gen != _savedLookSyncGeneration) return;
+    setState(() {
+      _savedLooks = loaded;
+      _isLoadingSavedLooks = false;
+    });
+  }
+
+  static bool _sameIdSet(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    final setA = a.toSet();
+    final setB = b.toSet();
+    return setA.length == setB.length && setA.containsAll(setB);
+  }
+
+  SavedLookItem? _findMatchingSavedLook(TodayLook look) {
+    final saved = _savedLooks;
+    if (saved == null || saved.isEmpty) return null;
+    final targetTitle = look.title.trim();
+    for (final item in saved) {
+      if (item.sourceContext != 'daily') continue;
+      if (item.title.trim() != targetTitle) continue;
+      if (_sameIdSet(item.selectedItemIds, look.selectedItemIds)) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  void _showHomeSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  Future<void> _toggleTodayLookSave(TodayLook look) async {
+    if (isGuestUser || !AuthSession.isAuthenticated) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to save looks. Browsing stays free.',
+      );
+      return;
+    }
+    if (_isSavingTodayLook || _isLoadingSavedLooks) return;
+
+    final existing = _findMatchingSavedLook(look);
+    final gen = _savedLookSyncGeneration;
+    setState(() => _isSavingTodayLook = true);
+
+    if (existing == null) {
+      final title = look.title.trim();
+      if (title.isEmpty || title.length > 200) {
+        setState(() => _isSavingTodayLook = false);
+        _showHomeSnackBar('This look can\'t be saved (invalid title).');
+        return;
+      }
+      final saved = await _todayLookRepository.saveTodayLook(
+        title: look.title,
+        snapshot: look.snapshot,
+        idempotencyKey: newTodayLookIdempotencyKey(),
+      );
+      if (!mounted || gen != _savedLookSyncGeneration) return;
+      if (saved != null) {
+        final newItem = SavedLookItem(
+          id: saved.id,
+          lookId: saved.lookId,
+          title: saved.title,
+          sourceContext: saved.sourceContext ?? 'daily',
+          snapshot: saved.snapshot ?? look.snapshot,
+          sourceRunId: saved.sourceRunId,
+          createdAt: saved.createdAt,
+        );
+        setState(() {
+          final current = List<SavedLookItem>.from(_savedLooks ?? const []);
+          if (!current.any((item) => item.id == newItem.id)) {
+            current.insert(0, newItem);
+          }
+          _savedLooks = current;
+          _isSavingTodayLook = false;
+        });
+        _notifySavedLooksChangedFromHome();
+        _showHomeSnackBar('Today\'s look saved');
+      } else {
+        setState(() => _isSavingTodayLook = false);
+        if (AuthSession.isAuthenticated) {
+          _showHomeSnackBar('Couldn\'t save this look. Please try again.');
+        }
+      }
+    } else {
+      final outcome = await _savedLooksRepository.deleteSavedLook(
+        id: existing.id,
+      );
+      if (!mounted || gen != _savedLookSyncGeneration) return;
+      if (outcome == SavedLookDeleteOutcome.deleted ||
+          outcome == SavedLookDeleteOutcome.alreadyGone) {
+        setState(() {
+          final current = List<SavedLookItem>.from(_savedLooks ?? const []);
+          current.removeWhere((item) => item.id == existing.id);
+          _savedLooks = current;
+          _isSavingTodayLook = false;
+        });
+        _notifySavedLooksChangedFromHome();
+        _showHomeSnackBar(
+          outcome == SavedLookDeleteOutcome.deleted
+              ? 'Removed from saved looks'
+              : 'Look was already removed',
+        );
+      } else {
+        setState(() => _isSavingTodayLook = false);
+        if (AuthSession.isAuthenticated) {
+          _showHomeSnackBar('Couldn\'t remove saved look. Please try again.');
+        }
+      }
+    }
   }
 
   /// Refetch the look after a successful city change so the card never
@@ -244,6 +545,169 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _todayLookFuture = _todayLookRepository.getTodayLook();
     });
+  }
+
+  void _onVibeChanged() {
+    if (!mounted) return;
+    if (_todayLookFuture != null) {
+      setState(() {
+        _todayLookFuture = _todayLookRepository.getTodayLook();
+      });
+    }
+    if (AuthSession.isAuthenticated && !isGuestUser) {
+      _fetchCuratedLooks();
+    } else {
+      setState(() {});
+    }
+  }
+
+  String? get _effectiveVibe =>
+      LocalStorage.vibe ?? LearningService.instance.styleType;
+
+  void _fetchCuratedLooks({bool notify = true}) {
+    if (isGuestUser || !AuthSession.isAuthenticated) return;
+    if (widget.discoverRepository == null) {
+      // Without an explicit DiscoverRepository, avoid firing live network
+      // requests in tests; use vibe-matched editorial curations cleanly.
+      return;
+    }
+    final gen = ++_curatedGeneration;
+    if (notify) {
+      setState(() => _curatedLoading = true);
+    } else {
+      _curatedLoading = true;
+    }
+    final vibeAtFetch = _effectiveVibe;
+    unawaited(
+      _discoverRepository
+          .getForYouRecommendations(page: 1, pageSize: 4)
+          .then(
+            (result) {
+              if (!mounted || gen != _curatedGeneration) return;
+              if (result.isSuccess && result.response != null) {
+                final resp = result.response!;
+                final mapped = <HomeCuratedLookItem>[];
+                for (var i = 0; i < resp.items.length && i < 4; i++) {
+                  final item = resp.items[i];
+                  final imageUrl = item.imageUrls.isNotEmpty
+                      ? item.imageUrls.first
+                      : (resp.isPersonalized
+                            ? ''
+                            : HomeVibeMapping.heroImageFor(vibe: vibeAtFetch));
+                  mapped.add(
+                    HomeCuratedLookItem(
+                      id: item.id,
+                      title: item.title,
+                      category: (item.brand ?? item.category ?? 'CURATED')
+                          .toUpperCase(),
+                      imageRef: imageUrl,
+                      height: i.isEven ? 230 : 210,
+                      provenance: HomeRecommendationProvenance(
+                        recommendationId: item.id,
+                        sourceType: resp.isPersonalized
+                            ? HomeRecommendationSourceType.backendPersonalized
+                            : HomeRecommendationSourceType.backendCurated,
+                        selectedVibe:
+                            resp.appliedContext.styleType ?? vibeAtFetch,
+                        imageRef: imageUrl.isNotEmpty ? imageUrl : null,
+                        contentKind: resp.isPersonalized
+                            ? 'personalized'
+                            : 'curated',
+                        isPersonalized: resp.isPersonalized,
+                      ),
+                    ),
+                  );
+                }
+                setState(() {
+                  _curatedLoading = false;
+                  _curatedItems = mapped;
+                });
+              } else {
+                setState(() {
+                  _curatedLoading = false;
+                  _curatedItems = null;
+                });
+              }
+            },
+            onError: (_) {
+              if (!mounted || gen != _curatedGeneration) return;
+              setState(() {
+                _curatedLoading = false;
+                _curatedItems = null;
+              });
+            },
+          ),
+    );
+  }
+
+  void _fetchTrending({bool notify = true}) {
+    if (isGuestUser || !AuthSession.isAuthenticated) return;
+    if (widget.trendingRepository == null) {
+      return;
+    }
+    final gen = ++_trendingGeneration;
+    if (notify) {
+      setState(() => _trendingLoading = true);
+    } else {
+      _trendingLoading = true;
+    }
+    unawaited(
+      _trendingRepository
+          .getTrendingFeed(limit: 2)
+          .then(
+            (result) {
+              if (!mounted || gen != _trendingGeneration) return;
+              final feed = result.feed;
+              if (feed != null) {
+                final mapped = <HomeTrendingItem>[];
+                for (final trend in feed.items.take(2)) {
+                  final matchedImg = trend.matchedProducts
+                      .map((p) => p.imageUrl)
+                      .whereType<String>()
+                      .firstWhere((u) => u.isNotEmpty, orElse: () => '');
+                  final imageRef = matchedImg;
+                  mapped.add(
+                    HomeTrendingItem(
+                      id: trend.trendId,
+                      title: trend.displayName,
+                      subtitle: feed.isStale
+                          ? 'Cached • ${trend.region}'
+                          : 'Trending • ${trend.region}',
+                      imageRef: imageRef,
+                      provenance: HomeRecommendationProvenance(
+                        recommendationId: trend.trendId,
+                        sourceType:
+                            HomeRecommendationSourceType.backendTrending,
+                        selectedVibe: _effectiveVibe,
+                        imageRef: imageRef.isNotEmpty ? imageRef : null,
+                        contentKind: 'trending',
+                        isPersonalized: false,
+                        isStale: feed.isStale,
+                      ),
+                    ),
+                  );
+                }
+                setState(() {
+                  _trendingLoading = false;
+                  _trendingIsStale = feed.isStale;
+                  _trendingItems = mapped;
+                });
+              } else {
+                setState(() {
+                  _trendingLoading = false;
+                  _trendingItems = null;
+                });
+              }
+            },
+            onError: (_) {
+              if (!mounted || gen != _trendingGeneration) return;
+              setState(() {
+                _trendingLoading = false;
+                _trendingItems = null;
+              });
+            },
+          ),
+    );
   }
 
   void _onLocalChanged() {
@@ -259,6 +723,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (_needsBackendFutures) {
       _initEstablishedFuturesIfNeeded();
+      if (_todayLookFuture != null) {
+        _todayLookFuture = _todayLookRepository.getTodayLook();
+      }
     }
     setState(() {});
   }
@@ -277,6 +744,57 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _insightFuture = _wardrobeRepository.getInsight();
     });
+  }
+
+  void _fetchEvents({bool notify = true}) {
+    if (isGuestUser || !AuthSession.isAuthenticated) return;
+    final gen = ++_eventsGeneration;
+    if (notify) {
+      setState(() {
+        _eventsLoading = true;
+        _eventsResult = null;
+      });
+    } else {
+      _eventsLoading = true;
+      _eventsResult = null;
+    }
+    unawaited(
+      _eventsRepository
+          .listEventsResult(page: 1, pageSize: 5, fromDate: localTodayIsoDate())
+          .then(
+            (result) {
+              if (!mounted || gen != _eventsGeneration) return;
+              setState(() {
+                _eventsLoading = false;
+                _eventsResult = result;
+              });
+            },
+            onError: (Object error) {
+              if (!mounted || gen != _eventsGeneration) return;
+              setState(() {
+                _eventsLoading = false;
+                _eventsResult = EventListResult.failure(
+                  _classifyEventsError(error),
+                );
+              });
+            },
+          ),
+    );
+  }
+
+  EventListFailure _classifyEventsError(Object error) {
+    if (error is SocketException ||
+        error is TimeoutException ||
+        error is http.ClientException) {
+      return EventListFailure.networkError;
+    }
+    return EventListFailure.unknown;
+  }
+
+  void _retryEvents() {
+    if (isGuestUser || !AuthSession.isAuthenticated) return;
+    _initEstablishedFuturesIfNeeded();
+    _fetchEvents();
   }
 
   Map<String, dynamic>? _onboardingDataFromLocalStorage() {
@@ -465,86 +983,97 @@ class _HomeScreenState extends State<HomeScreen> {
             final horizontalPadding = maxWidth > 600 ? 48.0 : 20.0;
             final contentMaxWidth = maxWidth > 600 ? 520.0 : double.infinity;
 
-            return SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: horizontalPadding,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 12),
-                        // 1. Header (FANSIVIBE wordmark, notification bell, profile avatar)
-                        ExistingUserHeader(
-                          onNotificationTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('No new notifications'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                          },
-                          onAvatarTap: () =>
-                              context.goNamed(RouteNames.profile),
-                        ),
-                        const SizedBox(height: 24),
-
-                        // 2. Personal Greeting (YOUR DAILY EDIT, Good morning, [User])
-                        _buildGreetingHeader(theme, _displayName),
-                        const SizedBox(height: 28),
-
-                        // 3. Today's Look (Hero Outfit with actions)
-                        _buildTodaysLookSlot(context),
-
-                        // Optional: Contextual assistance for established user with 0 items
-                        if (learningService.wardrobe.isEmpty &&
-                            AuthSession.isAuthenticated) ...[
-                          const SizedBox(height: 24),
-                          ZeroWardrobeContextCard(
-                            onAddWardrobeItem: () =>
-                                context.pushNamed(RouteNames.wardrobeAddItem),
+            return RefreshIndicator(
+              onRefresh: _refreshHome,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: horizontalPadding,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 12),
+                          // 1. Header (FANSIVIBE wordmark, notification bell, profile avatar)
+                          ExistingUserHeader(
+                            onNotificationTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('No new notifications'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                            onAvatarTap: () =>
+                                context.goNamed(RouteNames.profile),
                           ),
+                          const SizedBox(height: 24),
+
+                          // 2. Personal Greeting (YOUR DAILY EDIT, Good morning, [User])
+                          _buildGreetingHeader(theme, _displayName),
+                          const SizedBox(height: 28),
+
+                          // 3. Today's Look (Hero Outfit with actions)
+                          _buildTodaysLookSlot(context),
+
+                          // Optional: Contextual assistance for established user with 0 items
+                          if (learningService.wardrobe.isEmpty &&
+                              AuthSession.isAuthenticated) ...[
+                            const SizedBox(height: 24),
+                            ZeroWardrobeContextCard(
+                              onAddWardrobeItem: () =>
+                                  context.pushNamed(RouteNames.wardrobeAddItem),
+                            ),
+                          ],
+                          const SizedBox(height: 24),
+
+                          // 4. Style Score
+                          _buildScoreSlot(),
+                          const SizedBox(height: 24),
+
+                          // 5. AI Insight
+                          _buildAIInsight(),
+                          const SizedBox(height: 24),
+
+                          // 6. Upcoming Event
+                          _buildUpcomingSlot(),
+                          const SizedBox(height: 24),
+
+                          // 7. AI Stylist (2x2 Grid)
+                          _buildAiStylist(context, learningService),
+                          const SizedBox(height: 28),
+
+                          // 8. Curated For You (asymmetric Pinterest grid)
+                          ExistingUserCuratedForYou(
+                            items: _curatedItems,
+                            selectedVibe: _effectiveVibe,
+                            isLoading: _curatedLoading,
+                            onLookTap: (title) =>
+                                context.pushNamed(RouteNames.discover),
+                          ),
+                          const SizedBox(height: 28),
+
+                          // 9. Trending For You
+                          ExistingUserTrending(
+                            items: _trendingItems,
+                            isLoading: _trendingLoading,
+                            isStale: _trendingIsStale,
+                            onTrendingTap: () =>
+                                context.pushNamed(RouteNames.discover),
+                          ),
+                          const SizedBox(height: 28),
+
+                          // 10. Style Journey (Progress visualization & streaks)
+                          _buildStyleJourney(),
+                          const SizedBox(height: 36),
                         ],
-                        const SizedBox(height: 24),
-
-                        // 4. Style Score
-                        _buildScoreSlot(),
-                        const SizedBox(height: 24),
-
-                        // 5. AI Insight
-                        _buildAIInsight(),
-                        const SizedBox(height: 24),
-
-                        // 6. Upcoming Event
-                        _buildUpcomingSlot(),
-                        const SizedBox(height: 24),
-
-                        // 7. AI Stylist (2x2 Grid)
-                        _buildAiStylist(context, learningService),
-                        const SizedBox(height: 28),
-
-                        // 8. Curated For You (asymmetric Pinterest grid)
-                        ExistingUserCuratedForYou(
-                          onLookTap: (title) =>
-                              context.pushNamed(RouteNames.discover),
-                        ),
-                        const SizedBox(height: 28),
-
-                        // 9. Trending For You
-                        ExistingUserTrending(
-                          onTrendingTap: () =>
-                              context.pushNamed(RouteNames.discover),
-                        ),
-                        const SizedBox(height: 28),
-
-                        // 10. Style Journey (Progress visualization & streaks)
-                        _buildStyleJourney(),
-                        const SizedBox(height: 36),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -658,8 +1187,51 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
         final look = result.look!;
+        final isSaved = _findMatchingSavedLook(look) != null;
+        final resolvedVibe =
+            look.selectedVibe ?? look.styleDna?.styleType ?? _effectiveVibe;
+        final componentImg = look.components
+            .map((c) => c.imageUrl)
+            .whereType<String>()
+            .map((u) => u.trim())
+            .firstWhere((u) => u.isNotEmpty, orElse: () => '');
+        final explicitLookImage =
+            (look.imageUrl != null && look.imageUrl!.trim().isNotEmpty)
+            ? look.imageUrl!.trim()
+            : (componentImg.isNotEmpty ? componentImg : null);
+        // Never attach unrelated generic stock images to personalized outfits.
+        final heroImage = look.isPersonalized
+            ? (explicitLookImage ?? '')
+            : HomeVibeMapping.heroImageFor(
+                lookImageUrl: explicitLookImage,
+                vibe: resolvedVibe,
+                occasion: look.occasion,
+              );
+        final provenance = HomeRecommendationProvenance(
+          recommendationId:
+              look.recommendationId ??
+              (look.selectedItemIds.isNotEmpty
+                  ? look.selectedItemIds.join('-')
+                  : look.title),
+          sourceType: HomeRecommendationSourceType.wardrobeDerived,
+          associatedPreferences: [
+            if (look.occasion != null && look.occasion!.isNotEmpty)
+              look.occasion!,
+            if (resolvedVibe != null && resolvedVibe.isNotEmpty) resolvedVibe,
+          ],
+          selectedVibe: resolvedVibe,
+          occasion: look.occasion,
+          imageRef: heroImage.isNotEmpty ? heroImage : null,
+          contentKind: look.isPersonalized ? 'personalized' : 'curated',
+          isPersonalized: look.isPersonalized,
+        );
         return ExistingUserHeroCard(
           data: _todayLookCardData(look),
+          imageAsset: heroImage,
+          provenance: provenance,
+          isSaved: isSaved,
+          isSaving: _isSavingTodayLook,
+          onToggleSave: () => _toggleTodayLookSave(look),
           onWearThisLook: () => context.pushNamed(RouteNames.dailyOutfit),
           onSwapItem: () => context.pushNamed(RouteNames.buildOutfit),
           onChangeStyle: () => context.pushNamed(RouteNames.buildOutfit),
@@ -749,34 +1321,57 @@ class _HomeScreenState extends State<HomeScreen> {
         onCreateEvent: () => context.pushNamed(RouteNames.eventAdd),
       );
     }
-    return FutureBuilder<EventListPage?>(
-      future: _eventsFuture,
-      builder: (context, snapshot) {
-        final page = snapshot.data;
-        if (page != null && page.items.isNotEmpty) {
-          final event = page.items.first;
-          final timeOrDate = event.eventTime ?? event.displayDate;
-          final locationStr = event.location ?? 'Fansivibe Atelier';
-          return ExistingUserUpcomingCard(
-            hasEvent: true,
-            title: event.title,
-            occasion: event.eventType.toUpperCase(),
-            locationAndTime: '$locationStr • $timeOrDate',
-            onPlanMyLook: () => context.pushNamed(
-              RouteNames.buildOutfit,
-              extra: {
-                'eventId': event.id,
-                'eventTitle': event.title,
-                'occasion': event.eventType,
-              },
-            ),
-          );
-        }
-        return ExistingUserUpcomingCard(
-          hasEvent: false,
-          onCreateEvent: () => context.pushNamed(RouteNames.eventAdd),
-        );
-      },
+    if (_eventsLoading || _eventsResult == null) {
+      return const SummaryLoadingCard(title: 'Upcoming');
+    }
+    final result = _eventsResult!;
+    if (result.isError) {
+      final message = switch (result.failure) {
+        EventListFailure.networkError =>
+          'Couldn\'t load upcoming events. Please check your connection.',
+        EventListFailure.unauthorized =>
+          'Your session expired. Please sign in again.',
+        _ => 'Couldn\'t load upcoming events. Please try again.',
+      };
+      return SummaryErrorCard(
+        title: 'Upcoming',
+        message: message,
+        onRetry: _retryEvents,
+      );
+    }
+    final events = deduplicateEvents(
+      result.page!.items,
+    ).where((e) => isUpcomingEvent(e)).toList();
+    if (events.isEmpty) {
+      return ExistingUserUpcomingCard(
+        hasEvent: false,
+        onCreateEvent: () => context.pushNamed(RouteNames.eventAdd),
+      );
+    }
+    final event = events.first;
+    final rawLocation = event.location?.trim();
+    final locationAndTime = (rawLocation != null && rawLocation.isNotEmpty)
+        ? '$rawLocation • ${event.eventTime ?? event.displayDate}'
+        : (event.displayTime != null
+              ? '${event.displayDate} • ${event.displayTime}'
+              : event.displayDate);
+    final occasionLabel =
+        (EventType.byCodeOrNull(event.eventType)?.name ?? event.eventType)
+            .toUpperCase();
+    return ExistingUserUpcomingCard(
+      hasEvent: true,
+      isCalendarSynced: false,
+      title: event.title,
+      occasion: occasionLabel,
+      locationAndTime: locationAndTime,
+      onPlanMyLook: () => context.pushNamed(
+        RouteNames.buildOutfit,
+        extra: {
+          'eventId': event.id,
+          'eventTitle': event.title,
+          'occasion': event.eventType,
+        },
+      ),
     );
   }
 
@@ -813,6 +1408,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ExistingUserStyleJourney(
               currentScore: summary.styleScore,
               streakDays: summary.streak,
+              history: _historyResult?.history,
+              isHistoryLoading: _historyLoading,
+              historyFailure: _historyResult?.failure,
+              onRetryHistory: _retryStyleJourneyHistory,
+              onRefreshHistory: _retryStyleJourneyHistory,
             ),
             const SizedBox(height: 16),
             _buildStreakSlot(),

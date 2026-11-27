@@ -46,10 +46,11 @@ from app.application.learning import (
     mark_styled_today,
     utc_today,
 )
-from app.infrastructure.db.models import ActivityDays, LearningSignals, Users
+from app.infrastructure.db.models import ActivityDays, LearningSignals, Users, UserState
 from app.infrastructure.db.repositories import (
     ActivityDayRepositorySQL,
     LearningSignalRepositorySQL,
+    UserStateRepositorySQL,
 )
 from tests.conftest import make_session
 
@@ -534,12 +535,14 @@ def test_P_outfit_run_signals_share_one_activity_day(db):
     Session = make_session()
     with Session() as session:
         user_id = _seed_user(session, "p-outfit-user")
+        session.add(UserState(user_id=user_id))
+        session.commit()
         use_case = CreateOutfitRun(
             runs=_FakeRuns(),
             knowledge=CatalogKnowledgeSource(),
             appearance_port=DevelopmentAppearanceAnalysisAdapter(),
             garment_port=_StubGarmentPort(),
-            user_state=None,
+            user_state=UserStateRepositorySQL(session),
             learning_signal=LearningSignalRepositorySQL(session),
             activity_days=ActivityDayRepositorySQL(session),
         )

@@ -171,8 +171,9 @@ def test_1_recommend_outfit_delegates_to_generate_outfit():
     call = spy.calls[0]
     assert call["occasion"] == "date"
     assert call["mood"] == "classic"
-    assert call["fit"] == "regular"
-    assert call["color_palette"] == "neutral"
+    assert call["fit"] is None
+    assert call["color_palette"] is None
+    assert call["allow_empty_preferences"] is True
 
     assert len(cards) == 1
     card = cards[0]

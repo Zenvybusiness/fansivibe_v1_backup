@@ -345,6 +345,85 @@ class ActivityDays(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class StyleJourneyWeeklySnapshots(Base):
+    """Immutable weekly Style Journey progress snapshot per user (SJ1).
+
+    Records the user's authoritative style score and breakdown for a
+    specific ISO week (`week_start` Monday .. `week_end` Sunday) in the
+    user's timezone. Rows are insert-only (`ON CONFLICT DO NOTHING` on
+    `(user_id, week_start)`) so historical weeks remain auditable and
+    immutable.
+    """
+
+    __tablename__ = "style_journey_weekly_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "week_start",
+            name="uq_style_journey_weekly_snapshots_user_week",
+        ),
+        CheckConstraint(
+            "week_end > week_start",
+            name="ck_sj_weekly_snapshots_week_span",
+        ),
+        CheckConstraint(
+            "style_score BETWEEN 60 AND 100",
+            name="ck_sj_weekly_snapshots_style_score",
+        ),
+        CheckConstraint(
+            "base_points = 60",
+            name="ck_sj_weekly_snapshots_base_points",
+        ),
+        CheckConstraint(
+            "wardrobe_points BETWEEN 0 AND 20",
+            name="ck_sj_weekly_snapshots_wardrobe_points",
+        ),
+        CheckConstraint(
+            "saved_points BETWEEN 0 AND 20",
+            name="ck_sj_weekly_snapshots_saved_points",
+        ),
+        CheckConstraint(
+            "styled_days_count BETWEEN 0 AND 7",
+            name="ck_sj_weekly_snapshots_styled_days",
+        ),
+        CheckConstraint(
+            "signals_count >= 0",
+            name="ck_sj_weekly_snapshots_signals_count",
+        ),
+        Index(
+            "ix_style_journey_weekly_snapshots_user_week",
+            "user_id",
+            "week_start",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    week_start: Mapped[date] = mapped_column(Date, nullable=False)
+    week_end: Mapped[date] = mapped_column(Date, nullable=False)
+    timezone: Mapped[str] = mapped_column(Text, nullable=False)
+    style_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    base_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    wardrobe_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    saved_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    styled_days_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    signals_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    aggregation_policy: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'end_of_week_score_v1'")
+    )
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class WardrobeCategories(Base):
     __tablename__ = "wardrobe_categories"
     __table_args__ = (

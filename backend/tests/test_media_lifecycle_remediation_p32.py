@@ -745,7 +745,7 @@ class TestWorkstream3PostgreSQLServerTimeSemantics:
 
     @classmethod
     def setup_class(cls):
-        """Create disposable PostgreSQL database and run migrations to 0036."""
+        """Create disposable PostgreSQL database and run migrations to head."""
         admin_engine = create_engine(
             "postgresql+psycopg://fansivibe:fansivibe_dev@localhost:5432/postgres",
             isolation_level="AUTOCOMMIT",

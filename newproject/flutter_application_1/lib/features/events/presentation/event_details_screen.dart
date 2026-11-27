@@ -5,10 +5,13 @@ import 'package:fansivibe/features/events/data/event_mock_data.dart';
 import 'package:fansivibe/features/events/data/event_models.dart';
 import 'package:fansivibe/features/events/data/events_repository.dart';
 import 'package:fansivibe/features/outfit_builder/presentation/widgets/outfit_builder_widgets.dart';
+import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
+import 'package:fansivibe/shared/utils/guest_mode.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
 
 /// Backend-first event details (M8-D).
 ///
@@ -49,6 +52,19 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   void initState() {
     super.initState();
     _event = widget.event;
+    final needsHydration = _event.location == null && _event.notes == null;
+    if (needsHydration && AuthSession.isAuthenticated && !isGuestUser) {
+      _hydrateEventDetails();
+    }
+  }
+
+  Future<void> _hydrateEventDetails() async {
+    final fetched = await _repository.getEvent(id: _event.id);
+    if (fetched != null && mounted) {
+      setState(() {
+        _event = fetched;
+      });
+    }
   }
 
   EventType get _eventType =>
@@ -84,6 +100,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       if (!mounted) return;
       if (outcome == EventDeleteOutcome.deleted ||
           outcome == EventDeleteOutcome.alreadyGone) {
+        UserSession.notifyEventsChanged();
         // Deleted or already gone server-side: the list reload drops the
         // row either way (saved-looks already-gone precedent).
         Navigator.of(context).pop<bool>(true);

@@ -17,14 +17,20 @@ from app.application.outfits import (
     NO_LEGAL_CANDIDATE,
     GenerateOutfit,
 )
+from app.application.today import _utc_today
 from app.data import catalog
 from app.domain.ports.external import KnowledgeSource
 from app.domain.ports.repositories import (
+    UserEventRepository,
     UserStateRepository,
     WardrobeItemRepository,
 )
 from app.domain.services import analysis_rules, grooming_rules
-from app.domain.value_objects import AppearanceProfile, HairstylePreferences
+from app.domain.services.vibe_mapping import (
+    resolve_effective_occasions,
+    resolve_vibe_attributes,
+)
+from app.domain.value_objects import AppearanceProfile, HairstylePreferences, WeatherContext
 from app.infrastructure.external.ephemeral_repositories import (
     EphemeralUserStateRepository,
     EphemeralWardrobeItemRepository,
@@ -84,13 +90,14 @@ def derive_canonical_outfit_recommendation(
     generate_outfit: Optional[GenerateOutfit] = None,
     wardrobe_items: Optional[WardrobeItemRepository] = None,
     user_state: Optional[UserStateRepository] = None,
+    events: Optional[UserEventRepository] = None,
     preferred_item_ids: Optional[Sequence[str]] = None,
     preferred_occasions: Optional[Sequence[str]] = None,
     fit: Optional[str] = None,
     color_palette: Optional[str] = None,
     mood: Optional[str] = None,
     seed: Optional[str] = None,
-    weather_context: Optional[str] = None,
+    weather_context: Optional[WeatherContext | str] = None,
     slot_to_swap: Optional[str] = None,
     include_alternatives: bool = False,
 ) -> tuple[List[SuggestionCard], OutfitIntelligence]:
@@ -103,6 +110,22 @@ def derive_canonical_outfit_recommendation(
     clean_occasion: Optional[str] = None
     if occasion and isinstance(occasion, str) and occasion.strip():
         clean_occasion = occasion.strip().lower()
+
+    profile = None
+    vibe_attrs = None
+    if user_state is not None and user_id is not None:
+        try:
+            profile = user_state.get_profile(user_id=user_id)
+            style_profile = getattr(profile, "style_profile", None) if profile else None
+            if isinstance(style_profile, dict):
+                raw_style = style_profile.get("style_type") or style_profile.get("styleType")
+                vibe_attrs = resolve_vibe_attributes(raw_style)
+        except Exception:
+            profile = None
+            vibe_attrs = None
+
+    if vibe_attrs is None and user is not None and getattr(user, "face", None) is not None:
+        vibe_attrs = resolve_vibe_attributes(getattr(user.face, "styleType", None))
 
     resolved_occasions: list[str] = []
     if preferred_occasions is not None:
@@ -117,16 +140,63 @@ def derive_canonical_outfit_recommendation(
             for o in user.preferredOccasions
             if isinstance(o, str) and o.strip()
         ]
+    elif profile is not None and isinstance(getattr(profile, "preferences", None), dict):
+        raw_pref_occ = profile.preferences.get("preferred_occasions")
+        if isinstance(raw_pref_occ, list):
+            resolved_occasions = [
+                str(o).strip().lower()
+                for o in raw_pref_occ
+                if isinstance(o, str) and o.strip()
+            ]
 
-    if clean_occasion is None or clean_occasion == "today":
-        if resolved_occasions:
-            clean_occasion = resolved_occasions[0]
-        else:
-            clean_occasion = "casual"
+    event_code: Optional[str] = None
+    if user_id is not None and events is not None:
+        try:
+            today_utc = _utc_today()
+            nearest = events.list_for_user(
+                user_id=user_id, from_date=today_utc, order="asc", page=1, page_size=1
+            )[0]
+            if nearest:
+                nearest_event = nearest[0]
+                event_date = getattr(nearest_event, "event_date", None)
+                if event_date is None or event_date >= today_utc:
+                    raw_event_type = getattr(nearest_event, "event_type", None)
+                    if isinstance(raw_event_type, str) and raw_event_type.strip():
+                        event_code = raw_event_type.strip().lower()
+        except Exception as exc:
+            logger.warning(
+                "Failed to retrieve upcoming event for AI stylist (%s)",
+                type(exc).__name__,
+            )
+            event_code = None
+
+    clean_occasion, _ = resolve_effective_occasions(
+        explicit_occasion=clean_occasion,
+        event_code=event_code,
+        preferred_occasions=resolved_occasions,
+        vibe_attrs=vibe_attrs,
+    )
+
+    structured_weather: Optional[WeatherContext] = None
+    weather_label: Optional[str] = None
+    if isinstance(weather_context, WeatherContext):
+        structured_weather = weather_context
+        temp_round = int(round(weather_context.temperature_c))
+        weather_label = f"{temp_round}°C • {weather_context.condition_text}"
+    elif isinstance(weather_context, str) and weather_context.strip():
+        weather_label = weather_context.strip()
 
     clean_mood = mood.strip().lower() if (mood and isinstance(mood, str) and mood.strip()) else "classic"
-    clean_fit = fit.strip().lower() if (fit and isinstance(fit, str) and fit.strip()) else "regular"
-    clean_palette = color_palette.strip().lower() if (color_palette and isinstance(color_palette, str) and color_palette.strip()) else "neutral"
+    clean_fit: Optional[str] = (
+        fit.strip().lower()
+        if (fit and isinstance(fit, str) and fit.strip())
+        else (vibe_attrs.preferred_fit if vibe_attrs is not None else None)
+    )
+    clean_palette: Optional[str] = (
+        color_palette.strip().lower()
+        if (color_palette and isinstance(color_palette, str) and color_palette.strip())
+        else (vibe_attrs.preferred_palette if vibe_attrs is not None else None)
+    )
 
     pref_item_ids: list[str] = []
     if preferred_item_ids is not None:
@@ -168,7 +238,7 @@ def derive_canonical_outfit_recommendation(
         exec_user_id = None
 
     try:
-        rec, empty_reason = use_case.derive_with_reason(
+        derive_kwargs = dict(
             user_id=exec_user_id,
             occasion=clean_occasion,
             mood=clean_mood,
@@ -177,6 +247,13 @@ def derive_canonical_outfit_recommendation(
             seed=effective_seed,
             preferred_item_ids=pref_item_ids or None,
         )
+        if structured_weather is not None:
+            derive_kwargs["weather_context"] = structured_weather
+        if clean_occasion is None:
+            derive_kwargs["allow_empty_occasion"] = True
+        if clean_fit is None or clean_palette is None:
+            derive_kwargs["allow_empty_preferences"] = True
+        rec, empty_reason = use_case.derive_with_reason(**derive_kwargs)
     except Exception as exc:
         logger.exception("Failed to derive canonical outfit recommendation: %s", exc)
         card = SuggestionCard(
@@ -190,7 +267,7 @@ def derive_canonical_outfit_recommendation(
         oi = OutfitIntelligence(
             selectedItemIds=[],
             outfitComposition=OutfitComposition(),
-            occasion=clean_occasion,
+            occasion=clean_occasion or "",
             stylingRationale=card.subtitle,
             compatibilityRationale="",
             confidence=0.0,
@@ -214,7 +291,7 @@ def derive_canonical_outfit_recommendation(
             oi = OutfitIntelligence(
                 selectedItemIds=[],
                 outfitComposition=OutfitComposition(),
-                occasion=clean_occasion,
+                occasion=clean_occasion or "",
                 stylingRationale=card.subtitle,
                 compatibilityRationale="",
                 confidence=0.0,
@@ -236,7 +313,7 @@ def derive_canonical_outfit_recommendation(
             oi = OutfitIntelligence(
                 selectedItemIds=[],
                 outfitComposition=OutfitComposition(),
-                occasion=clean_occasion,
+                occasion=clean_occasion or "",
                 stylingRationale=card.subtitle,
                 compatibilityRationale="",
                 confidence=0.0,
@@ -258,7 +335,7 @@ def derive_canonical_outfit_recommendation(
             oi = OutfitIntelligence(
                 selectedItemIds=[],
                 outfitComposition=OutfitComposition(),
-                occasion=clean_occasion,
+                occasion=clean_occasion or "",
                 stylingRationale=card.subtitle,
                 compatibilityRationale="",
                 confidence=0.0,
@@ -274,10 +351,14 @@ def derive_canonical_outfit_recommendation(
     if rec.reasons:
         card_subtitle = ". ".join(r.rstrip(".") for r in rec.reasons[:2]) + "."
     else:
-        card_subtitle = rec.occasion_match or f"Assembled for a {clean_occasion} occasion."
+        card_subtitle = rec.occasion_match or (
+            f"Assembled for a {clean_occasion} occasion."
+            if clean_occasion
+            else "Assembled for your outfit."
+        )
 
-    if weather_context:
-        card_subtitle = f"{card_subtitle} (Weather: {weather_context})"
+    if weather_label:
+        card_subtitle = f"{card_subtitle} (Weather: {weather_label})"
 
     items = [f"{c.name} - {c.category.title()}" for c in rec.components]
 
@@ -324,7 +405,7 @@ def derive_canonical_outfit_recommendation(
     oi = OutfitIntelligence(
         selectedItemIds=[c.id for c in rec.components],
         outfitComposition=comp,
-        occasion=clean_occasion,
+        occasion=clean_occasion or "",
         stylingRationale=card_subtitle,
         compatibilityRationale=rec.color_harmony or rec.body_fit or "",
         confidence=round(rec.match_score, 2),
@@ -340,7 +421,7 @@ def derive_canonical_outfit_recommendation(
     if include_alternatives:
         for seed_idx, alt_seed in enumerate(["alt_look_1", "alt_look_2"], start=1):
             try:
-                alt_rec, _ = use_case.derive_with_reason(
+                alt_kwargs = dict(
                     user_id=exec_user_id,
                     occasion=clean_occasion,
                     mood=clean_mood,
@@ -348,6 +429,13 @@ def derive_canonical_outfit_recommendation(
                     color_palette=clean_palette,
                     seed=alt_seed,
                 )
+                if structured_weather is not None:
+                    alt_kwargs["weather_context"] = structured_weather
+                if clean_occasion is None:
+                    alt_kwargs["allow_empty_occasion"] = True
+                if clean_fit is None or clean_palette is None:
+                    alt_kwargs["allow_empty_preferences"] = True
+                alt_rec, _ = use_case.derive_with_reason(**alt_kwargs)
                 if alt_rec and alt_rec.components:
                     alt_items = [f"{c.name} - {c.category.title()}" for c in alt_rec.components]
                     cards.append(
@@ -374,12 +462,14 @@ def recommend_outfit(
     generate_outfit: Optional[GenerateOutfit] = None,
     wardrobe_items: Optional[WardrobeItemRepository] = None,
     user_state: Optional[UserStateRepository] = None,
+    events: Optional[UserEventRepository] = None,
     preferred_item_ids: Optional[Sequence[str]] = None,
     preferred_occasions: Optional[Sequence[str]] = None,
     fit: Optional[str] = None,
     color_palette: Optional[str] = None,
     mood: Optional[str] = None,
     seed: Optional[str] = None,
+    weather_context: Optional[WeatherContext | str] = None,
 ) -> List[SuggestionCard]:
     """Recommend an outfit by delegating to canonical GenerateOutfit use case.
 
@@ -399,12 +489,14 @@ def recommend_outfit(
         generate_outfit=generate_outfit,
         wardrobe_items=wardrobe_items,
         user_state=user_state,
+        events=events,
         preferred_item_ids=preferred_item_ids,
         preferred_occasions=preferred_occasions,
         fit=fit,
         color_palette=color_palette,
         mood=mood,
         seed=seed,
+        weather_context=weather_context,
     )
     return cards
 

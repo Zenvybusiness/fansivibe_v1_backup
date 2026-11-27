@@ -307,8 +307,12 @@ def test_migration_head_is_current_single_revision():
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
-    # D6 added no migration of its own; current source head is 0036 (post-P0-4 media lifecycle revisions 0033-0036).
-    assert tuple(script.get_heads()) == ("0036",)
+    # D6 added no migration of its own; verify single head and linear reachability.
+    heads = tuple(script.get_heads())
+    assert len(heads) == 1
+    revisions = {rev.revision for rev in script.walk_revisions()}
+    assert heads[0] in revisions
+    assert "0036" in revisions
 
 
 

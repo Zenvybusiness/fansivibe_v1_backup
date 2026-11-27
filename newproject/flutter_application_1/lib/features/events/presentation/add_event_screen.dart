@@ -6,6 +6,7 @@ import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
 
 /// Backend-first add/edit event form (M8-D).
 ///
@@ -118,11 +119,15 @@ class _AddEventScreenState extends State<AddEventScreen> {
   Future<void> _pickDate() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
+    final defaultLast = now.add(const Duration(days: 365));
+    final initial = _selectedDay ?? now.add(const Duration(days: 7));
+    final firstDate = initial.isBefore(today) ? initial : today;
+    final lastDate = initial.isAfter(defaultLast) ? initial : defaultLast;
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDay ?? now.add(const Duration(days: 7)),
-      firstDate: today,
-      lastDate: now.add(const Duration(days: 365)),
+      initialDate: initial,
+      firstDate: firstDate,
+      lastDate: lastDate,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -201,6 +206,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
         );
         if (!mounted) return;
         if (updated != null) {
+          UserSession.notifyEventsChanged();
           Navigator.of(context).pop<EventItem>(updated);
         } else {
           _showFailure('Couldn\'t save your changes. Please try again.');
@@ -218,6 +224,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
         );
         if (!mounted) return;
         if (created != null) {
+          UserSession.notifyEventsChanged();
           // Return the backend-created item so the caller can show and
           // select it immediately (never a bare bool — the UUID is the
           // only event identity).
@@ -333,6 +340,9 @@ class _AddEventScreenState extends State<AddEventScreen> {
                           value: _selectedTime != null ? _timeLabel : null,
                           hint: 'Select time (optional)',
                           onTap: _pickTime,
+                          onClear: _selectedTime != null
+                              ? () => setState(() => _selectedTime = null)
+                              : null,
                         ),
                         const SizedBox(height: 24),
 
@@ -450,6 +460,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
     required String? value,
     required String hint,
     required VoidCallback onTap,
+    VoidCallback? onClear,
   }) {
     final theme = Theme.of(context);
 
@@ -479,11 +490,24 @@ class _AddEventScreenState extends State<AddEventScreen> {
                 ),
               ),
             ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: FansivibeColors.textSecondary,
-              size: 20,
-            ),
+            if (onClear != null)
+              IconButton(
+                onPressed: onClear,
+                icon: Icon(
+                  Icons.close_rounded,
+                  color: FansivibeColors.textSecondary,
+                  size: 18,
+                ),
+                tooltip: 'Clear time',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              )
+            else
+              Icon(
+                Icons.chevron_right_rounded,
+                color: FansivibeColors.textSecondary,
+                size: 20,
+              ),
           ],
         ),
       ),

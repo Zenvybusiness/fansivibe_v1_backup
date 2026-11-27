@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:fansivibe/features/discover/presentation/widgets/discover_editorial_widgets.dart';
 import 'package:fansivibe/features/home/data/home_mock_data.dart';
+import 'package:fansivibe/features/home/data/home_recommendation_models.dart';
+import 'package:fansivibe/features/home/data/home_vibe_mapping.dart';
+import 'package:fansivibe/features/learning/learning_summary.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
@@ -176,27 +179,32 @@ class ExistingUserGreeting extends StatelessWidget {
 class ExistingUserHeroCard extends StatefulWidget {
   const ExistingUserHeroCard({
     required this.data,
+    this.isSaved = false,
+    this.isSaving = false,
+    this.onToggleSave,
     this.onWearThisLook,
     this.onSwapItem,
     this.onChangeStyle,
     this.imageAsset = 'assets/images/discover_hero_quiet_luxury.jpg',
+    this.provenance,
     super.key,
   });
 
   final TodaysLookData data;
+  final bool isSaved;
+  final bool isSaving;
+  final VoidCallback? onToggleSave;
   final VoidCallback? onWearThisLook;
   final VoidCallback? onSwapItem;
   final VoidCallback? onChangeStyle;
   final String imageAsset;
+  final HomeRecommendationProvenance? provenance;
 
   @override
   State<ExistingUserHeroCard> createState() => _ExistingUserHeroCardState();
 }
 
 class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
-  bool _isFavorite = false;
-  bool _isSaved = false;
-
   void _showWhyThisWorks(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
@@ -363,12 +371,53 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Background image
-                AtelierImage(
-                  assetPath: widget.imageAsset,
-                  fit: BoxFit.cover,
-                  alignment: const Alignment(0, -0.2),
-                ),
+                // Background image or truthful placeholder when no image exists
+                if (widget.imageAsset.trim().isEmpty)
+                  Container(
+                    decoration: BoxDecoration(
+                      color: FansivibeColors.surfaceContainerLow,
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          FansivibeColors.surfaceContainerHigh,
+                          FansivibeColors.surfaceContainerLow,
+                        ],
+                      ),
+                    ),
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 120),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.checkroom_rounded,
+                              color: FansivibeColors.primary.withValues(
+                                alpha: 0.55,
+                              ),
+                              size: 40,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'No garment photo yet',
+                              style: FansivibeTypography.labelSmallWithFamily
+                                  .copyWith(
+                                    color: FansivibeColors.secondary,
+                                    letterSpacing: 0.8,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  AtelierImage(
+                    assetPath: widget.imageAsset,
+                    fit: BoxFit.cover,
+                    alignment: const Alignment(0, -0.2),
+                  ),
 
                 // Top subtle gradient
                 Positioned(
@@ -472,8 +521,9 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                             button: true,
                             label: 'Favorite',
                             child: InkWell(
-                              onTap: () =>
-                                  setState(() => _isFavorite = !_isFavorite),
+                              onTap: widget.isSaving
+                                  ? null
+                                  : widget.onToggleSave,
                               borderRadius: BorderRadius.circular(20),
                               child: Container(
                                 width: 34,
@@ -487,10 +537,10 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                                   ),
                                 ),
                                 child: Icon(
-                                  _isFavorite
+                                  widget.isSaved
                                       ? Icons.favorite_rounded
                                       : Icons.favorite_border_rounded,
-                                  color: _isFavorite
+                                  color: widget.isSaved
                                       ? const Color(0xFFE57373)
                                       : FansivibeColors.onSurface,
                                   size: 18,
@@ -504,7 +554,9 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                             button: true,
                             label: 'Save',
                             child: InkWell(
-                              onTap: () => setState(() => _isSaved = !_isSaved),
+                              onTap: widget.isSaving
+                                  ? null
+                                  : widget.onToggleSave,
                               borderRadius: BorderRadius.circular(20),
                               child: Container(
                                 width: 34,
@@ -518,10 +570,10 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                                   ),
                                 ),
                                 child: Icon(
-                                  _isSaved
+                                  widget.isSaved
                                       ? Icons.bookmark_rounded
                                       : Icons.bookmark_border_rounded,
-                                  color: _isSaved
+                                  color: widget.isSaved
                                       ? FansivibeColors.primary
                                       : FansivibeColors.onSurface,
                                   size: 18,
@@ -662,16 +714,23 @@ class _ExistingUserHeroCardState extends State<ExistingUserHeroCard> {
                               ),
                             ),
                           ),
-                          Text(
-                            'CURATED #140',
-                            style: FansivibeTypography.labelSmallWithFamily
-                                .copyWith(
-                                  color: FansivibeColors.secondary.withValues(
-                                    alpha: 0.6,
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              widget.provenance?.badgeLabel ??
+                                  'CURATED EDITORIAL',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.right,
+                              style: FansivibeTypography.labelSmallWithFamily
+                                  .copyWith(
+                                    color: FansivibeColors.secondary.withValues(
+                                      alpha: 0.6,
+                                    ),
+                                    letterSpacing: 1.2,
+                                    fontSize: 10,
                                   ),
-                                  letterSpacing: 1.2,
-                                  fontSize: 10,
-                                ),
+                            ),
                           ),
                         ],
                       ),
@@ -1054,13 +1113,11 @@ class ExistingUserAiInsightCard extends StatelessWidget {
   }
 }
 
-/// Upcoming Event Card matching reference image.
+/// Upcoming Event Card.
 ///
 /// Features:
-/// - Label: `UPCOMING` & `CALENDAR SYNCED`
-/// - Title: `Friday • Dinner with Friends`
-/// - Location & Time: `Le Saint Martin • 8:30 PM`
-/// - Category: `SMART CASUAL`
+/// - Label: `UPCOMING` (and `CALENDAR SYNCED` only when [isCalendarSynced] is true)
+/// - Title, Location & Time, Category badge
 /// - CTA button: `PLAN MY LOOK →`
 class ExistingUserUpcomingCard extends StatelessWidget {
   const ExistingUserUpcomingCard({
@@ -1070,6 +1127,7 @@ class ExistingUserUpcomingCard extends StatelessWidget {
     this.onPlanMyLook,
     this.onCreateEvent,
     this.hasEvent = true,
+    this.isCalendarSynced = false,
     super.key,
   });
 
@@ -1079,6 +1137,7 @@ class ExistingUserUpcomingCard extends StatelessWidget {
   final VoidCallback? onPlanMyLook;
   final VoidCallback? onCreateEvent;
   final bool hasEvent;
+  final bool isCalendarSynced;
 
   @override
   Widget build(BuildContext context) {
@@ -1142,7 +1201,7 @@ class ExistingUserUpcomingCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row: UPCOMING & CALENDAR SYNCED
+          // Header row: UPCOMING (& optional CALENDAR SYNCED only if actually synced)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1155,14 +1214,15 @@ class ExistingUserUpcomingCard extends StatelessWidget {
                   fontSize: 11,
                 ),
               ),
-              Text(
-                'CALENDAR SYNCED',
-                style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                  color: FansivibeColors.secondary.withValues(alpha: 0.7),
-                  letterSpacing: 1.0,
-                  fontSize: 10,
+              if (isCalendarSynced)
+                Text(
+                  'CALENDAR SYNCED',
+                  style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                    color: FansivibeColors.secondary.withValues(alpha: 0.7),
+                    letterSpacing: 1.0,
+                    fontSize: 10,
+                  ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1427,18 +1487,72 @@ class ExistingUserAiStylistGrid extends StatelessWidget {
 /// static editorial content — not personalized recommendations — so the
 /// header says so instead of claiming a style match.
 class ExistingUserCuratedForYou extends StatelessWidget {
-  const ExistingUserCuratedForYou({this.onLookTap, super.key});
+  const ExistingUserCuratedForYou({
+    this.onLookTap,
+    this.items,
+    this.selectedVibe,
+    this.isLoading = false,
+    this.errorMessage,
+    this.onRetry,
+    super.key,
+  });
 
   final void Function(String title)? onLookTap;
+  final List<HomeCuratedLookItem>? items;
+  final String? selectedVibe;
+  final bool isLoading;
+  final String? errorMessage;
+  final VoidCallback? onRetry;
+
+  List<HomeCuratedLookItem> _resolveItems() {
+    if (items != null) return items!;
+    final profile = HomeVibeMapping.resolve(selectedVibe);
+    final presets =
+        profile?.curatedLooks ?? HomeVibeMapping.genericEditorialPresets;
+    return [
+      for (final preset in presets)
+        HomeCuratedLookItem(
+          id: preset.id,
+          title: preset.title,
+          category: preset.category,
+          imageRef: preset.imageAsset,
+          height: preset.height,
+          provenance: HomeRecommendationProvenance(
+            recommendationId: preset.id,
+            sourceType: HomeRecommendationSourceType.editorialCurated,
+            selectedVibe: profile?.canonicalId,
+            imageRef: preset.imageAsset,
+            contentKind: 'curated',
+            isPersonalized: false,
+          ),
+        ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
+    final displayItems = _resolveItems();
+    final isPersonalized = displayItems.any((i) => i.provenance.isPersonalized);
+    final labelText = isPersonalized
+        ? 'PERSONALIZED SELECTION'
+        : 'EDITORIAL SELECTION';
+
+    final leftItems = <HomeCuratedLookItem>[];
+    final rightItems = <HomeCuratedLookItem>[];
+    for (var i = 0; i < displayItems.length; i++) {
+      if (i.isEven) {
+        leftItems.add(displayItems[i]);
+      } else {
+        rightItems.add(displayItems[i]);
+      }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Label
         Text(
-          'EDITORIAL SELECTION',
+          labelText,
           style: FansivibeTypography.labelSmallWithFamily.copyWith(
             color: FansivibeColors.primary,
             letterSpacing: 2.0,
@@ -1458,59 +1572,103 @@ class ExistingUserCuratedForYou extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        // 2-Column Asymmetric Pinterest Grid
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Left Column
-            Expanded(
-              child: Column(
-                children: [
-                  _CuratedCard(
-                    imageAsset:
-                        'assets/images/discover_look_modern_classics.jpg',
-                    category: 'STUDIO ATELIER',
-                    title: 'Quiet Tailoring',
-                    height: 230,
-                    onTap: () => onLookTap?.call('Quiet Tailoring'),
-                  ),
-                  const SizedBox(height: 16),
-                  _CuratedCard(
-                    imageAsset:
-                        'assets/images/discover_moodboard_silhouette.jpg',
-                    category: 'PARIS RUNWAY',
-                    title: 'Modern Minimal',
-                    height: 250,
-                    onTap: () => onLookTap?.call('Modern Minimal'),
-                  ),
-                ],
+        if (isLoading)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (errorMessage != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: FansivibeColors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: FansivibeColors.outlineVariant.withValues(alpha: 0.3),
               ),
             ),
-            const SizedBox(width: 14),
-            // Right Column
-            Expanded(
-              child: Column(
-                children: [
-                  _CuratedCard(
-                    imageAsset: 'assets/images/discover_cat_accessories.jpg',
-                    category: 'LEATHER & GOLD',
-                    title: 'Soft Structure',
-                    height: 180,
-                    onTap: () => onLookTap?.call('Soft Structure'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  errorMessage!,
+                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                    color: FansivibeColors.secondary,
                   ),
-                  const SizedBox(height: 16),
-                  _CuratedCard(
-                    imageAsset: 'assets/images/discover_look_urban_minimal.jpg',
-                    category: 'ARCHIVE STREET',
-                    title: 'Urban Evening',
-                    height: 260,
-                    onTap: () => onLookTap?.call('Urban Evening'),
+                ),
+                if (onRetry != null) ...[
+                  const SizedBox(height: 10),
+                  TextButton(
+                    onPressed: onRetry,
+                    child: const Text('Try Again'),
                   ),
                 ],
+              ],
+            ),
+          )
+        else if (displayItems.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: FansivibeColors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: FansivibeColors.outlineVariant.withValues(alpha: 0.3),
               ),
             ),
-          ],
-        ),
+            child: Text(
+              'No curated looks available right now.',
+              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                color: FansivibeColors.secondary,
+              ),
+            ),
+          )
+        else
+          // 2-Column Asymmetric Pinterest Grid
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Left Column
+              Expanded(
+                child: Column(
+                  children: [
+                    for (var i = 0; i < leftItems.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 16),
+                      _CuratedCard(
+                        imageAsset: leftItems[i].imageRef,
+                        category: leftItems[i].category,
+                        title: leftItems[i].title,
+                        height: leftItems[i].height,
+                        onTap: () => onLookTap?.call(leftItems[i].title),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              // Right Column
+              Expanded(
+                child: Column(
+                  children: [
+                    for (var i = 0; i < rightItems.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 16),
+                      _CuratedCard(
+                        imageAsset: rightItems[i].imageRef,
+                        category: rightItems[i].category,
+                        title: rightItems[i].title,
+                        height: rightItems[i].height,
+                        onTap: () => onLookTap?.call(rightItems[i].title),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -1646,12 +1804,66 @@ class _CuratedCardState extends State<_CuratedCard> {
 /// Static editorial picks — not personalized affinity predictions — so no
 /// per-user affinity percentages are shown.
 class ExistingUserTrending extends StatelessWidget {
-  const ExistingUserTrending({this.onTrendingTap, super.key});
+  const ExistingUserTrending({
+    this.onTrendingTap,
+    this.items,
+    this.isLoading = false,
+    this.isStale = false,
+    this.errorMessage,
+    this.onRetry,
+    super.key,
+  });
 
   final VoidCallback? onTrendingTap;
+  final List<HomeTrendingItem>? items;
+  final bool isLoading;
+  final bool isStale;
+  final String? errorMessage;
+  final VoidCallback? onRetry;
+
+  static const List<HomeTrendingItem> _editorialFallbackItems = [
+    HomeTrendingItem(
+      id: 'editorial-trending-1',
+      title: 'Signet Rings',
+      subtitle: 'Seasonal pick',
+      imageRef: 'assets/images/discover_cat_accessories.jpg',
+      provenance: HomeRecommendationProvenance(
+        recommendationId: 'editorial-trending-1',
+        sourceType: HomeRecommendationSourceType.editorialCurated,
+        imageRef: 'assets/images/discover_cat_accessories.jpg',
+        contentKind: 'curated',
+        isPersonalized: false,
+      ),
+    ),
+    HomeTrendingItem(
+      id: 'editorial-trending-2',
+      title: 'Fluid Wool',
+      subtitle: 'Seasonal pick',
+      imageRef: 'assets/images/discover_item_wool_coat.jpg',
+      provenance: HomeRecommendationProvenance(
+        recommendationId: 'editorial-trending-2',
+        sourceType: HomeRecommendationSourceType.editorialCurated,
+        imageRef: 'assets/images/discover_item_wool_coat.jpg',
+        contentKind: 'curated',
+        isPersonalized: false,
+      ),
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
+    final displayItems = items ?? _editorialFallbackItems;
+    final hasLiveBackend =
+        items != null &&
+        items!.any(
+          (item) =>
+              item.provenance.sourceType ==
+              HomeRecommendationSourceType.backendTrending,
+        );
+    final rightLabel = hasLiveBackend
+        ? (isStale ? 'CACHED TRENDS' : 'CATALOG TRENDS')
+        : 'SEASONAL CURATIONS';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1680,7 +1892,7 @@ class ExistingUserTrending extends StatelessWidget {
               ],
             ),
             Text(
-              'SEASONAL CURATIONS',
+              rightLabel,
               style: FansivibeTypography.labelSmallWithFamily.copyWith(
                 color: FansivibeColors.primary,
                 letterSpacing: 1.2,
@@ -1691,28 +1903,80 @@ class ExistingUserTrending extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        // Two horizontal cards
-        Row(
-          children: [
-            Expanded(
-              child: _buildTrendingCard(
-                imageAsset: 'assets/images/discover_cat_accessories.jpg',
-                title: 'Signet Rings',
-                affinity: 'Popular now',
-                onTap: onTrendingTap,
+        if (isLoading)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (errorMessage != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: FansivibeColors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: FansivibeColors.outlineVariant.withValues(alpha: 0.3),
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildTrendingCard(
-                imageAsset: 'assets/images/discover_item_wool_coat.jpg',
-                title: 'Fluid Wool',
-                affinity: 'Popular now',
-                onTap: onTrendingTap,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    errorMessage!,
+                    style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                      color: FansivibeColors.secondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                if (onRetry != null)
+                  TextButton(
+                    onPressed: onRetry,
+                    child: const Text('Try Again'),
+                  ),
+              ],
+            ),
+          )
+        else if (displayItems.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: FansivibeColors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: FansivibeColors.outlineVariant.withValues(alpha: 0.3),
               ),
             ),
-          ],
-        ),
+            child: Text(
+              'No trending data available right now.',
+              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                color: FansivibeColors.secondary,
+                fontSize: 12,
+              ),
+            ),
+          )
+        else
+          // Two horizontal cards
+          Row(
+            children: [
+              for (var i = 0; i < displayItems.length && i < 2; i++) ...[
+                if (i > 0) const SizedBox(width: 12),
+                Expanded(
+                  child: _buildTrendingCard(
+                    imageAsset: displayItems[i].imageRef,
+                    title: displayItems[i].title,
+                    affinity: displayItems[i].subtitle,
+                    onTap: onTrendingTap,
+                  ),
+                ),
+              ],
+            ],
+          ),
       ],
     );
   }
@@ -1783,27 +2047,46 @@ class ExistingUserTrending extends StatelessWidget {
   }
 }
 
-/// Style Journey Progress Section matching reference image.
+/// Style Journey Progress Section (SJ2).
 ///
-/// Features:
-/// - Label: `STYLE JOURNEY` and `CURRENT SCORE`
-/// - Current-score bar: NOW (live backend score in glowing gold). There is
-///   no weekly-history endpoint, so no historical bars are rendered —
-///   inventing them would fabricate user history.
-/// - Supporting message: `Your style is becoming more defined.`
-/// - Guidance: `Keep exploring, saving, and creating looks to refine your personal style profile.`
+/// Displays:
+/// - Current week score + date label
+/// - Previous week comparison and integer point delta (when available)
+/// - Weekly score history bar chart across recorded weeks only (missing
+///   historical weeks are never fabricated as zero-score weeks)
+/// - Personal weekly rank and personal best historical week
+/// - Weekly activity counts (`styledDaysCount`, `signalsCount`)
+/// - Honest loading, empty, and error-with-retry states
 class ExistingUserStyleJourney extends StatelessWidget {
   const ExistingUserStyleJourney({
     this.currentScore = 86,
     this.streakDays = 0,
+    this.history,
+    this.isHistoryLoading = false,
+    this.historyFailure,
+    this.onRetryHistory,
+    this.onRefreshHistory,
     super.key,
   });
 
   final int currentScore;
   final int streakDays;
+  final StyleJourneyHistory? history;
+  final bool isHistoryLoading;
+  final StyleJourneyFailure? historyFailure;
+  final VoidCallback? onRetryHistory;
+  final VoidCallback? onRefreshHistory;
 
   @override
   Widget build(BuildContext context) {
+    final loadedHistory = history;
+    final weeks =
+        loadedHistory?.chronologicalWeeks ?? const <WeeklyProgressItem>[];
+    final currentWeek = loadedHistory?.currentWeek;
+    final previousWeek = loadedHistory?.previousWeek;
+    final bestWeek = loadedHistory?.bestHistoricalWeek;
+    final comparison = loadedHistory?.comparison;
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -1816,7 +2099,7 @@ class ExistingUserStyleJourney extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row: STYLE JOURNEY and CURRENT SCORE
+          // Header row: STYLE JOURNEY and CURRENT SCORE (+ refresh action)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1829,40 +2112,90 @@ class ExistingUserStyleJourney extends StatelessWidget {
                   fontSize: 11,
                 ),
               ),
-              Text(
-                'CURRENT SCORE',
-                style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                  color: FansivibeColors.secondary,
-                  letterSpacing: 1.2,
-                  fontSize: 10,
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'CURRENT SCORE',
+                    style: FansivibeTypography.labelSmallWithFamily.copyWith(
+                      color: FansivibeColors.secondary,
+                      letterSpacing: 1.2,
+                      fontSize: 10,
+                    ),
+                  ),
+                  if (onRefreshHistory != null && !isHistoryLoading) ...[
+                    const SizedBox(width: 6),
+                    InkWell(
+                      key: const Key('style_journey_refresh_button'),
+                      onTap: onRefreshHistory,
+                      borderRadius: BorderRadius.circular(12),
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.refresh_rounded,
+                          size: 16,
+                          color: FansivibeColors.secondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 24),
 
-          SizedBox(
-            height: 125,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildBar(
-                  label: 'NOW',
-                  value: currentScore,
-                  height: 76,
-                  isNow: true,
-                ),
-              ],
+          if (currentWeek != null) ...[
+            const SizedBox(height: 12),
+            _buildComparisonHeader(
+              currentWeek: currentWeek,
+              previousWeek: previousWeek,
+              comparison: comparison,
             ),
-          ),
+          ],
 
           const SizedBox(height: 20),
 
+          if (weeks.isNotEmpty)
+            _buildWeeklyChart(weeks)
+          else
+            SizedBox(
+              height: 125,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildBar(
+                    label: 'NOW',
+                    value: currentScore,
+                    height: _barHeightForScore(currentScore),
+                    isNow: true,
+                  ),
+                ],
+              ),
+            ),
+
+          if (loadedHistory != null) ...[
+            const SizedBox(height: 18),
+            _buildRankingAndActivity(
+              history: loadedHistory,
+              currentWeek: currentWeek!,
+              bestWeek: bestWeek,
+              comparison: comparison!,
+            ),
+          ] else if (isHistoryLoading) ...[
+            const SizedBox(height: 16),
+            _buildHistoryLoadingState(),
+          ] else if (historyFailure != null) ...[
+            const SizedBox(height: 16),
+            _buildHistoryErrorState(historyFailure!),
+          ],
+
+          const SizedBox(height: 16),
+
           // Supporting message
-          Text(
+          const Text(
             'Your style is becoming more defined.',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
               color: FansivibeColors.onSurface,
@@ -1880,6 +2213,294 @@ class ExistingUserStyleJourney extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Widget _buildComparisonHeader({
+    required WeeklyProgressItem currentWeek,
+    required WeeklyProgressItem? previousWeek,
+    required StyleJourneyComparison? comparison,
+  }) {
+    final delta = comparison?.scoreDelta;
+    final trend = comparison?.trend;
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      alignment: WrapAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Week of ${currentWeek.shortRangeLabel}',
+              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                color: FansivibeColors.secondary,
+                fontSize: 12,
+              ),
+            ),
+            if (previousWeek != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                'Last week (${previousWeek.shortRangeLabel}): ${previousWeek.styleScore}',
+                style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                  color: FansivibeColors.secondary,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ],
+        ),
+        if (previousWeek != null && delta != null)
+          _buildDeltaBadge(delta: delta, trend: trend),
+      ],
+    );
+  }
+
+  Widget _buildDeltaBadge({required int delta, required String? trend}) {
+    final IconData icon;
+    final Color color;
+    final String label;
+    if (delta > 0 || trend == 'up') {
+      icon = Icons.trending_up_rounded;
+      color = const Color(0xFF4CAF50);
+      label = '+$delta pts vs last week';
+    } else if (delta < 0 || trend == 'down') {
+      icon = Icons.trending_down_rounded;
+      color = const Color(0xFFE57373);
+      label = '$delta pts vs last week';
+    } else {
+      icon = Icons.trending_flat_rounded;
+      color = FansivibeColors.secondary;
+      label = 'Same as last week';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeeklyChart(List<WeeklyProgressItem> weeks) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useScroll = weeks.length > 5 || constraints.maxWidth < 260;
+        final bars = weeks
+            .map(
+              (week) => Padding(
+                padding: EdgeInsets.symmetric(horizontal: useScroll ? 8 : 4),
+                child: _buildBar(
+                  label: week.isCurrent ? 'NOW' : week.shortStartLabel,
+                  value: week.styleScore,
+                  height: _barHeightForScore(week.styleScore),
+                  isNow: week.isCurrent,
+                ),
+              ),
+            )
+            .toList();
+
+        if (useScroll) {
+          return SizedBox(
+            height: 128,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: bars,
+              ),
+            ),
+          );
+        }
+
+        return SizedBox(
+          height: 128,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: bars,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRankingAndActivity({
+    required StyleJourneyHistory history,
+    required WeeklyProgressItem currentWeek,
+    required WeeklyProgressItem? bestWeek,
+    required StyleJourneyComparison comparison,
+  }) {
+    final totalWeeks = comparison.totalRankedWeeks;
+    final weekWord = totalWeeks == 1 ? 'week' : 'weeks';
+    final rankText =
+        'Rank #${comparison.currentWeekRank} of $totalWeeks $weekWord';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerHigh.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: FansivibeColors.outlineVariant.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 10,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.leaderboard_rounded,
+                    size: 15,
+                    color: FansivibeColors.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    rankText,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: FansivibeColors.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+              if (bestWeek != null)
+                Text(
+                  comparison.isTiedWithBest
+                      ? 'Personal best: ${bestWeek.styleScore} (${bestWeek.shortRangeLabel}) • Tied with best'
+                      : 'Personal best: ${bestWeek.styleScore} (${bestWeek.shortRangeLabel})',
+                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                    color: FansivibeColors.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${currentWeek.styledDaysCount}/7 styled days • ${currentWeek.signalsCount} style actions this week',
+            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+              color: FansivibeColors.secondary,
+              fontSize: 11,
+            ),
+          ),
+          if (!history.hasHistory) ...[
+            const SizedBox(height: 8),
+            Text(
+              'First week in progress — past weeks and personal bests will appear here once recorded.',
+              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                color: FansivibeColors.secondary,
+                fontSize: 11,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryLoadingState() {
+    return Row(
+      children: [
+        const SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            'Loading weekly history...',
+            style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+              color: FansivibeColors.secondary,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHistoryErrorState(StyleJourneyFailure failure) {
+    final message = switch (failure) {
+      StyleJourneyFailure.unauthorized =>
+        'Session expired. Please sign in again to view weekly history.',
+      StyleJourneyFailure.networkError =>
+        'Couldn\'t load weekly history. Please check your connection.',
+      StyleJourneyFailure.rateLimited =>
+        'Too many requests. Please try again in a moment.',
+      StyleJourneyFailure.serviceUnavailable =>
+        'Weekly history is temporarily unavailable.',
+      StyleJourneyFailure.serverError =>
+        'Couldn\'t load weekly history right now.',
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerHigh.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: FansivibeColors.outlineVariant.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              message,
+              style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                color: FansivibeColors.secondary,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          if (onRetryHistory != null) ...[
+            const SizedBox(width: 8),
+            TextButton(
+              key: const Key('style_journey_retry_button'),
+              onPressed: onRetryHistory,
+              child: const Text('Try Again'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static double _barHeightForScore(int score) {
+    final normalized = ((score - 60).clamp(0, 40)) / 40.0;
+    return 24.0 + normalized * 56.0;
   }
 
   Widget _buildBar({

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -47,24 +48,97 @@ class EventsClient {
   ///
   /// Returns the decoded page on 200 (including an empty page), or null
   /// when the backend is unreachable or rejects the request.
-  Future<EventListPage?> listEvents({int page = 1, int pageSize = 20}) async {
+  Future<EventListPage?> listEvents({
+    int page = 1,
+    int pageSize = 20,
+    String? fromDate,
+  }) async {
+    final result = await listEventsResult(
+      page: page,
+      pageSize: pageSize,
+      fromDate: fromDate,
+    );
+    return result.page;
+  }
+
+  /// Lists the owner's events with typed failure classification so callers
+  /// never confuse a failed request with an empty event list.
+  Future<EventListResult> listEventsResult({
+    int page = 1,
+    int pageSize = 20,
+    String? fromDate,
+  }) async {
     try {
+      final fromQuery = fromDate != null
+          ? '&from=${Uri.encodeQueryComponent(fromDate)}'
+          : '';
       final uri = Uri.parse(
-        '$baseUrl/v1/events?page=$page&page_size=$pageSize',
+        '$baseUrl/v1/events?page=$page&page_size=$pageSize$fromQuery',
       );
       final response = await _client
           .get(uri, headers: _headers)
           .timeout(_timeout);
       AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-        return EventListPage.fromJson(decoded);
+        try {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+          return EventListResult.success(EventListPage.fromJson(decoded));
+        } catch (error) {
+          debugPrint('Events list malformed 200 body: $error');
+          return const EventListResult.failure(EventListFailure.serverError);
+        }
       }
       debugPrint(
         'Events list responded ${response.statusCode}: ${response.body}',
       );
-    } catch (error) {
+      return EventListResult.failure(_failureForStatus(response.statusCode));
+    } on SocketException catch (error) {
       debugPrint('Events backend unreachable during list: $error');
+      return const EventListResult.failure(EventListFailure.networkError);
+    } on TimeoutException catch (error) {
+      debugPrint('Events backend timed out during list: $error');
+      return const EventListResult.failure(EventListFailure.networkError);
+    } on http.ClientException catch (error) {
+      debugPrint('Events HTTP client error during list: $error');
+      return const EventListResult.failure(EventListFailure.networkError);
+    } catch (error) {
+      debugPrint('Events list unexpected error: $error');
+      return const EventListResult.failure(EventListFailure.unknown);
+    }
+  }
+
+  EventListFailure _failureForStatus(int statusCode) {
+    switch (statusCode) {
+      case 401:
+        return EventListFailure.unauthorized;
+      case 429:
+        return EventListFailure.rateLimited;
+      case 503:
+        return EventListFailure.serviceUnavailable;
+      default:
+        return EventListFailure.serverError;
+    }
+  }
+
+  /// Fetches full details for one owned event (`GET /v1/events/{event_id}`).
+  ///
+  /// Returns the [EventItem] on 200, or null when not found / unauthorized /
+  /// unreachable.
+  Future<EventItem?> getEvent({required String id}) async {
+    try {
+      final response = await _client
+          .get(Uri.parse('$baseUrl/v1/events/$id'), headers: _headers)
+          .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return EventItem.fromJson(decoded);
+      }
+      debugPrint(
+        'Events get responded ${response.statusCode}: ${response.body}',
+      );
+    } catch (error) {
+      debugPrint('Events backend unreachable during get: $error');
     }
     return null;
   }

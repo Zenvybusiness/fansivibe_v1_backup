@@ -64,7 +64,10 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     'Classic',
     'Street Style',
     'Bold',
+    'Trendy',
+    'Natural',
     'Bohemian',
+    'Edgy',
     'Athleisure',
   ];
 
@@ -81,7 +84,8 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     super.initState();
     _learningService = LearningService.instance;
     _client = widget.preferencesClient ?? AssistantClient();
-    _userProfileRepo = widget.userProfileRepository ?? UserProfileRepositoryImpl();
+    _userProfileRepo =
+        widget.userProfileRepository ?? UserProfileRepositoryImpl();
     _selectedOccasion = _initialOccasion();
     _selectedArchetype = _initialArchetype();
     _preferences = _buildPreferences();
@@ -98,7 +102,9 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
         setState(() {
           if (profile?.styleProfile.styleType != null &&
               profile!.styleProfile.styleType!.isNotEmpty) {
-            _selectedArchetype = _normalizeArchetype(profile.styleProfile.styleType!);
+            _selectedArchetype = _normalizeArchetype(
+              profile.styleProfile.styleType!,
+            );
           } else {
             _selectedArchetype = _initialArchetype();
           }
@@ -115,9 +121,13 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     if (lower.contains('classic')) return 'Classic';
     if (lower.contains('street')) return 'Street Style';
     if (lower.contains('bold')) return 'Bold';
+    if (lower.contains('trend')) return 'Trendy';
+    if (lower.contains('natural')) return 'Natural';
     if (lower.contains('bohem')) return 'Bohemian';
-    if (lower.contains('athleis') || lower.contains('sport')) return 'Athleisure';
-    if (lower.contains('trend')) return 'Bold';
+    if (lower.contains('edgy')) return 'Edgy';
+    if (lower.contains('athleis') || lower.contains('sport')) {
+      return 'Athleisure';
+    }
     for (final arch in _allArchetypes) {
       if (arch.toLowerCase() == lower) return arch;
     }
@@ -125,7 +135,8 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
   }
 
   String _initialArchetype([UserProfile? profile]) {
-    final fromProfile = profile?.styleProfile.styleType ??
+    final fromProfile =
+        profile?.styleProfile.styleType ??
         _userProfileRepo.cachedProfile?.styleProfile.styleType;
     if (fromProfile != null && fromProfile.isNotEmpty) {
       return _normalizeArchetype(fromProfile);
@@ -389,7 +400,8 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                                 _PreferenceTile(
                                   preference: _preferences[i],
                                   onOptionSelected: (val) {
-                                    if (_preferences[i].label == 'Occasion Focus') {
+                                    if (_preferences[i].label ==
+                                        'Occasion Focus') {
                                       _onOccasionSelected(val);
                                     } else {
                                       _onArchetypeSelected(val);
@@ -417,8 +429,8 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                                 color: _syncing
                                     ? FansivibeColors.textSecondary
                                     : _isError
-                                        ? FansivibeColors.error
-                                        : FansivibeColors.successContainer,
+                                    ? FansivibeColors.error
+                                    : FansivibeColors.successContainer,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),

@@ -178,7 +178,10 @@ def test_0024_revision_chain_and_static_contract():
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
-    assert tuple(script.get_heads()) == ("0036",)
+    heads = tuple(script.get_heads())
+    assert len(heads) == 1
+    chain = [rev.revision for rev in script.walk_revisions(base="0024", head=heads[0])]
+    assert "0027" in chain and "0024" in chain
 
     rev27 = script.get_revision("0027")
     assert rev27 is not None

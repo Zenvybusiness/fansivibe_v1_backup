@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+import inspect
 import logging
 from pathlib import Path
 import uuid
@@ -68,8 +69,10 @@ from app.domain.ports.repositories import (
     WardrobeItemRepository,
 )
 from app.domain.services.analysis_rules import resolve_preferred_item_ids
+from app.domain.value_objects import WeatherContext
 from app.infrastructure.db.repositories import (
     SavedLookRepositorySQL,
+    UserEventRepositorySQL,
     UserStateRepositorySQL,
     WardrobeItemRepositorySQL,
 )
@@ -581,7 +584,7 @@ def _load_authoritative_saved_looks(
 
 
 @app.post("/v1/assistant/chat", response_model=AssistantReply)
-def assistant_chat(
+async def assistant_chat(
     request: AssistantRequest,
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
@@ -613,6 +616,7 @@ def assistant_chat(
     user_state_repo = UserStateRepositorySQL(db)
     wardrobe_repo = WardrobeItemRepositorySQL(db)
     saved_looks_repo = SavedLookRepositorySQL(db)
+    events_repo = UserEventRepositorySQL(db)
 
     try:
         record = user_state_repo.get_profile(user_id=user_id)
@@ -626,19 +630,29 @@ def assistant_chat(
         saved_looks_repo, user_id=user_id, db=db
     )
 
-    weather_summary: Optional[str] = None
+    weather_context: Optional[WeatherContext] = None
     if weather_provider is not None:
         try:
             from app.application.today import resolve_weather_location
-            weather_loc = resolve_weather_location(user_state=user_state_repo, user_id=user_id)
-            if weather_loc:
-                ctx = weather_provider.get_weather(weather_loc)
-                if ctx and ctx.current:
-                    cond = ctx.current.condition_code or "fair"
-                    temp = f"{ctx.current.temperature_c:.0f}°C" if ctx.current.temperature_c is not None else ""
-                    weather_summary = f"{cond}, {temp}".strip(", ")
+            weather_loc = resolve_weather_location(
+                user_state=user_state_repo,
+                user_id=user_id,
+                profile=record,
+            )
+            if weather_loc is not None:
+                raw_weather = weather_provider.get_weather(
+                    latitude=weather_loc.latitude,
+                    longitude=weather_loc.longitude,
+                    city=weather_loc.city,
+                    country=weather_loc.country,
+                )
+                if inspect.isawaitable(raw_weather):
+                    raw_weather = await raw_weather
+                if isinstance(raw_weather, WeatherContext):
+                    weather_context = raw_weather
         except Exception as exc:
             logger.debug("Weather resolution fail-open in assistant_chat: %s", exc)
+            weather_context = None
 
     auth_context = UserContext(
         wardrobe=wardrobe,
@@ -665,7 +679,8 @@ def assistant_chat(
         generate_outfit=generate_outfit,
         wardrobe_items=wardrobe_repo,
         user_state=user_state_repo,
-        weather_context=weather_summary,
+        events=events_repo,
+        weather_context=weather_context,
     )
 
 

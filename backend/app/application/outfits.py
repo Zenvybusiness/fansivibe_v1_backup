@@ -70,7 +70,7 @@ from app.domain.services.analysis_rules import (
     score_outfit_candidate,
     select_best_outfit_candidate,
 )
-from app.domain.value_objects import OutfitCandidate
+from app.domain.value_objects import OutfitCandidate, WeatherContext
 
 
 # Canonical ensemble slot order for component rendering (tops first —
@@ -231,15 +231,15 @@ OCCASION_MATCH_REASON = "Matches the selected occasion"
 
 def _to_recommendation(
     *,
-    occasion: str,
+    occasion: Optional[str],
     mood: str,
-    fit: str,
-    color_palette: str,
+    fit: Optional[str],
+    color_palette: Optional[str],
     winner,
     by_record: dict,
     occasions: object = None,
 ) -> OutfitRecommendation:
-    label = occasion.title()
+    label = occasion.title() if occasion else None
     components: list[OutfitComponent] = []
     covered: list[str] = []
     for category in _OUTFIT_SLOT_ORDER:
@@ -254,7 +254,11 @@ def _to_recommendation(
                     category=category,
                     color=record.color,
                     material=record.material,
-                    reason=f"Chosen {category} piece for your {label} outfit",
+                    reason=(
+                        f"Chosen {category} piece for your {label} outfit"
+                        if label
+                        else f"Chosen {category} piece for your outfit"
+                    ),
                 )
             )
         if getattr(winner, _SLOT_ATTRS[category], ()):
@@ -283,7 +287,7 @@ def _to_recommendation(
         _occasions = [o for o in occasions if isinstance(o, str) and o]
     else:
         _occasions = []
-    if not _occasions:
+    if not _occasions and occasion:
         # ponytail: fallback [occasion] may under-report persisted-pref
         # occasion hits; pass occasions (as _derive_outfit does) to upgrade.
         _occasions = [occasion]
@@ -308,11 +312,13 @@ def _to_recommendation(
     except (TypeError, ValueError):
         _favorite_hit = False
 
-    reasons = [
-        f"Picked for a {label} occasion",
+    reasons = []
+    if label:
+        reasons.append(f"Picked for a {label} occasion")
+    reasons.append(
         f"Covers {count} categor{'y' if count == 1 else 'ies'}: "
-        + ", ".join(covered),
-    ]
+        + ", ".join(covered)
+    )
     if _palette_hit:
         reasons.append(PALETTE_REASON)
     if _fit_hit:
@@ -349,7 +355,7 @@ def _to_recommendation(
     else:
         improvement = "Full coverage across all five categories."
     return OutfitRecommendation(
-        title=f"{label} Outfit",
+        title=f"{label} Outfit" if label else "Today's Outfit",
         match_score=match_score,
         components=components,
         reasons=reasons,
@@ -358,16 +364,29 @@ def _to_recommendation(
             f"{'piece' if len(member_ids) == 1 else 'pieces'}: "
             + ", ".join(colors)
             + "."
+            if color_palette
+            else f"Color harmony across {len(member_ids)} "
+            f"{'piece' if len(member_ids) == 1 else 'pieces'}: "
+            + ", ".join(colors)
+            + "."
         ),
-        body_fit=f"Assembled for a {fit} fit across {len(member_ids)} pieces.",
-        occasion_match=f"Matched for {label} across {count} categories.",
+        body_fit=(
+            f"Assembled for a {fit} fit across {len(member_ids)} pieces."
+            if fit
+            else f"Assembled across {len(member_ids)} pieces."
+        ),
+        occasion_match=(
+            f"Matched for {label} across {count} categories."
+            if label
+            else f"Matched across {count} categories."
+        ),
         style_score_impact=(
             f"{percent}% ensemble match from {len(member_ids)} owned pieces."
         ),
         improvement_suggestion=improvement,
-        selected_occasion=occasion,
+        selected_occasion=occasion or "",
         selected_mood=mood,
-        selected_color_palette=color_palette,
+        selected_color_palette=color_palette or "",
     )
 
 
@@ -407,6 +426,7 @@ class GenerateOutfit:
         color_palette: object,
         seed: object = None,
         preferred_item_ids: object = None,
+        weather_context: Optional[WeatherContext] = None,
     ) -> Optional[OutfitRecommendation]:
         record, _ = self.derive_with_reason(
             user_id=user_id,
@@ -416,6 +436,7 @@ class GenerateOutfit:
             color_palette=color_palette,
             seed=seed,
             preferred_item_ids=preferred_item_ids,
+            weather_context=weather_context,
         )
         return record
 
@@ -429,6 +450,9 @@ class GenerateOutfit:
         color_palette: object,
         seed: object = None,
         preferred_item_ids: object = None,
+        weather_context: Optional[WeatherContext] = None,
+        allow_empty_occasion: bool = False,
+        allow_empty_preferences: bool = False,
     ) -> tuple[Optional[OutfitRecommendation], Optional[str]]:
         """Derive one outfit plus the M11 P4 typed empty reason.
 
@@ -437,10 +461,22 @@ class GenerateOutfit:
         `X-Outfit-Empty-Reason`). `__call__` stays record-only so
         existing callers are byte-identical.
         """
-        clean_occasion = _validate_preference("occasion", occasion)
+        clean_occasion: Optional[str]
+        if allow_empty_occasion and occasion is None:
+            clean_occasion = None
+        else:
+            clean_occasion = _validate_preference("occasion", occasion)
         clean_mood = _validate_preference("mood", mood)
-        clean_fit = _validate_preference("fit", fit)
-        clean_palette = _validate_preference("colorPalette", color_palette)
+        clean_fit: Optional[str]
+        if allow_empty_preferences and fit is None:
+            clean_fit = None
+        else:
+            clean_fit = _validate_preference("fit", fit)
+        clean_palette: Optional[str]
+        if allow_empty_preferences and color_palette is None:
+            clean_palette = None
+        else:
+            clean_palette = _validate_preference("colorPalette", color_palette)
         key = _validate_selector("seed", seed)
         preferred = _normalize_preferred_item_ids(preferred_item_ids)
         try:
@@ -457,6 +493,7 @@ class GenerateOutfit:
                 feedback=self._feedback,
                 saved_looks=self._saved_looks,
                 wears=self._wears,
+                weather_context=weather_context,
             )
         except _DerivationFailed:
             raise ai_failure()
@@ -467,15 +504,16 @@ def _derive_outfit(
     wardrobe_items: WardrobeItemRepository,
     user_state: UserStateRepository,
     user_id: UUID,
-    occasion: str,
+    occasion: Optional[str],
     mood: str,
-    fit: str,
-    color_palette: str,
+    fit: Optional[str],
+    color_palette: Optional[str],
     key: Optional[str],
     preferred_item_ids: frozenset = frozenset(),
     feedback: Optional[FeedbackRepository] = None,
     saved_looks: Optional[SavedLookRepository] = None,
     wears: Optional[WearEventRepository] = None,
+    weather_context: Optional[WeatherContext] = None,
 ) -> Optional[OutfitRecommendation]:
     """Shared derivation for UC-28 (no seed) and UC-29 (seeded).
 
@@ -492,7 +530,7 @@ def _derive_outfit(
     if not wardrobe:
         return None, EMPTY_WARDROBE
 
-    occasions = [occasion]
+    occasions = [occasion] if occasion is not None else []
     occasions.extend(
         item
         for item in _preferred_occasions(user_state=user_state, user_id=user_id)
@@ -506,8 +544,8 @@ def _derive_outfit(
             color=record.color,
             material=record.material,
             is_favorite=record.is_favorite,
-            fit=record.fit,
-            fit_confidence=record.fit_confidence,
+            fit=getattr(record, "fit", None),
+            fit_confidence=getattr(record, "fit_confidence", None),
         )
         for record in wardrobe
     ]
@@ -526,6 +564,7 @@ def _derive_outfit(
                     preferred_palette=color_palette,
                     preferred_fit=fit,
                     feedback_context=feedback_context,
+                    weather_context=weather_context,
                 )
                 for candidate in generate_outfit_candidates(adapted)
             ]

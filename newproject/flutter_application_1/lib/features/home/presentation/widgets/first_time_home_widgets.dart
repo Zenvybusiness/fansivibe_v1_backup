@@ -2,6 +2,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/home/data/home_recommendation_models.dart';
+import 'package:fansivibe/features/home/data/home_vibe_mapping.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
@@ -12,12 +14,16 @@ class FirstTimeCuratedLook {
   final List<String> items;
   final String reasoning;
   final String vibe;
+  final String imageAsset;
+  final HomeRecommendationProvenance provenance;
 
   const FirstTimeCuratedLook({
     required this.title,
     required this.items,
     required this.reasoning,
     required this.vibe,
+    required this.imageAsset,
+    required this.provenance,
   });
 }
 
@@ -33,6 +39,16 @@ const _streetwearLook = FirstTimeCuratedLook(
       'Built around your preference for relaxed fits and effortless urban '
       'aesthetics. Harmonized color balance rated for early morning warmth.',
   vibe: 'streetwear',
+  imageAsset: 'assets/images/editorial_look_streetwear.jpg',
+  provenance: HomeRecommendationProvenance(
+    recommendationId: 'demo-streetwear-1',
+    sourceType: HomeRecommendationSourceType.demoFixture,
+    selectedVibe: 'streetwear',
+    occasion: 'casual',
+    imageRef: 'assets/images/editorial_look_streetwear.jpg',
+    contentKind: 'demo',
+    isPersonalized: false,
+  ),
 );
 
 const _minimalistLook = FirstTimeCuratedLook(
@@ -47,6 +63,16 @@ const _minimalistLook = FirstTimeCuratedLook(
       'Built around your preference for clean lines and intentional simplicity. '
       'Monochromatic tonal balance designed for effortless elegance.',
   vibe: 'minimalist',
+  imageAsset: 'assets/images/discover_look_urban_minimal.jpg',
+  provenance: HomeRecommendationProvenance(
+    recommendationId: 'demo-minimalist-1',
+    sourceType: HomeRecommendationSourceType.demoFixture,
+    selectedVibe: 'minimalist',
+    occasion: 'office',
+    imageRef: 'assets/images/discover_look_urban_minimal.jpg',
+    contentKind: 'demo',
+    isPersonalized: false,
+  ),
 );
 
 const _classicLook = FirstTimeCuratedLook(
@@ -61,6 +87,16 @@ const _classicLook = FirstTimeCuratedLook(
       'Built around your preference for refined silhouettes and investment pieces. '
       'Structured tailoring proportioned for timeless confidence.',
   vibe: 'classic',
+  imageAsset: 'assets/images/discover_look_modern_classics.jpg',
+  provenance: HomeRecommendationProvenance(
+    recommendationId: 'demo-classic-1',
+    sourceType: HomeRecommendationSourceType.demoFixture,
+    selectedVibe: 'classic',
+    occasion: 'formal',
+    imageRef: 'assets/images/discover_look_modern_classics.jpg',
+    contentKind: 'demo',
+    isPersonalized: false,
+  ),
 );
 
 const _boldLook = FirstTimeCuratedLook(
@@ -75,6 +111,16 @@ const _boldLook = FirstTimeCuratedLook(
       'Built around your preference for strong colors and confident presence. '
       'High-contrast layering crafted to make a bold first impression.',
   vibe: 'bold',
+  imageAsset: 'assets/images/discover_moodboard_accents.jpg',
+  provenance: HomeRecommendationProvenance(
+    recommendationId: 'demo-bold-1',
+    sourceType: HomeRecommendationSourceType.demoFixture,
+    selectedVibe: 'bold',
+    occasion: 'party',
+    imageRef: 'assets/images/discover_moodboard_accents.jpg',
+    contentKind: 'demo',
+    isPersonalized: false,
+  ),
 );
 
 const _naturalLook = FirstTimeCuratedLook(
@@ -89,6 +135,40 @@ const _naturalLook = FirstTimeCuratedLook(
       'Built around your preference for tactile textures and relaxed earth tones. '
       'Breathable layering balanced for effortless comfort.',
   vibe: 'natural',
+  imageAsset: 'assets/images/discover_moodboard_texture.jpg',
+  provenance: HomeRecommendationProvenance(
+    recommendationId: 'demo-natural-1',
+    sourceType: HomeRecommendationSourceType.demoFixture,
+    selectedVibe: 'natural',
+    occasion: 'casual',
+    imageRef: 'assets/images/discover_moodboard_texture.jpg',
+    contentKind: 'demo',
+    isPersonalized: false,
+  ),
+);
+
+const _bohemianLook = FirstTimeCuratedLook(
+  title: 'Expressive Drape',
+  items: [
+    'Woven Textured Overshirt',
+    'Relaxed Linen Shirt',
+    'Wide-Leg Earth Trousers',
+    'Suede Loafers',
+  ],
+  reasoning:
+      'Built around flowing silhouettes and expressive tactile patterns. '
+      'Warm earthy layering designed for relaxed individuality.',
+  vibe: 'bohemian',
+  imageAsset: 'assets/images/discover_moodboard_texture.jpg',
+  provenance: HomeRecommendationProvenance(
+    recommendationId: 'demo-bohemian-1',
+    sourceType: HomeRecommendationSourceType.demoFixture,
+    selectedVibe: 'bohemian',
+    occasion: 'casual',
+    imageRef: 'assets/images/discover_moodboard_texture.jpg',
+    contentKind: 'demo',
+    isPersonalized: false,
+  ),
 );
 
 const _edgyLook = FirstTimeCuratedLook(
@@ -103,6 +183,40 @@ const _edgyLook = FirstTimeCuratedLook(
       'Built around your preference for unconventional cuts and artistic dark aesthetics. '
       'Angular silhouette crafted with architectural drape.',
   vibe: 'edgy',
+  imageAsset: 'assets/images/discover_foryou_archive.jpg',
+  provenance: HomeRecommendationProvenance(
+    recommendationId: 'demo-edgy-1',
+    sourceType: HomeRecommendationSourceType.demoFixture,
+    selectedVibe: 'edgy',
+    occasion: 'party',
+    imageRef: 'assets/images/discover_foryou_archive.jpg',
+    contentKind: 'demo',
+    isPersonalized: false,
+  ),
+);
+
+const _athleisureLook = FirstTimeCuratedLook(
+  title: 'Active Minimal',
+  items: [
+    'Technical Zip Track Jacket',
+    'Breathable Performance Tee',
+    'Tapered Knit Joggers',
+    'Clean Court Trainers',
+  ],
+  reasoning:
+      'Built around athletic-inspired layering and clean everyday proportions. '
+      'Lightweight comfort balanced for movement.',
+  vibe: 'athleisure',
+  imageAsset: 'assets/images/discover_cat_sneakers.jpg',
+  provenance: HomeRecommendationProvenance(
+    recommendationId: 'demo-athleisure-1',
+    sourceType: HomeRecommendationSourceType.demoFixture,
+    selectedVibe: 'athleisure',
+    occasion: 'workout',
+    imageRef: 'assets/images/discover_cat_sneakers.jpg',
+    contentKind: 'demo',
+    isPersonalized: false,
+  ),
 );
 
 FirstTimeCuratedLook getCuratedLookForVibe(String? vibeKey) {
@@ -111,8 +225,14 @@ FirstTimeCuratedLook getCuratedLookForVibe(String? vibeKey) {
     if (normalized.contains('minimal')) return _minimalistLook;
     if (normalized.contains('classic')) return _classicLook;
     if (normalized.contains('bold')) return _boldLook;
+    if (normalized.contains('bohem') || normalized.contains('boho')) {
+      return _bohemianLook;
+    }
     if (normalized.contains('natural')) return _naturalLook;
     if (normalized.contains('edgy')) return _edgyLook;
+    if (normalized.contains('athleis') || normalized.contains('sport')) {
+      return _athleisureLook;
+    }
     if (normalized.contains('trend') || normalized.contains('street')) {
       return _streetwearLook;
     }
@@ -252,12 +372,12 @@ class FirstTimeHeader extends StatelessWidget {
                               (name != null && name.isNotEmpty)
                                   ? name[0].toUpperCase()
                                   : 'A',
-                              style:
-                                  FansivibeTypography.titleLargeWithFamily.copyWith(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: FansivibeColors.primary,
-                              ),
+                              style: FansivibeTypography.titleLargeWithFamily
+                                  .copyWith(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: FansivibeColors.primary,
+                                  ),
                             ),
                           ),
                         ),
@@ -585,18 +705,17 @@ class EditorialOutfitVisual extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF181716),
-      ),
+      decoration: const BoxDecoration(color: Color(0xFF181716)),
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. High-fashion editorial photography matching Homes.pdf
+          // 1. Vibe-matched editorial photography
           Image.asset(
-            'assets/images/editorial_look_streetwear.jpg',
+            HomeVibeMapping.heroImageFor(vibe: vibe),
             fit: BoxFit.cover,
             alignment: const Alignment(0, -0.4),
-            errorBuilder: (context, error, stackTrace) => _buildFallbackVisual(),
+            errorBuilder: (context, error, stackTrace) =>
+                _buildFallbackVisual(),
           ),
           // 2. Subtle top vignette for badge contrast
           Positioned(
@@ -648,11 +767,7 @@ class EditorialOutfitVisual extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF1F1D1B),
-            Color(0xFF151413),
-            Color(0xFF0F0E0E),
-          ],
+          colors: [Color(0xFF1F1D1B), Color(0xFF151413), Color(0xFF0F0E0E)],
         ),
       ),
       child: Stack(
@@ -676,9 +791,7 @@ class EditorialOutfitVisual extends StatelessWidget {
               ),
             ),
           ),
-          CustomPaint(
-            painter: _AtelierOutfitPainter(vibe: vibe),
-          ),
+          CustomPaint(painter: _AtelierOutfitPainter(vibe: vibe)),
           Positioned(
             top: 14,
             left: 14,
@@ -687,9 +800,7 @@ class EditorialOutfitVisual extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.45),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.08),
-                ),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
               ),
               child: Text(
                 'FANSIVIBE ATELIER // SPEC 01',
@@ -735,8 +846,16 @@ class _AtelierOutfitPainter extends CustomPainter {
     final gridPaint = Paint()
       ..color = Colors.white.withValues(alpha: 0.035)
       ..strokeWidth = 1.0;
-    canvas.drawLine(Offset(cx - 70, 0), Offset(cx - 70, size.height), gridPaint);
-    canvas.drawLine(Offset(cx + 70, 0), Offset(cx + 70, size.height), gridPaint);
+    canvas.drawLine(
+      Offset(cx - 70, 0),
+      Offset(cx - 70, size.height),
+      gridPaint,
+    );
+    canvas.drawLine(
+      Offset(cx + 70, 0),
+      Offset(cx + 70, size.height),
+      gridPaint,
+    );
     canvas.drawLine(Offset(0, cy + 20), Offset(size.width, cy + 20), gridPaint);
 
     // 1. Head & Neck
@@ -749,7 +868,11 @@ class _AtelierOutfitPainter extends CustomPainter {
       skinPaint,
     );
     // Neck
-    final neckRect = Rect.fromCenter(center: Offset(cx, 64), width: 14, height: 16);
+    final neckRect = Rect.fromCenter(
+      center: Offset(cx, 64),
+      width: 14,
+      height: 16,
+    );
     canvas.drawRect(neckRect, skinPaint);
 
     // 2. White Fitted Tee (chest base)
@@ -1058,11 +1181,11 @@ class StyleScoreCard extends StatelessWidget {
                           '0',
                           style: FansivibeTypography.displayLargeWithFamily
                               .copyWith(
-                            fontSize: 44,
-                            fontWeight: FontWeight.w400,
-                            color: Colors.white,
-                            height: 1.0,
-                          ),
+                                fontSize: 44,
+                                fontWeight: FontWeight.w400,
+                                color: Colors.white,
+                                height: 1.0,
+                              ),
                         ),
                         const SizedBox(width: 8),
                         const Expanded(
@@ -1433,7 +1556,9 @@ class StyleJourneyCard extends StatelessWidget {
           const SizedBox(height: 12),
           _buildStepItem(
             stepNumber: 2,
-            label: hasOutfitScanned ? 'First outfit scanned' : 'First outfit scan',
+            label: hasOutfitScanned
+                ? 'First outfit scanned'
+                : 'First outfit scan',
             isCompleted: hasOutfitScanned,
           ),
           const SizedBox(height: 12),

@@ -43,6 +43,7 @@ from app.domain.ports.repositories import (
     WearEventRecord,
     WearGroupRecord,
     WearSummary,
+    WeeklySnapshotRecord,
 )
 from app.domain.services.media_attention import (
     ContributingRecordAssignment,
@@ -75,6 +76,7 @@ from app.infrastructure.db.models import (
     RawSourceRecord,
     SavedLooks,
     SearchInterestObservation as SearchInterestObservationModel,
+    StyleJourneyWeeklySnapshots,
     TryOnJobModel,
     UserEvent,
     UserSession,
@@ -736,6 +738,123 @@ class LearningSignalRepositorySQL:
                 .limit(limit)
             ).scalars()
         )
+
+    def list_occurred_at_in_range(
+        self,
+        *,
+        user_id: UUID,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> list[datetime]:
+        """Return owner-scoped signal timestamps within [start_utc, end_utc)."""
+        return list(
+            self._session.execute(
+                select(LearningSignals.occurred_at)
+                .where(
+                    LearningSignals.user_id == user_id,
+                    LearningSignals.occurred_at >= start_utc,
+                    LearningSignals.occurred_at < end_utc,
+                )
+                .order_by(LearningSignals.occurred_at.asc())
+            ).scalars()
+        )
+
+
+class StyleJourneySnapshotRepositorySQL:
+    """SQLAlchemy repository for immutable weekly Style Journey snapshots (SJ1)."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def commit(self) -> None:
+        self._session.commit()
+
+    def rollback(self) -> None:
+        self._session.rollback()
+
+    @staticmethod
+    def _to_record(row: StyleJourneyWeeklySnapshots) -> WeeklySnapshotRecord:
+        return WeeklySnapshotRecord(
+            id=row.id,
+            user_id=row.user_id,
+            week_start=row.week_start,
+            week_end=row.week_end,
+            timezone=row.timezone,
+            style_score=row.style_score,
+            base_points=row.base_points,
+            wardrobe_points=row.wardrobe_points,
+            saved_points=row.saved_points,
+            styled_days_count=row.styled_days_count,
+            signals_count=row.signals_count,
+            aggregation_policy=row.aggregation_policy,
+            recorded_at=row.recorded_at,
+        )
+
+    def record_if_absent(
+        self,
+        *,
+        user_id: UUID,
+        week_start: date,
+        week_end: date,
+        timezone_name: str,
+        style_score: int,
+        base_points: int,
+        wardrobe_points: int,
+        saved_points: int,
+        styled_days_count: int,
+        signals_count: int,
+        aggregation_policy: str,
+    ) -> tuple[WeeklySnapshotRecord, bool]:
+        stmt = (
+            pg_insert(StyleJourneyWeeklySnapshots)
+            .values(
+                user_id=user_id,
+                week_start=week_start,
+                week_end=week_end,
+                timezone=timezone_name,
+                style_score=style_score,
+                base_points=base_points,
+                wardrobe_points=wardrobe_points,
+                saved_points=saved_points,
+                styled_days_count=styled_days_count,
+                signals_count=signals_count,
+                aggregation_policy=aggregation_policy,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["user_id", "week_start"],
+            )
+            .returning(StyleJourneyWeeklySnapshots)
+        )
+        inserted = self._session.execute(stmt).scalar_one_or_none()
+        if inserted is not None:
+            return self._to_record(inserted), True
+        existing = self.get_for_week(user_id=user_id, week_start=week_start)
+        assert existing is not None
+        return existing, False
+
+    def get_for_week(
+        self, *, user_id: UUID, week_start: date
+    ) -> Optional[WeeklySnapshotRecord]:
+        row = self._session.execute(
+            select(StyleJourneyWeeklySnapshots).where(
+                StyleJourneyWeeklySnapshots.user_id == user_id,
+                StyleJourneyWeeklySnapshots.week_start == week_start,
+            )
+        ).scalar_one_or_none()
+        return self._to_record(row) if row is not None else None
+
+    def list_for_user(
+        self, *, user_id: UUID, limit: Optional[int] = None
+    ) -> list[WeeklySnapshotRecord]:
+        stmt = (
+            select(StyleJourneyWeeklySnapshots)
+            .where(StyleJourneyWeeklySnapshots.user_id == user_id)
+            .order_by(StyleJourneyWeeklySnapshots.week_start.desc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        rows = self._session.execute(stmt).scalars().all()
+        return [self._to_record(row) for row in rows]
 
 
 class ActivityDayRepositorySQL:

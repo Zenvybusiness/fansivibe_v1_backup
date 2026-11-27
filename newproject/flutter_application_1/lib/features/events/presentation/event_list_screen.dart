@@ -48,7 +48,9 @@ class _EventListScreenState extends State<EventListScreen> {
     if (!AuthSession.isAuthenticated) {
       _future = Future.value(null);
     } else {
-      _future = Future.sync(() => _repository.listEvents());
+      _future = Future.sync(
+        () => _repository.listEvents(fromDate: localTodayIsoDate()),
+      );
     }
     // A sign-in/out on a mounted route must reload instead of keeping
     // the initState snapshot (same pattern as DailyOutfit).
@@ -75,8 +77,27 @@ class _EventListScreenState extends State<EventListScreen> {
 
   void _reload() {
     if (!AuthSession.isAuthenticated) return;
+    final next = Future.sync(
+      () => _repository.listEvents(fromDate: localTodayIsoDate()),
+    );
     setState(() {
-      _future = Future.sync(() => _repository.listEvents());
+      _future = next;
+    });
+    next.then((page) {
+      if (!mounted || page == null || _selectedEvent == null) return;
+      final selectedId = _selectedEvent!.id;
+      EventItem? refreshed;
+      for (final item in page.items) {
+        if (item.id == selectedId) {
+          refreshed = item;
+          break;
+        }
+      }
+      if (refreshed == null || refreshed.title != _selectedEvent!.title) {
+        setState(() {
+          _selectedEvent = refreshed;
+        });
+      }
     });
   }
 
@@ -201,9 +222,9 @@ class _EventListScreenState extends State<EventListScreen> {
                         FutureBuilder<EventListPage?>(
                           future: _future,
                           builder: (context, snapshot) {
-                            // Phase 2 guests: honest sign-in prompt —
-                            // the list request above never fired.
-                            if (isGuestUser) {
+                            // Phase 2 guests / signed-out users: honest
+                            // sign-in prompt — the list request never fired.
+                            if (isGuestUser || !AuthSession.isAuthenticated) {
                               return const GuestSignInCard(
                                 title: 'Event Planning',
                                 message:

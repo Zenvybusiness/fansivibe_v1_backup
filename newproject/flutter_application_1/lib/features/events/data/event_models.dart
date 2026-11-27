@@ -108,8 +108,12 @@ class EventItem {
       eventTime: json['time'] as String?,
       location: json['location'] as String?,
       notes: json['notes'] as String?,
-      createdAt: createdRaw == null ? fallbackStamp : DateTime.parse(createdRaw),
-      updatedAt: updatedRaw == null ? fallbackStamp : DateTime.parse(updatedRaw),
+      createdAt: createdRaw == null
+          ? fallbackStamp
+          : DateTime.parse(createdRaw),
+      updatedAt: updatedRaw == null
+          ? fallbackStamp
+          : DateTime.parse(updatedRaw),
     );
   }
 
@@ -181,15 +185,106 @@ class EventListPage {
   ///
   /// `items` is required (a missing list throws into the client's null
   /// path rather than posing as an empty calendar); pagination counters
-  /// fall back to echoed defaults.
+  /// fall back to echoed defaults. Duplicate event IDs are removed while
+  /// preserving order.
   factory EventListPage.fromJson(Map<String, dynamic> json) => EventListPage(
-    items: (json['items'] as List<dynamic>)
-        .map((e) => EventItem.fromJson(e as Map<String, dynamic>))
-        .toList(),
+    items: deduplicateEvents(
+      (json['items'] as List<dynamic>).map(
+        (e) => EventItem.fromJson(e as Map<String, dynamic>),
+      ),
+    ),
     page: json['page'] as int? ?? 1,
     pageSize: json['page_size'] as int? ?? 0,
     total: json['total'] as int? ?? 0,
   );
+}
+
+/// Deduplicates [EventItem] entries by [EventItem.id], preserving order.
+List<EventItem> deduplicateEvents(Iterable<EventItem> items) {
+  final seenIds = <String>{};
+  final deduped = <EventItem>[];
+  for (final item in items) {
+    if (seenIds.add(item.id)) {
+      deduped.add(item);
+    }
+  }
+  return deduped;
+}
+
+/// Returns today's local calendar date in `YYYY-MM-DD` ISO format.
+String localTodayIsoDate({DateTime? now}) {
+  final current = now ?? DateTime.now();
+  final month = current.month.toString().padLeft(2, '0');
+  final day = current.day.toString().padLeft(2, '0');
+  return '${current.year}-$month-$day';
+}
+
+/// Returns true when [event] has not yet passed in local calendar/wall-clock
+/// time. Events on future dates are always upcoming; events on past dates are
+/// never upcoming; events on today's date are upcoming unless their `HH:mm`
+/// wall-clock time is strictly earlier than [now].
+bool isUpcomingEvent(EventItem event, {DateTime? now}) {
+  final current = now ?? DateTime.now();
+  final todayIso = localTodayIsoDate(now: current);
+  final dateCmp = event.eventDate.compareTo(todayIso);
+  if (dateCmp < 0) return false;
+  if (dateCmp > 0) return true;
+  final rawTime = event.eventTime;
+  if (rawTime == null) return true;
+  final parts = rawTime.split(':');
+  if (parts.length != 2) return true;
+  final hour = int.tryParse(parts[0]);
+  final minute = int.tryParse(parts[1]);
+  if (hour == null || minute == null) return true;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return true;
+  final eventDateTime = DateTime(
+    current.year,
+    current.month,
+    current.day,
+    hour,
+    minute,
+  );
+  return !eventDateTime.isBefore(current);
+}
+
+/// Failure modes for `GET /v1/events`.
+enum EventListFailure {
+  /// 401 — session expired or unauthorized.
+  unauthorized,
+
+  /// Offline, DNS, socket, or timeout failure.
+  networkError,
+
+  /// 429 — rate limited.
+  rateLimited,
+
+  /// 503 — service temporarily unavailable.
+  serviceUnavailable,
+
+  /// 5xx or other non-200 HTTP failure, or malformed payload.
+  serverError,
+
+  /// Unclassified error.
+  unknown,
+}
+
+/// Typed outcome for `GET /v1/events` so callers can distinguish loading,
+/// genuine empty results, server errors, network errors, and auth expiry.
+class EventListResult {
+  const EventListResult._({this.page, this.failure});
+
+  /// Successful response (may contain 0 or more events).
+  const EventListResult.success(EventListPage page) : this._(page: page);
+
+  /// Failed response.
+  const EventListResult.failure(EventListFailure failure)
+    : this._(failure: failure);
+
+  final EventListPage? page;
+  final EventListFailure? failure;
+
+  bool get isSuccess => page != null && failure == null;
+  bool get isError => failure != null || page == null;
 }
 
 /// `POST /v1/events` request body.

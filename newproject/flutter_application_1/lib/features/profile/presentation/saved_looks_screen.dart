@@ -18,6 +18,7 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
 import 'package:fansivibe/shared/theme/fansivibe_typography.dart';
 import 'package:fansivibe/shared/utils/guest_mode.dart';
+import 'package:fansivibe/shared/utils/user_session.dart';
 
 /// Saved looks collection (DEC-013, STEP 18.4; reactions M11).
 ///
@@ -52,6 +53,8 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
   /// Backend UUIDs with a reaction submit in flight (pending guard).
   final Set<String> _reactingIds = <String>{};
 
+  bool _ignoringNextSavedLooksNotification = false;
+
   @override
   void initState() {
     super.initState();
@@ -70,12 +73,23 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
     // A sign-in/out on a mounted route must reload instead of keeping
     // the initState snapshot (same pattern as DailyOutfit).
     AuthSession.authVersion.addListener(_onAuthChanged);
+    UserSession.savedLooksVersion.addListener(_onSavedLooksChanged);
   }
 
   @override
   void dispose() {
     AuthSession.authVersion.removeListener(_onAuthChanged);
+    UserSession.savedLooksVersion.removeListener(_onSavedLooksChanged);
     super.dispose();
+  }
+
+  void _onSavedLooksChanged() {
+    if (!mounted) return;
+    if (_ignoringNextSavedLooksNotification) {
+      _ignoringNextSavedLooksNotification = false;
+      return;
+    }
+    _loadSavedLooks();
   }
 
   void _onAuthChanged() {
@@ -237,10 +251,14 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
 
     if (outcome == SavedLookDeleteOutcome.deleted) {
       _showMessage('Look removed from saved looks');
+      _ignoringNextSavedLooksNotification = true;
+      UserSession.notifySavedLooksChanged();
       // Reload so the server remains authoritative for the list.
       await _loadSavedLooks();
     } else if (outcome == SavedLookDeleteOutcome.alreadyGone) {
       _showMessage('Look was already removed');
+      _ignoringNextSavedLooksNotification = true;
+      UserSession.notifySavedLooksChanged();
       await _loadSavedLooks();
     } else {
       _showMessage('Failed to delete look. Please check your connection.');

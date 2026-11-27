@@ -24,33 +24,42 @@ class AtelierImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget buildFallback(BuildContext context, Object error, StackTrace? stackTrace) =>
-        Container(
-          width: width,
-          height: height,
-          decoration: BoxDecoration(
-            color: FansivibeColors.surfaceContainerLow,
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                FansivibeColors.surfaceContainerHigh,
-                FansivibeColors.surfaceContainerLow,
-              ],
-            ),
-          ),
-          child: Center(
-            child: Icon(
-              fallbackIcon,
-              color: FansivibeColors.primary.withValues(alpha: 0.5),
-              size: 28,
-            ),
-          ),
-        );
+    Widget buildFallback(
+      BuildContext context,
+      Object error,
+      StackTrace? stackTrace,
+    ) => Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: FansivibeColors.surfaceContainerLow,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            FansivibeColors.surfaceContainerHigh,
+            FansivibeColors.surfaceContainerLow,
+          ],
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          fallbackIcon,
+          color: FansivibeColors.primary.withValues(alpha: 0.5),
+          size: 28,
+        ),
+      ),
+    );
 
-    final resolvedPath = AppConfig.resolveImageUrl(assetPath);
+    final trimmedPath = assetPath.trim();
+    if (trimmedPath.isEmpty) {
+      return buildFallback(context, 'empty_image_ref', null);
+    }
+
+    final resolvedPath = AppConfig.resolveImageUrl(trimmedPath);
     final isNetwork =
-        resolvedPath.startsWith('http://') || resolvedPath.startsWith('https://');
+        resolvedPath.startsWith('http://') ||
+        resolvedPath.startsWith('https://');
 
     if (isNetwork) {
       return Image.network(
@@ -178,10 +187,7 @@ class DiscoverBrandHeader extends StatelessWidget {
 /// Editorial Monograph title block: EDITORIAL MONOGRAPH / Discover / subtitle,
 /// or PERSONAL EDIT / For You / Fashion selected around your style.
 class DiscoverMonographTitle extends StatelessWidget {
-  const DiscoverMonographTitle({
-    this.isForYouPersonalEdit = false,
-    super.key,
-  });
+  const DiscoverMonographTitle({this.isForYouPersonalEdit = false, super.key});
 
   final bool isForYouPersonalEdit;
 
@@ -426,7 +432,9 @@ class DiscoverEditorialTabBar extends StatelessWidget {
                       style: TextStyle(
                         fontFamily: 'Noto Serif',
                         fontSize: 16,
-                        fontWeight: isTrending ? FontWeight.w600 : FontWeight.w400,
+                        fontWeight: isTrending
+                            ? FontWeight.w600
+                            : FontWeight.w400,
                         color: isTrending
                             ? FansivibeColors.primary
                             : FansivibeColors.secondary,
@@ -444,7 +452,9 @@ class DiscoverEditorialTabBar extends StatelessWidget {
                       boxShadow: isTrending
                           ? [
                               BoxShadow(
-                                color: FansivibeColors.primary.withValues(alpha: 0.7),
+                                color: FansivibeColors.primary.withValues(
+                                  alpha: 0.7,
+                                ),
                                 blurRadius: 6,
                                 offset: const Offset(0, 1),
                               ),
@@ -477,7 +487,9 @@ class DiscoverEditorialTabBar extends StatelessWidget {
                       style: TextStyle(
                         fontFamily: 'Noto Serif',
                         fontSize: 16,
-                        fontWeight: !isTrending ? FontWeight.w600 : FontWeight.w400,
+                        fontWeight: !isTrending
+                            ? FontWeight.w600
+                            : FontWeight.w400,
                         color: !isTrending
                             ? FansivibeColors.primary
                             : FansivibeColors.secondary,
@@ -495,7 +507,9 @@ class DiscoverEditorialTabBar extends StatelessWidget {
                       boxShadow: !isTrending
                           ? [
                               BoxShadow(
-                                color: FansivibeColors.primary.withValues(alpha: 0.7),
+                                color: FansivibeColors.primary.withValues(
+                                  alpha: 0.7,
+                                ),
                                 blurRadius: 6,
                                 offset: const Offset(0, 1),
                               ),
@@ -551,7 +565,10 @@ class EditorialSectionHeader extends StatelessWidget {
               InkWell(
                 onTap: onActionTap,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 2,
+                    horizontal: 4,
+                  ),
                   child: Text(
                     actionLabel,
                     style: FansivibeTypography.labelMediumWithFamily.copyWith(
@@ -678,12 +695,13 @@ class SpotlightHeroCard extends StatelessWidget {
                         const SizedBox(width: 6),
                         Text(
                           badgeText,
-                          style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.5,
-                            color: Colors.white,
-                          ),
+                          style: FansivibeTypography.labelSmallWithFamily
+                              .copyWith(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1.5,
+                                color: Colors.white,
+                              ),
                         ),
                       ],
                     ),
@@ -719,22 +737,26 @@ class SpotlightHeroCard extends StatelessWidget {
                               children: [
                                 Text(
                                   'BRUTALIST EDIT',
-                                  style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 1.6,
-                                    color: Colors.white70,
-                                  ),
+                                  style: FansivibeTypography
+                                      .labelSmallWithFamily
+                                      .copyWith(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 1.6,
+                                        color: Colors.white70,
+                                      ),
                                 ),
                                 const SizedBox(height: 3),
                                 Text(
                                   'SPOTLIGHT DIRECTIVE',
-                                  style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 1.5,
-                                    color: FansivibeColors.primary,
-                                  ),
+                                  style: FansivibeTypography
+                                      .labelSmallWithFamily
+                                      .copyWith(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 1.5,
+                                        color: FansivibeColors.primary,
+                                      ),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
@@ -750,10 +772,14 @@ class SpotlightHeroCard extends StatelessWidget {
                                 const SizedBox(height: 4),
                                 Text(
                                   'Timeless pieces. Modern everyday...',
-                                  style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                                    fontSize: 13,
-                                    color: Colors.white.withValues(alpha: 0.85),
-                                  ),
+                                  style: FansivibeTypography
+                                      .bodyMediumWithFamily
+                                      .copyWith(
+                                        fontSize: 13,
+                                        color: Colors.white.withValues(
+                                          alpha: 0.85,
+                                        ),
+                                      ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -770,7 +796,9 @@ class SpotlightHeroCard extends StatelessWidget {
                               shape: BoxShape.circle,
                               boxShadow: [
                                 BoxShadow(
-                                  color: FansivibeColors.primary.withValues(alpha: 0.35),
+                                  color: FansivibeColors.primary.withValues(
+                                    alpha: 0.35,
+                                  ),
                                   blurRadius: 10,
                                   offset: const Offset(0, 3),
                                 ),
@@ -839,17 +867,16 @@ class CircularCategoryTile extends StatelessWidget {
                   boxShadow: isSelected
                       ? [
                           BoxShadow(
-                            color: FansivibeColors.primary.withValues(alpha: 0.4),
+                            color: FansivibeColors.primary.withValues(
+                              alpha: 0.4,
+                            ),
                             blurRadius: 8,
                           ),
                         ]
                       : null,
                 ),
                 child: ClipOval(
-                  child: AtelierImage(
-                    assetPath: assetPath,
-                    fit: BoxFit.cover,
-                  ),
+                  child: AtelierImage(assetPath: assetPath, fit: BoxFit.cover),
                 ),
               ),
               const SizedBox(height: 8),
@@ -921,10 +948,7 @@ class EditorialLookCard extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    AtelierImage(
-                      assetPath: imageAsset,
-                      fit: BoxFit.cover,
-                    ),
+                    AtelierImage(assetPath: imageAsset, fit: BoxFit.cover),
                     // Bottom gradient for pill readability
                     Positioned(
                       left: 0,
@@ -997,12 +1021,13 @@ class EditorialLookCard extends StatelessWidget {
                         ),
                         child: Text(
                           badge,
-                          style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.6,
-                            color: Colors.white,
-                          ),
+                          style: FansivibeTypography.labelSmallWithFamily
+                              .copyWith(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.6,
+                                color: Colors.white,
+                              ),
                         ),
                       ),
                     ),
@@ -1011,7 +1036,10 @@ class EditorialLookCard extends StatelessWidget {
               ),
               // 35% content area
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1098,10 +1126,7 @@ class EditorialCommerceItemCard extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    AtelierImage(
-                      assetPath: imageAsset,
-                      fit: BoxFit.cover,
-                    ),
+                    AtelierImage(assetPath: imageAsset, fit: BoxFit.cover),
                     // Synthetic fixture disclosure badge (top left)
                     if (isSyntheticFixture)
                       Positioned(
@@ -1113,7 +1138,9 @@ class EditorialCommerceItemCard extends StatelessWidget {
                             vertical: 3,
                           ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFD35400).withValues(alpha: 0.9),
+                            color: const Color(
+                              0xFFD35400,
+                            ).withValues(alpha: 0.9),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
@@ -1167,7 +1194,10 @@ class EditorialCommerceItemCard extends StatelessWidget {
               ),
               // Commerce details (35% content area)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1256,7 +1286,8 @@ class EditorialMoodboardGrid extends StatelessWidget {
                     fit: StackFit.expand,
                     children: [
                       const AtelierImage(
-                        assetPath: 'assets/images/discover_moodboard_texture.jpg',
+                        assetPath:
+                            'assets/images/discover_moodboard_texture.jpg',
                         fit: BoxFit.cover,
                       ),
                       Positioned(
@@ -1327,7 +1358,8 @@ class EditorialMoodboardGrid extends StatelessWidget {
                           fit: StackFit.expand,
                           children: [
                             const AtelierImage(
-                              assetPath: 'assets/images/discover_moodboard_silhouette.jpg',
+                              assetPath:
+                                  'assets/images/discover_moodboard_silhouette.jpg',
                               fit: BoxFit.cover,
                             ),
                             Positioned(
@@ -1355,11 +1387,13 @@ class EditorialMoodboardGrid extends StatelessWidget {
                                     alignment: Alignment.bottomLeft,
                                     child: Text(
                                       'Silhouettes',
-                                      style: FansivibeTypography.labelMediumWithFamily.copyWith(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.white,
-                                      ),
+                                      style: FansivibeTypography
+                                          .labelMediumWithFamily
+                                          .copyWith(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.white,
+                                          ),
                                     ),
                                   ),
                                 ),
@@ -1394,7 +1428,8 @@ class EditorialMoodboardGrid extends StatelessWidget {
                           fit: StackFit.expand,
                           children: [
                             const AtelierImage(
-                              assetPath: 'assets/images/discover_moodboard_accents.jpg',
+                              assetPath:
+                                  'assets/images/discover_moodboard_accents.jpg',
                               fit: BoxFit.cover,
                             ),
                             Positioned(
@@ -1422,11 +1457,13 @@ class EditorialMoodboardGrid extends StatelessWidget {
                                     alignment: Alignment.bottomLeft,
                                     child: Text(
                                       'Accents',
-                                      style: FansivibeTypography.labelMediumWithFamily.copyWith(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.white,
-                                      ),
+                                      style: FansivibeTypography
+                                          .labelMediumWithFamily
+                                          .copyWith(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.white,
+                                          ),
                                     ),
                                   ),
                                 ),
@@ -1512,7 +1549,8 @@ class ForYouOverlappingHero extends StatelessWidget {
                       fit: StackFit.expand,
                       children: [
                         const AtelierImage(
-                          assetPath: 'assets/images/discover_foryou_archive.jpg',
+                          assetPath:
+                              'assets/images/discover_foryou_archive.jpg',
                           fit: BoxFit.cover,
                         ),
                         Positioned(
@@ -1537,12 +1575,14 @@ class ForYouOverlappingHero extends StatelessWidget {
                                 alignment: Alignment.bottomLeft,
                                 child: Text(
                                   'ARCHIVE VOL. 01',
-                                  style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 1.2,
-                                    color: Colors.white,
-                                  ),
+                                  style: FansivibeTypography
+                                      .labelSmallWithFamily
+                                      .copyWith(
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 1.2,
+                                        color: Colors.white,
+                                      ),
                                 ),
                               ),
                             ),
@@ -1580,7 +1620,8 @@ class ForYouOverlappingHero extends StatelessWidget {
                     fit: StackFit.expand,
                     children: [
                       const AtelierImage(
-                        assetPath: 'assets/images/discover_foryou_silhouette.jpg',
+                        assetPath:
+                            'assets/images/discover_foryou_silhouette.jpg',
                         fit: BoxFit.cover,
                       ),
                       Positioned(
@@ -1610,24 +1651,29 @@ class ForYouOverlappingHero extends StatelessWidget {
                               children: [
                                 Text(
                                   'Fansivibe — For You',
-                                  style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                    fontSize: 9,
-                                    color: Colors.white70,
-                                  ),
+                                  style: FansivibeTypography
+                                      .labelSmallWithFamily
+                                      .copyWith(
+                                        fontSize: 9,
+                                        color: Colors.white70,
+                                      ),
                                 ),
                                 const SizedBox(height: 2),
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     Flexible(
                                       child: Text(
                                         'SILHOUETTE Nº 4',
-                                        style: FansivibeTypography.labelSmallWithFamily.copyWith(
-                                          fontSize: 9.5,
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: 1.0,
-                                          color: Colors.white,
-                                        ),
+                                        style: FansivibeTypography
+                                            .labelSmallWithFamily
+                                            .copyWith(
+                                              fontSize: 9.5,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: 1.0,
+                                              color: Colors.white,
+                                            ),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -1701,11 +1747,7 @@ class CalibrationStepCard extends StatelessWidget {
                 width: 1,
               ),
             ),
-            child: Icon(
-              icon,
-              color: FansivibeColors.primary,
-              size: 18,
-            ),
+            child: Icon(icon, color: FansivibeColors.primary, size: 18),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -1727,11 +1769,12 @@ class CalibrationStepCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         stepTitle,
-                        style: FansivibeTypography.titleLargeWithFamily.copyWith(
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w600,
-                          color: FansivibeColors.onSurface,
-                        ),
+                        style: FansivibeTypography.titleLargeWithFamily
+                            .copyWith(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w600,
+                              color: FansivibeColors.onSurface,
+                            ),
                       ),
                     ),
                   ],
@@ -1756,10 +1799,7 @@ class CalibrationStepCard extends StatelessWidget {
 
 /// Preview Archive Box at the bottom of For You tab in ForYou.jpg.
 class PreviewArchiveBox extends StatelessWidget {
-  const PreviewArchiveBox({
-    required this.savedLooksCount,
-    super.key,
-  });
+  const PreviewArchiveBox({required this.savedLooksCount, super.key});
 
   final int savedLooksCount;
 
@@ -1784,7 +1824,10 @@ class PreviewArchiveBox extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
@@ -1858,7 +1901,9 @@ class PreviewArchiveBox extends StatelessWidget {
             child: LinearProgressIndicator(
               value: progress,
               backgroundColor: FansivibeColors.surfaceContainerHigh,
-              valueColor: const AlwaysStoppedAnimation<Color>(FansivibeColors.primary),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                FansivibeColors.primary,
+              ),
               minHeight: 3.5,
             ),
           ),

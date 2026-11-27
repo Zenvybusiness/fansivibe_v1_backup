@@ -11,7 +11,17 @@ import 'package:fansivibe/features/events/data/events_client.dart';
 /// and allows a retry.
 abstract class EventsRepository {
   /// Returns one page of the owner's events (upcoming-first).
-  Future<EventListPage?> listEvents({int page, int pageSize});
+  Future<EventListPage?> listEvents({int page, int pageSize, String? fromDate});
+
+  /// Returns one page of the owner's events with typed failure metadata.
+  Future<EventListResult> listEventsResult({
+    int page,
+    int pageSize,
+    String? fromDate,
+  });
+
+  /// Fetches full details for one owned event by its backend UUID.
+  Future<EventItem?> getEvent({required String id});
 
   /// Creates one owned event; the backend UUID comes back in the item.
   Future<EventItem?> createEvent(EventCreateRequest request);
@@ -39,10 +49,36 @@ class EventsRepositoryImpl implements EventsRepository {
   final EventsClient _client;
 
   @override
-  Future<EventListPage?> listEvents({int page = 1, int pageSize = 20}) {
+  Future<EventListPage?> listEvents({
+    int page = 1,
+    int pageSize = 20,
+    String? fromDate,
+  }) {
     // Verbatim passthrough: ordering, pagination, and envelope semantics
     // stay server-authoritative. Null means the list is unavailable.
-    return _client.listEvents(page: page, pageSize: pageSize);
+    return _client.listEvents(
+      page: page,
+      pageSize: pageSize,
+      fromDate: fromDate,
+    );
+  }
+
+  @override
+  Future<EventListResult> listEventsResult({
+    int page = 1,
+    int pageSize = 20,
+    String? fromDate,
+  }) {
+    return _client.listEventsResult(
+      page: page,
+      pageSize: pageSize,
+      fromDate: fromDate,
+    );
+  }
+
+  @override
+  Future<EventItem?> getEvent({required String id}) {
+    return _client.getEvent(id: id);
   }
 
   @override

@@ -608,12 +608,40 @@ def test_delete_leaves_preferences_history_and_signals():
 
 
 def test_unauthenticated_requests_rejected_401():
-    """All four surfaces require auth."""
+    """All event endpoints require auth."""
     event_id = _created_id()
     assert client.post("/v1/events", json=_payload()).status_code == 401
     assert client.get("/v1/events").status_code == 401
+    assert client.get(f"/v1/events/{event_id}").status_code == 401
     assert client.put(f"/v1/events/{event_id}", json=_payload()).status_code == 401
     assert client.delete(f"/v1/events/{event_id}").status_code == 401
+
+
+def test_get_owned_event_returns_full_details_and_enforces_ownership():
+    """GET /v1/events/{id} returns location/notes/timestamps for owner and 404 for foreign/missing."""
+    event_id = _created_id()
+    resp = client.get(f"/v1/events/{event_id}", headers=HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body) == {
+        "id",
+        "title",
+        "eventType",
+        "eventDate",
+        "time",
+        "location",
+        "notes",
+        "createdAt",
+        "updatedAt",
+    }
+    assert body["id"] == event_id
+    assert body["location"] == "Grand Ballroom"
+    assert body["notes"] == "Black tie"
+
+    _, foreign_id = _seed_foreign_event()
+    assert client.get(f"/v1/events/{foreign_id}", headers=HEADERS).status_code == 404
+    assert client.get(f"/v1/events/{uuid4()}", headers=HEADERS).status_code == 404
+    assert client.get("/v1/events/not-a-uuid", headers=HEADERS).status_code == 422
 
 
 def test_cross_layer_lifecycle():

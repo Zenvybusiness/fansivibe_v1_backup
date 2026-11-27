@@ -29,6 +29,7 @@ class TodayLookComponent {
     required this.category,
     required this.color,
     this.material,
+    this.imageUrl,
   });
 
   /// Backend wardrobe UUID (verbatim — never resolved against local IDs).
@@ -46,6 +47,9 @@ class TodayLookComponent {
   /// Wardrobe material code, when the item carries one.
   final String? material;
 
+  /// Optional wardrobe item image URL when available from backend.
+  final String? imageUrl;
+
   factory TodayLookComponent.fromJson(Map<String, dynamic> json) =>
       TodayLookComponent(
         id: json['id'] as String,
@@ -53,6 +57,7 @@ class TodayLookComponent {
         category: json['category'] as String,
         color: json['color'] as String,
         material: json['material'] as String?,
+        imageUrl: json['imageUrl'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -61,6 +66,7 @@ class TodayLookComponent {
     'category': category,
     'color': color,
     'material': material,
+    if (imageUrl != null) 'imageUrl': imageUrl,
   };
 }
 
@@ -268,6 +274,11 @@ class TodayLook {
     this.weather,
     this.styleDna,
     this.alternatives = const [],
+    this.recommendationId,
+    this.sourceType = 'wardrobe_derived',
+    this.selectedVibe,
+    this.isPersonalized = true,
+    this.imageUrl,
   });
 
   final String title;
@@ -300,6 +311,21 @@ class TodayLook {
   /// The TodayLook response body verbatim (for `.../today/save`).
   final Map<String, dynamic> snapshot;
 
+  /// Deterministic backend recommendation ID when provided.
+  final String? recommendationId;
+
+  /// Provenance source type (`wardrobe_derived` by default).
+  final String sourceType;
+
+  /// Vibe identifier used during derivation when available.
+  final String? selectedVibe;
+
+  /// Whether this recommendation is personalized to the user.
+  final bool isPersonalized;
+
+  /// Optional primary image URL resolved from backend components.
+  final String? imageUrl;
+
   factory TodayLook.fromJson(Map<String, dynamic> json) => TodayLook(
     title: json['title'] as String,
     occasion: json['occasion'] as String?,
@@ -328,6 +354,11 @@ class TodayLook {
         .map((e) => e as String)
         .toList(),
     snapshot: json,
+    recommendationId: json['recommendationId'] as String?,
+    sourceType: json['sourceType'] as String? ?? 'wardrobe_derived',
+    selectedVibe: json['selectedVibe'] as String?,
+    isPersonalized: json['isPersonalized'] as bool? ?? true,
+    imageUrl: json['imageUrl'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -343,6 +374,11 @@ class TodayLook {
     'wardrobeContext': wardrobeContext.toJson(),
     'alternatives': alternatives.map((e) => e.toJson()).toList(),
     'selectedItemIds': selectedItemIds,
+    if (recommendationId != null) 'recommendationId': recommendationId,
+    'sourceType': sourceType,
+    if (selectedVibe != null) 'selectedVibe': selectedVibe,
+    'isPersonalized': isPersonalized,
+    if (imageUrl != null) 'imageUrl': imageUrl,
   };
 }
 

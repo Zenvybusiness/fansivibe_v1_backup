@@ -55,7 +55,7 @@ _TRUNCATE = (
     "media_attention_contributing_records, media_attention_observations, "
     "search_interest_observations, product_observations, "
     "product_source_map, raw_source_records, "
-    "products, collection_runs, learning_signals, activity_days, saved_looks, "
+    "products, collection_runs, style_journey_weekly_snapshots, learning_signals, activity_days, saved_looks, "
     "analysis_runs, feedback_events, user_events, wardrobe_wear_events, "
     "wardrobe_wear_groups, user_sessions, user_state, users CASCADE"
 )

@@ -37,7 +37,11 @@ class FakeEventsRepository implements EventsRepository {
   }
 
   @override
-  Future<EventListPage?> listEvents({int page = 1, int pageSize = 20}) async {
+  Future<EventListPage?> listEvents({
+    int page = 1,
+    int pageSize = 20,
+    String? fromDate,
+  }) async {
     calls.add('list');
     if (failList) return null;
     return EventListPage(
@@ -46,6 +50,32 @@ class FakeEventsRepository implements EventsRepository {
       pageSize: pageSize,
       total: _items.length,
     );
+  }
+
+  @override
+  Future<EventListResult> listEventsResult({
+    int page = 1,
+    int pageSize = 20,
+    String? fromDate,
+  }) async {
+    final pageResult = await listEvents(
+      page: page,
+      pageSize: pageSize,
+      fromDate: fromDate,
+    );
+    if (pageResult == null) {
+      return const EventListResult.failure(EventListFailure.serverError);
+    }
+    return EventListResult.success(pageResult);
+  }
+
+  @override
+  Future<EventItem?> getEvent({required String id}) async {
+    calls.add('get:$id');
+    for (final item in _items) {
+      if (item.id == id) return item;
+    }
+    return null;
   }
 
   @override
@@ -792,10 +822,7 @@ void main() {
 
       // Created event exists AND is visibly selected.
       expect(find.text('Rooftop Party'), findsOneWidget);
-      expect(
-        find.text('Selected for styling: Rooftop Party'),
-        findsOneWidget,
-      );
+      expect(find.text('Selected for styling: Rooftop Party'), findsOneWidget);
 
       // Selection survives navigation into the outfit flow.
       await tester.tap(find.text('Build outfit for this event'));
@@ -813,12 +840,95 @@ void main() {
     testWidgets('build outfit without event shows no event chip', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(
-        wrapApp(const BuildOutfitScreen()),
-      );
+      await tester.pumpWidget(wrapApp(const BuildOutfitScreen()));
 
       expect(find.text('Create Your Look'), findsOneWidget);
       expect(find.textContaining('Styling for:'), findsNothing);
     });
+  });
+
+  group('H3 Event Audit — Hydration, Time Clear & Signed-Out State', () {
+    testWidgets(
+      'EventDetailsScreen hydrates location and notes from getEvent when opened from summary',
+      (WidgetTester tester) async {
+        final full = _backendItem(
+          id: '11111111-1111-4111-8111-111111111111',
+          title: 'Persisted Gala',
+          location: 'Grand Ballroom',
+          notes: 'Black tie',
+        );
+        final summary = EventItem(
+          id: full.id,
+          title: full.title,
+          eventType: full.eventType,
+          eventDate: full.eventDate,
+          eventTime: full.eventTime,
+          createdAt: DateTime.utc(2030, 8, 15),
+          updatedAt: DateTime.utc(2030, 8, 15),
+        );
+        final repo = FakeEventsRepository(seed: [full]);
+
+        await tester.pumpWidget(
+          wrapApp(EventDetailsScreen(event: summary, repository: repo)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(repo.calls, contains('get:${full.id}'));
+        expect(find.text('Grand Ballroom'), findsOneWidget);
+        expect(find.text('Black tie'), findsOneWidget);
+      },
+    );
+
+    testWidgets('AddEventScreen allows clearing optional time in edit mode', (
+      WidgetTester tester,
+    ) async {
+      final existing = _backendItem(
+        id: '22222222-2222-4222-8222-222222222222',
+        title: 'Timed Event',
+        eventTime: '19:00',
+      );
+      final repo = FakeEventsRepository(seed: [existing]);
+
+      await tester.pumpWidget(
+        wrapApp(AddEventScreen(event: existing, repository: repo)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('7:00 PM'), findsOneWidget);
+      await tester.tap(find.byTooltip('Clear time'));
+      await tester.pump();
+      expect(find.text('Select time (optional)'), findsOneWidget);
+
+      final saveBtn = find.text('Save Changes').first;
+      await tester.scrollUntilVisible(
+        saveBtn,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(saveBtn);
+      await tester.pumpAndSettle();
+
+      expect(repo.calls, contains('update:${existing.id}:formal'));
+      final updated = await repo.getEvent(id: existing.id);
+      expect(updated?.eventTime, isNull);
+    });
+
+    testWidgets(
+      'EventListScreen shows sign-in prompt instead of error when signed out',
+      (WidgetTester tester) async {
+        await AuthSession.clearSession();
+        final repo = FakeEventsRepository();
+
+        await tester.pumpWidget(wrapApp(EventListScreen(repository: repo)));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Event Planning'), findsOneWidget);
+        expect(
+          find.text("Couldn't load your events. Please try again."),
+          findsNothing,
+        );
+        expect(repo.calls, isEmpty);
+      },
+    );
   });
 }

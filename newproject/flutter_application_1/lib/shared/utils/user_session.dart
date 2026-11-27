@@ -9,9 +9,26 @@ class UserSession {
   static final ValueNotifier<bool> savedWardrobeItemNotifier =
       ValueNotifier<bool>(LocalStorage.hasSavedWardrobeItem);
 
+  /// Reactive notifier that fires whenever the authenticated saved-looks
+  /// collection changes (saved or deleted from Home, Daily Outfit, or Saved Looks).
+  static final ValueNotifier<int> savedLooksVersion = ValueNotifier<int>(0);
+
+  /// Notifies mounted listeners that persisted saved looks changed.
+  static void notifySavedLooksChanged() {
+    savedLooksVersion.value++;
+  }
+
+  /// Reactive notifier that fires whenever the authenticated events
+  /// collection changes (created, updated, or deleted).
+  static final ValueNotifier<int> eventsVersion = ValueNotifier<int>(0);
+
+  /// Notifies mounted listeners that persisted events changed.
+  static void notifyEventsChanged() {
+    eventsVersion.value++;
+  }
+
   /// True once a user has saved their first wardrobe item.
-  static bool get hasSavedWardrobeItem =>
-      LocalStorage.hasSavedWardrobeItem;
+  static bool get hasSavedWardrobeItem => LocalStorage.hasSavedWardrobeItem;
 
   static set hasSavedWardrobeItem(bool value) {
     LocalStorage.hasSavedWardrobeItem = value;
@@ -19,8 +36,7 @@ class UserSession {
   }
 
   /// True if the user is a returning user who logged in with an existing account.
-  static bool get isReturningUser =>
-      LocalStorage.isReturningUser;
+  static bool get isReturningUser => LocalStorage.isReturningUser;
 
   static set isReturningUser(bool value) {
     LocalStorage.isReturningUser = value;
@@ -35,7 +51,8 @@ class UserSession {
       if (LearningService.instance.signals.isNotEmpty) return false;
       if (LearningService.instance.savedLooks.isNotEmpty) return false;
     } catch (_) {}
-    final hasOnboarding = LocalStorage.onboardingComplete ||
+    final hasOnboarding =
+        LocalStorage.onboardingComplete ||
         LocalStorage.vibe != null ||
         LocalStorage.savedLocally;
     return hasOnboarding;

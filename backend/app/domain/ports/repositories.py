@@ -159,6 +159,7 @@ class TodayLookComponent:
     category: str
     color: str
     material: Optional[str]
+    image_url: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -207,6 +208,11 @@ class TodayLookRecommendation:
     alternatives: list["TodayLookAlternative"]
     selected_item_ids: list[str]
     weather: Optional[dict[str, Any]] = None
+    recommendation_id: str = ""
+    source_type: str = "wardrobe_derived"
+    selected_vibe: Optional[str] = None
+    is_personalized: bool = True
+    image_url: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -807,6 +813,73 @@ class LearningSignalRepository(Protocol):
         DEC-020 §E): server-owned `label` strings only — never type,
         context, or timestamps.
         """
+        ...
+
+    def list_occurred_at_in_range(
+        self,
+        *,
+        user_id: UUID,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> list[datetime]:
+        """Return signal timestamps within [start_utc, end_utc) for user_id."""
+        ...
+
+    def commit(self) -> None: ...
+
+    def rollback(self) -> None: ...
+
+
+@dataclass(frozen=True)
+class WeeklySnapshotRecord:
+    """Immutable weekly Style Journey progress snapshot (SJ1)."""
+
+    id: UUID
+    user_id: UUID
+    week_start: date
+    week_end: date
+    timezone: str
+    style_score: int
+    base_points: int
+    wardrobe_points: int
+    saved_points: int
+    styled_days_count: int
+    signals_count: int
+    aggregation_policy: str
+    recorded_at: datetime
+
+
+class StyleJourneySnapshotRepository(Protocol):
+    """Owner-scoped, insert-only repository for weekly Style Journey snapshots (SJ1)."""
+
+    def record_if_absent(
+        self,
+        *,
+        user_id: UUID,
+        week_start: date,
+        week_end: date,
+        timezone_name: str,
+        style_score: int,
+        base_points: int,
+        wardrobe_points: int,
+        saved_points: int,
+        styled_days_count: int,
+        signals_count: int,
+        aggregation_policy: str,
+    ) -> tuple[WeeklySnapshotRecord, bool]:
+        """Insert snapshot if (user_id, week_start) does not exist; return (record, created)."""
+        ...
+
+    def get_for_week(
+        self, *, user_id: UUID, week_start: date
+    ) -> Optional[WeeklySnapshotRecord]:
+        """Return the snapshot for (user_id, week_start), or None."""
+        ...
+
+    def list_for_user(
+        self, *, user_id: UUID, limit: Optional[int] = None
+    ) -> list[WeeklySnapshotRecord]:
+        """Return snapshots for user_id ordered by week_start DESC."""
         ...
 
     def commit(self) -> None: ...

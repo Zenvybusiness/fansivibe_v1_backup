@@ -107,6 +107,7 @@ def _today_to_schema(record: TodayLookRecommendation) -> TodayLook:
                 category=item.category,
                 color=item.color,
                 material=item.material,
+                imageUrl=getattr(item, "image_url", None),
             )
             for item in record.components
         ],
@@ -121,6 +122,11 @@ def _today_to_schema(record: TodayLookRecommendation) -> TodayLook:
             for alt in record.alternatives
         ],
         selectedItemIds=list(record.selected_item_ids),
+        recommendationId=getattr(record, "recommendation_id", None) or None,
+        sourceType=getattr(record, "source_type", "wardrobe_derived"),
+        selectedVibe=getattr(record, "selected_vibe", None),
+        isPersonalized=getattr(record, "is_personalized", True),
+        imageUrl=getattr(record, "image_url", None),
     )
 
 
@@ -132,6 +138,7 @@ def _today_to_schema(record: TodayLookRecommendation) -> TodayLook:
 )
 async def get_today_look(
     variant: str | None = Query(default=None, min_length=1, max_length=200),
+    vibe: str | None = Query(default=None, min_length=1, max_length=100),
     city: str | None = Query(default=None, max_length=100),
     lat: float | None = Query(default=None, ge=-90.0, le=90.0),
     lon: float | None = Query(default=None, ge=-180.0, le=180.0),
@@ -140,6 +147,7 @@ async def get_today_look(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
     weather_provider: WeatherProvider | None = Depends(get_weather_provider),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
 ) -> TodayLook:
     """Derive today's look (TRX-2 read/derive only, UC-17).
 
@@ -154,10 +162,12 @@ async def get_today_look(
         wardrobe_items=WardrobeItemRepositorySQL(db),
         user_state=UserStateRepositorySQL(db),
         weather_provider=weather_provider,
+        storage=storage,
     )
     record = await use_case(
         user_id=user_id,
         variant=variant,
+        vibe=vibe,
         city=city,
         latitude=resolved_lat,
         longitude=resolved_lon,
@@ -180,6 +190,7 @@ async def get_today_look(
 )
 async def regenerate_today_look(
     seed: str | None = Query(default=None, min_length=1, max_length=200),
+    vibe: str | None = Query(default=None, min_length=1, max_length=100),
     city: str | None = Query(default=None, max_length=100),
     lat: float | None = Query(default=None, ge=-90.0, le=90.0),
     lon: float | None = Query(default=None, ge=-180.0, le=180.0),
@@ -188,6 +199,7 @@ async def regenerate_today_look(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
     weather_provider: WeatherProvider | None = Depends(get_weather_provider),
+    storage: ObjectStoragePort = Depends(get_storage_adapter),
 ) -> TodayLook:
     """Derive a fresh today's look (UC-16).
 
@@ -202,10 +214,12 @@ async def regenerate_today_look(
         wardrobe_items=WardrobeItemRepositorySQL(db),
         user_state=UserStateRepositorySQL(db),
         weather_provider=weather_provider,
+        storage=storage,
     )
     record = await use_case(
         user_id=user_id,
         seed=seed,
+        vibe=vibe,
         city=city,
         latitude=resolved_lat,
         longitude=resolved_lon,
