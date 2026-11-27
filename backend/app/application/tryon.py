@@ -28,9 +28,12 @@ from app.application.media import sha256_hex
 from app.config.image import MAX_OUTPUT_IMAGE_PIXELS, MAX_PERSON_IMAGE_PIXELS
 from app.config.settings import Settings, get_settings
 from app.domain.ports.repositories import (
+    REFUNDED_TRYON_ERROR_CODES,
     TryOnJobRecord,
     TryOnJobRepository,
     WardrobeItemRepository,
+    has_post_dispatch_provider_acceptance,
+    job_counts_toward_daily_quota,
 )
 from app.domain.ports.storage import (
     ObjectStoragePort,
@@ -224,11 +227,7 @@ class InMemoryTryOnJobRepository:
                         raise conflict(kind="idempotency_key_reuse")
                     return existing, False
 
-            used = sum(
-                1
-                for j in self._jobs.values()
-                if j.user_id == user_id and j.created_at.date() == day
-            )
+            used = self.count_today_jobs(user_id=user_id, day=day)
             if used >= daily_quota:
                 get_metrics_collector().record_tryon_quota_rejection("daily_quota")
                 raise rate_limited()
@@ -745,7 +744,14 @@ class InMemoryTryOnJobRepository:
             return sum(
                 1
                 for j in self._jobs.values()
-                if j.user_id == user_id and j.created_at.date() == day
+                if j.user_id == user_id
+                and (
+                    j.created_at.astimezone(timezone.utc).date()
+                    if j.created_at.tzinfo is not None
+                    else j.created_at.date()
+                )
+                == day
+                and job_counts_toward_daily_quota(j)
             )
 
     def count_active_jobs(
@@ -2079,6 +2085,14 @@ async def _execute_tryon_inference_body(
     # Execute provider render
     try:
         if provider_name == "genlook":
+            def _is_job_cancelled() -> bool:
+                cur = repo.get_by_id(user_id=user_id, job_id=job_id)
+                return cur is not None and cur.status == "cancelled"
+
+            if _is_job_cancelled():
+                logger.info("Genlook try-on job %s cancelled before provider dispatch.", job_id)
+                return
+
             person_digest = person_ref_copy.get("contentHash") or (
                 sha256_hex(person_bytes) if person_bytes else ""
             )
@@ -2167,10 +2181,6 @@ async def _execute_tryon_inference_body(
                         "creditsEstimated": 1,
                     }
                 )
-
-            def _is_job_cancelled() -> bool:
-                cur = repo.get_by_id(user_id=user_id, job_id=job_id)
-                return cur is not None and cur.status == "cancelled"
 
             if _is_job_cancelled():
                 logger.info("Genlook try-on job %s cancelled before provider dispatch.", job_id)

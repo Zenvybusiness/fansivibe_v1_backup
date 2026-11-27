@@ -6,18 +6,19 @@ All reads are owner-scoped (`user_id`) — OW-1. `complete` uses the server-side
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 import hashlib
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import Boolean, and_, cast, delete, func, or_, select, text, update
+from sqlalchemy import Boolean, Float, and_, cast, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.domain.ports.repositories import (
+    REFUNDED_TRYON_ERROR_CODES,
     AnalysisRunRecord,
     AnalysisRunSummary,
     AuthAccountRecord,
@@ -4117,14 +4118,59 @@ class TryOnJobRepositorySQL:
         user_id: UUID,
         day: date,
     ) -> int:
-        from datetime import time, timezone
         start = datetime.combine(day, time.min, tzinfo=timezone.utc)
-        end = datetime.combine(day, time.max, tzinfo=timezone.utc)
+        end_exclusive = start + timedelta(days=1)
+
+        genlook_json = TryOnJobModel.person_media_ref["genlook"]
+        refunded_text = genlook_json["refunded"].astext
+        gen_id_text = genlook_json["generationId"].astext
+        gen_status_text = genlook_json["generationStatus"].astext
+        pending_key_text = genlook_json["pendingIdempotencyKey"].astext
+        credits_text = genlook_json["creditsCharged"].astext
+
+        cancelled_counts_clause = and_(
+            or_(refunded_text.is_(None), refunded_text != "true"),
+            or_(
+                and_(
+                    gen_id_text.isnot(None),
+                    func.btrim(gen_id_text) != "",
+                    or_(gen_status_text.is_(None), gen_status_text != "FAILED"),
+                ),
+                and_(
+                    pending_key_text.isnot(None),
+                    func.btrim(pending_key_text) != "",
+                ),
+                and_(
+                    credits_text.isnot(None),
+                    credits_text.op("~")(r"^[0-9]+(\.[0-9]+)?$"),
+                    cast(credits_text, Float) > 0,
+                ),
+            ),
+        )
+
+        quota_eligible_clause = or_(
+            TryOnJobModel.status.notin_(["failed", "cancelled"]),
+            and_(
+                TryOnJobModel.status == "failed",
+                or_(
+                    TryOnJobModel.error_code.is_(None),
+                    TryOnJobModel.error_code.notin_(sorted(REFUNDED_TRYON_ERROR_CODES)),
+                ),
+            ),
+            and_(
+                TryOnJobModel.status == "cancelled",
+                cancelled_counts_clause,
+            ),
+        )
+
         count = self._session.execute(
-            select(func.count()).select_from(TryOnJobModel).where(
+            select(func.count())
+            .select_from(TryOnJobModel)
+            .where(
                 TryOnJobModel.user_id == user_id,
                 TryOnJobModel.created_at >= start,
-                TryOnJobModel.created_at <= end,
+                TryOnJobModel.created_at < end_exclusive,
+                quota_eligible_clause,
             )
         ).scalar_one()
         return int(count)

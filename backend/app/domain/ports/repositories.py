@@ -1429,6 +1429,67 @@ class TryOnJobRecord:
     lease_expires_at: Optional[datetime] = None
 
 
+REFUNDED_TRYON_ERROR_CODES: frozenset[str] = frozenset(
+    {
+        "PROVIDER_TRANSIENT_FAILURE",
+        "PROVIDER_AUTH_ERROR",
+        "PROVIDER_CONFIG_ERROR",
+        "PROVIDER_QUOTA_EXCEEDED",
+        "STORAGE_FAILURE",
+        "INTERRUPTED_BY_RESTART",
+        "STALE_JOB_TIMEOUT",
+    }
+)
+
+
+def has_post_dispatch_provider_acceptance(
+    person_media_ref: Optional[dict[str, Any]],
+) -> bool:
+    """Return True if persisted provider metadata shows Genlook accepted or may have received dispatch."""
+    if not isinstance(person_media_ref, dict):
+        return False
+    gl = person_media_ref.get("genlook")
+    if not isinstance(gl, dict):
+        return False
+    if gl.get("refunded") is True:
+        return False
+    gen_id = gl.get("generationId")
+    if (
+        isinstance(gen_id, str)
+        and gen_id.strip()
+        and gl.get("generationStatus") != "FAILED"
+    ):
+        return True
+    pending_key = gl.get("pendingIdempotencyKey")
+    if isinstance(pending_key, str) and pending_key.strip():
+        return True
+    credits_charged = gl.get("creditsCharged")
+    if (
+        isinstance(credits_charged, (int, float))
+        and not isinstance(credits_charged, bool)
+        and credits_charged > 0
+    ):
+        return True
+    return False
+
+
+def job_counts_toward_daily_quota(job: TryOnJobRecord) -> bool:
+    """Centralized daily Try-On quota-accounting rule (P5.3F).
+
+    - ``queued``, ``processing``, ``completed``: counts as 1.
+    - ``failed``: refunded (False) when ``error_code`` is in
+      ``REFUNDED_TRYON_ERROR_CODES``; otherwise counts as 1.
+    - ``cancelled``: counts as 1 if persisted provider metadata indicates
+      Genlook accepted the generation or dispatch/acceptance is ambiguous;
+      refunded (False) if cancelled before provider dispatch.
+    """
+    if job.status == "failed":
+        return job.error_code not in REFUNDED_TRYON_ERROR_CODES
+    if job.status == "cancelled":
+        return has_post_dispatch_provider_acceptance(job.person_media_ref)
+    return True
+
+
 class TryOnJobRepository(Protocol):
     """Repository port for durable virtual try-on jobs (Phase 5C)."""
 

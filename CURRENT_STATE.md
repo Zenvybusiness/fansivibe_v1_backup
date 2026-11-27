@@ -1,5 +1,44 @@
 # Fansivibe Current State
 
+## TASK P5.3F — DAILY TRY-ON QUOTA REFUND POLICY (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG `fansivibe_disposable_test` + `FakeStorageAdapter` + MOCK GENLOOK SERVER; ZERO LIVE GENLOOK/R2/PAID INFERENCE; ZERO MIGRATIONS/COMMITS/PUSHES)
+- **Summary**:
+  - **Approved Daily Try-On Quota Policy**:
+    - Implemented centralized quota-accounting rule (`REFUNDED_TRYON_ERROR_CODES`, `has_post_dispatch_provider_acceptance`, `job_counts_toward_daily_quota` in `backend/app/domain/ports/repositories.py`, mirrored in `TryOnJobRepositorySQL.count_today_jobs` and `InMemoryTryOnJobRepository.count_today_jobs` / `create_with_quota`).
+    - Counts as 1: `queued`, `processing`, `completed`, non-infrastructure `failed` jobs (e.g., `PAYLOAD_REJECTED`, `AI_INFERENCE_FAILURE`, `INVALID_PROVIDER_OUTPUT`), and `cancelled` jobs with persisted post-dispatch/acceptance Genlook metadata (`generationId` when not `FAILED`/`refunded`, `pendingIdempotencyKey` when dispatch is ambiguous, or `creditsCharged > 0` when not `refunded`).
+    - Refunded (0): `failed` jobs with infrastructure error codes (`PROVIDER_TRANSIENT_FAILURE`, `PROVIDER_AUTH_ERROR`, `PROVIDER_CONFIG_ERROR`, `PROVIDER_QUOTA_EXCEEDED`, `STORAGE_FAILURE`, `INTERRUPTED_BY_RESTART`, `STALE_JOB_TIMEOUT`) and `cancelled` jobs without post-dispatch provider acceptance metadata.
+    - Retries (`retry_job`) update the existing job row and consume zero additional daily quota slots.
+    - Added pre-dispatch cancellation guard in `_execute_tryon_inference_body` (`backend/app/application/tryon.py`) before persisting `pendingIdempotencyKey` so pre-dispatch cancellations never stamp ambiguous dispatch metadata.
+    - Preserved daily quota (`20`), per-user/global concurrency limits, rate limiting, payload validation, idempotency, retry cap (`_MAX_TRYON_RETRIES = 3`), PostgreSQL `pg_advisory_xact_lock` atomicity, UTC daily-window convention, and Genlook credit/idempotency safeguards without any database migration.
+- **Exact Changed / Added Files (P5.3F)**:
+  - `backend/app/domain/ports/repositories.py`
+  - `backend/app/application/tryon.py`
+  - `backend/app/infrastructure/db/repositories.py`
+  - `backend/tests/test_tryon_p53f_quota_refund_policy.py` (new, 15 PostgreSQL tests)
+  - `CURRENT_STATE.md`
+
+## TASK P5.3E — PRODUCTION CONFIGURATION AND MIGRATION READINESS AUDIT (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG16 `fansivibe_disposable_test` + `FakeStorageAdapter` + MOCK PROVIDER; ZERO LIVE GENLOOK/R2/PAID INFERENCE; ZERO PRODUCTION MIGRATIONS/DEPLOYMENTS/COMMITS/PUSHES)
+- **Summary**:
+  - **Deployment Configuration & Topology**:
+    - Inspected `backend/docker-compose.production.yml`, `backend/Dockerfile`, `backend/entrypoint.sh`, `backend/deploy/nginx/production.conf`, `backend/deploy/prometheus/prometheus.yml`, `docs/PRODUCTION_DEPLOYMENT.md`, `backend/app/config/settings.py`, `backend/app/infrastructure/db/session.py`, `backend/app/main.py`, and `backend/alembic/env.py`.
+    - Supported production topology: shared PostgreSQL 16 (`postgres-prod`) with `backend-primary` (`UVICORN_WORKERS=1`, port `8000`) and optional `backend-canary` (`UVICORN_WORKERS=1`, port `8001`) behind `reverse-proxy` (Nginx TLS + canary split). Multi-worker (`UVICORN_WORKERS > 1`) is also supported with PostgreSQL (`tryon_jobs` leases + `rate_limit_buckets`), provided `DATABASE_POOL_SIZE` (default `5`) + `DATABASE_MAX_OVERFLOW` (default `10`, `15` max/worker) stays within PostgreSQL `max_connections` (`2 * 15 = 30 < 100` for 2 single-worker instances; `8 * 15 = 120 > 100` if scaled to 8 workers without tuning).
+    - Verified unique per-process `get_worker_id()` (`<hostname[:32]>-<pid>-<uuid8>`), lease/heartbeat validation (`heartbeat < lease`, `lease >= 10`, `heartbeat >= 2`), non-interrupting `recover_interrupted_jobs` on startup (`lifespan`), and fail-closed `validate_production_startup` (rejects `mock`/`catvton`/`off` when `tryon_enabled=True`, missing/weak `FANSIVIBE_OPERATOR_API_KEY`, `MEDIA_STORAGE_PROVIDER != 'r2'`, missing R2/Genlook credentials, `FANSIVIBE_ALLOW_DEV_TOKEN=true`, or reused `MEDIA_UPLOAD_HMAC_SECRET`).
+  - **Configuration Defect Found & Fixed (`backend/alembic/env.py`)**:
+    - `backend/docker-compose.production.yml` starts `backend-primary` and `backend-canary` concurrently against `postgres-prod`, and both run `backend/entrypoint.sh` -> `alembic upgrade head` without coordination.
+    - Added PostgreSQL session-level advisory lock (`pg_advisory_lock(728394015)` / `pg_advisory_unlock(728394015)`) in `run_migrations_online()` (`backend/alembic/env.py`) so concurrent container startups serialize cleanly.
+  - **Migration Safety (`0037`–`0040`)**:
+    - Verified linear chain `0036 -> 0037 -> 0038 -> 0039 -> 0040 (head)` on disposable PG16 populated with representative `tryon_jobs` rows (`queued`, `processing`, `completed`, `failed`, with and without `idempotency_key`), confirming `NULL` lease fields on existing rows, `ix_tryon_jobs_status_lease_expires` creation, clean `0040 -> 0036` downgrade, and concurrent dual-process `alembic upgrade head`.
+  - **Secrets & Privacy**:
+    - Verified `GENLOOK_API_KEY`, `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, `FANSIVIBE_OPERATOR_API_KEY`, and `DATABASE_URL` are `repr=False` / env-driven only, absent from `newproject/flutter_application_1/lib/`, and scrubbed by `_sanitize_log_message` (`backend/app/api/errors.py`), with `Cache-Control: private, no-store` on `/v1/auth`, `/v1/users`, `/v1/media`, `/v1/tryon`.
+- **Exact Changed Files (P5.3E)**:
+  - `backend/alembic/env.py`
+  - `CURRENT_STATE.md`
+- **Verification (executed after final edit)**:
+  - `backend/.venv/bin/python -m compileall -q backend/app/ backend/tests/ backend/alembic/`: `exit 0`.
+  - Populated-DB migration `0036 -> 0040 -> 0036` + concurrent dual-process `alembic upgrade head` on disposable PG16: `exit 0`, `0040 (head)`.
+  - 17-file backend audit suite (`test_settings.py`, `test_docker_entrypoint.py`, `test_tryon_p53d_worker_safe_recovery.py`, `test_tryon_p53c_operational_readiness.py`, `test_tryon_phase5e_2_readiness.py`, `test_tryon_phase7_production_hardening.py`, `test_tryon_reliability_and_security.py`, `test_tryon_phase5f_genlook.py`, `test_tryon_phase5d_commercial_and_reliability.py`, `test_tryon_phase5e_1_security_hardening.py`, `test_tryon_provider_contract_phase5e.py`, `test_tryon_mock_api.py`, `test_tryon_phase5c_e2e.py`, `test_account_erasure.py`, `test_ephemeral_analysis.py`, `test_c10_analysis_idempotency.py`, `test_r2_phase5f2_readiness.py`): `336 passed, 0 failed, 0 skipped` (`33.64s`).
+  - 4-file backend health/readiness/hardening suite (`test_production_hardening.py`, `test_production_soak.py`, `test_production_canary.py`, `test_staging_observability.py`): `86 passed, 0 failed, 0 skipped` (`2.90s`).
+  - `git diff --check`: `exit 0`.
+
 ## TASK P5.3D — WORKER-SAFE TRY-ON RECOVERY (executed 2026-11-27, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG `fansivibe_disposable_test` + `FakeStorageAdapter` + MOCK GENLOOK SERVER; ZERO LIVE GENLOOK/R2/PAID INFERENCE; ZERO PRODUCTION MIGRATIONS/COMMITS/PUSHES)
 - **Summary**:
   - **Root Cause Fixed**: Previously, `recover_interrupted_jobs` unconditionally marked all `queued` and `processing` rows as `INTERRUPTED_BY_RESTART`, and `recover_stale_jobs` relied on process-local `_ACTIVE_EXECUTION_IDS`, allowing a restarting or concurrent backend instance/worker sharing PostgreSQL to interrupt another live worker's active job.

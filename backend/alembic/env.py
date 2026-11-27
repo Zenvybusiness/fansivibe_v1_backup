@@ -1,7 +1,6 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from sqlalchemy import engine_from_config, pool, text
 
 from alembic import context
 
@@ -79,10 +78,20 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        is_postgres = connection.dialect.name == "postgresql"
+        if is_postgres:
+            # Serialize concurrent alembic upgrade/downgrade across multiple instances.
+            connection.execute(text("SELECT pg_advisory_lock(728394015)"))
+            connection.commit()
+        try:
+            context.configure(connection=connection, target_metadata=target_metadata)
 
-        with context.begin_transaction():
-            context.run_migrations()
+            with context.begin_transaction():
+                context.run_migrations()
+        finally:
+            if is_postgres:
+                connection.execute(text("SELECT pg_advisory_unlock(728394015)"))
+                connection.commit()
 
 
 if context.is_offline_mode():
