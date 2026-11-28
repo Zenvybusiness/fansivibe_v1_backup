@@ -193,6 +193,19 @@ class _FakeProfileRepository implements UserProfileRepository {
   @override
   Future<UserProfile?> updatePreferredOccasions(List<String> occasions) async =>
       profile;
+
+  @override
+  Future<UserProfile?> updateStyleAttributes(
+    Map<String, dynamic> patch,
+  ) async => profile;
+
+  @override
+  Future<UserProfile?> updatePreferenceFields(
+    Map<String, dynamic> patch,
+  ) async => profile;
+
+  @override
+  Future<bool> deleteAccount() async => false;
 }
 
 Widget _dailyApp(TodayLookRepository repository, {TextScaler? textScaler}) {

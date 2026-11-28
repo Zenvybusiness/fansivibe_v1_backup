@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/app/app.dart';
+import 'package:fansivibe/features/knowledge/data/knowledge_api_models.dart';
+import 'package:fansivibe/features/knowledge/data/knowledge_repository.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
@@ -19,8 +21,12 @@ import 'package:fansivibe/shared/utils/local_storage.dart';
 
 /// Creates a [FansivibeApp] booted directly into the main shell so tab
 /// navigation can be exercised without re-running the onboarding Entry flow.
-Widget _freshApp({WardrobeRepository? repository}) {
-  final repo = repository ?? _MockWardrobeRepository(items: WardrobeMockData.items);
+Widget _freshApp({
+  WardrobeRepository? repository,
+  KnowledgeRepository? knowledgeRepository,
+}) {
+  final repo =
+      repository ?? _MockWardrobeRepository(items: WardrobeMockData.items);
   return FansivibeApp(
     router: GoRouter(
       initialLocation: '/home',
@@ -33,7 +39,8 @@ Widget _freshApp({WardrobeRepository? repository}) {
               routes: [
                 GoRoute(
                   path: '/home',
-                  builder: (context, state) => const Scaffold(body: Text('Home')),
+                  builder: (context, state) =>
+                      const Scaffold(body: Text('Home')),
                 ),
               ],
             ),
@@ -41,7 +48,8 @@ Widget _freshApp({WardrobeRepository? repository}) {
               routes: [
                 GoRoute(
                   path: '/discover',
-                  builder: (context, state) => const Scaffold(body: Text('Discover')),
+                  builder: (context, state) =>
+                      const Scaffold(body: Text('Discover')),
                 ),
               ],
             ),
@@ -49,7 +57,8 @@ Widget _freshApp({WardrobeRepository? repository}) {
               routes: [
                 GoRoute(
                   path: '/assistant',
-                  builder: (context, state) => const Scaffold(body: Text('Assistant')),
+                  builder: (context, state) =>
+                      const Scaffold(body: Text('Assistant')),
                 ),
               ],
             ),
@@ -58,7 +67,10 @@ Widget _freshApp({WardrobeRepository? repository}) {
                 GoRoute(
                   path: '/wardrobe',
                   name: RouteNames.wardrobe,
-                  builder: (context, state) => WardrobeScreen(repository: repo),
+                  builder: (context, state) => WardrobeScreen(
+                    repository: repo,
+                    knowledgeRepository: knowledgeRepository,
+                  ),
                   routes: [
                     GoRoute(
                       path: 'add-category',
@@ -100,7 +112,8 @@ Widget _freshApp({WardrobeRepository? repository}) {
               routes: [
                 GoRoute(
                   path: '/profile',
-                  builder: (context, state) => const Scaffold(body: Text('Profile')),
+                  builder: (context, state) =>
+                      const Scaffold(body: Text('Profile')),
                 ),
               ],
             ),
@@ -216,6 +229,25 @@ void main() {
       expect(find.text('Tops'), findsOneWidget);
     });
 
+    testWidgets('uses backend category vocabulary for filters', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        _freshApp(knowledgeRepository: _MockKnowledgeRepository()),
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Wardrobe'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Tops'), findsOneWidget);
+      expect(find.text('Layering'), findsOneWidget);
+      expect(find.text('Bottoms'), findsNothing);
+    });
+
     testWidgets('renders clothing item grid with all items', (
       WidgetTester tester,
     ) async {
@@ -260,6 +292,109 @@ void main() {
       // Should show "Tops" section title with correct count
       expect(find.text('Tops'), findsWidgets);
       expect(find.text('8 items'), findsOneWidget);
+    });
+
+    testWidgets('search filters wardrobe items by text', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_freshApp());
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Wardrobe'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'boots');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Leather Chelsea Boots'), findsOneWidget);
+      expect(find.text('Merino Crew Neck'), findsNothing);
+      expect(find.text('1 item'), findsOneWidget);
+    });
+
+    testWidgets('filter button applies favorites-only filter', (
+      WidgetTester tester,
+    ) async {
+      final repository = _MockWardrobeRepository(
+        items: [
+          WardrobeItemData(
+            id: 'favorite',
+            name: 'Favorite Top',
+            category: 'tops',
+            color: 'black',
+            isFavorite: true,
+          ),
+          WardrobeItemData(
+            id: 'plain',
+            name: 'Plain Bottom',
+            category: 'bottoms',
+            color: 'blue',
+          ),
+        ],
+      );
+      await tester.pumpWidget(_freshApp(repository: repository));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Wardrobe'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Filter wardrobe'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Favorites only'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Favorite Top'), findsOneWidget);
+      expect(find.text('Plain Bottom'), findsNothing);
+      expect(find.text('1 item'), findsOneWidget);
+    });
+
+    testWidgets('sort button changes item order', (WidgetTester tester) async {
+      final repository = _MockWardrobeRepository(
+        items: [
+          WardrobeItemData(
+            id: 'zebra',
+            name: 'Zebra Jacket',
+            category: 'outerwear',
+            color: 'black',
+          ),
+          WardrobeItemData(
+            id: 'alpha',
+            name: 'Alpha Shirt',
+            category: 'tops',
+            color: 'white',
+          ),
+        ],
+      );
+      await tester.pumpWidget(_freshApp(repository: repository));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Wardrobe'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final before = tester
+          .widgetList<ClothingItemCard>(find.byType(ClothingItemCard))
+          .map((card) => card.item.name)
+          .toList();
+      expect(before, ['Zebra Jacket', 'Alpha Shirt']);
+
+      await tester.tap(find.byTooltip('Sort wardrobe'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Name A-Z'));
+      await tester.pumpAndSettle();
+
+      final after = tester
+          .widgetList<ClothingItemCard>(find.byType(ClothingItemCard))
+          .map((card) => card.item.name)
+          .toList();
+      expect(after, ['Alpha Shirt', 'Zebra Jacket']);
     });
 
     testWidgets('Add Item button navigates to category selection', (
@@ -515,11 +650,30 @@ void main() {
   });
 }
 
+class _MockKnowledgeRepository extends KnowledgeRepositoryImpl {
+  @override
+  Future<KnowledgeVocabularyList?> listCategories({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    return KnowledgeVocabularyList(
+      items: [
+        KnowledgeVocabularyItem(code: 'tops', label: 'Tops', sortOrder: 1),
+        KnowledgeVocabularyItem(
+          code: 'layering',
+          label: 'Layering',
+          sortOrder: 2,
+        ),
+      ],
+      page: page,
+      pageSize: pageSize,
+      total: 2,
+    );
+  }
+}
+
 class _MockWardrobeRepository implements WardrobeRepository {
-  _MockWardrobeRepository({
-    this.items = const [],
-    this.throwError = false,
-  });
+  _MockWardrobeRepository({this.items = const [], this.throwError = false});
 
   final List<WardrobeItemData> items;
   final bool throwError;
@@ -591,10 +745,5 @@ class _MockWardrobeRepository implements WardrobeRepository {
     DateTime? wornAt,
     String? idempotencyKey,
   }) =>
-      logWear(
-        itemIds: itemIds,
-        wornAt: wornAt,
-        idempotencyKey: idempotencyKey,
-      );
-
+      logWear(itemIds: itemIds, wornAt: wornAt, idempotencyKey: idempotencyKey);
 }

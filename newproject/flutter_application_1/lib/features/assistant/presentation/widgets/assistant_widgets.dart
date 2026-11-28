@@ -31,6 +31,44 @@ List<WardrobeItemData> resolveOutfitWardrobeItems({
   ];
 }
 
+Widget? _llmProvenanceBadge(LlmProvenance? provenance) {
+  if (provenance == null) return null;
+  final isGenerated = provenance.status == 'generated';
+  final isFallback = provenance.status == 'fallback';
+  if (!isGenerated && !isFallback) return null;
+
+  final label = isGenerated ? 'AI-assisted' : 'Rules-based';
+  final icon = isGenerated ? Icons.auto_awesome_rounded : Icons.info_outline;
+
+  return Container(
+    key: Key(isGenerated ? 'assistant_ai_badge' : 'assistant_rules_badge'),
+    margin: const EdgeInsets.only(bottom: FansivibeSpacing.xs + 2),
+    padding: const EdgeInsets.symmetric(
+      horizontal: FansivibeSpacing.sm,
+      vertical: 2,
+    ),
+    decoration: BoxDecoration(
+      color: FansivibeColors.surfaceContainerHigh,
+      borderRadius: FansivibeRadius.fullBorder,
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: FansivibeColors.secondary),
+        const SizedBox(width: FansivibeSpacing.xs),
+        Text(
+          label,
+          style: FansivibeTypography.labelSmallWithFamily.copyWith(
+            color: FansivibeColors.secondary,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class MessageBubble extends StatelessWidget {
   const MessageBubble({
     required this.message,
@@ -141,6 +179,9 @@ class MessageBubble extends StatelessWidget {
     final displayCards = hasSuccessfulOutfitIntelligence
         ? message.cards.where((c) => c.kind != 'outfit').toList()
         : message.cards;
+    final provenanceBadge = message.isOffline
+        ? null
+        : _llmProvenanceBadge(message.llmProvenance);
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -195,6 +236,7 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
             ],
+            if (provenanceBadge != null) provenanceBadge,
             if (message.text.isNotEmpty) ...[
               Text(
                 message.text,

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/auth/data/auth_repository.dart';
 import 'package:fansivibe/features/home/presentation/widgets/city_selection_sheet.dart';
 import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/features/profile/data/user_profile_repository.dart';
@@ -16,9 +19,14 @@ const Map<String, String> _settingLabelToKey = {
 };
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, this.userProfileRepository});
+  const SettingsScreen({
+    super.key,
+    this.userProfileRepository,
+    this.authRepository,
+  });
 
   final UserProfileRepository? userProfileRepository;
+  final AuthRepository? authRepository;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -26,14 +34,17 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late UserProfileRepository _userProfileRepo;
+  late AuthRepository _authRepo;
   late List<SettingsItem> _items;
   Map<String, dynamic> _currentSettings = {};
+  bool _busy = false;
 
   @override
   void initState() {
     super.initState();
     _userProfileRepo =
         widget.userProfileRepository ?? UserProfileRepositoryImpl();
+    _authRepo = widget.authRepository ?? AuthRepositoryImpl();
     _currentSettings = Map<String, dynamic>.from(LocalStorage.settings);
     _items = _buildItems(_currentSettings);
 
@@ -265,6 +276,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _handleSignOut() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await _authRepo.logout();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    try {
+      context.goNamed(RouteNames.entry);
+    } catch (_) {}
+  }
+
+  Future<void> _showDeleteConfirmation() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => const _DeleteAccountDialog(),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    final deleted = await _userProfileRepo.deleteAccount();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (!deleted) {
+      _showCityFeedback(
+        'Account deletion failed. Please try again.',
+        error: true,
+      );
+      return;
+    }
+    await AuthSession.clearSession();
+    if (!mounted) return;
+    try {
+      context.goNamed(RouteNames.entry);
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -340,6 +387,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             }),
                           ),
                         ),
+                        if (AuthSession.isAuthenticated && !isGuestUser) ...[
+                          const SizedBox(height: 24),
+                          Text(
+                            'Account',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: FansivibeColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          FansivibeCard(
+                            child: Column(
+                              children: [
+                                ListTile(
+                                  leading: const Icon(Icons.logout_rounded),
+                                  title: const Text('Sign Out'),
+                                  onTap: _busy ? null : _handleSignOut,
+                                ),
+                                Divider(
+                                  height: 1,
+                                  color: FansivibeColors.accentGold.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                ),
+                                ListTile(
+                                  leading: Icon(
+                                    Icons.delete_forever_rounded,
+                                    color: FansivibeColors.error,
+                                  ),
+                                  title: Text(
+                                    'Delete Account',
+                                    style: TextStyle(
+                                      color: FansivibeColors.error,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  subtitle: const Text(
+                                    'Permanently erase your account and data',
+                                  ),
+                                  onTap: _busy ? null : _showDeleteConfirmation,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 32),
                       ],
                     ),
@@ -423,6 +515,66 @@ class _SettingsTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DeleteAccountDialog extends StatefulWidget {
+  const _DeleteAccountDialog();
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Delete account?'),
+      content: SizedBox(
+        width: 320,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This permanently erases your account and saved data. Type DELETE to confirm.',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _controller,
+                autofocus: true,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Type DELETE',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: _controller.text == 'DELETE'
+              ? () => Navigator.of(context).pop(true)
+              : null,
+          child: const Text('Delete account'),
+        ),
+      ],
     );
   }
 }

@@ -50,6 +50,8 @@ class UserStyleProfile {
   final String? faceShape;
   final String? skinTone;
   final String? bodyType;
+  final String? hairType;
+  final String? hairDensity;
   final String? styleType;
   final String? sourceRunId;
   final Map<String, dynamic> extra;
@@ -58,6 +60,8 @@ class UserStyleProfile {
     this.faceShape,
     this.skinTone,
     this.bodyType,
+    this.hairType,
+    this.hairDensity,
     this.styleType,
     this.sourceRunId,
     this.extra = const {},
@@ -65,10 +69,12 @@ class UserStyleProfile {
 
   factory UserStyleProfile.fromJson(Map<String, dynamic> json) {
     return UserStyleProfile(
-      faceShape:
-          json['faceShape'] as String? ?? json['face_shape'] as String?,
+      faceShape: json['faceShape'] as String? ?? json['face_shape'] as String?,
       skinTone: json['skinTone'] as String? ?? json['skin_tone'] as String?,
       bodyType: json['bodyType'] as String? ?? json['body_type'] as String?,
+      hairType: json['hairType'] as String? ?? json['hair_type'] as String?,
+      hairDensity:
+          json['hairDensity'] as String? ?? json['hair_density'] as String?,
       styleType: json['styleType'] as String? ?? json['style_type'] as String?,
       sourceRunId:
           json['sourceRunId'] as String? ?? json['source_run_id'] as String?,
@@ -80,6 +86,8 @@ class UserStyleProfile {
     if (faceShape != null) 'faceShape': faceShape,
     if (skinTone != null) 'skinTone': skinTone,
     if (bodyType != null) 'bodyType': bodyType,
+    if (hairType != null) 'hairType': hairType,
+    if (hairDensity != null) 'hairDensity': hairDensity,
     if (styleType != null) 'styleType': styleType,
     if (sourceRunId != null) 'sourceRunId': sourceRunId,
     ...extra,
@@ -89,6 +97,8 @@ class UserStyleProfile {
     String? faceShape,
     String? skinTone,
     String? bodyType,
+    String? hairType,
+    String? hairDensity,
     String? styleType,
     String? sourceRunId,
     Map<String, dynamic>? extra,
@@ -97,10 +107,24 @@ class UserStyleProfile {
       faceShape: faceShape ?? this.faceShape,
       skinTone: skinTone ?? this.skinTone,
       bodyType: bodyType ?? this.bodyType,
+      hairType: hairType ?? this.hairType,
+      hairDensity: hairDensity ?? this.hairDensity,
       styleType: styleType ?? this.styleType,
       sourceRunId: sourceRunId ?? this.sourceRunId,
       extra: extra ?? this.extra,
     );
+  }
+
+  UserStyleProfile applyPatch(Map<String, dynamic> patch) {
+    final merged = <String, dynamic>{...toJson()};
+    for (final entry in patch.entries) {
+      if (entry.value == null) {
+        merged.remove(entry.key);
+      } else {
+        merged[entry.key] = entry.value;
+      }
+    }
+    return UserStyleProfile.fromJson(merged);
   }
 
   /// Whether all 4 primary style biometrics/archetypes are populated.
@@ -123,6 +147,8 @@ class UserStyleProfile {
         other.faceShape == faceShape &&
         other.skinTone == skinTone &&
         other.bodyType == bodyType &&
+        other.hairType == hairType &&
+        other.hairDensity == hairDensity &&
         other.styleType == styleType &&
         other.sourceRunId == sourceRunId;
   }
@@ -132,6 +158,8 @@ class UserStyleProfile {
     faceShape,
     skinTone,
     bodyType,
+    hairType,
+    hairDensity,
     styleType,
     sourceRunId,
   );
@@ -169,25 +197,21 @@ class UserProfile {
               Map<String, dynamic>.from(json['styleProfile'] as Map),
             )
           : json['style_profile'] != null
-              ? UserStyleProfile.fromJson(
-                  Map<String, dynamic>.from(json['style_profile'] as Map),
-                )
-              : const UserStyleProfile(),
+          ? UserStyleProfile.fromJson(
+              Map<String, dynamic>.from(json['style_profile'] as Map),
+            )
+          : const UserStyleProfile(),
       preferences: Map<String, dynamic>.from(
         json['preferences'] as Map? ?? const {},
       ),
-      settings: Map<String, dynamic>.from(
-        json['settings'] as Map? ?? const {},
-      ),
-      flags: Map<String, dynamic>.from(
-        json['flags'] as Map? ?? const {},
-      ),
+      settings: Map<String, dynamic>.from(json['settings'] as Map? ?? const {}),
+      flags: Map<String, dynamic>.from(json['flags'] as Map? ?? const {}),
       version: json['version'] as int? ?? 1,
       memorySummary: json['memorySummary'] != null
           ? Map<String, dynamic>.from(json['memorySummary'] as Map)
           : json['memory_summary'] != null
-              ? Map<String, dynamic>.from(json['memory_summary'] as Map)
-              : null,
+          ? Map<String, dynamic>.from(json['memory_summary'] as Map)
+          : null,
     );
   }
 
@@ -219,6 +243,18 @@ class UserProfile {
       version: version ?? this.version,
       memorySummary: memorySummary ?? this.memorySummary,
     );
+  }
+
+  UserProfile applyPreferencePatch(Map<String, dynamic> patch) {
+    final merged = <String, dynamic>{...preferences};
+    for (final entry in patch.entries) {
+      if (entry.value == null) {
+        merged.remove(entry.key);
+      } else {
+        merged[entry.key] = entry.value;
+      }
+    }
+    return copyWith(preferences: merged);
   }
 
   /// Empty profile representation for uninitialized or blank state.

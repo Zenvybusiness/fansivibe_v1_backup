@@ -80,6 +80,7 @@ class _WardrobeItemDetailsScreenState extends State<WardrobeItemDetailsScreen> {
   String? _newColor;
   String? _newMaterial;
   String? _newFit;
+  String? _newFitConfidenceText;
   bool? _newFavorite;
   Uint8List? _pendingPhotoBytes;
   bool _pendingPhotoRemoved = false;
@@ -136,6 +137,7 @@ class _WardrobeItemDetailsScreenState extends State<WardrobeItemDetailsScreen> {
     _newColor = item.color;
     _newMaterial = item.material;
     _newFit = item.fit;
+    _newFitConfidenceText = item.fitConfidence?.toString();
     _newFavorite = item.isFavorite;
     _pendingPhotoBytes = null;
     _pendingPhotoRemoved = false;
@@ -244,6 +246,12 @@ class _WardrobeItemDetailsScreenState extends State<WardrobeItemDetailsScreen> {
     final clearMaterial = materialChanged && _newMaterial == null;
     final fitChanged = _newFit != current.fit;
     final clearFit = fitChanged && _newFit == null;
+    final rawFitConfidence = _newFitConfidenceText?.trim();
+    final parsedFitConfidence =
+        (rawFitConfidence == null || rawFitConfidence.isEmpty)
+        ? null
+        : double.tryParse(rawFitConfidence);
+    final fitConfidenceChanged = parsedFitConfidence != current.fitConfidence;
     final favoriteChanged = _newFavorite != current.isFavorite;
     final photoReplaced =
         _pendingPhotoBytes != null && _pendingPhotoBytes!.isNotEmpty;
@@ -254,6 +262,7 @@ class _WardrobeItemDetailsScreenState extends State<WardrobeItemDetailsScreen> {
         !colorChanged &&
         !materialChanged &&
         !fitChanged &&
+        !fitConfidenceChanged &&
         !favoriteChanged &&
         !photoReplaced &&
         !photoRemoved) {
@@ -376,6 +385,7 @@ class _WardrobeItemDetailsScreenState extends State<WardrobeItemDetailsScreen> {
         isFavorite: favoriteChanged ? _newFavorite : null,
         fit: (fitChanged && !clearFit) ? _newFit : null,
         clearFit: clearFit,
+        fitConfidence: fitConfidenceChanged ? parsedFitConfidence : null,
         imageRef: newImageRef,
         clearImageRef: photoRemoved,
         imageBytes: preparedPhotoBytes,
@@ -413,7 +423,11 @@ class _WardrobeItemDetailsScreenState extends State<WardrobeItemDetailsScreen> {
                           updatedItem.imageRef?.url)
                     : (updatedItem.imageUrl ?? current.imageUrl)),
           clearImageUrl: photoRemoved,
-          fitConfidence: updatedItem.fitConfidence ?? current.fitConfidence,
+          fitConfidence: fitConfidenceChanged
+              ? (updatedItem.fitConfidence ??
+                    parsedFitConfidence ??
+                    current.fitConfidence)
+              : (updatedItem.fitConfidence ?? current.fitConfidence),
           sourceRunId: updatedItem.sourceRunId ?? current.sourceRunId,
           candidateId: updatedItem.candidateId ?? current.candidateId,
           extractionConfidence:
@@ -820,6 +834,36 @@ class _WardrobeItemDetailsScreenState extends State<WardrobeItemDetailsScreen> {
                 });
               },
             ),
+            if (_newFit != null && _newFit!.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              TextFormField(
+                initialValue: _newFitConfidenceText ?? '',
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: 'Fit confidence (0-1)',
+                  border: OutlineInputBorder(
+                    borderRadius: FansivibeRadius.baseBorder,
+                  ),
+                  hintText: 'Optional, e.g. 0.8',
+                ),
+                validator: (value) {
+                  final raw = value?.trim();
+                  if (raw == null || raw.isEmpty) return null;
+                  final parsed = double.tryParse(raw);
+                  if (parsed == null || parsed < 0 || parsed > 1) {
+                    return 'Enter a value between 0 and 1';
+                  }
+                  return null;
+                },
+                onChanged: (value) {
+                  setState(() {
+                    _newFitConfidenceText = value;
+                  });
+                },
+              ),
+            ],
             const SizedBox(height: 16),
 
             // Favorite toggle
@@ -965,6 +1009,14 @@ class _WardrobeItemDetailsScreenState extends State<WardrobeItemDetailsScreen> {
               value: item.fit!,
             ),
             const SizedBox(height: 12),
+            if (item.fitConfidence != null)
+              _metadataRow(
+                theme,
+                icon: Icons.verified_rounded,
+                label: 'Fit Confidence',
+                value: item.fitConfidence!.toStringAsFixed(2),
+              ),
+            if (item.fitConfidence != null) const SizedBox(height: 12),
           ],
 
           // Favorite

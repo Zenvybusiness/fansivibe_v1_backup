@@ -55,7 +55,7 @@ class UserProfileClient {
         return UserProfile.fromJson(decoded);
       }
       debugPrint(
-        'User profile API GET /v1/users/me responded ${response.statusCode}: ${response.body}',
+        'User profile API GET /v1/users/me responded ${response.statusCode}',
       );
       return null;
     } catch (error) {
@@ -71,6 +71,8 @@ class UserProfileClient {
   Future<UserProfile?> updateProfile({
     List<String>? preferredOccasions,
     String? styleType,
+    Map<String, dynamic>? styleProfile,
+    Map<String, dynamic>? preferences,
     Map<String, dynamic>? settings,
   }) async {
     try {
@@ -81,6 +83,12 @@ class UserProfileClient {
       }
       if (styleType != null && styleType.trim().isNotEmpty) {
         body['styleType'] = styleType.trim();
+      }
+      if (styleProfile != null && styleProfile.isNotEmpty) {
+        body['styleProfile'] = styleProfile;
+      }
+      if (preferences != null) {
+        body.addAll(preferences);
       }
       if (settings != null && settings.isNotEmpty) {
         body['settings'] = settings;
@@ -105,12 +113,43 @@ class UserProfileClient {
         return UserProfile.fromJson(decoded);
       }
       debugPrint(
-        'User profile API PATCH /v1/users/me responded ${response.statusCode}: ${response.body}',
+        'User profile API PATCH /v1/users/me responded ${response.statusCode}',
       );
       return null;
     } catch (error) {
-      debugPrint('User profile backend unreachable during updateProfile: $error');
+      debugPrint(
+        'User profile backend unreachable during updateProfile: $error',
+      );
       return null;
+    }
+  }
+
+  /// Erases the authenticated account via `DELETE /v1/users/me`.
+  ///
+  /// Returns true only on 204. 404 is reported as failure so the caller
+  /// never claims an account deletion it did not confirm.
+  Future<bool> deleteAccount() async {
+    try {
+      final response = await _client
+          .delete(
+            Uri.parse('$baseUrl/v1/users/me'),
+            headers: {
+              'Authorization': 'Bearer $_devToken',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(_timeout);
+      AuthSession.noteStatus(response.statusCode);
+      if (response.statusCode == 204) return true;
+      debugPrint(
+        'User profile API DELETE /v1/users/me responded ${response.statusCode}',
+      );
+      return false;
+    } catch (error) {
+      debugPrint(
+        'User profile backend unreachable during deleteAccount: $error',
+      );
+      return false;
     }
   }
 }

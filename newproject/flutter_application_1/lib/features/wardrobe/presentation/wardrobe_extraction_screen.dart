@@ -458,6 +458,7 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
           '${result.partialFailures.length} detected region(s) could not be extracted cleanly; review the available garments below.';
     }
 
+    final effectiveRunId = runId ?? result.sourceRunId;
     setState(() {
       _stage = ExtractionUiStage.selection;
       _candidates = candidates;
@@ -465,8 +466,8 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
       _stillAnalyzing = false;
       _statusMessage = null;
       _idempotencyKey = null;
-      if (runId != null) {
-        _currentRunId = runId;
+      if (effectiveRunId != null) {
+        _currentRunId = effectiveRunId;
       }
     });
 
@@ -853,13 +854,33 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
           ? rawName
           : '${candidate.color ?? ''} ${candidate.category ?? 'Item'}'.trim();
 
+      MediaRef? provenanceRef;
+      if (isGuestUser) {
+        final rawBytes = candidate.cropBytes ?? photoBytes;
+        provenanceRef = MediaRef(
+          objectKey: candidate.cropKey ?? 'local-$cid',
+          mediaType:
+              (rawBytes == null ? null : detectImageMimeType(rawBytes)) ??
+              'image/jpeg',
+          sourceRunId: _currentRunId,
+          candidateId: cid.isNotEmpty ? cid : null,
+          extractionConfidence: candidate.confidence,
+        );
+      } else if (cloudMediaRef != null) {
+        provenanceRef = cloudMediaRef.copyWith(
+          sourceRunId: _currentRunId,
+          candidateId: cid.isNotEmpty ? cid : null,
+          extractionConfidence: candidate.confidence,
+        );
+      }
+
       try {
         final created = await _repository.createItem(
           name: name,
           category: categoryCode,
           color: colorCode,
           material: candidate.material,
-          imageRef: cloudMediaRef,
+          imageRef: provenanceRef,
           fit: candidate.fit,
         );
 
@@ -868,7 +889,16 @@ class _WardrobeExtractionScreenState extends State<WardrobeExtractionScreen> {
           final prepared = rawBytes != null && rawBytes.isNotEmpty
               ? (await prepareWardrobePhoto(rawBytes) ?? rawBytes)
               : null;
-          final attached = created.copyWith(imageBytes: prepared);
+          var attached = created.copyWith(imageBytes: prepared);
+          if (attached.sourceRunId == null &&
+              attached.candidateId == null &&
+              attached.extractionConfidence == null) {
+            attached = attached.copyWith(
+              sourceRunId: _currentRunId,
+              candidateId: cid.isNotEmpty ? cid : null,
+              extractionConfidence: candidate.confidence,
+            );
+          }
           final entry = wardrobeEntryFromItem(attached);
           if (LearningService.instance.wardrobe.any(
             (e) => e.id == attached.id,

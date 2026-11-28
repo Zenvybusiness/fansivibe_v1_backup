@@ -105,6 +105,22 @@ Future<void> _pumpFrames(WidgetTester tester, {int count = 6}) async {
   }
 }
 
+Future<void> _pumpUntil(
+  WidgetTester tester,
+  bool Function() condition, {
+  required String reason,
+  int attempts = 40,
+}) async {
+  for (var i = 0; i < attempts; i++) {
+    await _pumpFrames(tester, count: 1);
+    if (condition()) return;
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 250)),
+    );
+  }
+  fail('Timed out waiting for $reason');
+}
+
 void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -241,7 +257,11 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 1200));
       });
-      await _pumpFrames(tester);
+      await _pumpUntil(
+        tester,
+        () => find.byType(ExistingUserStyleJourney).evaluate().isNotEmpty,
+        reason: 'ExistingUserStyleJourney after live backend fetch',
+      );
 
       final curWeek = backendHistory1['currentWeek'] as Map<String, dynamic>;
       final prevWeek = backendHistory1['previousWeek'] as Map<String, dynamic>;
@@ -279,9 +299,14 @@ void main() {
       expect(find.text('Last week ($prevRange): $prevScore'), findsOneWidget);
       expect(find.text('+$delta pts vs last week'), findsOneWidget);
       expect(find.text('Rank #$rank of $totalRanked weeks'), findsOneWidget);
-      expect(find.text('Personal best: $bestScore ($bestRange)'), findsOneWidget);
       expect(
-        find.text('$styledDays/7 styled days • $signals style actions this week'),
+        find.text('Personal best: $bestScore ($bestRange)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          '$styledDays/7 styled days • $signals style actions this week',
+        ),
         findsOneWidget,
       );
 
@@ -321,9 +346,17 @@ void main() {
         expect(backendHistory2['bestHistoricalWeek'], isNull);
 
         await AuthSession.saveSession(token2);
-        await Future<void>.delayed(const Duration(milliseconds: 800));
       });
-      await _pumpFrames(tester);
+      await _pumpUntil(
+        tester,
+        () => find
+            .text(
+              'First week in progress — past weeks and personal bests will appear here once recorded.',
+            )
+            .evaluate()
+            .isNotEmpty,
+        reason: 'new-user empty history state',
+      );
 
       await tester.ensureVisible(find.byType(ExistingUserStyleJourney));
       await tester.pump();
@@ -341,8 +374,16 @@ void main() {
       // and re-login refresh restores User 1 history
       await tester.runAsync(() async {
         await AuthSession.saveSession(token1);
-        await Future<void>.delayed(const Duration(milliseconds: 500));
+      });
 
+      final refreshBtn = find.byKey(const Key('style_journey_refresh_button'));
+      await _pumpUntil(
+        tester,
+        () => refreshBtn.evaluate().isNotEmpty,
+        reason: 'style journey refresh button for User 1',
+      );
+
+      await tester.runAsync(() async {
         // Revoke token1 on the backend
         await _postJson(
           rawClient,
@@ -352,16 +393,19 @@ void main() {
           expectedStatus: 204,
         );
       });
-      await _pumpFrames(tester);
 
       // Trigger Style Journey refresh with revoked token1
-      final refreshBtn = find.byIcon(Icons.refresh_rounded);
-      expect(refreshBtn, findsWidgets);
+      await tester.ensureVisible(refreshBtn);
+      await tester.pump();
       await tester.runAsync(() async {
-        await tester.tap(refreshBtn.first);
+        await tester.tap(refreshBtn);
         await Future<void>.delayed(const Duration(milliseconds: 800));
       });
-      await _pumpFrames(tester);
+      await _pumpUntil(
+        tester,
+        () => !AuthSession.isAuthenticated,
+        reason: 'auth expiry after revoked token refresh',
+      );
 
       expect(AuthSession.isAuthenticated, isFalse);
 
@@ -373,10 +417,13 @@ void main() {
         }, expectedStatus: 200);
         final freshToken = login1['accessToken'] as String;
         await AuthSession.saveSession(freshToken);
-        await Future<void>.delayed(const Duration(milliseconds: 800));
         rawClient.close();
       });
-      await _pumpFrames(tester);
+      await _pumpUntil(
+        tester,
+        () => find.text('+$delta pts vs last week').evaluate().isNotEmpty,
+        reason: 'User 1 history after re-authentication',
+      );
 
       expect(AuthSession.isAuthenticated, isTrue);
       await tester.ensureVisible(find.byType(ExistingUserStyleJourney));

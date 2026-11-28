@@ -78,6 +78,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _loadingProfile = false;
   bool _profileHydrationFailed = false;
   List<SavedLookItem> _backendSavedLooks = [];
+  int? _savedLooksTotal;
   List<WardrobeItemData> _wardrobeItems = [];
   WardrobeInsightData? _wardrobeInsight;
   bool _signingOut = false;
@@ -90,8 +91,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _authRepository = widget.authRepository ?? AuthRepositoryImpl();
     _savedLooksRepository =
         widget.savedLooksRepository ?? SavedLooksRepositoryImpl();
-    _wardrobeRepository =
-        widget.wardrobeRepository ?? WardrobeRepositoryImpl();
+    _wardrobeRepository = widget.wardrobeRepository ?? WardrobeRepositoryImpl();
     _userProfileRepository =
         widget.userProfileRepository ?? UserProfileRepositoryImpl();
 
@@ -102,6 +102,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // Listen to real application state changes reactively
     LearningService.instance.addListener(_onStateChanged);
     UserSession.savedWardrobeItemNotifier.addListener(_onStateChanged);
+    UserSession.savedLooksVersion.addListener(_onStateChanged);
     // A sign-in/out on a mounted route must swap data sources instead
     // of keeping the initState snapshot (same pattern as DailyOutfit).
     AuthSession.authVersion.addListener(_onAuthChanged);
@@ -137,8 +138,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
     }
     try {
-      final profile =
-          await _userProfileRepository.fetchProfile(forceRefresh: refresh);
+      final profile = await _userProfileRepository.fetchProfile(
+        forceRefresh: refresh,
+      );
       if (mounted) {
         setState(() {
           _authoritativeProfile = profile;
@@ -167,6 +169,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _summaryFuture = Future.value(null);
         _authoritativeProfile = null;
         _backendSavedLooks = [];
+        _savedLooksTotal = null;
         _wardrobeItems = [];
         _wardrobeInsight = null;
       });
@@ -196,12 +199,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     AuthSession.authVersion.removeListener(_onAuthChanged);
     LearningService.instance.removeListener(_onStateChanged);
     UserSession.savedWardrobeItemNotifier.removeListener(_onStateChanged);
+    UserSession.savedLooksVersion.removeListener(_onStateChanged);
     super.dispose();
   }
 
   void _onStateChanged() {
     if (mounted) {
       if (!isGuestUser) {
+        _loadSavedLooks();
         _loadWardrobeData();
       }
       setState(() {});
@@ -213,10 +218,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // signed-out state never touch account endpoints.
     if (!AuthSession.isAuthenticated) return;
     try {
-      final page = await _savedLooksRepository.listSavedLooks(page: 1, pageSize: 20);
+      final page = await _savedLooksRepository.listSavedLooks(
+        page: 1,
+        pageSize: 20,
+      );
       if (mounted && page != null) {
         setState(() {
           _backendSavedLooks = page.items;
+          _savedLooksTotal = page.total;
         });
       }
     } catch (_) {}
@@ -266,14 +275,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (_wardrobeItems.isNotEmpty) return _wardrobeItems;
     final local = LearningService.instance.wardrobe;
     if (local.isNotEmpty) {
-      return local.map((e) => WardrobeItemData(
-        id: e.id,
-        name: e.name,
-        category: e.category,
-        color: e.color,
-        material: e.material,
-        isFavorite: e.isFavorite,
-      )).toList();
+      return local
+          .map(
+            (e) => WardrobeItemData(
+              id: e.id,
+              name: e.name,
+              category: e.category,
+              color: e.color,
+              material: e.material,
+              isFavorite: e.isFavorite,
+            ),
+          )
+          .toList();
     }
     return const [];
   }
@@ -300,13 +313,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
     };
     for (final item in items) {
       final cat = item.category.toLowerCase();
-      if (cat.contains('top') || cat.contains('shirt') || cat.contains('knit') || cat.contains('sweater') || cat.contains('blouse') || cat.contains('polo') || cat.contains('tee')) {
+      if (cat.contains('top') ||
+          cat.contains('shirt') ||
+          cat.contains('knit') ||
+          cat.contains('sweater') ||
+          cat.contains('blouse') ||
+          cat.contains('polo') ||
+          cat.contains('tee')) {
         counts['tops'] = (counts['tops'] ?? 0) + 1;
-      } else if (cat.contains('bottom') || cat.contains('pant') || cat.contains('trouser') || cat.contains('jean') || cat.contains('chino') || cat.contains('short')) {
+      } else if (cat.contains('bottom') ||
+          cat.contains('pant') ||
+          cat.contains('trouser') ||
+          cat.contains('jean') ||
+          cat.contains('chino') ||
+          cat.contains('short')) {
         counts['bottoms'] = (counts['bottoms'] ?? 0) + 1;
-      } else if (cat.contains('outer') || cat.contains('coat') || cat.contains('jacket') || cat.contains('blazer') || cat.contains('overshirt')) {
+      } else if (cat.contains('outer') ||
+          cat.contains('coat') ||
+          cat.contains('jacket') ||
+          cat.contains('blazer') ||
+          cat.contains('overshirt')) {
         counts['outerwear'] = (counts['outerwear'] ?? 0) + 1;
-      } else if (cat.contains('shoe') || cat.contains('footwear') || cat.contains('boot') || cat.contains('sneaker') || cat.contains('loafer') || cat.contains('oxford')) {
+      } else if (cat.contains('shoe') ||
+          cat.contains('footwear') ||
+          cat.contains('boot') ||
+          cat.contains('sneaker') ||
+          cat.contains('loafer') ||
+          cat.contains('oxford')) {
         counts['footwear'] = (counts['footwear'] ?? 0) + 1;
       } else {
         counts['accessories'] = (counts['accessories'] ?? 0) + 1;
@@ -363,10 +396,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   int get _totalSavedLooksCount {
-    if (_backendSavedLooks.isNotEmpty) return _backendSavedLooks.length;
+    if (_savedLooksTotal != null) return _savedLooksTotal!;
     final localLooks = LearningService.instance.savedLooks;
     if (localLooks.isNotEmpty) return localLooks.length;
-    return LocalStorage.savedLookIds.length;
+    final storedLooks = LocalStorage.savedLookIds;
+    if (storedLooks.isNotEmpty) return storedLooks.length;
+    return 0;
   }
 
   String? get _preferencesSummary {
@@ -378,14 +413,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // Achievements evaluation
+  bool get _hasUserWardrobeEvidence {
+    return _wardrobeItems.isNotEmpty ||
+        UserSession.hasSavedWardrobeItem ||
+        LocalStorage.onboardingPhotoCaptured;
+  }
+
   bool get _colorAchievementUnlocked {
-    return LocalStorage.onboardingPhotoCaptured ||
-        (UserSession.hasSavedWardrobeItem &&
-            LearningService.instance.wardrobe.any((item) => item.color.isNotEmpty));
+    return _hasUserWardrobeEvidence &&
+        _resolvedWardrobeItems.any((item) => item.color.trim().isNotEmpty);
   }
 
   bool get _fitAchievementUnlocked {
-    return UserSession.hasSavedWardrobeItem;
+    return _hasUserWardrobeEvidence && _resolvedWardrobeItems.isNotEmpty;
   }
 
   bool get _occasionAchievementUnlocked {
@@ -431,10 +471,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   bool get _hasCompletedStyleDna {
-    return _skinTone != null &&
-        _faceShape != null &&
-        _bodyType != null &&
-        _styleType != null;
+    return UserStyleProfile(
+      faceShape: _faceShape,
+      skinTone: _skinTone,
+      bodyType: _bodyType,
+      styleType: _styleType,
+    ).isAssessed;
   }
 
   @override
@@ -459,45 +501,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 }
               },
               child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: horizontalPadding,
-                      vertical: 12.0,
-                    ),
-                    child: FutureBuilder<LearningSummary?>(
-                      future: _summaryFuture,
-                      builder: (context, snapshot) {
-                        final summary = snapshot.data;
-                        final isEstablishedWithSummary =
-                            summary != null && summary.styleScore > 0;
+                physics: const BouncingScrollPhysics(),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: horizontalPadding,
+                        vertical: 12.0,
+                      ),
+                      child: FutureBuilder<LearningSummary?>(
+                        future: _summaryFuture,
+                        builder: (context, snapshot) {
+                          final summary = snapshot.data;
+                          final isEstablishedWithSummary =
+                              summary != null && summary.styleScore > 0;
 
-                        if (_isEstablishedUser &&
-                            (summary != null || isGuestUser)) {
-                          return _buildEstablishedProfile(context, summary);
-                        }
+                          if (_isEstablishedUser &&
+                              (summary != null || isGuestUser)) {
+                            return _buildEstablishedProfile(context, summary);
+                          }
 
-                        return _buildNewUserProfile(
-                          context,
-                          summary,
-                          snapshot,
-                          isEstablishedWithSummary,
-                        );
-                      },
+                          return _buildNewUserProfile(
+                            context,
+                            summary,
+                            snapshot,
+                            isEstablishedWithSummary,
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildNewUserProfile(
     BuildContext context,
@@ -575,7 +617,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // --- ESTABLISHED USER DIGITAL ATELIER REDESIGN ---
 
-  Widget _buildEstablishedProfile(BuildContext context, LearningSummary? summary) {
+  Widget _buildEstablishedProfile(
+    BuildContext context,
+    LearningSummary? summary,
+  ) {
     // Authenticated established accounts always arrive here with a live
     // summary (the builder above falls back to the honest new-user design
     // when the fetch fails, so no score is ever invented). Guests have no
@@ -589,7 +634,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final score =
         summary?.styleScore ??
         (isGuestUser ? LearningService.instance.styleScore : 0);
-    final level = score >= 80 ? 'ADVANCED' : (score >= 65 ? 'INTERMEDIATE' : 'DEVELOPING');
+    final level = score >= 80
+        ? 'ADVANCED'
+        : (score >= 65 ? 'INTERMEDIATE' : 'DEVELOPING');
     final wardrobeList = _resolvedWardrobeItems;
     final totalPieces = wardrobeList.length;
     // Style chips come from recorded preferences only — never house copy.
@@ -607,7 +654,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // Top Brand Bar
         EstablishedBrandBar(
           avatarInitials: _displayInitials,
-          onNotificationsTap: () => context.pushNamed(RouteNames.profileSettings),
+          onNotificationsTap: () =>
+              context.pushNamed(RouteNames.profileSettings),
           onAvatarTap: () => context.pushNamed(RouteNames.profileSettings),
         ),
 
@@ -637,16 +685,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         const SizedBox(height: 28),
 
         // Style Intelligence (live score; rank hidden — no rank source)
-        EstablishedStyleIntelligence(
-          styleScore: score,
-        ),
+        EstablishedStyleIntelligence(styleScore: score),
 
         const SizedBox(height: 28),
 
         // Style Progress (current score only — no history source)
-        EstablishedTrajectoryCard(
-          currentScore: score,
-        ),
+        EstablishedTrajectoryCard(currentScore: score),
 
         const SizedBox(height: 32),
 
@@ -674,7 +718,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // Saved Looks (2-Column Editorial Grid)
         EstablishedSavedLooks(
           looks: _backendSavedLooks,
-          onArchivedEnsembles: () => context.pushNamed(RouteNames.profileSavedLooks),
+          onArchivedEnsembles: () =>
+              context.pushNamed(RouteNames.profileSavedLooks),
         ),
 
         const SizedBox(height: 32),
@@ -714,7 +759,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           onWardrobeSync: () => context.goNamed(RouteNames.wardrobe),
           onNotifications: () => context.pushNamed(RouteNames.profileSettings),
           onPrivacy: () => context.pushNamed(RouteNames.profileSettings),
-          onManageMembership: () => context.pushNamed(RouteNames.profileSubscription),
+          onManageMembership: () =>
+              context.pushNamed(RouteNames.profileSubscription),
         ),
 
         const SizedBox(height: 28),
@@ -738,9 +784,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         content: const Text('Profile link copied to clipboard'),
         behavior: SnackBarBehavior.floating,
         backgroundColor: const Color(0xFF222222),
-        shape: RoundedRectangleBorder(
-          borderRadius: FansivibeRadius.smdBorder,
-        ),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
   }
@@ -854,7 +898,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 fontSize: 8,
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: 2.2,
-                                color: FansivibeColors.primary.withValues(alpha: 0.75),
+                                color: FansivibeColors.primary.withValues(
+                                  alpha: 0.75,
+                                ),
                               ),
                             ),
                           ],
@@ -917,10 +963,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             // Preserves exact match for tests looking for @_handle
             if (cleanName != null)
-              Opacity(
-                opacity: 0.0,
-                child: Text('@$_resolvedHandleLower'),
-              ),
+              Opacity(opacity: 0.0, child: Text('@$_resolvedHandleLower')),
             Text(
               _resolvedDisplayName == null
                   ? 'NEW STYLE JOURNEY'
@@ -945,7 +988,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             GestureDetector(
               onTap: () => context.pushNamed(RouteNames.profileSettings),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7.5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 7.5,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF171717),
                   borderRadius: BorderRadius.circular(20),
@@ -990,7 +1036,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 );
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7.5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 7.5,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF171717),
                   borderRadius: BorderRadius.circular(20),
@@ -1027,7 +1076,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // --- 2. CURRENT STYLE SCORE & GLOBAL RANK CARDS ---
-  Widget _buildScoreAndRankCards(BuildContext context, LearningSummary? summary) {
+  Widget _buildScoreAndRankCards(
+    BuildContext context,
+    LearningSummary? summary,
+  ) {
     final isCalibrated = summary != null && summary.styleScore > 0;
     final scoreValue = isCalibrated ? summary.styleScore.toString() : null;
 
@@ -1051,10 +1103,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Stack(
                   alignment: Alignment.centerLeft,
                   children: const [
-                    Opacity(
-                      opacity: 0.0,
-                      child: Text('Style Score'),
-                    ),
+                    Opacity(opacity: 0.0, child: Text('Style Score')),
                     Text(
                       'CURRENT STYLE SCORE',
                       style: TextStyle(
@@ -1079,14 +1128,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           fontSize: 24,
                           fontWeight: FontWeight.w700,
                           color: FansivibeColors.primary,
-                        ),
-                      ),
-                      Text(
-                        '+4.2% this week',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: FansivibeColors.success,
                         ),
                       ),
                     ],
@@ -1181,7 +1222,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 SizedBox(height: 8),
                 Text(
-                  'Complete style profile to\nunlock ranking',
+                  'Global ranking is not\navailable',
                   style: TextStyle(
                     fontSize: 10.5,
                     height: 1.35,
@@ -1197,8 +1238,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // --- 3. STYLE PROGRESS CARD ---
-  Widget _buildStyleProgressCard(BuildContext context, LearningSummary? summary) {
-    const weekLabels = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'Now'];
+  Widget _buildStyleProgressCard(
+    BuildContext context,
+    LearningSummary? summary,
+  ) {
+    final isCalibrated = summary != null && summary.styleScore > 0;
 
     return Container(
       width: double.infinity,
@@ -1227,7 +1271,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               Text(
-                '30-DAY OVERVIEW',
+                'CURRENT STATE',
                 style: TextStyle(
                   fontSize: 9.5,
                   fontWeight: FontWeight.w700,
@@ -1240,58 +1284,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
           const SizedBox(height: 18),
 
-          // 7-Column Minimalist Progress Chart
           Container(
+            width: double.infinity,
             height: 96,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: const Color(0xFF101010),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.04),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: weekLabels.map((label) {
-                final isNow = label == 'Now';
-                return Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Container(
-                      width: 24,
-                      height: isNow ? 32 : 14,
-                      decoration: BoxDecoration(
-                        color: isNow
-                            ? FansivibeColors.primary
-                            : const Color(0xFF1F1F1F),
-                        borderRadius: BorderRadius.circular(4),
-                        boxShadow: isNow
-                            ? [
-                                BoxShadow(
-                                  color: FansivibeColors.primary
-                                      .withValues(alpha: 0.35),
-                                  blurRadius: 8,
-                                ),
-                              ]
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight:
-                            isNow ? FontWeight.w700 : FontWeight.w500,
-                        color: isNow
-                            ? FansivibeColors.primary
-                            : const Color(0xFF6E6E6E),
-                      ),
-                    ),
-                  ],
-                );
-              }).toList(),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isCalibrated ? 'Current score' : 'No score yet',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF8A8580),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  isCalibrated ? summary.styleScore.toString() : '--',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: FansivibeColors.primary,
+                  ),
+                ),
+              ],
             ),
           ),
 
@@ -1309,7 +1331,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Your style journey starts here. Complete your profile and explore Fansivibe to begin tracking precision over time.',
+                  'Your score is calculated from wardrobe and saved-look activity. Score history is not available yet.',
                   style: TextStyle(
                     fontSize: 11,
                     height: 1.45,
@@ -1427,7 +1449,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             return Expanded(
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 4),
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 4,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF151515),
                   borderRadius: BorderRadius.circular(12),
@@ -1632,7 +1657,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   decoration: BoxDecoration(
                     color: const Color(0xFF151515),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.08),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1936,10 +1963,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             subtext,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 10,
-              color: Color(0xFF6E6E6E),
-            ),
+            style: const TextStyle(fontSize: 10, color: Color(0xFF6E6E6E)),
           ),
         ],
       ),
@@ -2024,21 +2048,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            Icon(
-              icon,
-              size: 19,
-              color: const Color(0xFF8A8580),
-            ),
+            Icon(icon, size: 19, color: const Color(0xFF8A8580)),
             const SizedBox(width: 14),
             Expanded(
               child: Stack(
                 alignment: Alignment.centerLeft,
                 children: [
                   // Preserves test find.text('Preferences') etc. while rendering uppercase
-                  Opacity(
-                    opacity: 0.0,
-                    child: Text(legacySearchLabel),
-                  ),
+                  Opacity(opacity: 0.0, child: Text(legacySearchLabel)),
                   Text(
                     title,
                     style: const TextStyle(
@@ -2117,10 +2134,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             alignment: Alignment.center,
             children: [
               // Preserves exact test finder find.text('Sign Out') and find.text('Sign In')
-              Opacity(
-                opacity: 0.0,
-                child: Text(label),
-              ),
+              Opacity(opacity: 0.0, child: Text(label)),
               Text(
                 upperLabel,
                 style: const TextStyle(
@@ -2145,9 +2159,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         content: const Text('Signing out...'),
         backgroundColor: FansivibeColors.accentGold,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: FansivibeRadius.smdBorder,
-        ),
+        shape: RoundedRectangleBorder(borderRadius: FansivibeRadius.smdBorder),
       ),
     );
     await _authRepository.logout();

@@ -1,5 +1,151 @@
 # Fansivibe Current State
 
+## TASK PROFILE TAB END-TO-END — GROUPS 1–8 (executed 2026-11-28, STATUS: COMPLETED; ZERO COMMITS/PUSHES/DEPLOYS/DB MIGRATIONS/DEPENDENCY INSTALLS/FULL SUITE)
+- **Scope completed**:
+  - **Group 1 / preference vocabulary + source of truth**: added backend hair/density/goals/dislikes/maintenance/budget fields with omitted-vs-null semantics, aliases/validation, JSONB settings merge/clear, atomic update path, provenance, assistant context, and Flutter profile/preference/assistant models plus sparse PATCH/sync.
+  - **Group 2 / honest dashboard**: wired backend score/profile/saved-look truth, reactive wardrobe/saved-look refresh, real display name, empty/unavailable states, no seeded-wardrobe achievement unlocks, no fabricated score deltas, no fake global rank.
+  - **Group 3 / saved looks**: paginated envelope/list count, backend-id detail hydration via `details/:id`, confirmation-gated delete with 204/404 handling, list invalidation after detail delete, and status-only client logging.
+  - **Group 4 / account + secondary screens**: honest Subscription/Support screens, sign out, authenticated-only account actions, typed `DELETE` confirmation, `DELETE /v1/users/me` client/repository path, `AuthSession.clearSession()`, and entry-route navigation.
+  - **Group 5 / logging**: removed raw response-body logging from Profile clients; only status and safe error class/message logs remain.
+  - **Groups 6–8 / validation**: formatted touched Dart files, ran focused backend/Flutter suites, `flutter analyze`, `git diff --check`, and this final report.
+- **Pre-existing work preserved**: all Wardrobe, AI Stylist, SJ1–SJ3, H1–H4.4.2, nested CatVTON repo, `.git`, and uncommitted user work were preserved; no reset/revert/stash/clean/overwrite was used. No production DB/config/credentials, deploy, migration, paid API call, or dependency install was performed.
+- **Skills used**: `ponytail` (minimum-diff guidance), `dart-add-unit-test`, `flutter-add-widget-test`, `dart-run-static-analysis`.
+- **Exact changed / added backend files**:
+  - `backend/app/api/routers/users.py`
+  - `backend/app/api/schemas/users.py`
+  - `backend/app/application/users.py`
+  - `backend/app/infrastructure/db/repositories.py`
+  - `backend/app/main.py`
+  - `backend/app/models/schemas.py`
+  - `backend/app/ai/engine.py`
+  - `backend/tests/test_update_preferences.py`
+  - `backend/tests/test_users_api.py`
+- **Exact changed / added Flutter files**:
+  - `newproject/flutter_application_1/lib/app/router/app_router.dart`
+  - `newproject/flutter_application_1/lib/features/assistant/data/models.dart`
+  - `newproject/flutter_application_1/lib/features/assistant/domain/assistant_service.dart`
+  - `newproject/flutter_application_1/lib/features/learning/data/models.dart`
+  - `newproject/flutter_application_1/lib/features/profile/data/saved_looks_client.dart`
+  - `newproject/flutter_application_1/lib/features/profile/data/user_profile_client.dart`
+  - `newproject/flutter_application_1/lib/features/profile/data/user_profile_models.dart`
+  - `newproject/flutter_application_1/lib/features/profile/data/user_profile_repository.dart`
+  - `newproject/flutter_application_1/lib/features/profile/presentation/preferences_screen.dart`
+  - `newproject/flutter_application_1/lib/features/profile/presentation/profile_screen.dart`
+  - `newproject/flutter_application_1/lib/features/profile/presentation/saved_look_details_screen.dart`
+  - `newproject/flutter_application_1/lib/features/profile/presentation/saved_looks_screen.dart`
+  - `newproject/flutter_application_1/lib/features/profile/presentation/settings_screen.dart`
+  - `newproject/flutter_application_1/lib/features/profile/presentation/subscription_screen.dart`
+  - `newproject/flutter_application_1/lib/features/profile/presentation/support_screen.dart`
+  - `newproject/flutter_application_1/lib/features/profile/presentation/widgets/existing_user_profile_widgets.dart`
+  - `newproject/flutter_application_1/test/preferences_settings_persistence_test.dart`
+  - `newproject/flutter_application_1/test/profile_established_user_test.dart`
+  - `newproject/flutter_application_1/test/profile_screen_test.dart`
+  - `newproject/flutter_application_1/test/profile_screens_test.dart`
+  - `newproject/flutter_application_1/test/saved_look_hydration_test.dart`
+  - `newproject/flutter_application_1/test/saved_looks_test.dart`
+  - `newproject/flutter_application_1/test/weather_aware_daily_look_test.dart`
+  - `CURRENT_STATE.md`
+- **Validation (executed after final edits)**:
+  - Backend focused pytest on disposable PG `fansivibe_disposable_test` with Windows `fcntl` shim and pre-existing frozen tests excluded: `88 passed in 15.24s`.
+  - Flutter focused final suite (`profile_screens_test.dart`, `profile_screen_test.dart`, `profile_established_user_test.dart`, `saved_looks_test.dart`, `saved_look_hydration_test.dart`): `All tests passed!`, `94 tests`.
+  - `dart format --output=none --set-exit-if-changed` on touched Dart files: `Formatted 23 files (0 changed)`.
+  - `flutter analyze` from `newproject/flutter_application_1`: `No issues found!`.
+  - `git diff --check`: only expected LF→CRLF normalization warnings for `backend/app/application/users.py`, `docs/PRODUCTION_DEPLOYMENT.md`, `newproject/flutter_application_1/lib/features/profile/presentation/subscription_screen.dart`, and `newproject/flutter_application_1/lib/features/profile/presentation/support_screen.dart`; no whitespace errors.
+- **Known exclusions / not verified**: no full project suite, real device rendering/text-scaling, production infrastructure, real paid AI/storage calls, or production deployment was exercised; Windows scheduler `os.getuid` failure and pre-existing frozen `source_fingerprint` tests remain unrelated known exclusions.
+
+## TASK WARDROBE TAB BUG FIX — GROUPS 1–7 (executed 2026-11-28, STATUS: COMPLETED; ZERO COMMITS/PUSHES/DEPLOYS/DB MIGRATIONS/DEPENDENCY INSTALLS/FULL SUITE)
+- **Scope completed**:
+  - **Group 1 / search + filter + sort**: added real search input and Filter/Sort controls to `WardrobeDashboardHeader`; wired local query/category/color/favorite filtering and name/newest sorting in `WardrobeScreen` with no per-keystroke API calls.
+  - **Group 2 / backend-driven vocabulary**: added `GET /v1/knowledge/materials` using the existing `Materials` table and `ListKnowledgeVocabulary` DTO; added Flutter `listMaterials` client/repository contracts and drove wardrobe categories/filter chips from backend vocabulary.
+  - **Group 3 / guest migration preservation**: guest-to-auth migration now persists `fit`, `fitConfidence`, and extraction provenance (`sourceRunId`, `candidateId`, `extractionConfidence`) from `GuestPhotoEntry` into `createItem`.
+  - **Group 4 / extraction fallback preservation**: `WardrobeExtractionScreen` uses `result.sourceRunId` when no explicit `runId` is present and attaches provenance through `imageRef` for both guest local saves and authenticated repository saves; learning entries keep candidate confidence.
+  - **Group 5 / fit confidence editing**: `WardrobeItemDetailsScreen` displays `fitConfidence`, allows numeric 0–1 edits, validates input, includes it in the no-change gate, sends it via `updateItemDetails`, and preserves it when a response omits the field.
+  - **Group 6 / image replacement provenance safety**: no production change was needed because the existing replacement `MediaRef` path and backend `_merge_extraction_provenance` already preserve source run/candidate/confidence; added regression coverage for top-level fields and `imageRef` patch parity.
+  - **Group 7 / focused validation**: ran targeted Dart analysis, focused Flutter regression batch, focused backend pytest on the disposable DB, and `git diff --check`.
+- **Pre-existing work preserved**:
+  - AI Stylist Groups 1–5, SJ1–SJ3, H1–H4.4.2, nested CatVTON repo, `.git`, and all uncommitted user work were preserved; no reset/revert/stash/clean/overwrite was used.
+  - No DB migration, production data/config change, real paid AI/storage call, or dependency install was performed.
+- **Skills used**: `ponytail` (minimum-diff guidance).
+- **Exact changed / added files**:
+  - Backend code: `backend/app/api/routers/knowledge.py`.
+  - Backend tests: `backend/tests/test_knowledge_reads_api.py`.
+  - Flutter code: `newproject/flutter_application_1/lib/features/wardrobe/presentation/widgets/wardrobe_widgets.dart`, `newproject/flutter_application_1/lib/features/wardrobe/presentation/wardrobe_screen.dart`, `newproject/flutter_application_1/lib/features/knowledge/data/knowledge_client.dart`, `newproject/flutter_application_1/lib/features/knowledge/data/knowledge_repository.dart`, `newproject/flutter_application_1/lib/features/auth/data/guest_data_migration.dart`, `newproject/flutter_application_1/lib/features/wardrobe/presentation/wardrobe_extraction_screen.dart`, `newproject/flutter_application_1/lib/features/wardrobe/presentation/wardrobe_item_details_screen.dart`.
+  - Flutter tests: `newproject/flutter_application_1/test/wardrobe_screen_test.dart`, `test/knowledge_test.dart`, `test/fashion_reasoning_presentation_test.dart`, `test/guest_wardrobe_photo_migration_test.dart`, `test/p5_1_garment_extraction_test.dart`, `test/wardrobe_item_details_screen_test.dart`, `test/p5_2f_digital_wardrobe_test.dart`.
+  - State: `CURRENT_STATE.md`.
+- **Validation (executed after final edits)**:
+  - `flutter test test/wardrobe_screen_test.dart`: `20 passed` initially; `21 passed` after Group 2 vocabulary wiring.
+  - Backend `tests/test_knowledge_reads_api.py`: `20 passed in 52.38s`.
+  - `flutter test test/p5_1_garment_extraction_test.dart`: passed.
+  - `flutter test test/wardrobe_item_details_screen_test.dart`: `18 passed`.
+  - `flutter test test/p5_2f_digital_wardrobe_test.dart`: `13 passed`.
+  - `flutter analyze` from `newproject/flutter_application_1`: `No issues found! (ran in 94.4s)`.
+  - Backend focused pytest (`tests/test_knowledge_reads_api.py`, `tests/test_wardrobe_media_lifecycle_p52c.py`) on disposable PG with Windows `fcntl` shim: `30 passed in 71.18s`.
+  - Final focused Flutter 15-file regression batch (`wardrobe_screen`, `knowledge`, `fashion_reasoning_presentation`, `guest_auth_conversion`, `guest_wardrobe_photo_migration`, `guest_step3`, `wardrobe_auth_isolation`, `p5_1_garment_extraction`, `wardrobe_item_details_screen`, `p5_2f_digital_wardrobe`, `ephemeral_guest_analysis`, `local_wardrobe_repository`, `wardrobe_repository`, `wardrobe_client`, `wardrobe_api_models`): `248 passed`.
+  - `git diff --check`: only the expected CRLF normalization warning for `docs/PRODUCTION_DEPLOYMENT.md`; no whitespace errors.
+- **Known exclusions / not verified**:
+  - No full project test suite was run, and no real device-specific rendering/text-scaling verification was performed.
+  - Windows scheduler tests still hit `module 'os' has no attribute 'getuid'` at `backend/app/ai/manager/scheduler.py:326`; unrelated to this Wardrobe task.
+  - Pre-existing frozen `source_fingerprint` tests were not rewritten.
+  - Clearing an existing `fitConfidence` to explicit null is not a new supported path; the edit UI validates/preserves numeric 0–1 values.
+
+## TASK AI-STYLIST MASTER REPAIR — GROUP 1–5 (executed 2026-11-28, STATUS: COMPLETED; ZERO COMMITS/PUSHES/DEPLOYS/PRODUCTION CONFIG CHANGES)
+- **Scope completed**:
+  - **Group 1 / P0**: fixed the real app router so `/stylist/build-outfit/generation` forwards the natural-language `query` extra into `OutfitGenerationScreen`; added a real-router regression test.
+  - **Group 2 / LLM honesty + observability**: added private LLM provenance (`generated`/`fallback` with reason), truthful Flutter `AI-assisted` / `Rules-based` badges, provider/model/status/reason/duration key=value logs with no content/PII/tokens, Prometheus counters and duration totals, and an additive `AssistantReply.llmProvenance` DTO (no DB migration).
+  - **Group 3 / Stylist analysis history**: added a single Stylist entry card plus list/detail screens using typed `AnalysisRun` data and existing hairstyle service/client endpoints (`listRuns`, `getAnalysisRun`), with injected-service widget tests. Guest/read-only behavior remains honest; no backend schema change.
+  - **Group 4 / provider + Try-On config truth**: corrected canonical Ollama/LLM env names and model/timeout distinctions, production startup-gate name, Try-On provider gate, migration head (`0041`), health-vs-credits split, `.env.example` labeling, backend README model defaults, Genlook doc status, and added a concise go-live checklist in `docs/PRODUCTION_DEPLOYMENT.md`.
+  - **Group 5 / focused regression**: ran selected Dart analysis, Flutter tests, backend pytest, and `git diff --check`. No full test suite was run.
+- **Pre-existing work preserved**:
+  - `CURRENT_STATE.md` and `newproject/flutter_application_1/test/sj3_style_journey_e2e_test.dart` were already modified at task start and were preserved.
+  - Nested CatVTON repo, `.git`, all prior H1–H4.4.2/SJ1–SJ3 milestones, and uncommitted user work were untouched.
+- **Skills used**: `ponytail` (minimal-diff guidance), `flutter-add-widget-test`, `dart-add-unit-test`, `dart-run-static-analysis`, `flutter-apply-architecture-best-practices` (plus previously loaded routing/HTTP/responsive-layout skill context).
+- **Exact changed / added files**:
+  - Backend code: `backend/app/ai/llm_backend.py`, `backend/app/ai/engine.py`, `backend/app/models/schemas.py`, `backend/app/telemetry/metrics.py`.
+  - Backend tests: `backend/tests/test_llm_backend_scheduler_lifecycle.py`.
+  - Flutter code: `newproject/flutter_application_1/lib/app/router/app_router.dart`, `lib/app/router/route_names.dart`, `lib/features/assistant/data/models.dart`, `lib/features/assistant/domain/assistant_service.dart`, `lib/features/assistant/presentation/widgets/assistant_widgets.dart`, `lib/features/hairstyle/domain/hairstyle_service.dart`, `lib/features/stylist/presentation/stylist_screen.dart`, `lib/features/stylist/presentation/stylist_history_screen.dart` (new).
+  - Flutter tests: `test/outfit_builder_screens_test.dart`, `test/assistant_offline_labeling_test.dart`, `test/stylist_history_test.dart` (new).
+  - Docs/config: `docs/PRODUCTION_DEPLOYMENT.md`, `backend/.env.example`, `backend/README.md`, `FANSIVIBE_PHASE5F_GENLOOK_INTEGRATION.md`.
+  - State: `CURRENT_STATE.md`.
+- **Validation (executed after final edits)**:
+  - `dart analyze` on all touched Dart files: `No issues found!`.
+  - `flutter test --reporter compact` on 9 focused files (`outfit_builder_screens`, `outfit_generation_e2e`, `assistant_offline_labeling`, `stylist_history`, `ai_stylist_e2e`, `try_on_flow`, `try_on_complete_journey`, `p5_1_garment_extraction`, `sj3_style_journey_e2e`): `121 passed, 1 skipped`.
+  - Focused `stylist_history_test.dart`: `2 passed`.
+  - Backend focused pytest (`test_fallback_provenance_is_private_and_recorded`, `test_enrichment.py`, `test_ai_stylist_e2e.py`, `test_staging_observability.py`, `test_analysis_api.py`, `test_tryon_mock_api.py`, `test_tryon_phase5f_genlook.py`, `-k "not frozen"`) on disposable PG with Windows `fcntl` shim: `104 passed, 24 skipped, 2 deselected`.
+  - `git diff --check`: only the expected CRLF normalization warning for `docs/PRODUCTION_DEPLOYMENT.md`; no whitespace errors.
+- **Known exclusions / not verified**:
+  - No real Ollama/Genlook/R2 calls, no paid API smoke tests, no production env/deploy, no schema changes/migrations, and no full suite.
+  - Windows scheduler tests still hit `module 'os' has no attribute 'getuid'` at `backend/app/ai/manager/scheduler.py:326`; the new provenance test monkeypatches its lease context.
+  - Pre-existing frozen `source_fingerprint` tests were excluded with `-k "not frozen"`; no attempt was made to rewrite frozen baselines.
+  - Real device behavior and production infrastructure remain owner-provisioned/owner-approved.
+
+## TASK SJ3 — SJ1 → FLUTTER HOME STYLE JOURNEY E2E VERIFICATION (executed 2026-11-28, STATUS: COMPLETED & VERIFIED ON DISPOSABLE PG `fansivibe_disposable_test` + LOCAL FLUTTER/LIVE BACKEND; ZERO COMMITS/PUSHES/PRODUCTION CHANGES)
+- **Scope Verified**:
+  - Existing backend `backend/tests/test_sj3_style_journey_e2e.py` and live Flutter `newproject/flutter_application_1/test/sj3_style_journey_e2e_test.dart` cover authenticated supported activity flows, immutable/idempotent SJ1 weekly snapshots, `GET /v1/learning/journey/history`, current/previous week, integer delta, personal rank/best, Home hero/card/stat parity, new-user empty state, user isolation, logout → 401 → re-login, refresh, and unchanged M10 score/streak behavior.
+  - Backend truth was checked against `StyleJourneyWeeklySnapshots`, `LearningSignals`, `ActivityDays`, and `Users` on the disposable DB only; no production data was used or modified.
+- **Environment Setup (local verification only)**:
+  - Created disposable DB `fansivibe_disposable_test` because it did not exist; owner `fansivibe`; Alembic head applied by test setup.
+  - Installed already-declared `boto3==1.43.123` in the global Python environment.
+  - Used Windows-only `fcntl` shim at `C:\Users\user\AppData\Local\Temp\opencode\sj3-shim\fcntl.py` for backend imports; shim is outside the repo and not a code change.
+  - Local Uvicorn server on `http://127.0.0.1:8000` used fake storage, mock try-on, disabled reasoning/vision and rate limiting, and a synthetic auth secret.
+- **Change Applied (test reliability only)**:
+  - `newproject/flutter_application_1/test/sj3_style_journey_e2e_test.dart`: added `_pumpUntil(...)` to replace brittle fixed waits, waited for `ExistingUserStyleJourney`, the new-user empty state, and re-authenticated history explicitly, and used `Key('style_journey_refresh_button')` + `ensureVisible` so the revoked-token refresh tap hits the real widget.
+  - No app, business, UI, schema, or production code changed; no commits/pushes/deployments/production migrations/paid API calls.
+- **Exact Changed Files (SJ3)**:
+  - `newproject/flutter_application_1/test/sj3_style_journey_e2e_test.dart`
+  - `CURRENT_STATE.md`
+- **Verification (executed after final edits)**:
+  - Backend SJ3 integration (`tests/test_sj3_style_journey_e2e.py`, `FANSIVIBE_TEST_DATABASE_URL=...fansivibe_disposable_test`): `1 passed, 0 failed, 0 skipped` (`4 InsecureKeyLengthWarning warnings`).
+  - Backend SJ1/M10/users regression (`test_sj1_style_journey_history.py`, `test_m10b_learning_summary.py`, `test_m10a_activity_days.py`, `test_users_api.py`): `61 passed, 0 failed, 0 skipped`.
+  - `dart format --output=none --set-exit-if-changed test/sj3_style_journey_e2e_test.dart`: `Formatted 1 file (0 changed)`, `exit 0`.
+  - `flutter analyze`: `No issues found!` (`128.7s`).
+  - Flutter focused default suite (`sj3_style_journey_e2e_test.dart`, `sj2_style_journey_history_test.dart`, `learning_summary_test.dart`, `home_screen_test.dart`, `first_time_home_screen_test.dart`, `auth_data_boundary_test.dart`): `64 passed, 0 failed, 1 skipped` (SJ3 live test gated by `SJ3_LIVE_E2E`).
+  - Flutter focused live suite (same 6 files with `SJ3_LIVE_E2E=true`, `ASSISTANT_BASE_URL=http://127.0.0.1:8000`): `65 passed, 0 failed, 0 skipped`.
+  - Live SJ3 E2E alone: `4/4` consecutive runs passed (`1 passed, 0 failed, 0 skipped` each; 3 before formatting, 1 after formatting).
+  - `git diff --check`: `exit 0`.
+- **Not Verified**:
+  - Real Android/iOS device-specific behavior: platform secure token storage (`Keychain`/`EncryptedSharedPreferences`), physical pull-to-refresh gesture handling, OS-level network interruption/401 redirect, and device-specific rendering/text scaling.
+  - No real Genlook/R2/vision/reasoning calls were made; verification used local mock/fake providers and the disposable DB.
+
 ## TASK SJ2 — FLUTTER STYLE JOURNEY HISTORY UI (executed 2026-11-28, STATUS: COMPLETED & VERIFIED ON FLUTTER REGRESSION SUITE; ZERO COMMITS/PUSHES)
 - **Data & Repository Layer (`newproject/flutter_application_1/lib/features/learning/`)**:
   - Added `style_journey_models.dart` (`WeeklyProgressItem`, `StyleJourneyComparison`, `StyleJourneyHistory`, `StyleJourneyFailure`, `StyleJourneyHistoryResult`) mirroring SJ1 `GET /v1/learning/journey/history` schemas (`backend/app/api/schemas/learning.py`), with ISO date/timestamp parsing, chronological chart ordering (`chronologicalWeeks`), and date-range labels (`shortStartLabel`, `shortRangeLabel`).

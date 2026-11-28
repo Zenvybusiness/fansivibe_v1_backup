@@ -530,6 +530,88 @@ class UserStateRepositorySQL:
         self._session.execute(stmt)
         self._session.commit()
 
+    def update_profile(
+        self,
+        *,
+        user_id: UUID,
+        style_profile: Optional[dict] = None,
+        preferences: Optional[dict] = None,
+        settings: Optional[dict] = None,
+    ) -> bool:
+        style_patch = dict(style_profile or {})
+        preferences_patch = dict(preferences or {})
+        settings_patch = dict(settings or {})
+        clear_settings = settings_patch.pop("__clear__", False) is True
+
+        style_values = {
+            key: value for key, value in style_patch.items() if value is not None
+        }
+        preference_values = {
+            key: value for key, value in preferences_patch.items() if value is not None
+        }
+        if not (
+            style_patch
+            or preferences_patch
+            or settings_patch
+            or clear_settings
+        ):
+            return True
+
+        base_style = func.coalesce(UserState.style_profile, cast({}, JSONB))
+        base_preferences = func.coalesce(UserState.preferences, cast({}, JSONB))
+        style_expr = (
+            base_style.op("||")(cast(style_values, JSONB)) if style_values else base_style
+        )
+        for key in (key for key, value in style_patch.items() if value is None):
+            style_expr = style_expr.op("#-")(cast([key], JSONB))
+
+        preferences_expr = (
+            base_preferences.op("||")(cast(preference_values, JSONB))
+            if preference_values
+            else base_preferences
+        )
+        for key in (key for key, value in preferences_patch.items() if value is None):
+            preferences_expr = preferences_expr.op("#-")(cast([key], JSONB))
+
+        if clear_settings or settings_patch:
+            settings_expr = cast({}, JSONB) if clear_settings else (
+                func.coalesce(
+                    base_preferences.op("->")("settings"), cast({}, JSONB)
+                ).op("||")(cast(settings_patch, JSONB))
+            )
+            preferences_expr = func.jsonb_set(
+                preferences_expr,
+                text("'{settings}'"),
+                settings_expr,
+                True,
+            )
+
+        changed = or_(
+            style_expr != func.coalesce(UserState.style_profile, cast({}, JSONB)),
+            preferences_expr
+            != func.coalesce(UserState.preferences, cast({}, JSONB)),
+        )
+        stmt = (
+            update(UserState)
+            .where(UserState.user_id == user_id, changed)
+            .values(
+                style_profile=style_expr,
+                preferences=preferences_expr,
+                version=UserState.version + 1,
+                updated_at=func.now(),
+            )
+        )
+        try:
+            result = self._session.execute(stmt)
+            rowcount = getattr(result, "rowcount", 1) if result is not None else 1
+            self._session.commit()
+            return rowcount > 0
+        except Exception:
+            rollback = getattr(self._session, "rollback", None)
+            if callable(rollback):
+                rollback()
+            raise
+
 
 class SavedLookRepositorySQL:
     def __init__(self, session: Session) -> None:

@@ -20,7 +20,13 @@ from app.api.deps import get_current_user_id, get_storage_adapter
 from app.api.rate_limit import auth_rate_limit
 from app.api.schemas.users import ProfileView, StyleProfile, UpdatePreferencesRequest
 from app.application.auth import EraseAccount
-from app.application.users import GetProfile, UpdatePreferences
+from app.application.users import (
+    GetProfile,
+    PREFERENCE_KEYS,
+    STYLE_PROFILE_ALIASES,
+    STYLE_PROFILE_KEYS,
+    UpdatePreferences,
+)
 from app.domain.ports.repositories import UserProfileRecord
 from app.domain.ports.storage import ObjectStoragePort
 from app.infrastructure.db.repositories import AuthRepositorySQL, SavedLookRepositorySQL, UserStateRepositorySQL
@@ -32,9 +38,12 @@ _STYLE_PROFILE_KEYS = {
     "face_shape": "faceShape",
     "skin_tone": "skinTone",
     "body_type": "bodyType",
+    "hair_type": "hairType",
+    "hair_density": "hairDensity",
     "style_type": "styleType",
     "source_run_id": "sourceRunId",
 }
+_WIRE_TO_DB_PREFERENCES = {wire: db for wire, db in PREFERENCE_KEYS.items()}
 
 
 def _to_style_profile(style: dict[str, Any]) -> StyleProfile:
@@ -47,9 +56,12 @@ def _to_style_profile(style: dict[str, Any]) -> StyleProfile:
 
 
 def _to_preferences(preferences: dict[str, Any]) -> dict[str, Any]:
-    """Map the stored snake_case key to the contract's camelCase wire key."""
+    """Map stored snake_case keys to the contract's camelCase wire keys."""
     return {
-        "preferredOccasions" if key == "preferred_occasions" else key: value
+        next(
+            (wire for wire, db in _WIRE_TO_DB_PREFERENCES.items() if db == key),
+            key,
+        ): value
         for key, value in preferences.items()
         if key != "settings"
     }
@@ -123,24 +135,31 @@ def update_me(
     """Persist caller preferences (preferred occasions, style archetype, settings)
     and return the updated profile (same `ProfileView` contract as `GET /me`)."""
     use_case = UpdatePreferences(user_state=UserStateRepositorySQL(db))
-    style_type = request.styleType
-    if style_type is None and request.styleProfile:
-        style_type = (
-            request.styleProfile.get("styleType")
-            or request.styleProfile.get("style_type")
-        )
+    provided = request.model_fields_set
     kwargs: dict[str, Any] = {}
-    if request.preferredOccasions is not None:
+    if "preferredOccasions" in provided:
         kwargs["preferred_occasions"] = request.preferredOccasions
-    if style_type is not None:
-        kwargs["style_type"] = style_type
-    if request.settings is not None:
+    if "styleType" in provided:
+        kwargs["style_type"] = request.styleType
+    if "styleProfile" in provided and isinstance(request.styleProfile, dict):
+        filtered = {}
+        for key, value in request.styleProfile.items():
+            if key in STYLE_PROFILE_KEYS or key in STYLE_PROFILE_ALIASES:
+                filtered[key] = value
+        if filtered:
+            kwargs["style_profile"] = filtered
+    if "appearanceGoals" in provided:
+        kwargs["appearance_goals"] = request.appearanceGoals
+    if "dislikes" in provided:
+        kwargs["dislikes"] = request.dislikes
+    if "maintenancePreference" in provided:
+        kwargs["maintenance_preference"] = request.maintenancePreference
+    if "maxBudget" in provided:
+        kwargs["max_budget"] = request.maxBudget
+    if "settings" in provided:
         kwargs["settings"] = request.settings
 
-    record = use_case(
-        user_id=user_id,
-        **kwargs,
-    )
+    record = use_case(user_id=user_id, **kwargs)
     return build_profile_view(db, record)
 
 

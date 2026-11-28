@@ -38,7 +38,11 @@ Widget _wrapScreen(WardrobeItemData item, {bool deleteSucceeds = true}) {
   final repo = WardrobeRepositoryImpl(client: wardrobeClient);
   return MaterialApp(
     theme: ThemeData.dark(),
-    home: WardrobeItemDetailsScreen(itemId: item.id, item: item, repository: repo),
+    home: WardrobeItemDetailsScreen(
+      itemId: item.id,
+      item: item,
+      repository: repo,
+    ),
   );
 }
 
@@ -140,12 +144,14 @@ void main() {
       WidgetTester tester,
     ) async {
       final item = WardrobeMockData.items.first;
-      LearningService.instance.addItem(WardrobeEntry(
-        id: item.id,
-        name: item.name,
-        category: item.category,
-        color: item.color,
-      ));
+      LearningService.instance.addItem(
+        WardrobeEntry(
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          color: item.color,
+        ),
+      );
       await tester.pumpWidget(_wrapScreen(item));
       await tester.pumpAndSettle();
 
@@ -153,9 +159,17 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Delete Item'), findsOneWidget);
-      expect(find.text('Are you sure you want to remove "Merino Crew Neck"?'), findsOneWidget);
+      expect(
+        find.text('Are you sure you want to remove "Merino Crew Neck"?'),
+        findsOneWidget,
+      );
 
-      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Delete')));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Delete'),
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -193,7 +207,9 @@ void main() {
           200,
         );
       });
-      final repo = WardrobeRepositoryImpl(client: WardrobeClient(client: httpClient));
+      final repo = WardrobeRepositoryImpl(
+        client: WardrobeClient(client: httpClient),
+      );
 
       await tester.pumpWidget(
         MaterialApp(
@@ -234,7 +250,9 @@ void main() {
       expect(find.text('Charcoal'), findsOneWidget);
     });
 
-    testWidgets('duplicate delete submission is prevented', (WidgetTester tester) async {
+    testWidgets('duplicate delete submission is prevented', (
+      WidgetTester tester,
+    ) async {
       final item = WardrobeMockData.items.first;
       await tester.pumpWidget(_wrapScreen(item));
       await tester.pumpAndSettle();
@@ -245,7 +263,9 @@ void main() {
       expect(find.byType(AlertDialog), findsOneWidget);
     });
 
-    testWidgets('API/network failure during deletion shows error', (WidgetTester tester) async {
+    testWidgets('API/network failure during deletion shows error', (
+      WidgetTester tester,
+    ) async {
       final item = WardrobeMockData.items.first;
       await tester.pumpWidget(_wrapScreen(item, deleteSucceeds: false));
       await tester.pumpAndSettle();
@@ -253,14 +273,24 @@ void main() {
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Delete')));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Delete'),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      expect(find.text('Failed to delete item. Please try again.'), findsOneWidget);
+      expect(
+        find.text('Failed to delete item. Please try again.'),
+        findsOneWidget,
+      );
       expect(find.byType(WardrobeItemDetailsScreen), findsOneWidget);
     });
 
-    testWidgets('correct navigation after successful deletion', (WidgetTester tester) async {
+    testWidgets('correct navigation after successful deletion', (
+      WidgetTester tester,
+    ) async {
       final item = WardrobeMockData.items.first;
       await tester.pumpWidget(
         MaterialApp(
@@ -307,34 +337,53 @@ void main() {
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Delete')));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Delete'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byType(WardrobeItemDetailsScreen), findsNothing);
     });
 
-    testWidgets('deleted item removed from list/state', (WidgetTester tester) async {
+    testWidgets('deleted item removed from list/state', (
+      WidgetTester tester,
+    ) async {
       final item = WardrobeMockData.items.first;
       LearningService.instance.resetForTest();
-      LearningService.instance.addItem(WardrobeEntry(
-        id: item.id,
-        name: item.name,
-        category: item.category,
-        color: item.color,
-      ));
+      LearningService.instance.addItem(
+        WardrobeEntry(
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          color: item.color,
+        ),
+      );
       await tester.pumpWidget(_wrapScreen(item));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Delete')));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Delete'),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      expect(LearningService.instance.wardrobe.any((i) => i.id == item.id), isFalse);
+      expect(
+        LearningService.instance.wardrobe.any((i) => i.id == item.id),
+        isFalse,
+      );
     });
 
-    testWidgets('renders details section without material when null', (WidgetTester tester) async {
+    testWidgets('renders details section without material when null', (
+      WidgetTester tester,
+    ) async {
       final item = WardrobeItemData(
         id: 'test',
         name: 'Test Item',
@@ -363,20 +412,88 @@ void main() {
 
       final nameField = tester
           .widgetList<TextField>(find.byType(TextField))
-          .firstWhere(
-            (field) => field.decoration?.labelText == 'Name',
-          );
+          .firstWhere((field) => field.decoration?.labelText == 'Name');
       final decoration = nameField.decoration!;
       expect(
         (decoration.errorBorder! as OutlineInputBorder).borderSide.color,
         FansivibeColors.error,
       );
       expect(
-        (decoration.focusedErrorBorder! as OutlineInputBorder)
-            .borderSide
-            .color,
+        (decoration.focusedErrorBorder! as OutlineInputBorder).borderSide.color,
         FansivibeColors.error,
       );
+    });
+
+    testWidgets('edits fit confidence and sends it on PATCH', (
+      WidgetTester tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final item = WardrobeItemData(
+        id: '78ff3686-c950-4cd6-84c3-7e18d6634dfa',
+        name: 'Fit Item',
+        category: 'tops',
+        color: 'Black',
+        fit: 'regular',
+        fitConfidence: 0.5,
+      );
+      Map<String, dynamic>? patchBody;
+      Map<String, dynamic> itemJson(double? fitConfidence) => {
+        'id': item.id,
+        'name': item.name,
+        'category': item.category,
+        'color': item.color,
+        'isFavorite': item.isFavorite,
+        'fit': item.fit,
+        'fitConfidence': fitConfidence,
+        'createdAt': '2024-01-15T10:00:00Z',
+        'updatedAt': '2024-01-15T10:00:00Z',
+      };
+      final httpClient = MockClient((request) async {
+        if (request.method == 'PATCH') {
+          patchBody = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode(
+              itemJson((patchBody!['fitConfidence'] as num?)?.toDouble()),
+            ),
+            200,
+          );
+        }
+        return http.Response(jsonEncode(itemJson(0.5)), 200);
+      });
+      final repo = WardrobeRepositoryImpl(
+        client: WardrobeClient(client: httpClient),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: WardrobeItemDetailsScreen(
+            itemId: item.id,
+            item: item,
+            repository: repo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is TextField &&
+              widget.decoration?.labelText == 'Fit confidence (0-1)',
+        ),
+        '0.8',
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(patchBody, isNotNull);
+      expect(patchBody!['fitConfidence'], 0.8);
+      expect(find.text('Fit Confidence'), findsOneWidget);
+      expect(find.text('0.80'), findsOneWidget);
     });
   });
 }

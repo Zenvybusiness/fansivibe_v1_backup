@@ -18,6 +18,7 @@ unconfirmed, triggering scheduler quarantine and lock retention.
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from typing import Any
 from unittest.mock import patch
 
@@ -27,6 +28,7 @@ import pytest
 from app.ai import llm_backend
 from app.ai.manager.scheduler import GPUResourceScheduler
 from app.ai.manager.types import GPUSchedulerLease, LeaseState, WorkloadType
+from app.telemetry.metrics import get_metrics_collector
 
 
 def _make_test_scheduler(tmp_path, **kwargs) -> GPUResourceScheduler:
@@ -228,4 +230,53 @@ def test_connection_error_before_submission_does_not_quarantine(tmp_path, monkey
 
     assert result == base_text
     assert scheduler.is_quarantined() is False
+
+
+def test_fallback_provenance_is_private_and_recorded(monkeypatch):
+    monkeypatch.setattr(
+        llm_backend,
+        "_acquire_gpu_lease_context",
+        lambda model: nullcontext(None),
+    )
+    collector = get_metrics_collector()
+    before = collector.get_summary().get("llm_enrichments", {})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("secret prompt must never be logged")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    state = llm_backend.LlmProvenanceState()
+    base_text = "Base fallback."
+
+    result = llm_backend.enrich_reply(
+        intent="outfit",
+        base_text=base_text,
+        context="private user context",
+        client=client,
+        provenance_out=state,
+    )
+
+    assert result == base_text
+    assert state.status == "fallback"
+    assert state.reason == "provider_unreachable"
+    assert state.error_type == "ConnectError"
+    assert state.duration_ms is not None
+    assert state.to_dict()["errorType"] == "ConnectError"
+    assert state.to_dict()["durationMs"] == state.duration_ms
+
+    key = ":".join(
+        [
+            state.provider,
+            state.model or "unknown",
+            "fallback",
+            "provider_unreachable",
+            "ConnectError",
+        ]
+    )
+    after = collector.get_summary().get("llm_enrichments", {})
+    assert after.get(key, 0) == before.get(key, 0) + 1
+
+    prom = collector.format_prometheus()
+    assert 'reason="provider_unreachable"' in prom
+    assert "secret prompt must never be logged" not in prom
 

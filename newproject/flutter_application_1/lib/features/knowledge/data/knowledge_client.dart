@@ -101,6 +101,20 @@ class KnowledgeClient {
     );
   }
 
+  /// Fetches the canonical garment-material vocabulary.
+  ///
+  /// Returns the [KnowledgeVocabularyList] on 200, or null when unavailable.
+  Future<KnowledgeVocabularyList?> listMaterials({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    return _listVocabulary(
+      '/v1/knowledge/materials',
+      page: page,
+      pageSize: pageSize,
+    );
+  }
+
   /// Fetches the frozen 9-row occasion vocabulary (#21, DEC-014 P-1).
   ///
   /// Returns the [KnowledgeVocabularyList] on 200, or null when unavailable.
@@ -209,10 +223,7 @@ class KnowledgeClient {
     if (name.isEmpty) return null;
     try {
       final response = await _client
-          .get(
-            Uri.parse('$baseUrl/v1/knowledge/ffo/$name'),
-            headers: _headers,
-          )
+          .get(Uri.parse('$baseUrl/v1/knowledge/ffo/$name'), headers: _headers)
           .timeout(_timeout);
       AuthSession.noteStatus(response.statusCode);
       if (response.statusCode == 200) {
@@ -268,7 +279,9 @@ class KnowledgeClient {
           );
         } catch (error) {
           debugPrint('Malformed 200 body from reasoning service: $error');
-          return const ReasoningResult.failure(ReasoningFailure.malformedOutput);
+          return const ReasoningResult.failure(
+            ReasoningFailure.malformedOutput,
+          );
         }
       }
 
@@ -316,4 +329,3 @@ class KnowledgeClient {
     };
   }
 }
-

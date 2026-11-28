@@ -80,6 +80,42 @@ void main() {
         expect(find.text('What should I wear?'), findsOneWidget);
       },
     );
+
+    testWidgets('shows "AI-assisted" badge for generated LLM provenance', (
+      WidgetTester tester,
+    ) async {
+      const message = AssistantMessage(
+        role: 'assistant',
+        text: 'AI-assisted guidance.',
+        llmProvenance: LlmProvenance(status: 'generated'),
+      );
+
+      await tester.pumpWidget(_bubbleHarness(message: message));
+
+      expect(find.byKey(const Key('assistant_ai_badge')), findsOneWidget);
+      expect(find.text('AI-assisted'), findsOneWidget);
+      expect(find.byIcon(Icons.auto_awesome_rounded), findsOneWidget);
+    });
+
+    testWidgets(
+      'shows "Rules-based" badge for deterministic fallback provenance',
+      (WidgetTester tester) async {
+        const message = AssistantMessage(
+          role: 'assistant',
+          text: 'Rules-based guidance.',
+          llmProvenance: LlmProvenance(
+            status: 'fallback',
+            reason: 'provider_unavailable',
+          ),
+        );
+
+        await tester.pumpWidget(_bubbleHarness(message: message));
+
+        expect(find.byKey(const Key('assistant_rules_badge')), findsOneWidget);
+        expect(find.text('Rules-based'), findsOneWidget);
+        expect(find.byIcon(Icons.info_outline), findsOneWidget);
+      },
+    );
   });
 
   group('P2-4: AssistantService data flow', () {
@@ -141,6 +177,41 @@ void main() {
         expect(assistantMsg.text, 'Live backend stylist response.');
       },
     );
+
+    test('parses backend LLM provenance on the assistant message', () async {
+      final liveReplyJson = jsonEncode({
+        'intent': 'greeting',
+        'text': 'Backend reply.',
+        'cards': <dynamic>[],
+        'clarifications': <dynamic>[],
+        'llmProvenance': {
+          'provider': 'ollama',
+          'model': 'qwen3-vl:4b-instruct',
+          'status': 'fallback',
+          'reason': 'timeout',
+          'errorType': 'ReadTimeout',
+          'durationMs': 10002,
+        },
+      });
+      final client = AssistantClient(
+        client: MockClient((request) async {
+          return http.Response(
+            liveReplyJson,
+            200,
+            headers: {'content-type': 'application/json; charset=UTF-8'},
+          );
+        }),
+      );
+
+      final service = AssistantService(client: client);
+      await service.send('hello');
+
+      final provenance = service.messages[1].llmProvenance;
+      expect(provenance, isNotNull);
+      expect(provenance!.status, 'fallback');
+      expect(provenance.reason, 'timeout');
+      expect(provenance.durationMs, 10002);
+    });
   });
 
   group('P2-4: AssistantScreen integration', () {

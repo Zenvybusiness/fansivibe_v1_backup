@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:fansivibe/features/profile/data/profile_mocks.dart';
 import 'package:fansivibe/shared/components/fansivibe_card.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
-import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 
 class SubscriptionScreen extends StatelessWidget {
   const SubscriptionScreen({super.key});
@@ -10,7 +8,6 @@ class SubscriptionScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final plans = ProfileMockData.plans;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -42,7 +39,7 @@ class SubscriptionScreen extends StatelessWidget {
                       children: [
                         const SizedBox(height: 8),
                         Text(
-                          'Choose Your Plan',
+                          'Subscriptions',
                           style: theme.textTheme.headlineMedium?.copyWith(
                             fontWeight: FontWeight.w600,
                             color: FansivibeColors.textPrimary,
@@ -50,25 +47,38 @@ class SubscriptionScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Unlock premium style features',
+                          'Premium plans are not available',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: FansivibeColors.textSecondary,
                           ),
                         ),
                         const SizedBox(height: 24),
-                        ...plans.map(
-                          (plan) => Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: _PlanCard(plan: plan),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Center(
-                          child: Text(
-                            'Cancel anytime · No hidden fees',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: FansivibeColors.textSecondary,
-                            ),
+                        FansivibeCard(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.info_outline_rounded,
+                                size: 32,
+                                color: FansivibeColors.accentGold,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No plans connected',
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: FansivibeColors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'This build does not include billing or subscription plans. No purchases can be made from this screen.',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: FansivibeColors.textSecondary,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 32),
@@ -80,149 +90,6 @@ class SubscriptionScreen extends StatelessWidget {
             );
           },
         ),
-      ),
-    );
-  }
-}
-
-class _PlanCard extends StatelessWidget {
-  const _PlanCard({required this.plan});
-
-  final SubscriptionPlan plan;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return FansivibeCard(
-      variant: plan.isPopular ? CardVariant.high : CardVariant.container,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Text(
-                  plan.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: FansivibeColors.textPrimary,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              if (plan.isPopular)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: FansivibeColors.accentGold,
-                    borderRadius: FansivibeRadius.smdBorder,
-                  ),
-                  child: Text(
-                    'Popular',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: FansivibeColors.background,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Flexible(
-                child: Text(
-                  plan.price,
-                  style: theme.textTheme.displayLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: FansivibeColors.accentGold,
-                    fontSize: 36,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
-                  plan.period,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: FansivibeColors.textSecondary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Divider(
-            height: 1,
-            color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-          ),
-          const SizedBox(height: 16),
-          ...plan.features.map(
-            (feature) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.check_circle_rounded,
-                    size: 18,
-                    color: FansivibeColors.accentGold,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      feature,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: FansivibeColors.textPrimary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {},
-              style: ElevatedButton.styleFrom(
-                backgroundColor: plan.isPopular
-                    ? FansivibeColors.accentGold
-                    : FansivibeColors.accentGold.withValues(alpha: 0.1),
-                foregroundColor: plan.isPopular
-                    ? FansivibeColors.background
-                    : FansivibeColors.accentGold,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: FansivibeRadius.smdBorder,
-                  side: plan.isPopular
-                      ? BorderSide.none
-                      : BorderSide(
-                          color: FansivibeColors.accentGold.withValues(
-                            alpha: 0.3,
-                          ),
-                        ),
-                ),
-              ),
-              child: Text(
-                plan.name == 'Free' ? 'Current Plan' : 'Subscribe',
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

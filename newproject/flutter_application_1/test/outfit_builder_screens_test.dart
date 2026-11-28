@@ -422,6 +422,32 @@ void main() {
 
       expect(find.text('Building Outfit'), findsOneWidget);
     });
+
+    testWidgets('real app router forwards natural language query', (
+      WidgetTester tester,
+    ) async {
+      const query = 'Dinner date at a cozy bistro';
+      final router = GoRouter(initialLocation: '/stylist', routes: appRoutes);
+      await tester.pumpWidget(FansivibeApp(router: router));
+      await tester.pumpAndSettle();
+
+      router.goNamed(
+        RouteNames.outfitGeneration,
+        extra: <String, String>{
+          'occasion': 'casual',
+          'mood': 'confident',
+          'fit': 'regular',
+          'colorPalette': 'monochrome',
+          'query': query,
+        },
+      );
+      await tester.pumpAndSettle();
+
+      final generation = tester.widget<OutfitGenerationScreen>(
+        find.byType(OutfitGenerationScreen),
+      );
+      expect(generation.query, query);
+    });
   });
 
   group('C-04 Scan → Save → Build with this item', () {

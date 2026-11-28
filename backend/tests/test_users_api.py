@@ -101,6 +101,8 @@ def test_get_profile_returns_empty_profile_for_fresh_user(db):
         "faceShape": None,
         "skinTone": None,
         "bodyType": None,
+        "hairType": None,
+        "hairDensity": None,
         "styleType": None,
         "sourceRunId": None,
     }
@@ -133,6 +135,8 @@ def test_get_profile_returns_valid_profile(db):
             "face_shape": "Oval",
             "skin_tone": "Warm Medium",
             "body_type": "Athletic",
+            "hair_type": "curly",
+            "hair_density": "dense",
             "style_type": "Modern Classic",
             "source_run_id": str(uuid.uuid4()),
         },
@@ -147,6 +151,8 @@ def test_get_profile_returns_valid_profile(db):
         "faceShape": "Oval",
         "skinTone": "Warm Medium",
         "bodyType": "Athletic",
+        "hairType": "curly",
+        "hairDensity": "dense",
         "styleType": "Modern Classic",
         "sourceRunId": body["styleProfile"]["sourceRunId"],
     }
@@ -182,6 +188,8 @@ def test_get_profile_is_owner_scoped(db):
         "faceShape": "Oval",
         "skinTone": None,
         "bodyType": None,
+        "hairType": None,
+        "hairDensity": None,
         "styleType": None,
         "sourceRunId": None,
     }

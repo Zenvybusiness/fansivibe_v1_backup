@@ -136,6 +136,36 @@ class _FakeSavedLooksRepository implements SavedLooksRepository {
   }
 }
 
+class _PagedSavedLooksRepository implements SavedLooksRepository {
+  const _PagedSavedLooksRepository(this.pages);
+
+  final Map<int, List<SavedLookItem>> pages;
+
+  @override
+  Future<SavedLookListPage?> listSavedLooks({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final items = pages[page] ?? const <SavedLookItem>[];
+    return SavedLookListPage(
+      items: List.of(items),
+      page: page,
+      pageSize: pageSize,
+      total: pages.values.fold<int>(0, (sum, rows) => sum + rows.length),
+    );
+  }
+
+  @override
+  Future<SavedLookDeleteOutcome?> deleteSavedLook({required String id}) async =>
+      SavedLookDeleteOutcome.deleted;
+
+  @override
+  Future<SavedLookItem?> getSavedLook({
+    required String id,
+    bool includeItems = true,
+  }) async => null;
+}
+
 Widget _wrap(Widget child) {
   return MaterialApp(theme: ThemeData.dark(), home: child);
 }
@@ -531,6 +561,29 @@ void main() {
       gate.complete(SavedLookDeleteOutcome.deleted);
       await tester.pumpAndSettle();
       expect(find.text('Textured Quiff'), findsNothing);
+    });
+  });
+
+  group('Saved Looks pagination', () {
+    testWidgets('uses total and appends subsequent pages', (tester) async {
+      final repo = _PagedSavedLooksRepository({
+        1: [_item(id: 'page-1', title: 'Page One')],
+        2: [_item(id: 'page-2', title: 'Page Two')],
+      });
+      await tester.pumpWidget(_wrap(SavedLooksScreen(repository: repo)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('2 Saved Looks'), findsOneWidget);
+      expect(find.text('Page One'), findsOneWidget);
+      expect(find.text('Page Two'), findsNothing);
+
+      await tester.ensureVisible(find.text('Load More'));
+      await tester.tap(find.text('Load More'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Page One'), findsOneWidget);
+      expect(find.text('Page Two'), findsOneWidget);
+      expect(find.text('Load More'), findsNothing);
     });
   });
 }

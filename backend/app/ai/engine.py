@@ -21,6 +21,7 @@ from app.models.schemas import (
     AssistantReply,
     AssistantRequest,
     ClarificationOption,
+    LlmProvenance,
     NavigationRequest,
     OutfitIntelligence,
     OutfitComposition,
@@ -55,15 +56,34 @@ def _context_summary(user: UserContext | None) -> str:
     face = user.face or None
     face_line = ""
     if face:
-        bits = [face.faceShape, face.skinTone, face.bodyType, face.styleType]
+        bits = [
+            face.faceShape,
+            face.skinTone,
+            face.bodyType,
+            face.hairType,
+            face.hairDensity,
+            face.styleType,
+        ]
         face_line = "Face/analysis: " + ", ".join(b for b in bits if b) + "."
+    preferences = user.profilePreferences
+    preference_line = ""
+    if preferences:
+        bits = [
+            preferences.appearanceGoals,
+            preferences.dislikes,
+            preferences.maintenancePreference,
+            f"Budget limit {preferences.maxBudget:g}" if preferences.maxBudget else None,
+        ]
+        preference_line = (
+            "Profile preferences: " + ", ".join(b for b in bits if b) + "."
+        )
     wardrobe_line = (
         "Wardrobe: " + ", ".join(i.name for i in user.wardrobe[:12]) + "."
         if user.wardrobe
         else "Wardrobe: empty."
     )
     looks = "Saved looks: " + ", ".join(user.savedLooks) + "." if user.savedLooks else ""
-    return f"{face_line}\n{wardrobe_line}\n{looks}"
+    return f"{face_line}\n{preference_line}\n{wardrobe_line}\n{looks}"
 
 
 def _cards_from(
@@ -227,6 +247,7 @@ def handle(
 
     # --- Dialogue policy ----------------------------------------------------
     already_enriched = False
+    llm_provenance: Optional[llm_backend.LlmProvenanceState] = None
     if it == intent.INTENT_GREETING:
         reply = AssistantReply(intent=it, text=tools.greeting_reply())
     elif it == intent.INTENT_THANKS:
@@ -321,6 +342,8 @@ def handle(
             text = base_text
             # Live AI Stylist LLM reasoning enrichment
             if llm_backend.is_available() and cards and cards[0].kind == "outfit":
+                provenance_state = llm_backend.LlmProvenanceState()
+                llm_provenance = provenance_state
                 wardrobe_items_list = user.wardrobe if user and user.wardrobe else []
                 item_by_id = {str(item.id): item for item in wardrobe_items_list if getattr(item, "id", None)}
                 selected_components_data = []
@@ -352,7 +375,11 @@ def handle(
                     unowned_garment_query=unowned_garment_query,
                     base_text=base_text,
                     conversation_history=[{"role": m.role, "content": m.content} for m in messages[:-1]],
+                    provenance_out=provenance_state,
                 )
+                already_enriched = True
+            else:
+                llm_provenance = llm_backend.unavailable_provenance()
                 already_enriched = True
         elif it == intent.INTENT_HAIRSTYLE:
             text = (
@@ -620,7 +647,20 @@ def handle(
         )
 
     # --- Optional LLM enrichment (server-side, never changes structure) ----
-    if not already_enriched and llm_backend.is_available() and reply.text:
-        reply.text = llm_backend.enrich_reply(reply.intent, reply.text, _context_summary(user))
+    if not already_enriched:
+        if llm_backend.is_available() and reply.text:
+            provenance_state = llm_backend.LlmProvenanceState()
+            reply.text = llm_backend.enrich_reply(
+                reply.intent,
+                reply.text,
+                _context_summary(user),
+                provenance_out=provenance_state,
+            )
+            llm_provenance = provenance_state
+        else:
+            llm_provenance = llm_backend.unavailable_provenance()
+
+    if llm_provenance is not None:
+        reply.llmProvenance = LlmProvenance(**llm_provenance.to_dict())
 
     return reply

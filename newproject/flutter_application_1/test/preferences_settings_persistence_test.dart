@@ -13,13 +13,15 @@ import 'package:fansivibe/shared/utils/local_storage.dart';
 
 class FakePreferencesProfileRepo implements UserProfileRepository {
   FakePreferencesProfileRepo({UserProfile? initialProfile})
-      : _profile = initialProfile;
+    : _profile = initialProfile;
 
   UserProfile? _profile;
   bool failUpdates = false;
   final List<String> styleTypeUpdates = [];
   final List<Map<String, dynamic>> settingsUpdates = [];
   final List<List<String>> occasionUpdates = [];
+  final List<Map<String, dynamic>> styleAttributeUpdates = [];
+  final List<Map<String, dynamic>> preferenceFieldUpdates = [];
   final Map<String, dynamic> _pendingEdits = {};
 
   @override
@@ -55,59 +57,89 @@ class FakePreferencesProfileRepo implements UserProfileRepository {
     styleTypeUpdates.add(styleType);
     final updatedStyle = (_profile?.styleProfile ?? const UserStyleProfile())
         .copyWith(styleType: styleType);
-    _profile = (_profile ??
-            UserProfile(
-              displayName: 'Test User',
-              styleProfile: updatedStyle,
-              version: 1,
-            ))
-        .copyWith(styleProfile: updatedStyle);
+    _profile =
+        (_profile ??
+                UserProfile(
+                  displayName: 'Test User',
+                  styleProfile: updatedStyle,
+                  version: 1,
+                ))
+            .copyWith(styleProfile: updatedStyle);
     return _profile;
   }
 
   @override
-  Future<UserProfile?> updateSettings(Map<String, dynamic> settingsPatch) async {
+  Future<UserProfile?> updateSettings(
+    Map<String, dynamic> settingsPatch,
+  ) async {
     if (failUpdates) return null;
     settingsUpdates.add(settingsPatch);
     final merged = Map<String, dynamic>.from(_profile?.settings ?? {})
       ..addAll(settingsPatch);
-    _profile = (_profile ??
-            UserProfile(
-              displayName: 'Test User',
-              styleProfile: const UserStyleProfile(),
-              settings: merged,
-              version: 1,
-            ))
-        .copyWith(settings: merged);
+    _profile =
+        (_profile ??
+                UserProfile(
+                  displayName: 'Test User',
+                  styleProfile: const UserStyleProfile(),
+                  settings: merged,
+                  version: 1,
+                ))
+            .copyWith(settings: merged);
     return _profile;
   }
 
   @override
-  Future<UserProfile?> updatePreferredOccasions(
-    List<String> occasions,
+  Future<UserProfile?> updateStyleAttributes(Map<String, dynamic> patch) async {
+    if (failUpdates) return null;
+    styleAttributeUpdates.add(Map.from(patch));
+    final style = (_profile?.styleProfile ?? const UserStyleProfile())
+        .applyPatch(patch);
+    _profile =
+        (_profile ??
+                UserProfile(
+                  displayName: 'Test User',
+                  styleProfile: style,
+                  version: 1,
+                ))
+            .copyWith(styleProfile: style);
+    return _profile;
+  }
+
+  @override
+  Future<UserProfile?> updatePreferenceFields(
+    Map<String, dynamic> patch,
   ) async {
     if (failUpdates) return null;
+    preferenceFieldUpdates.add(Map.from(patch));
+    final merged = (_profile ?? UserProfile.empty).applyPreferencePatch(patch);
+    _profile = merged;
+    return _profile;
+  }
+
+  @override
+  Future<bool> deleteAccount() async => false;
+
+  @override
+  Future<UserProfile?> updatePreferredOccasions(List<String> occasions) async {
+    if (failUpdates) return null;
     occasionUpdates.add(occasions);
-    final mergedPrefs =
-        Map<String, dynamic>.from(_profile?.preferences ?? {})
-          ..['preferredOccasions'] = occasions;
-    _profile = (_profile ??
-            UserProfile(
-              displayName: 'Test User',
-              styleProfile: const UserStyleProfile(),
-              preferences: mergedPrefs,
-              version: 1,
-            ))
-        .copyWith(preferences: mergedPrefs);
+    final mergedPrefs = Map<String, dynamic>.from(_profile?.preferences ?? {})
+      ..['preferredOccasions'] = occasions;
+    _profile =
+        (_profile ??
+                UserProfile(
+                  displayName: 'Test User',
+                  styleProfile: const UserStyleProfile(),
+                  preferences: mergedPrefs,
+                  version: 1,
+                ))
+            .copyWith(preferences: mergedPrefs);
     return _profile;
   }
 }
 
 Widget wrapWithTheme(Widget child) {
-  return MaterialApp(
-    theme: ThemeData.dark(),
-    home: child,
-  );
+  return MaterialApp(theme: ThemeData.dark(), home: child);
 }
 
 void main() {
@@ -121,7 +153,9 @@ void main() {
   });
 
   group('Phase 2 & 6: Style Preferences Persistence Flutter Tests', () {
-    testWidgets('1. Style archetype hydrates from backend profile', (tester) async {
+    testWidgets('1. Style archetype hydrates from backend profile', (
+      tester,
+    ) async {
       final repo = FakePreferencesProfileRepo(
         initialProfile: UserProfile(
           displayName: 'Test User',
@@ -142,7 +176,9 @@ void main() {
       expect(find.text('Street Style'), findsOneWidget);
     });
 
-    testWidgets('2. Selecting style archetype persists to backend', (tester) async {
+    testWidgets('2. Selecting style archetype persists to backend', (
+      tester,
+    ) async {
       final repo = FakePreferencesProfileRepo(
         initialProfile: UserProfile(
           displayName: 'Test User',
@@ -167,7 +203,9 @@ void main() {
       expect(LearningService.instance.styleType, 'Street Style');
     });
 
-    testWidgets('3. Failed style archetype update rolls back honestly', (tester) async {
+    testWidgets('3. Failed style archetype update rolls back honestly', (
+      tester,
+    ) async {
       final repo = FakePreferencesProfileRepo(
         initialProfile: UserProfile(
           displayName: 'Test User',
@@ -192,28 +230,144 @@ void main() {
       expect(LocalStorage.vibe, isNot('Bold'));
     });
 
-    testWidgets('4. Guest mode style archetype remains device-local without API call', (tester) async {
-      await AuthSession.clearSession();
-      LocalStorage.authToken = null;
-      LocalStorage.savedLocally = true;
-      expect(isGuestUser, isTrue);
+    testWidgets(
+      '4. Guest mode style archetype remains device-local without API call',
+      (tester) async {
+        await AuthSession.clearSession();
+        LocalStorage.authToken = null;
+        LocalStorage.savedLocally = true;
+        expect(isGuestUser, isTrue);
 
-      final repo = FakePreferencesProfileRepo();
+        final repo = FakePreferencesProfileRepo();
+
+        await tester.pumpWidget(
+          wrapWithTheme(PreferencesScreen(userProfileRepository: repo)),
+        );
+        await tester.pumpAndSettle();
+
+        final chip = find.text('Bohemian');
+        await tester.ensureVisible(chip);
+        await tester.tap(chip);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Saved: Bohemian (this device only)'), findsOneWidget);
+        expect(repo.styleTypeUpdates, isEmpty);
+        expect(LocalStorage.vibe, 'Bohemian');
+        expect(LearningService.instance.styleType, 'Bohemian');
+      },
+    );
+  });
+
+  group('Profile appearance and preference details', () {
+    testWidgets('hydrates details and persists sparse patches', (tester) async {
+      final repo = FakePreferencesProfileRepo(
+        initialProfile: UserProfile(
+          displayName: 'Test User',
+          styleProfile: const UserStyleProfile(
+            faceShape: 'round',
+            skinTone: 'W02',
+            bodyType: 'average',
+            hairType: 'curly',
+            hairDensity: 'medium',
+          ),
+          preferences: const {
+            'appearanceGoals': 'Refine silhouette',
+            'maintenancePreference': 'low',
+            'maxBudget': 5000.0,
+          },
+          version: 1,
+        ),
+      );
 
       await tester.pumpWidget(
         wrapWithTheme(PreferencesScreen(userProfileRepository: repo)),
       );
       await tester.pumpAndSettle();
 
-      final chip = find.text('Bohemian');
-      await tester.ensureVisible(chip);
-      await tester.tap(chip);
+      expect(find.text('Appearance & Preferences'), findsOneWidget);
+      expect(find.text('Round'), findsWidgets);
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('profileDetail_appearanceGoals')),
+            )
+            .controller!
+            .text,
+        'Refine silhouette',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('profileDetail_maxBudget')),
+            )
+            .controller!
+            .text,
+        '5000.0',
+      );
+
+      final faceDropdown = find.byKey(
+        const ValueKey('profileDetail_Faceshape'),
+      );
+      await tester.ensureVisible(faceDropdown);
+      await tester.tap(faceDropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Oval').last);
       await tester.pumpAndSettle();
 
-      expect(find.text('Saved: Bohemian (this device only)'), findsOneWidget);
-      expect(repo.styleTypeUpdates, isEmpty);
-      expect(LocalStorage.vibe, 'Bohemian');
-      expect(LearningService.instance.styleType, 'Bohemian');
+      await tester.enterText(
+        find.byKey(const ValueKey('profileDetail_appearanceGoals')),
+        'Improve everyday fit',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('profileDetail_maxBudget')),
+        '7500',
+      );
+
+      final save = find.text('Save profile details');
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      expect(repo.styleAttributeUpdates, hasLength(1));
+      expect(repo.styleAttributeUpdates.single['faceShape'], 'oval');
+      expect(repo.styleAttributeUpdates.single['skinTone'], 'W02');
+      expect(repo.preferenceFieldUpdates, hasLength(1));
+      expect(
+        repo.preferenceFieldUpdates.single['appearanceGoals'],
+        'Improve everyday fit',
+      );
+      expect(repo.preferenceFieldUpdates.single['maxBudget'], 7500.0);
+      expect(find.text('Synced: profile details'), findsOneWidget);
+    });
+
+    testWidgets('rejects out-of-range budget before saving', (tester) async {
+      final repo = FakePreferencesProfileRepo(
+        initialProfile: UserProfile(
+          displayName: 'Test User',
+          styleProfile: const UserStyleProfile(),
+          version: 1,
+        ),
+      );
+
+      await tester.pumpWidget(
+        wrapWithTheme(PreferencesScreen(userProfileRepository: repo)),
+      );
+      await tester.pumpAndSettle();
+
+      final budget = find.byKey(const ValueKey('profileDetail_maxBudget'));
+      await tester.ensureVisible(budget);
+      await tester.enterText(budget, '2000000');
+      final save = find.text('Save profile details');
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Enter an amount between 0 and 1,000,000.'),
+        findsOneWidget,
+      );
+      expect(repo.styleAttributeUpdates, isEmpty);
+      expect(repo.preferenceFieldUpdates, isEmpty);
     });
   });
 
@@ -250,74 +404,85 @@ void main() {
       expect(switches[3].value, isTrue);
     });
 
-    testWidgets('6. Toggling switch persists partial update and preserves other settings', (tester) async {
-      final repo = FakePreferencesProfileRepo(
-        initialProfile: UserProfile(
-          displayName: 'Test User',
-          styleProfile: const UserStyleProfile(),
-          settings: {
-            'notifications': true,
-            'soundEffects': false,
-            'hapticFeedback': true,
-            'dataSaver': false,
-          },
-          version: 1,
-        ),
-      );
+    testWidgets(
+      '6. Toggling switch persists partial update and preserves other settings',
+      (tester) async {
+        final repo = FakePreferencesProfileRepo(
+          initialProfile: UserProfile(
+            displayName: 'Test User',
+            styleProfile: const UserStyleProfile(),
+            settings: {
+              'notifications': true,
+              'soundEffects': false,
+              'hapticFeedback': true,
+              'dataSaver': false,
+            },
+            version: 1,
+          ),
+        );
 
-      await tester.pumpWidget(
-        wrapWithTheme(SettingsScreen(userProfileRepository: repo)),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          wrapWithTheme(SettingsScreen(userProfileRepository: repo)),
+        );
+        await tester.pumpAndSettle();
 
-      final switches = find.byType(Switch);
-      // Toggle soundEffects (index 1, currently false -> true)
-      await tester.tap(switches.at(1));
-      await tester.pumpAndSettle();
+        final switches = find.byType(Switch);
+        // Toggle soundEffects (index 1, currently false -> true)
+        await tester.tap(switches.at(1));
+        await tester.pumpAndSettle();
 
-      expect(repo.settingsUpdates, hasLength(1));
-      expect(repo.settingsUpdates.single, {'soundEffects': true});
-      // Ensure other settings preserved in repo profile
-      expect(repo.cachedProfile?.settings['notifications'], isTrue);
-      expect(repo.cachedProfile?.settings['soundEffects'], isTrue);
-      expect(repo.cachedProfile?.settings['hapticFeedback'], isTrue);
-      expect(repo.cachedProfile?.settings['dataSaver'], isFalse);
-    });
+        expect(repo.settingsUpdates, hasLength(1));
+        expect(repo.settingsUpdates.single, {'soundEffects': true});
+        // Ensure other settings preserved in repo profile
+        expect(repo.cachedProfile?.settings['notifications'], isTrue);
+        expect(repo.cachedProfile?.settings['soundEffects'], isTrue);
+        expect(repo.cachedProfile?.settings['hapticFeedback'], isTrue);
+        expect(repo.cachedProfile?.settings['dataSaver'], isFalse);
+      },
+    );
 
-    testWidgets('7. Failed settings update rolls back switch and shows honest error', (tester) async {
-      final repo = FakePreferencesProfileRepo(
-        initialProfile: UserProfile(
-          displayName: 'Test User',
-          styleProfile: const UserStyleProfile(),
-          settings: {
-            'notifications': true,
-            'soundEffects': false,
-            'hapticFeedback': true,
-            'dataSaver': false,
-          },
-          version: 1,
-        ),
-      )..failUpdates = true;
+    testWidgets(
+      '7. Failed settings update rolls back switch and shows honest error',
+      (tester) async {
+        final repo = FakePreferencesProfileRepo(
+          initialProfile: UserProfile(
+            displayName: 'Test User',
+            styleProfile: const UserStyleProfile(),
+            settings: {
+              'notifications': true,
+              'soundEffects': false,
+              'hapticFeedback': true,
+              'dataSaver': false,
+            },
+            version: 1,
+          ),
+        )..failUpdates = true;
 
-      await tester.pumpWidget(
-        wrapWithTheme(SettingsScreen(userProfileRepository: repo)),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          wrapWithTheme(SettingsScreen(userProfileRepository: repo)),
+        );
+        await tester.pumpAndSettle();
 
-      final switches = find.byType(Switch);
-      // Toggle notifications (index 0, currently true -> false)
-      await tester.tap(switches.at(0));
-      await tester.pumpAndSettle();
+        final switches = find.byType(Switch);
+        // Toggle notifications (index 0, currently true -> false)
+        await tester.tap(switches.at(0));
+        await tester.pumpAndSettle();
 
-      // Error SnackBar displayed
-      expect(find.text('Failed to update setting. Please try again.'), findsOneWidget);
+        // Error SnackBar displayed
+        expect(
+          find.text('Failed to update setting. Please try again.'),
+          findsOneWidget,
+        );
 
-      // Rolled back to true
-      final rolledBackSwitch = tester.widget<Switch>(switches.at(0));
-      expect(rolledBackSwitch.value, isTrue);
-    });
+        // Rolled back to true
+        final rolledBackSwitch = tester.widget<Switch>(switches.at(0));
+        expect(rolledBackSwitch.value, isTrue);
+      },
+    );
 
-    testWidgets('8. Guest toggling switch persists to LocalStorage only', (tester) async {
+    testWidgets('8. Guest toggling switch persists to LocalStorage only', (
+      tester,
+    ) async {
       await AuthSession.clearSession();
       LocalStorage.authToken = null;
       LocalStorage.savedLocally = true;
@@ -339,27 +504,32 @@ void main() {
       expect(LocalStorage.settings['notifications'], isFalse);
     });
 
-    testWidgets('9. Server values override stale cached settings on hydration', (tester) async {
-      // Set local stale value
-      LocalStorage.settings = {'notifications': true};
+    testWidgets(
+      '9. Server values override stale cached settings on hydration',
+      (tester) async {
+        // Set local stale value
+        LocalStorage.settings = {'notifications': true};
 
-      final repo = FakePreferencesProfileRepo(
-        initialProfile: UserProfile(
-          displayName: 'Test User',
-          styleProfile: const UserStyleProfile(),
-          settings: {'notifications': false},
-          version: 2,
-        ),
-      );
+        final repo = FakePreferencesProfileRepo(
+          initialProfile: UserProfile(
+            displayName: 'Test User',
+            styleProfile: const UserStyleProfile(),
+            settings: {'notifications': false},
+            version: 2,
+          ),
+        );
 
-      await tester.pumpWidget(
-        wrapWithTheme(SettingsScreen(userProfileRepository: repo)),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          wrapWithTheme(SettingsScreen(userProfileRepository: repo)),
+        );
+        await tester.pumpAndSettle();
 
-      final switches = tester.widgetList<Switch>(find.byType(Switch)).toList();
-      // Server false overrides stale local true
-      expect(switches[0].value, isFalse);
-    });
+        final switches = tester
+            .widgetList<Switch>(find.byType(Switch))
+            .toList();
+        // Server false overrides stale local true
+        expect(switches[0].value, isFalse);
+      },
+    );
   });
 }

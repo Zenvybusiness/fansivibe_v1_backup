@@ -71,10 +71,13 @@ class _FakeUserProfileRepository implements UserProfileRepository {
   }
 
   @override
-  Future<UserProfile?> updateSettings(Map<String, dynamic> settingsPatch) async {
+  Future<UserProfile?> updateSettings(
+    Map<String, dynamic> settingsPatch,
+  ) async {
     if (shouldFail) return null;
     if (profile != null) {
-      final merged = Map<String, dynamic>.from(profile!.settings)..addAll(settingsPatch);
+      final merged = Map<String, dynamic>.from(profile!.settings)
+        ..addAll(settingsPatch);
       profile = profile!.copyWith(settings: merged);
     }
     return profile;
@@ -90,6 +93,19 @@ class _FakeUserProfileRepository implements UserProfileRepository {
     }
     return profile;
   }
+
+  @override
+  Future<UserProfile?> updateStyleAttributes(
+    Map<String, dynamic> patch,
+  ) async => profile;
+
+  @override
+  Future<UserProfile?> updatePreferenceFields(
+    Map<String, dynamic> patch,
+  ) async => profile;
+
+  @override
+  Future<bool> deleteAccount() async => false;
 }
 
 Widget _freshApp() {
@@ -141,7 +157,7 @@ void main() {
 
       // Current style score & global rank
       expect(find.text('CURRENT STYLE SCORE'), findsOneWidget);
-      expect(find.text('--'), findsOneWidget);
+      expect(find.text('--'), findsNWidgets(2));
       expect(find.text('Uncalibrated'), findsOneWidget);
       expect(find.text('+ Scan Outfit  →'), findsOneWidget);
       expect(find.text('GLOBAL RANK'), findsOneWidget);
@@ -149,8 +165,8 @@ void main() {
 
       // Style progress
       expect(find.text('Style Progress'), findsOneWidget);
-      expect(find.text('30-DAY OVERVIEW'), findsOneWidget);
-      expect(find.text('Now'), findsOneWidget);
+      expect(find.text('CURRENT STATE'), findsOneWidget);
+      expect(find.text('No score yet'), findsOneWidget);
 
       // Achievements
       expect(find.text('Achievements'), findsOneWidget);
@@ -205,15 +221,12 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const ProfileScreen(),
-        ),
+        MaterialApp(theme: ThemeData.dark(), home: const ProfileScreen()),
       );
       await tester.pumpAndSettle();
 
       expect(find.text('CURRENT STYLE SCORE'), findsOneWidget);
-      expect(find.text('--'), findsOneWidget);
+      expect(find.text('--'), findsNWidgets(2));
       expect(find.text('Uncalibrated'), findsOneWidget);
       expect(find.text('+ Scan Outfit  →'), findsOneWidget);
     });
@@ -222,29 +235,20 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const ProfileScreen(),
-        ),
+        MaterialApp(theme: ThemeData.dark(), home: const ProfileScreen()),
       );
       await tester.pumpAndSettle();
 
       expect(find.text('GLOBAL RANK'), findsOneWidget);
       expect(find.text('Not Ranked'), findsOneWidget);
-      expect(
-        find.text('Complete style profile to\nunlock ranking'),
-        findsOneWidget,
-      );
+      expect(find.text('Global ranking is not\navailable'), findsOneWidget);
     });
 
     testWidgets('5. Achievement locked state appears with 0 OF 4 UNLOCKED', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const ProfileScreen(),
-        ),
+        MaterialApp(theme: ThemeData.dark(), home: const ProfileScreen()),
       );
       await tester.pumpAndSettle();
 
@@ -260,10 +264,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const ProfileScreen(),
-        ),
+        MaterialApp(theme: ThemeData.dark(), home: const ProfileScreen()),
       );
       await tester.pumpAndSettle();
 
@@ -272,37 +273,32 @@ void main() {
       expect(find.text('EXPLORE LOOKS'), findsOneWidget);
     });
 
-    testWidgets('7. Pending Style DNA state appears with all 4 attribute cells', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const ProfileScreen(),
-        ),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      '7. Pending Style DNA state appears with all 4 attribute cells',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          MaterialApp(theme: ThemeData.dark(), home: const ProfileScreen()),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('PENDING ASSESSMENT'), findsOneWidget);
-      expect(find.text('BIOMETRIC & PALETTE ARCHETYPE'), findsOneWidget);
-      expect(find.text('SKIN TONE'), findsOneWidget);
-      expect(find.text('FACE SHAPE'), findsOneWidget);
-      expect(find.text('BODY TYPE'), findsOneWidget);
-      expect(find.text('STYLE TYPE'), findsOneWidget);
-      expect(find.text('Not analyzed yet'), findsNWidgets(2));
-      expect(find.text('Pending setup'), findsOneWidget);
-      expect(find.text('In progress'), findsOneWidget);
-      expect(find.text('DISCOVER MY STYLE DNA'), findsOneWidget);
-    });
+        expect(find.text('PENDING ASSESSMENT'), findsOneWidget);
+        expect(find.text('BIOMETRIC & PALETTE ARCHETYPE'), findsOneWidget);
+        expect(find.text('SKIN TONE'), findsOneWidget);
+        expect(find.text('FACE SHAPE'), findsOneWidget);
+        expect(find.text('BODY TYPE'), findsOneWidget);
+        expect(find.text('STYLE TYPE'), findsOneWidget);
+        expect(find.text('Not analyzed yet'), findsNWidgets(2));
+        expect(find.text('Pending setup'), findsOneWidget);
+        expect(find.text('In progress'), findsOneWidget);
+        expect(find.text('DISCOVER MY STYLE DNA'), findsOneWidget);
+      },
+    );
 
     testWidgets('8. Preferences empty state appears', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const ProfileScreen(),
-        ),
+        MaterialApp(theme: ThemeData.dark(), home: const ProfileScreen()),
       );
       await tester.pumpAndSettle();
 
@@ -314,10 +310,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const ProfileScreen(),
-        ),
+        MaterialApp(theme: ThemeData.dark(), home: const ProfileScreen()),
       );
       await tester.pumpAndSettle();
 
@@ -325,44 +318,39 @@ void main() {
       expect(find.text('FREE'), findsOneWidget);
     });
 
-    testWidgets('10. Wardrobe state changes propagate and unlock FIT achievement', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const ProfileScreen(),
-        ),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      '10. Wardrobe state changes propagate and unlock FIT achievement',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          MaterialApp(theme: ThemeData.dark(), home: const ProfileScreen()),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('0 OF 4 UNLOCKED'), findsOneWidget);
+        expect(find.text('0 OF 4 UNLOCKED'), findsOneWidget);
 
-      // Simulate adding a wardrobe item
-      UserSession.hasSavedWardrobeItem = true;
-      LearningService.instance.addItem(
-        const WardrobeEntry(
-          id: 'item-101',
-          name: 'Navy Cashmere Knit',
-          category: 'tops',
-          color: 'Navy',
-        ),
-      );
-      await tester.pumpAndSettle();
+        // Simulate adding a wardrobe item
+        UserSession.hasSavedWardrobeItem = true;
+        LearningService.instance.addItem(
+          const WardrobeEntry(
+            id: 'item-101',
+            name: 'Navy Cashmere Knit',
+            category: 'tops',
+            color: 'Navy',
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // FIT and COLOR achievements should now unlock reactively
-      expect(find.text('2 OF 4 UNLOCKED'), findsOneWidget);
-      expect(find.text('UNLOCKED'), findsNWidgets(2));
-    });
+        // FIT and COLOR achievements should now unlock reactively
+        expect(find.text('2 OF 4 UNLOCKED'), findsOneWidget);
+        expect(find.text('UNLOCKED'), findsNWidgets(2));
+      },
+    );
 
     testWidgets('11. Saved Looks changes propagate reactively', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const ProfileScreen(),
-        ),
+        MaterialApp(theme: ThemeData.dark(), home: const ProfileScreen()),
       );
       await tester.pumpAndSettle();
 
@@ -421,10 +409,7 @@ void main() {
       LocalStorage.displayName = 'Morgan Blake';
 
       await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: const ProfileScreen(),
-        ),
+        MaterialApp(theme: ThemeData.dark(), home: const ProfileScreen()),
       );
       await tester.pumpAndSettle();
 
@@ -432,76 +417,87 @@ void main() {
       expect(find.text('MB'), findsOneWidget);
     });
 
-    testWidgets('14. Existing users with calibrated summary render real score', (
-      WidgetTester tester,
-    ) async {
-      final fakeRepo = _TestSummaryRepo(
-        summary: const LearningSummary(
-          styleScore: 82,
-          streak: 4,
-          recentSignals: ['Excellent balance'],
-          breakdown: LearningSummaryBreakdown(
-            base: 60,
-            wardrobePoints: 12,
-            savedPoints: 10,
-            total: 82,
+    testWidgets(
+      '14. Existing users with calibrated summary render real score',
+      (WidgetTester tester) async {
+        final fakeRepo = _TestSummaryRepo(
+          summary: const LearningSummary(
+            styleScore: 82,
+            streak: 4,
+            recentSignals: ['Excellent balance'],
+            breakdown: LearningSummaryBreakdown(
+              base: 60,
+              wardrobePoints: 12,
+              savedPoints: 10,
+              total: 82,
+            ),
           ),
-        ),
-      );
+        );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: ProfileScreen(
-            displayName: 'Alexandre',
-            summaryRepository: fakeRepo,
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData.dark(),
+            home: ProfileScreen(
+              displayName: 'Alexandre',
+              summaryRepository: fakeRepo,
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('Alexandre'), findsOneWidget);
-      expect(find.text('82'), findsWidgets);
-      expect(find.text('+4.2% this week'), findsOneWidget);
-      expect(find.text('--'), findsNothing);
-    });
+        expect(find.text('Alexandre'), findsOneWidget);
+        expect(find.text('82'), findsWidgets);
+        expect(find.text('Current score'), findsOneWidget);
+        expect(find.text('+4.2% this week'), findsNothing);
+        expect(find.text('--'), findsNothing);
+      },
+    );
 
-    testWidgets('15. Menu actions navigate to Preferences, SavedLooks, Subscription', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(_freshApp());
+    testWidgets(
+      '15. Menu actions navigate to Preferences, SavedLooks, Subscription',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(_freshApp());
 
-      await tester.tap(
-        find.descendant(
-          of: find.byType(NavigationBar),
-          matching: find.text('Profile'),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.tap(
+          find.descendant(
+            of: find.byType(NavigationBar),
+            matching: find.text('Profile'),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Test Preferences navigation
-      final prefFinder = find.text('PREFERENCES');
-      await tester.scrollUntilVisible(prefFinder, 200, scrollable: find.byType(Scrollable).first);
-      await tester.tap(prefFinder);
-      await tester.pumpAndSettle();
-      expect(find.text('Style Preferences'), findsOneWidget);
+        // Test Preferences navigation
+        final prefFinder = find.text('PREFERENCES');
+        await tester.scrollUntilVisible(
+          prefFinder,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(prefFinder);
+        await tester.pumpAndSettle();
+        expect(find.text('Style Preferences'), findsOneWidget);
 
-      // Return to Profile
-      await tester.tap(
-        find.descendant(
-          of: find.byType(NavigationBar),
-          matching: find.text('Profile'),
-        ),
-      );
-      await tester.pumpAndSettle();
+        // Return to Profile
+        await tester.tap(
+          find.descendant(
+            of: find.byType(NavigationBar),
+            matching: find.text('Profile'),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Test Subscription navigation
-      final subFinder = find.text('SUBSCRIPTION');
-      await tester.scrollUntilVisible(subFinder, 200, scrollable: find.byType(Scrollable).first);
-      await tester.tap(subFinder);
-      await tester.pumpAndSettle();
-      expect(find.text('Choose Your Plan'), findsOneWidget);
-    });
+        // Test Subscription navigation
+        final subFinder = find.text('SUBSCRIPTION');
+        await tester.scrollUntilVisible(
+          subFinder,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(subFinder);
+        await tester.pumpAndSettle();
+        expect(find.text('Subscriptions'), findsOneWidget);
+      },
+    );
 
     testWidgets('16. Uses correct dark theme', (WidgetTester tester) async {
       await tester.pumpWidget(_freshApp());
@@ -780,9 +776,7 @@ void main() {
     testWidgets(
       '19. ProfileScreen handles empty profile honestly with PENDING ASSESSMENT without mock fabrication',
       (WidgetTester tester) async {
-        final fakeRepo = _FakeUserProfileRepository(
-          profile: UserProfile.empty,
-        );
+        final fakeRepo = _FakeUserProfileRepository(profile: UserProfile.empty);
 
         await tester.pumpWidget(
           MaterialApp(

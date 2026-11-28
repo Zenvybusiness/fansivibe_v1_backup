@@ -46,6 +46,7 @@ class FakeUserState:
             "display_name": display_name,
             "style_profile": dict(style_profile or {}),
             "preferences": dict(preferences or {}),
+            "settings": {},
         }
 
     def get_style_profile(self, *, user_id: UUID) -> dict | None:
@@ -73,10 +74,51 @@ class FakeUserState:
             display_name=row["display_name"],
             style_profile=dict(row["style_profile"]),
             preferences=dict(row["preferences"]),
-            settings={},
+            settings=dict(row.get("settings", {})),
             flags={},
             version=1,
         )
+
+
+class AtomicFakeUserState(FakeUserState):
+    """Fake with the SQL adapter's single-call merge/clear semantics."""
+
+    def update_profile(
+        self,
+        *,
+        user_id: UUID,
+        style_profile: dict | None = None,
+        preferences: dict | None = None,
+        settings: dict | None = None,
+    ) -> bool:
+        row = self._rows.get(user_id)
+        if row is None:
+            return False
+        self.calls.append(
+            (
+                "update_profile",
+                user_id,
+                {
+                    "style_profile": dict(style_profile or {}),
+                    "preferences": dict(preferences or {}),
+                    "settings": dict(settings or {}),
+                },
+            )
+        )
+        for target, patch in (
+            (row["style_profile"], style_profile or {}),
+            (row["preferences"], preferences or {}),
+            (row["settings"], settings or {}),
+        ):
+            for key, value in patch.items():
+                if value is None:
+                    target.pop(key, None)
+                else:
+                    target[key] = value
+        if settings == {"__clear__": True}:
+            row["settings"] = {}
+        row["version"] = row.get("version", 1) + 1
+        return True
 
 
 def _use_case(state: FakeUserState) -> UpdatePreferences:
@@ -155,7 +197,7 @@ def test_update_is_owner_scoped():
 
 @pytest.mark.parametrize(
     "bad",
-    ["smart_casual", 123, None, ["date", 1], ["date", None], [b"date"]],
+    ["smart_casual", 123, ["date", 1], ["date", None], [b"date"]],
 )
 def test_invalid_preferred_occasions_rejected(bad):
     """F. Non-list or non-string members → typed 422, nothing written."""
@@ -168,6 +210,78 @@ def test_invalid_preferred_occasions_rejected(bad):
     assert state.get_profile(user_id=A).preferences == {
         "preferred_occasions": ["business"]
     }
+
+
+def test_null_preferred_occasions_clears():
+    state = AtomicFakeUserState()
+    state.seed(A, preferences={"preferred_occasions": ["business"]})
+    record = _use_case(state)(user_id=A, preferred_occasions=None)
+    assert record.preferences == {"preferred_occasions": []}
+
+
+def test_sparse_patch_preserves_omitted_values_and_normalizes_alias():
+    state = AtomicFakeUserState()
+    state.seed(
+        A,
+        style_profile={
+            "face_shape": "oval",
+            "skin_tone": "W02",
+            "hair_type": "curly",
+        },
+        preferences={
+            "preferred_occasions": ["business"],
+            "appearance_goals": "old goal",
+            "max_budget": 1000.0,
+        },
+    )
+    record = _use_case(state)(
+        user_id=A,
+        style_profile={"faceShape": "rectangle"},
+        appearance_goals="new goal",
+    )
+    assert record.style_profile["face_shape"] == "rectangular"
+    assert record.style_profile["skin_tone"] == "W02"
+    assert record.style_profile["hair_type"] == "curly"
+    assert record.preferences["preferred_occasions"] == ["business"]
+    assert record.preferences["appearance_goals"] == "new goal"
+    assert record.preferences["max_budget"] == 1000.0
+
+
+def test_explicit_nulls_clear_fields():
+    state = AtomicFakeUserState()
+    state.seed(
+        A,
+        style_profile={"face_shape": "oval", "hair_type": "curly"},
+        preferences={"dislikes": "loud prints", "max_budget": 5000.0},
+    )
+    record = _use_case(state)(
+        user_id=A,
+        style_profile={"hairType": None},
+        dislikes=None,
+        max_budget=None,
+    )
+    assert "hair_type" not in record.style_profile
+    assert record.style_profile["face_shape"] == "oval"
+    assert "dislikes" not in record.preferences
+    assert "max_budget" not in record.preferences
+
+
+def test_invalid_new_preference_fields_write_nothing():
+    state = AtomicFakeUserState()
+    state.seed(
+        A,
+        style_profile={"hair_type": "curly"},
+        preferences={"max_budget": 5000.0},
+    )
+    with pytest.raises(ApiError) as excinfo:
+        _use_case(state)(
+            user_id=A,
+            style_profile={"hairType": "afro"},
+            max_budget=-1,
+        )
+    assert excinfo.value.status_code == 422
+    assert state.get_profile(user_id=A).style_profile == {"hair_type": "curly"}
+    assert state.get_profile(user_id=A).preferences == {"max_budget": 5000.0}
 
 
 # --- SQL statement shape (real impl, recording session, no DB) -----------------

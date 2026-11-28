@@ -79,6 +79,8 @@ class _CreatedRecord {
     required this.color,
     this.material,
     this.imageRef,
+    this.fit,
+    this.fitConfidence,
   });
 
   final String name;
@@ -86,6 +88,8 @@ class _CreatedRecord {
   final String color;
   final String? material;
   final MediaRef? imageRef;
+  final String? fit;
+  final double? fitConfidence;
 }
 
 class _FakeWardrobeRepo implements WardrobeRepository {
@@ -124,6 +128,8 @@ class _FakeWardrobeRepo implements WardrobeRepository {
         color: color,
         material: material,
         imageRef: imageRef,
+        fit: fit,
+        fitConfidence: fitConfidence,
       ),
     );
     final item = WardrobeItemData(
@@ -377,6 +383,45 @@ void main() {
           jsonEncode(ref.toJson()),
           isNot(contains(base64Encode(_kJpegBytes))),
         );
+      },
+    );
+
+    test(
+      'preserves fit and extraction provenance on migrated guest items',
+      () async {
+        final repo = _FakeWardrobeRepo();
+        final tracker = _UploadTracker();
+        final learning = _MutableLearning([
+          WardrobeEntry(
+            id: 'local-provenance',
+            name: 'Analyzed Jacket',
+            category: 'outerwear',
+            color: 'navy',
+            imageBase64: base64Encode(_kJpegBytes),
+            fit: 'regular',
+            fitConfidence: 0.9,
+            sourceRunId: 'run-123',
+            candidateId: 'candidate-1',
+            extractionConfidence: 0.82,
+          ),
+        ]);
+
+        final result = await GuestDataMigration(
+          wardrobeRepo: repo,
+          syncPreference: ({required String code}) async =>
+              PreferenceSyncResult.synced,
+          learning: learning,
+          mediaClient: tracker.buildClient(),
+          decodeDimensions: (_) async => (600, 800),
+        ).migrate();
+
+        expect(result.migratedLocalIds, ['local-provenance']);
+        final created = repo.createdCalls.single;
+        expect(created.fit, 'regular');
+        expect(created.fitConfidence, 0.9);
+        expect(created.imageRef?.sourceRunId, 'run-123');
+        expect(created.imageRef?.candidateId, 'candidate-1');
+        expect(created.imageRef?.extractionConfidence, 0.82);
       },
     );
 

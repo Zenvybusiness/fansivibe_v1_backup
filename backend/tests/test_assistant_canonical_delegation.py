@@ -24,6 +24,7 @@ from app.models.schemas import (
     AssistantRequest,
     ChatMessage,
     FaceData,
+    ProfilePreferences,
     SuggestionCard,
     UserContext,
 )
@@ -366,3 +367,27 @@ def test_conversational_engine_turn_unmeasured_face_honest():
     assert "add a face scan" in reply.text.lower()
     assert reply.cards[0].title == "Textured Quiff"
     assert reply.cards[0].score == 94
+
+
+def test_context_summary_includes_hair_and_profile_preferences():
+    summary = engine._context_summary(
+        UserContext(
+            face=FaceData(
+                faceShape="oval",
+                hairType="curly",
+                hairDensity="dense",
+            ),
+            profilePreferences=ProfilePreferences(
+                appearanceGoals="refine silhouette",
+                dislikes="loud prints",
+                maintenancePreference="low",
+                maxBudget=5000,
+            ),
+        )
+    )
+    assert "curly" in summary
+    assert "dense" in summary
+    assert "refine silhouette" in summary
+    assert "loud prints" in summary
+    assert "low" in summary
+    assert "Budget limit 5000" in summary

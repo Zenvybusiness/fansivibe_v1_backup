@@ -384,7 +384,10 @@ class EstablishedProfileHero extends StatelessWidget {
               onTap: onEditProfile,
               borderRadius: BorderRadius.circular(20),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8.5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8.5,
+                ),
                 decoration: BoxDecoration(
                   color: _AtelierColors.surfaceHigh,
                   borderRadius: BorderRadius.circular(20),
@@ -420,7 +423,10 @@ class EstablishedProfileHero extends StatelessWidget {
               onTap: onShare,
               borderRadius: BorderRadius.circular(20),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8.5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8.5,
+                ),
                 decoration: BoxDecoration(
                   color: _AtelierColors.surfaceHigh,
                   borderRadius: BorderRadius.circular(20),
@@ -545,7 +551,10 @@ class EstablishedPrimaryArchetypeCard extends StatelessWidget {
             runSpacing: 8,
             children: tags.map((tag) {
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: _AtelierColors.surfaceHigh,
                   borderRadius: BorderRadius.circular(12),
@@ -672,7 +681,10 @@ class EstablishedStyleIntelligence extends StatelessWidget {
                         ),
                         if (deltaText != null && deltaText!.isNotEmpty)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: _AtelierColors.surfaceHigh,
                               borderRadius: BorderRadius.circular(8),
@@ -739,7 +751,7 @@ class EstablishedStyleIntelligence extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Consistency-based precision',
+                      'Based on wardrobe and saved looks',
                       style: TextStyle(
                         fontFamily: FansivibeTypography.textFamily,
                         fontSize: 10.5,
@@ -761,7 +773,9 @@ class EstablishedStyleIntelligence extends StatelessWidget {
                     color: _AtelierColors.surfaceLow,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                      color: _AtelierColors.subtleOutline.withValues(alpha: 0.2),
+                      color: _AtelierColors.subtleOutline.withValues(
+                        alpha: 0.2,
+                      ),
                       width: 1.0,
                     ),
                   ),
@@ -904,7 +918,10 @@ class EstablishedTrajectoryCard extends StatelessWidget {
               const SizedBox(width: 8),
               if (consistencyPercentage != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: _AtelierColors.surfaceHigh,
                     borderRadius: BorderRadius.circular(12),
@@ -946,7 +963,7 @@ class EstablishedTrajectoryCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Your style consistency is improving. Keep exploring and saving to refine your signature aesthetic.',
+                  'Your score reflects wardrobe and saved-look activity. Score history is not available yet.',
                   style: const TextStyle(
                     fontFamily: FansivibeTypography.textFamily,
                     fontSize: 12,
@@ -978,7 +995,9 @@ class EstablishedTrajectoryCard extends StatelessWidget {
             fontFamily: FansivibeTypography.textFamily,
             fontSize: 11,
             fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
-            color: isCurrent ? _AtelierColors.goldPrimary : _AtelierColors.textSecondary,
+            color: isCurrent
+                ? _AtelierColors.goldPrimary
+                : _AtelierColors.textSecondary,
           ),
         ),
         const SizedBox(height: 6),
@@ -986,7 +1005,9 @@ class EstablishedTrajectoryCard extends StatelessWidget {
           width: 58,
           height: barHeight,
           decoration: BoxDecoration(
-            color: isCurrent ? _AtelierColors.goldPrimary : _AtelierColors.surfaceHigh,
+            color: isCurrent
+                ? _AtelierColors.goldPrimary
+                : _AtelierColors.surfaceHigh,
             borderRadius: BorderRadius.circular(10),
             boxShadow: isCurrent
                 ? [
@@ -1015,7 +1036,9 @@ class EstablishedTrajectoryCard extends StatelessWidget {
             fontFamily: FansivibeTypography.textFamily,
             fontSize: 10.5,
             fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
-            color: isCurrent ? _AtelierColors.goldPrimary : _AtelierColors.textSecondary,
+            color: isCurrent
+                ? _AtelierColors.goldPrimary
+                : _AtelierColors.textSecondary,
           ),
         ),
       ],
@@ -1136,11 +1159,17 @@ class EstablishedCuratedWardrobe extends StatelessWidget {
                 _buildDotSeparator(),
                 _buildCategoryStat('BOTTOMS', categoryCounts['bottoms'] ?? 0),
                 _buildDotSeparator(),
-                _buildCategoryStat('OUTERWEAR', categoryCounts['outerwear'] ?? 0),
+                _buildCategoryStat(
+                  'OUTERWEAR',
+                  categoryCounts['outerwear'] ?? 0,
+                ),
                 _buildDotSeparator(),
                 _buildCategoryStat('SHOES', categoryCounts['footwear'] ?? 0),
                 _buildDotSeparator(),
-                _buildCategoryStat('ACCESSORIES', categoryCounts['accessories'] ?? 0),
+                _buildCategoryStat(
+                  'ACCESSORIES',
+                  categoryCounts['accessories'] ?? 0,
+                ),
               ],
             ),
           ),
@@ -1167,10 +1196,7 @@ class EstablishedCuratedWardrobe extends StatelessWidget {
       padding: EdgeInsets.symmetric(horizontal: 10),
       child: Text(
         '•',
-        style: TextStyle(
-          color: _AtelierColors.goldPrimary,
-          fontSize: 12,
-        ),
+        style: TextStyle(color: _AtelierColors.goldPrimary, fontSize: 12),
       ),
     );
   }
@@ -1204,7 +1230,9 @@ class EstablishedCuratedWardrobe extends StatelessWidget {
           Expanded(
             flex: 65,
             child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(15),
+              ),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -1440,29 +1468,49 @@ class EstablishedSavedLooks extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        // 2-Column Grid
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: _buildLookCard(
-                title: looks.isNotEmpty ? looks[0].title : 'Modern Minimal Evening',
-                subtitle: 'Smart Casual • Gallery',
-                imageAsset: 'assets/images/discover_look_urban_minimal.jpg',
-                onTap: onArchivedEnsembles,
+        if (looks.isEmpty)
+          InkWell(
+            onTap: onArchivedEnsembles,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 28),
+              decoration: BoxDecoration(
+                color: _AtelierColors.surfaceLow,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _AtelierColors.subtleOutline.withValues(alpha: 0.2),
+                ),
+              ),
+              child: const Center(
+                child: Text(
+                  'No saved looks yet',
+                  style: TextStyle(
+                    fontFamily: FansivibeTypography.textFamily,
+                    fontSize: 12,
+                    color: _AtelierColors.textSecondary,
+                  ),
+                ),
               ),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: _buildLookCard(
-                title: looks.length > 1 ? looks[1].title : 'Structured Autumn Layers',
-                subtitle: 'Casual Tailoring • Street',
-                imageAsset: 'assets/images/discover_look_modern_classics.jpg',
-                onTap: onArchivedEnsembles,
-              ),
-            ),
-          ],
-        ),
+          )
+        else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var index = 0; index < looks.take(2).length; index++) ...[
+                if (index > 0) const SizedBox(width: 14),
+                Expanded(
+                  child: _buildLookCard(
+                    title: looks[index].title,
+                    subtitle: looks[index].sourceContext ?? 'Saved look',
+                    imageAsset:
+                        looks[index].snapshot['imageUrl'] as String? ?? '',
+                    onTap: onArchivedEnsembles,
+                  ),
+                ),
+              ],
+            ],
+          ),
       ],
     );
   }
@@ -1492,7 +1540,9 @@ class EstablishedSavedLooks extends StatelessWidget {
             Expanded(
               flex: 65,
               child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(17)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(17),
+                ),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -1511,12 +1561,17 @@ class EstablishedSavedLooks extends StatelessWidget {
                       top: 10,
                       right: 10,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3.5,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.65),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: _AtelierColors.goldPrimary.withValues(alpha: 0.4),
+                            color: _AtelierColors.goldPrimary.withValues(
+                              alpha: 0.4,
+                            ),
                             width: 0.8,
                           ),
                         ),
@@ -1551,7 +1606,10 @@ class EstablishedSavedLooks extends StatelessWidget {
             Expanded(
               flex: 35,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -1835,17 +1893,11 @@ class EstablishedStyleDnaProfile extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: _buildDnaCard(
-                label: 'COLOR PALETTE',
-                value: colorPalette,
-              ),
+              child: _buildDnaCard(label: 'COLOR PALETTE', value: colorPalette),
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _buildDnaCard(
-                label: 'SILHOUETTE',
-                value: silhouette,
-              ),
+              child: _buildDnaCard(label: 'SILHOUETTE', value: silhouette),
             ),
           ],
         ),
@@ -1853,17 +1905,11 @@ class EstablishedStyleDnaProfile extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: _buildDnaCard(
-                label: 'KEY OCCASIONS',
-                value: occasions,
-              ),
+              child: _buildDnaCard(label: 'KEY OCCASIONS', value: occasions),
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _buildDnaCard(
-                label: 'AESTHETIC ANCHOR',
-                value: anchor,
-              ),
+              child: _buildDnaCard(label: 'AESTHETIC ANCHOR', value: anchor),
             ),
           ],
         ),
@@ -2184,7 +2230,9 @@ class EstablishedCuratorialMilestones extends StatelessWidget {
                     width: 12,
                     height: 12,
                     decoration: BoxDecoration(
-                      color: active ? _AtelierColors.goldPrimary : _AtelierColors.surfaceHigh,
+                      color: active
+                          ? _AtelierColors.goldPrimary
+                          : _AtelierColors.surfaceHigh,
                       shape: BoxShape.circle,
                     ),
                     child: active
@@ -2230,7 +2278,9 @@ class EstablishedCuratorialMilestones extends StatelessWidget {
           Icon(
             icon,
             size: 20,
-            color: unlocked ? _AtelierColors.goldPrimary : _AtelierColors.surfaceFloating,
+            color: unlocked
+                ? _AtelierColors.goldPrimary
+                : _AtelierColors.surfaceFloating,
           ),
           const SizedBox(height: 8),
           Text(
@@ -2242,7 +2292,9 @@ class EstablishedCuratorialMilestones extends StatelessWidget {
               fontWeight: FontWeight.w700,
               letterSpacing: 0.8,
               height: 1.25,
-              color: unlocked ? _AtelierColors.textPrimary : _AtelierColors.textSecondary,
+              color: unlocked
+                  ? _AtelierColors.textPrimary
+                  : _AtelierColors.textSecondary,
             ),
           ),
         ],
@@ -2435,7 +2487,9 @@ class EstablishedAtelierGovernance extends StatelessWidget {
                         color: _AtelierColors.surfaceHigh,
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: _AtelierColors.goldPrimary.withValues(alpha: 0.4),
+                          color: _AtelierColors.goldPrimary.withValues(
+                            alpha: 0.4,
+                          ),
                           width: 1.0,
                         ),
                       ),
@@ -2478,7 +2532,10 @@ class EstablishedAtelierGovernance extends StatelessWidget {
                     InkWell(
                       onTap: onManageMembership,
                       child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         child: Text(
                           'MANAGE →',
                           style: TextStyle(
@@ -2562,11 +2619,7 @@ class EstablishedAtelierGovernance extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(
-              icon,
-              size: 20,
-              color: _AtelierColors.textSecondary,
-            ),
+            Icon(icon, size: 20, color: _AtelierColors.textSecondary),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -2640,7 +2693,9 @@ class EstablishedSupportAndSignOut extends StatelessWidget {
                     color: _AtelierColors.surfaceLow,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: _AtelierColors.subtleOutline.withValues(alpha: 0.25),
+                      color: _AtelierColors.subtleOutline.withValues(
+                        alpha: 0.25,
+                      ),
                       width: 1.0,
                     ),
                   ),
@@ -2678,7 +2733,9 @@ class EstablishedSupportAndSignOut extends StatelessWidget {
                     color: _AtelierColors.surfaceLow,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: _AtelierColors.subtleOutline.withValues(alpha: 0.25),
+                      color: _AtelierColors.subtleOutline.withValues(
+                        alpha: 0.25,
+                      ),
                       width: 1.0,
                     ),
                   ),

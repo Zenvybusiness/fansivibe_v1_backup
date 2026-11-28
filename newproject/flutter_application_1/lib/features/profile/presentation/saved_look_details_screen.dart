@@ -10,6 +10,8 @@ import 'package:fansivibe/features/wardrobe/presentation/widgets/wardrobe_widget
 import 'package:fansivibe/shared/auth/auth_session.dart';
 import 'package:fansivibe/shared/components/fansi_badge.dart';
 import 'package:fansivibe/shared/components/fansi_button.dart';
+import 'package:fansivibe/shared/components/fansi_error_view.dart';
+import 'package:fansivibe/shared/components/fansi_loading_view.dart';
 import 'package:fansivibe/shared/theme/fansivibe_colors.dart';
 import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 import 'package:fansivibe/shared/theme/fansivibe_spacing.dart';
@@ -138,23 +140,62 @@ class _SavedLookDetailsScreenState extends State<SavedLookDetailsScreen> {
     final look = widget.look;
     if (look == null || _isDeleting) return;
 
+    if (isGuestUser || !AuthSession.isAuthenticated) {
+      promptGuestSignIn(
+        context,
+        action: 'Sign in to manage saved looks. Browsing stays free.',
+      );
+      return;
+    }
+
+    final shouldDelete = await showDialog<bool?>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Saved Look'),
+        content: Text('Are you sure you want to remove "${look.title}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (shouldDelete != true || !mounted) return;
+
     setState(() => _isDeleting = true);
-    final outcome = await _savedLooksRepository.deleteSavedLook(id: look.id);
+    SavedLookDeleteOutcome? outcome;
+    try {
+      outcome = await _savedLooksRepository.deleteSavedLook(id: look.id);
+    } catch (_) {
+      outcome = null;
+    }
     if (!mounted) return;
 
-    if (outcome != null) {
+    if (outcome == SavedLookDeleteOutcome.deleted ||
+        outcome == SavedLookDeleteOutcome.alreadyGone) {
       UserSession.notifySavedLooksChanged();
+      if (outcome == SavedLookDeleteOutcome.alreadyGone) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Look was already removed')),
+        );
+      }
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop(true);
       }
-    } else {
-      setState(() => _isDeleting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not remove saved look. Please retry.'),
-        ),
-      );
+      return;
     }
+
+    setState(() => _isDeleting = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Could not remove saved look. Please retry.'),
+      ),
+    );
   }
 
   void _onGarmentTap(HydratedGarmentItem garment) {
@@ -598,6 +639,75 @@ class _SavedLookDetailsScreenState extends State<SavedLookDetailsScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Route-level hydrator: deep links and restarts carry only the backend id,
+/// so details must fetch the authoritative row instead of trusting `extra`.
+class SavedLookDetailsLoader extends StatefulWidget {
+  const SavedLookDetailsLoader({
+    required this.savedLookId,
+    this.repository,
+    super.key,
+  });
+
+  final String savedLookId;
+  final SavedLooksRepository? repository;
+
+  @override
+  State<SavedLookDetailsLoader> createState() => _SavedLookDetailsLoaderState();
+}
+
+class _SavedLookDetailsLoaderState extends State<SavedLookDetailsLoader> {
+  late final SavedLooksRepository _repository;
+  SavedLookItem? _look;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository = widget.repository ?? SavedLooksRepositoryImpl();
+    _load();
+  }
+
+  Future<void> _load() async {
+    SavedLookItem? look;
+    try {
+      look = await _repository.getSavedLook(id: widget.savedLookId);
+    } catch (_) {
+      look = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _look = look;
+      _isLoading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Saved Look')),
+        body: const FansiLoadingView(message: 'Loading saved look…'),
+      );
+    }
+    if (_look == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Saved Look')),
+        body: FansiErrorView(
+          message: 'This saved look is no longer available.',
+          onRetry: () {
+            setState(() => _isLoading = true);
+            _load();
+          },
+        ),
+      );
+    }
+    return SavedLookDetailsScreen(
+      look: _look,
+      savedLooksRepository: _repository,
     );
   }
 }

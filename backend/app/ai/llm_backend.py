@@ -13,12 +13,36 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from contextlib import nullcontext
+from dataclasses import dataclass
 from typing import Any, List, Optional
 
 import httpx
 
+from app.telemetry.metrics import get_metrics_collector
+
 logger = logging.getLogger("fansivibe.ai.llm")
+
+
+@dataclass
+class LlmProvenanceState:
+    provider: str = "ollama"
+    model: Optional[str] = None
+    status: str = "not_requested"
+    reason: Optional[str] = None
+    error_type: Optional[str] = None
+    duration_ms: Optional[int] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "status": self.status,
+            "reason": self.reason,
+            "errorType": self.error_type,
+            "durationMs": self.duration_ms,
+        }
 
 _HOST = os.environ.get("FANSIVIBE_OLLAMA_HOST", "http://localhost:11434")
 _DEFAULT_MODEL = os.environ.get("FANSIVIBE_OLLAMA_MODEL", "qwen3-vl:4b-instruct")
@@ -142,24 +166,91 @@ def _execute_chat_inference(
         return content.strip() if isinstance(content, str) and content.strip() else None
 
 
+def _failure_reason(exc: Exception) -> str:
+    if isinstance(exc, (httpx.TimeoutException, TimeoutError)):
+        return "timeout"
+    if isinstance(exc, (httpx.ConnectError, httpx.NetworkError)):
+        return "provider_unreachable"
+    return "error"
+
+
+def _record_llm_call(
+    state: LlmProvenanceState,
+    *,
+    started_at: float,
+    status: str,
+    reason: str,
+    error_type: Optional[str] = None,
+) -> None:
+    duration_s = max(0.0, time.perf_counter() - started_at)
+    state.status = status
+    state.reason = reason
+    state.error_type = error_type
+    state.duration_ms = int(round(duration_s * 1000))
+    get_metrics_collector().record_llm_enrichment(
+        provider=state.provider,
+        model=state.model or "unknown",
+        status=status,
+        reason=reason,
+        error_type=error_type or "none",
+        duration_s=duration_s,
+    )
+    logger.info(
+        "LLM enrichment provider=%s model=%s status=%s reason=%s error_type=%s duration_ms=%d",
+        state.provider,
+        state.model or "unknown",
+        status,
+        reason,
+        error_type or "none",
+        state.duration_ms,
+    )
+
+
+def unavailable_provenance(
+    reason: str = "provider_unavailable",
+) -> LlmProvenanceState:
+    state = LlmProvenanceState(model=os.environ.get("FANSIVIBE_OLLAMA_MODEL", _DEFAULT_MODEL))
+    _record_llm_call(
+        state,
+        started_at=time.perf_counter(),
+        status="fallback",
+        reason=reason,
+    )
+    return state
+
+
 def enrich_reply(
     intent: str,
     base_text: str,
     context: str,
     client: Optional[httpx.Client] = None,
+    provenance_out: Optional[LlmProvenanceState] = None,
 ) -> str:
     """Return a personalized reply from the local model, or [base_text] on any failure."""
+    state = provenance_out or LlmProvenanceState()
+    started_at = time.perf_counter()
     try:
         model = get_active_model()
+        state.model = model
         messages = [
             {"role": "system", "content": _system_prompt()},
             {"role": "system", "content": f"User context:\n{context}"},
             {"role": "user", "content": base_text},
         ]
         content = _execute_chat_inference(messages, model, client=client)
-        return content or base_text
+        if content:
+            _record_llm_call(state, started_at=started_at, status="generated", reason="none")
+            return content
+        _record_llm_call(state, started_at=started_at, status="fallback", reason="empty_response")
+        return base_text
     except Exception as exc:
-        logger.debug("Ollama enrichment fallback to base text: %s", exc)
+        _record_llm_call(
+            state,
+            started_at=started_at,
+            status="fallback",
+            reason=_failure_reason(exc),
+            error_type=type(exc).__name__,
+        )
         return base_text
 
 
@@ -174,6 +265,7 @@ def enrich_stylist_recommendation(
     base_text: str,
     conversation_history: Optional[List[dict]] = None,
     client: Optional[httpx.Client] = None,
+    provenance_out: Optional[LlmProvenanceState] = None,
 ) -> str:
     """Generate an explainable AI Stylist natural language recommendation.
 
@@ -183,8 +275,11 @@ def enrich_stylist_recommendation(
     3. Weather and occasion context when provided.
     Falls back gracefully to [base_text] on any model failure, timeout, or network issue.
     """
+    state = provenance_out or LlmProvenanceState()
+    started_at = time.perf_counter()
     try:
         model = get_active_model()
+        state.model = model
 
         # Build structured context for the stylist reasoning
         garment_lines = [
@@ -232,8 +327,18 @@ def enrich_stylist_recommendation(
         messages.append({"role": "user", "content": user_query or f"Recommend an outfit for {occasion}."})
 
         content = _execute_chat_inference(messages, model, client=client)
-        return content or base_text
+        if content:
+            _record_llm_call(state, started_at=started_at, status="generated", reason="none")
+            return content
+        _record_llm_call(state, started_at=started_at, status="fallback", reason="empty_response")
+        return base_text
     except Exception as exc:
-        logger.debug("Ollama stylist enrichment fallback: %s", exc)
+        _record_llm_call(
+            state,
+            started_at=started_at,
+            status="fallback",
+            reason=_failure_reason(exc),
+            error_type=type(exc).__name__,
+        )
         return base_text
 

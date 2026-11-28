@@ -41,7 +41,8 @@ The LLM only enriches the natural-language reply text; structure stays ours.
 Start Ollama with a small model:
 
 ```bash
-docker compose up -d    # starts Ollama with llama3.1:8b
+docker compose up -d    # starts the local Ollama service
+# Provision the enrichment model explicitly; start.sh checks qwen3-vl:4b-instruct.
 ```
 
 Env vars:
@@ -49,7 +50,7 @@ Env vars:
 | Var | Default |
 |-----|---------|
 | `FANSIVIBE_OLLAMA_HOST` | `http://localhost:11434` |
-| `FANSIVIBE_OLLAMA_MODEL` | `llama3.1:8b` |
+| `FANSIVIBE_OLLAMA_MODEL` | `qwen3-vl:4b-instruct` for LLM enrichment (`qwen2.5vl:3b` in Settings for reasoning) |
 | `FANSIVIBE_DISABLE_LLM` | unset (set `1` to disable) |
 
 Without Ollama the service degrades gracefully to the deterministic rules

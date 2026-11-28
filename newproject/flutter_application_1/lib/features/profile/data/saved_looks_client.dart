@@ -53,9 +53,7 @@ class SavedLooksClient {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return SavedLookListPage.fromJson(decoded);
       }
-      debugPrint(
-        'Saved looks list responded ${response.statusCode}: ${response.body}',
-      );
+      debugPrint('Saved looks list responded ${response.statusCode}');
     } catch (error) {
       debugPrint('Saved looks backend unreachable during list: $error');
     }
@@ -81,9 +79,7 @@ class SavedLooksClient {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         return SavedLookItem.fromJson(decoded);
       }
-      debugPrint(
-        'Saved look detail responded ${response.statusCode}: ${response.body}',
-      );
+      debugPrint('Saved look detail responded ${response.statusCode}');
     } catch (error) {
       debugPrint('Saved look detail backend unreachable: $error');
     }
@@ -112,9 +108,7 @@ class SavedLooksClient {
       if (response.statusCode == 404) {
         return SavedLookDeleteOutcome.alreadyGone;
       }
-      debugPrint(
-        'Saved looks delete responded ${response.statusCode}: ${response.body}',
-      );
+      debugPrint('Saved looks delete responded ${response.statusCode}');
     } catch (error) {
       debugPrint('Saved looks backend unreachable during delete: $error');
     }

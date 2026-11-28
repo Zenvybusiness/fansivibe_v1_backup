@@ -421,6 +421,9 @@ class HairstyleService extends ChangeNotifier {
     return page?.items ?? const [];
   }
 
+  Future<AnalysisRun?> getRun(String runId) =>
+      _client.getAnalysisRun(runId: runId);
+
   /// Lists the user's saved looks (endpoint #24).
   ///
   /// Returns an empty list when the backend is unreachable, matching the

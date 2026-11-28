@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fansivibe/features/assistant/data/assistant_client.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_models.dart';
 import 'package:fansivibe/features/profile/data/saved_looks_repository.dart';
+import 'package:fansivibe/features/profile/data/user_profile_client.dart';
+import 'package:fansivibe/features/profile/data/user_profile_repository.dart';
 import 'package:fansivibe/features/profile/presentation/preferences_screen.dart';
 import 'package:fansivibe/features/profile/presentation/saved_looks_screen.dart';
 import 'package:fansivibe/features/profile/presentation/subscription_screen.dart';
@@ -205,48 +207,29 @@ void main() {
   });
 
   group('SubscriptionScreen Widget Tests', () {
-    testWidgets('renders title and subtitle', (WidgetTester tester) async {
+    testWidgets('shows honest unavailable state', (WidgetTester tester) async {
       await tester.pumpWidget(wrapApp(const SubscriptionScreen()));
 
-      expect(find.text('Choose Your Plan'), findsOneWidget);
-      expect(find.text('Unlock premium style features'), findsOneWidget);
+      expect(find.text('Subscriptions'), findsOneWidget);
+      expect(find.text('Premium plans are not available'), findsOneWidget);
+      expect(find.text('No plans connected'), findsOneWidget);
+      expect(
+        find.text(
+          'This build does not include billing or subscription plans. No purchases can be made from this screen.',
+        ),
+        findsOneWidget,
+      );
     });
 
-    testWidgets('renders all plans', (WidgetTester tester) async {
+    testWidgets('does not show fake plans or subscribe actions', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(wrapApp(const SubscriptionScreen()));
 
-      expect(find.text('Free'), findsOneWidget);
-      expect(find.text('Premium'), findsOneWidget);
-      expect(find.text('Elite'), findsOneWidget);
-    });
-
-    testWidgets('renders plan prices', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const SubscriptionScreen()));
-
-      expect(find.text('\$0'), findsOneWidget);
-      expect(find.text('\$9.99'), findsOneWidget);
-      expect(find.text('\$19.99'), findsOneWidget);
-    });
-
-    testWidgets('renders Popular badge', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const SubscriptionScreen()));
-
-      expect(find.text('Popular'), findsOneWidget);
-    });
-
-    testWidgets('renders plan features', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const SubscriptionScreen()));
-
-      expect(find.text('Basic style score'), findsOneWidget);
-      expect(find.text('Advanced style analytics'), findsOneWidget);
-      expect(find.text('Personal stylist review'), findsOneWidget);
-    });
-
-    testWidgets('renders buttons', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const SubscriptionScreen()));
-
-      expect(find.text('Current Plan'), findsOneWidget);
-      expect(find.text('Subscribe'), findsAtLeast(1));
+      expect(find.text('Premium'), findsNothing);
+      expect(find.text('Elite'), findsNothing);
+      expect(find.text('Subscribe'), findsNothing);
+      expect(find.byType(ElevatedButton), findsNothing);
     });
 
     testWidgets('back button pops', (WidgetTester tester) async {
@@ -258,14 +241,18 @@ void main() {
   });
 
   group('SupportScreen Widget Tests', () {
-    testWidgets('renders title and subtitle', (WidgetTester tester) async {
+    testWidgets('renders title and honest subtitle', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(wrapApp(const SupportScreen()));
 
       expect(find.text('Help & Support'), findsOneWidget);
-      expect(find.text('Find answers and get in touch'), findsOneWidget);
+      expect(find.text('Help topics and support status'), findsOneWidget);
     });
 
-    testWidgets('renders all support topics', (WidgetTester tester) async {
+    testWidgets('renders help topics without dead navigation', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(wrapApp(const SupportScreen()));
 
       expect(find.text('Getting Started'), findsOneWidget);
@@ -273,21 +260,21 @@ void main() {
       expect(find.text('Wardrobe Management'), findsOneWidget);
       expect(find.text('Account & Privacy'), findsOneWidget);
       expect(find.text('Report a Bug'), findsOneWidget);
-      expect(find.text('Contact Us'), findsOneWidget);
+      expect(find.text('Contact Us'), findsNothing);
+      expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
     });
 
-    testWidgets('renders topic descriptions', (WidgetTester tester) async {
+    testWidgets('shows direct support as unavailable', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(wrapApp(const SupportScreen()));
 
-      expect(find.text('Learn the basics of Fansivibe'), findsOneWidget);
-      expect(find.text('How your style score is calculated'), findsOneWidget);
-    });
-
-    testWidgets('renders contact card', (WidgetTester tester) async {
-      await tester.pumpWidget(wrapApp(const SupportScreen()));
-
-      expect(find.text('Send us a message'), findsOneWidget);
-      expect(find.text('We typically respond within 24 hours'), findsOneWidget);
+      expect(find.text('Direct support is not configured'), findsOneWidget);
+      expect(
+        find.text('No support channel is connected in this build.'),
+        findsOneWidget,
+      );
+      expect(find.text('We typically respond within 24 hours'), findsNothing);
     });
 
     testWidgets('back button pops', (WidgetTester tester) async {
@@ -338,6 +325,66 @@ void main() {
 
       expect(find.text('Dark'), findsOneWidget);
       expect(find.text('Imperial'), findsOneWidget);
+    });
+
+    testWidgets('shows account actions for authenticated users', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(wrapApp(const SettingsScreen()));
+
+      expect(find.text('Account'), findsOneWidget);
+      expect(find.text('Sign Out'), findsOneWidget);
+      expect(find.text('Delete Account'), findsOneWidget);
+    });
+
+    testWidgets('delete account requires typed confirmation', (
+      WidgetTester tester,
+    ) async {
+      final requests = <http.Request>[];
+      final client = MockClient((request) async {
+        requests.add(request);
+        if (request.method == 'DELETE') {
+          return http.Response('', 204);
+        }
+        return http.Response('{}', 404);
+      });
+      final repo = UserProfileRepositoryImpl(
+        client: UserProfileClient(client: client),
+      );
+      await tester.pumpWidget(
+        wrapApp(SettingsScreen(userProfileRepository: repo)),
+      );
+
+      await tester.ensureVisible(find.text('Delete Account'));
+      await tester.tap(find.text('Delete Account'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete account?'), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
+      TextButton deleteButton() => tester.widget<TextButton>(
+        find.ancestor(
+          of: find.text('Delete account'),
+          matching: find.byType(TextButton),
+        ),
+      );
+      expect(deleteButton().onPressed, isNull);
+
+      await tester.enterText(find.byType(TextField), 'delete');
+      await tester.pump();
+      expect(deleteButton().onPressed, isNull);
+
+      await tester.enterText(find.byType(TextField), 'DELETE');
+      await tester.pump();
+      expect(deleteButton().onPressed, isNotNull);
+
+      await tester.tap(find.text('Delete account'));
+      await tester.pumpAndSettle();
+
+      expect(requests.where((request) => request.method == 'DELETE').length, 1);
+      expect(
+        requests.where((request) => request.method == 'DELETE').single.url.path,
+        '/v1/users/me',
+      );
     });
 
     testWidgets('back button pops', (WidgetTester tester) async {

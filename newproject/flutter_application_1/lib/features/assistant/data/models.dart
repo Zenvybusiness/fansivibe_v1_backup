@@ -23,24 +23,25 @@ class OutfitComposition {
   final List<String> accessoryIds;
   final int styleScore;
 
-  factory OutfitComposition.fromJson(Map<String, dynamic> json) => OutfitComposition(
-    topIds: (json['topIds'] as List<dynamic>? ?? [])
-        .map((e) => e as String)
-        .toList(),
-    bottomIds: (json['bottomIds'] as List<dynamic>? ?? [])
-        .map((e) => e as String)
-        .toList(),
-    outerwearIds: (json['outerwearIds'] as List<dynamic>? ?? [])
-        .map((e) => e as String)
-        .toList(),
-    footwearIds: (json['footwearIds'] as List<dynamic>? ?? [])
-        .map((e) => e as String)
-        .toList(),
-    accessoryIds: (json['accessoryIds'] as List<dynamic>? ?? [])
-        .map((e) => e as String)
-        .toList(),
-    styleScore: json['styleScore'] as int? ?? 0,
-  );
+  factory OutfitComposition.fromJson(Map<String, dynamic> json) =>
+      OutfitComposition(
+        topIds: (json['topIds'] as List<dynamic>? ?? [])
+            .map((e) => e as String)
+            .toList(),
+        bottomIds: (json['bottomIds'] as List<dynamic>? ?? [])
+            .map((e) => e as String)
+            .toList(),
+        outerwearIds: (json['outerwearIds'] as List<dynamic>? ?? [])
+            .map((e) => e as String)
+            .toList(),
+        footwearIds: (json['footwearIds'] as List<dynamic>? ?? [])
+            .map((e) => e as String)
+            .toList(),
+        accessoryIds: (json['accessoryIds'] as List<dynamic>? ?? [])
+            .map((e) => e as String)
+            .toList(),
+        styleScore: json['styleScore'] as int? ?? 0,
+      );
 
   Map<String, dynamic> toJson() => {
     'topIds': topIds,
@@ -55,9 +56,7 @@ class OutfitComposition {
 /// Selected wardrobe item IDs, machine-readable for later lookup/highlight.
 /// Remains a list of strings — NOT converted to display-only concatenated strings.
 class OutfitSelectedItemIds {
-  const OutfitSelectedItemIds({
-    required this.itemIds,
-  });
+  const OutfitSelectedItemIds({required this.itemIds});
 
   final List<String> itemIds;
 
@@ -68,9 +67,7 @@ class OutfitSelectedItemIds {
             .toList(),
       );
 
-  Map<String, dynamic> toJson() => {
-    'itemIds': itemIds,
-  };
+  Map<String, dynamic> toJson() => {'itemIds': itemIds};
 }
 
 /// Complete Outfit Intelligence result from the backend.
@@ -118,20 +115,23 @@ class OutfitIntelligence {
   /// Typed status (success, empty_wardrobe, missing_required_category, no_legal_candidate, unavailable).
   final String? status;
 
-  factory OutfitIntelligence.fromJson(Map<String, dynamic> json) => OutfitIntelligence(
-    selectedItemIds: (json['selectedItemIds'] as List<dynamic>? ?? [])
-        .map((e) => e as String)
-        .toList(),
-    outfitComposition: OutfitComposition.fromJson(json['outfitComposition'] as Map<String, dynamic>? ?? {}),
-    occasion: json['occasion'] as String? ?? '',
-    stylingRationale: json['stylingRationale'] as String? ?? '',
-    compatibilityRationale: json['compatibilityRationale'] as String? ?? '',
-    confidence: (json['confidence'] as num? ?? 0.0).toDouble(),
-    explanation: json['explanation'] as String? ?? '',
-    dataAvailability: json['dataAvailability'] as String? ?? 'full',
-    matchScore: json['matchScore'] as int?,
-    status: json['status'] as String?,
-  );
+  factory OutfitIntelligence.fromJson(Map<String, dynamic> json) =>
+      OutfitIntelligence(
+        selectedItemIds: (json['selectedItemIds'] as List<dynamic>? ?? [])
+            .map((e) => e as String)
+            .toList(),
+        outfitComposition: OutfitComposition.fromJson(
+          json['outfitComposition'] as Map<String, dynamic>? ?? {},
+        ),
+        occasion: json['occasion'] as String? ?? '',
+        stylingRationale: json['stylingRationale'] as String? ?? '',
+        compatibilityRationale: json['compatibilityRationale'] as String? ?? '',
+        confidence: (json['confidence'] as num? ?? 0.0).toDouble(),
+        explanation: json['explanation'] as String? ?? '',
+        dataAvailability: json['dataAvailability'] as String? ?? 'full',
+        matchScore: json['matchScore'] as int?,
+        status: json['status'] as String?,
+      );
 
   Map<String, dynamic> toJson() => {
     'selectedItemIds': selectedItemIds,
@@ -234,7 +234,8 @@ class OutfitSaveRequest {
         'confidence': intelligence.confidence,
         'explanation': intelligence.explanation,
         'dataAvailability': intelligence.dataAvailability,
-        if (intelligence.matchScore != null) 'matchScore': intelligence.matchScore,
+        if (intelligence.matchScore != null)
+          'matchScore': intelligence.matchScore,
         if (intelligence.status != null) 'status': intelligence.status,
       },
       sourceContext: 'outfit',
@@ -359,6 +360,42 @@ class NavigationRequest {
   Map<String, dynamic> toJson() => {'route': route, 'label': label};
 }
 
+class LlmProvenance {
+  const LlmProvenance({
+    this.provider = 'ollama',
+    this.model,
+    required this.status,
+    this.reason,
+    this.errorType,
+    this.durationMs,
+  });
+
+  final String provider;
+  final String? model;
+  final String status;
+  final String? reason;
+  final String? errorType;
+  final int? durationMs;
+
+  factory LlmProvenance.fromJson(Map<String, dynamic> json) => LlmProvenance(
+    provider: json['provider'] as String? ?? 'ollama',
+    model: json['model'] as String?,
+    status: json['status'] as String? ?? 'not_requested',
+    reason: json['reason'] as String?,
+    errorType: json['errorType'] as String?,
+    durationMs: json['durationMs'] as int?,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'provider': provider,
+    if (model != null) 'model': model,
+    'status': status,
+    if (reason != null) 'reason': reason,
+    if (errorType != null) 'errorType': errorType,
+    if (durationMs != null) 'durationMs': durationMs,
+  };
+}
+
 class AssistantReply {
   const AssistantReply({
     required this.intent,
@@ -367,6 +404,7 @@ class AssistantReply {
     this.clarifications = const [],
     this.navigation,
     this.outfitIntelligence,
+    this.llmProvenance,
   });
 
   final String intent;
@@ -375,6 +413,7 @@ class AssistantReply {
   final List<ClarificationOption> clarifications;
   final NavigationRequest? navigation;
   final OutfitIntelligence? outfitIntelligence;
+  final LlmProvenance? llmProvenance;
 
   factory AssistantReply.fromJson(Map<String, dynamic> json) => AssistantReply(
     intent: json['intent'] as String? ?? 'unknown',
@@ -395,6 +434,9 @@ class AssistantReply {
         : OutfitIntelligence.fromJson(
             json['outfitIntelligence'] as Map<String, dynamic>,
           ),
+    llmProvenance: json['llmProvenance'] == null
+        ? null
+        : LlmProvenance.fromJson(json['llmProvenance'] as Map<String, dynamic>),
   );
 }
 
@@ -431,6 +473,7 @@ class AssistantMessage {
     this.clarifications = const [],
     this.navigation,
     this.outfitIntelligence,
+    this.llmProvenance,
     this.pending = false,
     this.isOffline = false,
     this.imageBytes,
@@ -442,6 +485,7 @@ class AssistantMessage {
   final List<ClarificationOption> clarifications;
   final NavigationRequest? navigation;
   final OutfitIntelligence? outfitIntelligence;
+  final LlmProvenance? llmProvenance;
 
   /// True while waiting for the backend reply (typing indicator).
   final bool pending;
@@ -461,6 +505,7 @@ class AssistantMessage {
     String? text,
     bool? pending,
     OutfitIntelligence? outfitIntelligence,
+    LlmProvenance? llmProvenance,
     bool? isOffline,
   }) => AssistantMessage(
     role: role,
@@ -469,6 +514,7 @@ class AssistantMessage {
     clarifications: clarifications,
     navigation: navigation,
     outfitIntelligence: outfitIntelligence ?? this.outfitIntelligence,
+    llmProvenance: llmProvenance ?? this.llmProvenance,
     pending: pending ?? this.pending,
     isOffline: isOffline ?? this.isOffline,
     imageBytes: imageBytes,
@@ -482,17 +528,20 @@ class AssistantUserContext {
     this.face,
     this.savedLooks = const [],
     this.preferredOccasions = const [],
+    this.profilePreferences = const {},
   });
 
   final List<WardrobeEntry> wardrobe;
   final FaceProfile? face;
   final List<String> savedLooks;
   final List<String> preferredOccasions;
+  final Map<String, dynamic> profilePreferences;
 
   Map<String, dynamic> toJson() => {
     'wardrobe': wardrobe.map((e) => e.toJson()).toList(),
     'face': face?.toJson(),
     'savedLooks': savedLooks,
     'preferredOccasions': preferredOccasions,
+    'profilePreferences': profilePreferences,
   };
 }

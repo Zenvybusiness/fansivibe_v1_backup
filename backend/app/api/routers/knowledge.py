@@ -36,7 +36,7 @@ from app.application.knowledge import (
 )
 from app.data import catalog
 from app.data.ffo import FFO_VERSION
-from app.infrastructure.db.models import Colors, WardrobeCategories
+from app.infrastructure.db.models import Colors, Materials, WardrobeCategories
 from app.infrastructure.db.repositories import VocabularyRepositorySQL
 from app.infrastructure.db.session import get_db
 from app.infrastructure.external.knowledge import CatalogKnowledgeSource
@@ -120,6 +120,24 @@ def list_knowledge_colors(
     use_case = ListKnowledgeVocabulary(
         vocabulary=VocabularyRepositorySQL(db, Colors)
     )
+    items, total = use_case(page=page, page_size=page_size)
+    return VocabularyList(items=items, page=page, page_size=page_size, total=total)
+
+
+@router.get(
+    "/materials",
+    response_model=VocabularyList,
+    responses={422: {"model": dict}},
+)
+def list_knowledge_materials(
+    response: Response,
+    page: int = Query(default=1, ge=1, description="1-based page number"),
+    page_size: int = Query(default=20, ge=1, le=100, description="Items per page, max 100"),
+    db: Session = Depends(get_db),
+) -> VocabularyList:
+    """List the canonical garment-material vocabulary (DB-backed)."""
+    _versioned(response)
+    use_case = ListKnowledgeVocabulary(vocabulary=VocabularyRepositorySQL(db, Materials))
     items, total = use_case(page=page, page_size=page_size)
     return VocabularyList(items=items, page=page, page_size=page_size, total=total)
 

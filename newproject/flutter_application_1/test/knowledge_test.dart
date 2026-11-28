@@ -153,7 +153,7 @@ void main() {
     });
 
     test('vocabulary endpoints hit exact paths', () async {
-      for (final path in ['categories', 'colors', 'occasions']) {
+      for (final path in ['categories', 'colors', 'materials', 'occasions']) {
         final client = KnowledgeClient(
           client: MockClient((request) async {
             expect(request.url.path, '/v1/knowledge/$path');
@@ -176,6 +176,8 @@ void main() {
           list = await client.listCategories();
         } else if (path == 'colors') {
           list = await client.listColors();
+        } else if (path == 'materials') {
+          list = await client.listMaterials();
         } else {
           list = await client.listOccasions();
         }
@@ -215,6 +217,7 @@ void main() {
         expect(await client.listLooks(), isNull);
         expect(await client.listCategories(), isNull);
         expect(await client.listColors(), isNull);
+        expect(await client.listMaterials(), isNull);
         expect(await client.listOccasions(), isNull);
         expect(await client.listItems(), isNull);
       }

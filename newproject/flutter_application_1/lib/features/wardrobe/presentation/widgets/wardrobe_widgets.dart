@@ -17,6 +17,10 @@ class WardrobeDashboardHeader extends StatelessWidget {
     required this.styleType,
     required this.favoritesCount,
     required this.categoryCount,
+    this.searchController,
+    this.onSearchChanged,
+    this.onFilterTap,
+    this.onSortTap,
     super.key,
   });
 
@@ -24,6 +28,10 @@ class WardrobeDashboardHeader extends StatelessWidget {
   final String styleType;
   final int favoritesCount;
   final int categoryCount;
+  final TextEditingController? searchController;
+  final ValueChanged<String>? onSearchChanged;
+  final VoidCallback? onFilterTap;
+  final VoidCallback? onSortTap;
 
   @override
   Widget build(BuildContext context) {
@@ -109,7 +117,8 @@ class WardrobeDashboardHeader extends StatelessWidget {
               height: 30,
               child: _buildGlassmorphicButton(
                 icon: Icons.tune_rounded,
-                onTap: () {},
+                tooltip: 'Filter wardrobe',
+                onTap: onFilterTap ?? () {},
               ),
             ),
             const SizedBox(width: FansivibeSpacing.xs),
@@ -117,7 +126,8 @@ class WardrobeDashboardHeader extends StatelessWidget {
               height: 30,
               child: _buildGlassmorphicButton(
                 icon: Icons.sort_rounded,
-                onTap: () {},
+                tooltip: 'Sort wardrobe',
+                onTap: onSortTap ?? () {},
               ),
             ),
           ],
@@ -145,10 +155,24 @@ class WardrobeDashboardHeader extends StatelessWidget {
           ),
           const SizedBox(width: FansivibeSpacing.sm),
           Expanded(
-            child: Text(
-              'Search your wardrobe...',
+            child: TextField(
+              controller: searchController,
+              onChanged: onSearchChanged,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Search your wardrobe...',
+                hintStyle: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                  color: FansivibeColors.secondary.withValues(alpha: 0.5),
+                  fontSize: 12,
+                ),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
               style: FansivibeTypography.bodyMediumWithFamily.copyWith(
-                color: FansivibeColors.secondary.withValues(alpha: 0.5),
+                color: FansivibeColors.onSurface,
                 fontSize: 12,
               ),
             ),
@@ -161,19 +185,23 @@ class WardrobeDashboardHeader extends StatelessWidget {
   Widget _buildGlassmorphicButton({
     required IconData icon,
     required VoidCallback onTap,
+    required String tooltip,
   }) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: FansivibeRadius.fullBorder,
-        child: Container(
-          width: 30,
-          decoration: BoxDecoration(
-            color: FansivibeColors.surfaceContainerLow.withValues(alpha: 0.6),
-            borderRadius: FansivibeRadius.fullBorder,
+      child: Tooltip(
+        message: tooltip,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: FansivibeRadius.fullBorder,
+          child: Container(
+            width: 30,
+            decoration: BoxDecoration(
+              color: FansivibeColors.surfaceContainerLow.withValues(alpha: 0.6),
+              borderRadius: FansivibeRadius.fullBorder,
+            ),
+            child: Icon(icon, size: 14, color: FansivibeColors.secondary),
           ),
-          child: Icon(icon, size: 14, color: FansivibeColors.secondary),
         ),
       ),
     );
@@ -353,11 +381,11 @@ class WardrobeItemImage extends StatelessWidget {
   final double iconSize;
 
   Widget _buildWell() => FansiImageWell(
-        icon: wardrobeIconFor(item.category),
-        color: wardrobeSwatchFor(item.color),
-        iconSize: iconSize,
-        showLabel: false,
-      );
+    icon: wardrobeIconFor(item.category),
+    color: wardrobeSwatchFor(item.color),
+    iconSize: iconSize,
+    showLabel: false,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -373,18 +401,17 @@ class WardrobeItemImage extends StatelessWidget {
     }
 
     // 2. Cloud retrieval or local original path via cache manager
-    final hasRemote = (item.imageUrl != null && item.imageUrl!.isNotEmpty) ||
+    final hasRemote =
+        (item.imageUrl != null && item.imageUrl!.isNotEmpty) ||
         (item.imageRef != null);
-    final hasLocalOriginal = item.localOriginalPath != null &&
-        item.localOriginalPath!.isNotEmpty;
+    final hasLocalOriginal =
+        item.localOriginalPath != null && item.localOriginalPath!.isNotEmpty;
 
     if (hasRemote || hasLocalOriginal) {
-      final cacheKey = item.imageRef?.contentHash ??
-          item.imageRef?.objectKey ??
-          item.id;
-      final downloadUrl = item.imageUrl ??
-          item.imageRef?.downloadUrl ??
-          item.imageRef?.url;
+      final cacheKey =
+          item.imageRef?.contentHash ?? item.imageRef?.objectKey ?? item.id;
+      final downloadUrl =
+          item.imageUrl ?? item.imageRef?.downloadUrl ?? item.imageRef?.url;
       final uploadId = item.imageRef?.uploadId;
 
       return FutureBuilder<Uint8List?>(

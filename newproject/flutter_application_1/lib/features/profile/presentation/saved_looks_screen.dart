@@ -44,7 +44,10 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
   late final SavedLooksRepository _repository;
   late final FeedbackRepository _feedbackRepository;
   List<SavedLookItem> _looks = [];
+  int _total = 0;
+  int _page = 1;
   bool _isLoading = true;
+  bool _isLoadingMore = false;
   bool _loadFailed = false;
 
   /// Backend UUIDs with a delete request in flight (pending guard).
@@ -98,7 +101,10 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
     if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) {
       setState(() {
         _looks = [];
+        _total = 0;
+        _page = 1;
         _isLoading = false;
+        _isLoadingMore = false;
         _loadFailed = false;
       });
       return;
@@ -106,21 +112,38 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
     _loadSavedLooks();
   }
 
-  Future<void> _loadSavedLooks() async {
+  Future<void> _loadSavedLooks({int page = 1, bool append = false}) async {
     final hasInjectedRepo = widget.repository != null;
     if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) {
       return;
     }
-    final page = await _repository.listSavedLooks(page: 1, pageSize: 20);
+    if (append) {
+      setState(() => _isLoadingMore = true);
+    }
+    final result = await _repository.listSavedLooks(page: page, pageSize: 20);
 
     if (!mounted) return;
 
     setState(() {
-      _looks = page?.items ?? <SavedLookItem>[];
-      _loadFailed = page == null;
+      if (append) {
+        _looks = [..._looks, ...(result?.items ?? const <SavedLookItem>[])];
+      } else {
+        _looks = result?.items ?? <SavedLookItem>[];
+        _page = 1;
+      }
+      if (result != null) {
+        _total = result.total;
+        if (!append) _page = result.page;
+      } else if (!append) {
+        _total = 0;
+      }
+      _loadFailed = result == null && !append;
       _isLoading = false;
+      _isLoadingMore = false;
     });
   }
+
+  bool get _hasMoreSavedLooks => _looks.length < _total;
 
   Future<void> _retryLoad() async {
     final hasInjectedRepo = widget.repository != null;
@@ -299,7 +322,7 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
                       children: [
                         const SizedBox(height: 8),
                         Text(
-                          '${_looks.length} Saved Looks',
+                          '$_total Saved Looks',
                           style: theme.textTheme.headlineMedium?.copyWith(
                             fontWeight: FontWeight.w600,
                             color: FansivibeColors.textPrimary,
@@ -354,11 +377,24 @@ class _SavedLooksScreenState extends State<SavedLooksScreen> {
               isDeleting: _deletingIds.contains(look.id),
               isReacting: _reactingIds.contains(look.id),
               onDelete: () => _deleteLook(look),
+              onDeleted: () async {
+                _ignoringNextSavedLooksNotification = true;
+                await _loadSavedLooks();
+              },
               onLike: () => _reactToLook(look, FeedbackRating.like),
               onDislike: () => _reactToLook(look, FeedbackRating.dislike),
             ),
           ),
         ),
+        if (_hasMoreSavedLooks) ...[
+          const SizedBox(height: 4),
+          FansiButton.tertiary(
+            label: _isLoadingMore ? 'Loading more…' : 'Load More',
+            onPressed: _isLoadingMore
+                ? null
+                : () => _loadSavedLooks(page: _page + 1, append: true),
+          ),
+        ],
       ],
     );
   }
@@ -403,6 +439,7 @@ class _SavedLookCard extends StatelessWidget {
   const _SavedLookCard({
     required this.look,
     required this.onDelete,
+    required this.onDeleted,
     required this.onLike,
     required this.onDislike,
     this.isDeleting = false,
@@ -411,6 +448,7 @@ class _SavedLookCard extends StatelessWidget {
 
   final SavedLookItem look;
   final VoidCallback onDelete;
+  final Future<void> Function() onDeleted;
   final VoidCallback onLike;
   final VoidCallback onDislike;
   final bool isDeleting;
@@ -466,10 +504,11 @@ class _SavedLookCard extends StatelessWidget {
           onTap: () async {
             final result = await context.pushNamed(
               RouteNames.savedLookDetails,
+              pathParameters: {'id': look.id},
               extra: look,
             );
             if (result == true) {
-              onDelete();
+              await onDeleted();
             }
           },
           footer: Padding(

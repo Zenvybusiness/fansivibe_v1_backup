@@ -368,6 +368,8 @@ def test_g_readers_receive_same_style_profile_wire_shape():
         "faceShape": "round",
         "skinTone": "medium",
         "bodyType": "pear",
+        "hairType": None,
+        "hairDensity": None,
         "styleType": "casual",
         "sourceRunId": "run-xyz",
     }

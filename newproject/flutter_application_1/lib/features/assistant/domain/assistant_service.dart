@@ -8,6 +8,7 @@ import 'package:fansivibe/features/assistant/data/models.dart';
 import 'package:fansivibe/features/assistant/data/offline_assistant.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/learning_repository.dart';
+import 'package:fansivibe/shared/utils/local_storage.dart';
 
 /// Conversation state + orchestration for the assistant.
 ///
@@ -62,11 +63,25 @@ class AssistantService extends ChangeNotifier {
 
   AssistantUserContext _buildContext() {
     final learning = _learning;
+    final stored = LocalStorage.userProfile;
+    final storedHairType = stored['hairType'] as String?;
+    final storedHairDensity = stored['hairDensity'] as String?;
+    FaceProfile? face = learning?.face;
+    if (storedHairType != null || storedHairDensity != null) {
+      face = (face ?? const FaceProfile()).copyWith(
+        hairType: storedHairType,
+        hairDensity: storedHairDensity,
+      );
+    }
+    final preferences = stored['profilePreferences'] is Map
+        ? Map<String, dynamic>.from(stored['profilePreferences'] as Map)
+        : <String, dynamic>{};
     return AssistantUserContext(
       wardrobe: learning?.wardrobe ?? const [],
-      face: learning?.face,
+      face: face,
       savedLooks: learning?.savedLooks ?? const [],
       preferredOccasions: learning?.preferredOccasions ?? const [],
+      profilePreferences: preferences,
     );
   }
 
@@ -101,6 +116,9 @@ class AssistantService extends ChangeNotifier {
       clarifications: result.clarifications,
       navigation: result.navigation,
       outfitIntelligence: result.outfitIntelligence,
+      llmProvenance: isOffline
+          ? const LlmProvenance(status: 'fallback', reason: 'offline')
+          : reply.llmProvenance,
       isOffline: isOffline,
     );
     _isSending = false;
@@ -174,6 +192,10 @@ class AssistantService extends ChangeNotifier {
         clarifications: [
           ClarificationOption(label: 'Retry analysis', value: retryImageValue),
         ],
+        llmProvenance: LlmProvenance(
+          status: 'fallback',
+          reason: 'service_unavailable',
+        ),
       );
     } else {
       _messages[index] = AssistantMessage(
@@ -183,6 +205,7 @@ class AssistantService extends ChangeNotifier {
         clarifications: reply.clarifications,
         navigation: reply.navigation,
         outfitIntelligence: reply.outfitIntelligence,
+        llmProvenance: reply.llmProvenance,
       );
     }
     _isSending = false;
@@ -229,6 +252,10 @@ class AssistantService extends ChangeNotifier {
         clarifications: [
           ClarificationOption(label: 'Retry analysis', value: retryImageValue),
         ],
+        llmProvenance: LlmProvenance(
+          status: 'fallback',
+          reason: 'service_unavailable',
+        ),
       );
     } else {
       _imageFailed = false;
@@ -239,6 +266,7 @@ class AssistantService extends ChangeNotifier {
         clarifications: reply.clarifications,
         navigation: reply.navigation,
         outfitIntelligence: reply.outfitIntelligence,
+        llmProvenance: reply.llmProvenance,
       );
     }
     _isSending = false;
@@ -266,6 +294,7 @@ class AssistantService extends ChangeNotifier {
       face: base.face,
       savedLooks: base.savedLooks,
       preferredOccasions: base.preferredOccasions,
+      profilePreferences: base.profilePreferences,
     );
   }
 

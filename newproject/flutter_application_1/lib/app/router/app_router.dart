@@ -56,6 +56,7 @@ import 'package:fansivibe/features/profile/presentation/settings_screen.dart';
 import 'package:fansivibe/features/profile/presentation/subscription_screen.dart';
 import 'package:fansivibe/features/profile/presentation/support_screen.dart';
 
+import 'package:fansivibe/features/stylist/presentation/stylist_history_screen.dart';
 import 'package:fansivibe/features/stylist/presentation/stylist_screen.dart';
 import 'package:fansivibe/features/wardrobe/data/garment_models.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_mock_data.dart';
@@ -169,7 +170,8 @@ final List<RouteBase> appRoutes = [
     builder: (context, state) {
       final extra = state.extra as Map<String, dynamic>?;
       final query =
-          extra?['initialQuery'] as String? ?? state.uri.queryParameters['query'];
+          extra?['initialQuery'] as String? ??
+          state.uri.queryParameters['query'];
       return AssistantScreen(initialQuery: query);
     },
   ),
@@ -313,6 +315,7 @@ final List<RouteBase> appRoutes = [
                         mood: data['mood']!,
                         fit: data['fit']!,
                         colorPalette: data['colorPalette']!,
+                        query: data['query'],
                         // ponytail: event context rides along for display
                         // only; the backend derive call stays prefs-only.
                         eventId: data['eventId'],
@@ -527,6 +530,23 @@ final List<RouteBase> appRoutes = [
                   ),
                 ],
               ),
+              GoRoute(
+                path: 'analysis-history',
+                name: RouteNames.analysisHistory,
+                builder: (context, state) => const StylistHistoryScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'details',
+                    name: RouteNames.analysisHistoryDetail,
+                    builder: (context, state) {
+                      final runId = state.extra as String?;
+                      return runId != null
+                          ? StylistHistoryDetailScreen(runId: runId)
+                          : _missingDataScreen();
+                    },
+                  ),
+                ],
+              ),
             ],
           ),
         ],
@@ -608,9 +628,13 @@ final List<RouteBase> appRoutes = [
                 builder: (context, state) => const SavedLooksScreen(),
                 routes: [
                   GoRoute(
-                    path: 'details',
+                    path: 'details/:id',
                     name: RouteNames.savedLookDetails,
                     builder: (context, state) {
+                      final id = state.pathParameters['id'];
+                      if (id != null && id.isNotEmpty) {
+                        return SavedLookDetailsLoader(savedLookId: id);
+                      }
                       final look = state.extra as SavedLookItem?;
                       return SavedLookDetailsScreen(look: look);
                     },

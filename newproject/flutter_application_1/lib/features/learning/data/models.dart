@@ -143,18 +143,24 @@ class FaceProfile {
     this.faceShape,
     this.skinTone,
     this.bodyType,
+    this.hairType,
+    this.hairDensity,
     this.styleType,
   });
 
   final String? faceShape;
   final String? skinTone;
   final String? bodyType;
+  final String? hairType;
+  final String? hairDensity;
   final String? styleType;
 
   Map<String, dynamic> toJson() => {
     'faceShape': faceShape,
     'skinTone': skinTone,
     'bodyType': bodyType,
+    'hairType': hairType,
+    'hairDensity': hairDensity,
     'styleType': styleType,
   };
 
@@ -162,8 +168,28 @@ class FaceProfile {
     faceShape: json['faceShape'] as String?,
     skinTone: json['skinTone'] as String?,
     bodyType: json['bodyType'] as String?,
+    hairType: json['hairType'] as String?,
+    hairDensity: json['hairDensity'] as String?,
     styleType: json['styleType'] as String?,
   );
+
+  FaceProfile copyWith({
+    String? faceShape,
+    String? skinTone,
+    String? bodyType,
+    String? hairType,
+    String? hairDensity,
+    String? styleType,
+  }) {
+    return FaceProfile(
+      faceShape: faceShape ?? this.faceShape,
+      skinTone: skinTone ?? this.skinTone,
+      bodyType: bodyType ?? this.bodyType,
+      hairType: hairType ?? this.hairType,
+      hairDensity: hairDensity ?? this.hairDensity,
+      styleType: styleType ?? this.styleType,
+    );
+  }
 }
 
 /// A typed interaction signal. Signals accumulate over time and drive the

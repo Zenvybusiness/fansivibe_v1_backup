@@ -16,23 +16,25 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeSummaryRepo implements LearningSummaryRepository {
   @override
-  Future<LearningSummary?> getSummary() async =>
-      const LearningSummary(
-        styleScore: 86,
-        breakdown: LearningSummaryBreakdown(
-          base: 60,
-          wardrobePoints: 14,
-          savedPoints: 12,
-          total: 86,
-        ),
-        streak: 12,
-        recentSignals: ['Tailored', 'Neutral'],
-      );
+  Future<LearningSummary?> getSummary() async => const LearningSummary(
+    styleScore: 86,
+    breakdown: LearningSummaryBreakdown(
+      base: 60,
+      wardrobePoints: 14,
+      savedPoints: 12,
+      total: 86,
+    ),
+    streak: 12,
+    recentSignals: ['Tailored', 'Neutral'],
+  );
 }
 
 class _FakeSavedLooksRepo implements SavedLooksRepository {
   @override
-  Future<SavedLookListPage?> listSavedLooks({int page = 1, int pageSize = 20}) async {
+  Future<SavedLookListPage?> listSavedLooks({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
     return SavedLookListPage(
       items: [
         SavedLookItem(
@@ -98,7 +100,8 @@ class _FakeWardrobeRepo implements WardrobeRepository {
   Future<WardrobeInsightData?> getInsight() async {
     return const WardrobeInsightData(
       title: 'Atelier Synthesis',
-      insight: 'Your wardrobe is strongest in neutral tailoring, with opportunities to expand texture and accent color.',
+      insight:
+          'Your wardrobe is strongest in neutral tailoring, with opportunities to expand texture and accent color.',
       iconName: 'lightbulb_outline_rounded',
       accentColor: 0xFFC5A059,
     );
@@ -272,10 +275,10 @@ void main() {
       expect(find.text('AESTHETIC ANCHOR'), findsOneWidget);
       expect(find.text('Not set'), findsNWidgets(4));
 
-      // Curatorial milestones & streak: real engagement state (only the
-      // saved-looks milestone is earned with these fakes) and live streak
+      // Curatorial milestones & streak: real engagement state (wardrobe
+      // evidence and saved looks are earned with these fakes) and live streak
       expect(find.text('Curatorial Milestones'), findsOneWidget);
-      expect(find.text('1 of 4 Unlocked'), findsOneWidget);
+      expect(find.text('3 of 4 Unlocked'), findsOneWidget);
       expect(find.text('12-Day Streak'), findsOneWidget);
 
       // Atelier Governance
@@ -309,25 +312,28 @@ void main() {
       expect(find.text('@elenarostova'), findsOneWidget);
     });
 
-    testWidgets('3. Empty backend wardrobe uses local items, never sample counts', (
-      WidgetTester tester,
-    ) async {
-      tester.view.physicalSize = const Size(1080, 2400);
-      tester.view.devicePixelRatio = 2.0;
-      addTearDown(() => tester.view.resetPhysicalSize());
+    testWidgets(
+      '3. Empty backend wardrobe uses local items, never sample counts',
+      (WidgetTester tester) async {
+        tester.view.physicalSize = const Size(1080, 2400);
+        tester.view.devicePixelRatio = 2.0;
+        addTearDown(() => tester.view.resetPhysicalSize());
 
-      await tester.pumpWidget(_establishedApp(wardrobeRepo: _EmptyWardrobeRepo()));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _establishedApp(wardrobeRepo: _EmptyWardrobeRepo()),
+        );
+        await tester.pumpAndSettle();
 
-      // The fabricated sample inventory must never appear …
-      expect(find.textContaining('TOPS 64'), findsNothing);
-      expect(find.textContaining('BOTTOMS 42'), findsNothing);
-      expect(find.textContaining('OUTERWEAR 28'), findsNothing);
-      expect(find.textContaining('SHOES 31'), findsNothing);
-      expect(find.textContaining('ACCESSORIES 83'), findsNothing);
-      // … and with no backend insight there is no invented synthesis.
-      expect(find.text('ATELIER SYNTHESIS'), findsNothing);
-    });
+        // The fabricated sample inventory must never appear …
+        expect(find.textContaining('TOPS 64'), findsNothing);
+        expect(find.textContaining('BOTTOMS 42'), findsNothing);
+        expect(find.textContaining('OUTERWEAR 28'), findsNothing);
+        expect(find.textContaining('SHOES 31'), findsNothing);
+        expect(find.textContaining('ACCESSORIES 83'), findsNothing);
+        // … and with no backend insight there is no invented synthesis.
+        expect(find.text('ATELIER SYNTHESIS'), findsNothing);
+      },
+    );
 
     testWidgets('4. Missing summary falls back to the honest new-user design', (
       WidgetTester tester,
@@ -338,7 +344,7 @@ void main() {
       // Identity and navigation survive; nothing is invented.
       expect(find.text('Alex Rivera'), findsOneWidget);
       expect(find.text('Style Profile'), findsNothing);
-      expect(find.text('--'), findsOneWidget);
+      expect(find.text('--'), findsNWidgets(2));
       expect(find.text('Not Ranked'), findsOneWidget);
       expect(find.text('TOP 8% GLOBAL'), findsNothing);
       expect(find.text('#2,481'), findsNothing);

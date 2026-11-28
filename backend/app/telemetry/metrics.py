@@ -40,6 +40,10 @@ class MetricsCollector:
         self._reasoning_duration_sum: float = 0.0
         self._reasoning_by_status: dict[str, int] = defaultdict(int)
 
+        self._llm_enrichments: dict[tuple[str, str, str, str, str], int] = defaultdict(int)
+        self._llm_duration_count: int = 0
+        self._llm_duration_sum: float = 0.0
+
         # Gauges
         self._active_concurrency: int = 0
         self._readiness_status: float = 0.0
@@ -84,6 +88,23 @@ class MetricsCollector:
             self._reasoning_count += 1
             self._reasoning_duration_sum += duration_s
             self._reasoning_by_status[status] += 1
+
+    def record_llm_enrichment(
+        self,
+        *,
+        provider: str,
+        model: str,
+        status: str,
+        reason: str,
+        error_type: str = "none",
+        duration_s: float | None = None,
+    ) -> None:
+        """Record one self-hosted LLM enrichment outcome without content data."""
+        with self._lock:
+            self._llm_enrichments[(provider or "unknown", model or "unknown", status, reason, error_type or "none")] += 1
+            if duration_s is not None and duration_s >= 0:
+                self._llm_duration_count += 1
+                self._llm_duration_sum += duration_s
 
     def set_active_concurrency(self, active: int) -> None:
         """Update active reasoning concurrency gauge."""
@@ -196,6 +217,12 @@ class MetricsCollector:
                 "status_counts": dict(self._status_counts),
                 "reasoning_queries_total": self._reasoning_count,
                 "reasoning_duration_sum": round(self._reasoning_duration_sum, 4),
+                "llm_enrichments": {
+                    f"{prov}:{model}:{status}:{reason}:{error_type}": cnt
+                    for (prov, model, status, reason, error_type), cnt in self._llm_enrichments.items()
+                },
+                "llm_enrichment_duration_count": self._llm_duration_count,
+                "llm_enrichment_duration_sum": round(self._llm_duration_sum, 4),
                 "active_concurrency": self._active_concurrency,
                 "readiness_status": self._readiness_status,
                 "ollama_available": self._ollama_available,
@@ -273,6 +300,18 @@ class MetricsCollector:
                 lines.append(f'fansivibe_reasoning_queries_total{{status="{status}"}} {count}')
             if not self._reasoning_by_status:
                 lines.append('fansivibe_reasoning_queries_total{status="total"} 0')
+
+            lines.append("# HELP fansivibe_llm_enrichments_total Self-hosted LLM enrichment outcomes by provenance.")
+            lines.append("# TYPE fansivibe_llm_enrichments_total counter")
+            for (prov, model, status, reason, error_type), cnt in sorted(self._llm_enrichments.items()):
+                lines.append(
+                    f'fansivibe_llm_enrichments_total{{provider="{prov}",model="{model}",status="{status}",reason="{reason}",error_type="{error_type}"}} {cnt}'
+                )
+
+            lines.append("# HELP fansivibe_llm_enrichment_duration_seconds LLM enrichment latency in seconds.")
+            lines.append("# TYPE fansivibe_llm_enrichment_duration_seconds summary")
+            lines.append(f"fansivibe_llm_enrichment_duration_seconds_count {self._llm_duration_count}")
+            lines.append(f"fansivibe_llm_enrichment_duration_seconds_sum {self._llm_duration_sum:.6f}")
 
             # 5. Active Reasoning Concurrency Gauge
             lines.append("# HELP fansivibe_reasoning_concurrency_active Number of reasoning requests currently executing.")

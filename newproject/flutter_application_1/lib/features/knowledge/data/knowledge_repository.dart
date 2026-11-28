@@ -28,6 +28,12 @@ abstract class KnowledgeRepository {
     int pageSize = 20,
   });
 
+  /// Returns the canonical garment-material vocabulary, or null.
+  Future<KnowledgeVocabularyList?> listMaterials({
+    int page = 1,
+    int pageSize = 20,
+  });
+
   /// Returns the frozen 9-row occasion vocabulary, or null.
   Future<KnowledgeVocabularyList?> listOccasions({
     int page = 1,
@@ -57,7 +63,9 @@ abstract class KnowledgeRepository {
   ///
   /// Returns the validated [FashionReasoningResponse] on 200, or null
   /// when the reasoning service is unavailable, times out, or fails.
-  Future<FashionReasoningResponse?> reasonQuery(FashionReasoningRequest request);
+  Future<FashionReasoningResponse?> reasonQuery(
+    FashionReasoningRequest request,
+  );
 
   /// Submits a fashion reasoning query and returns a typed [ReasoningResult]
   /// preserving distinct technical failure categories (502, 503, 504, 422, etc.).
@@ -98,6 +106,14 @@ class KnowledgeRepositoryImpl implements KnowledgeRepository {
   }
 
   @override
+  Future<KnowledgeVocabularyList?> listMaterials({
+    int page = 1,
+    int pageSize = 20,
+  }) {
+    return _client.listMaterials(page: page, pageSize: pageSize);
+  }
+
+  @override
   Future<KnowledgeVocabularyList?> listOccasions({
     int page = 1,
     int pageSize = 20,
@@ -126,7 +142,9 @@ class KnowledgeRepositoryImpl implements KnowledgeRepository {
   }
 
   @override
-  Future<FashionReasoningResponse?> reasonQuery(FashionReasoningRequest request) {
+  Future<FashionReasoningResponse?> reasonQuery(
+    FashionReasoningRequest request,
+  ) {
     return _client.reasonQuery(request);
   }
 
@@ -135,4 +153,3 @@ class KnowledgeRepositoryImpl implements KnowledgeRepository {
     return _client.reasonQueryDetailed(request);
   }
 }
-

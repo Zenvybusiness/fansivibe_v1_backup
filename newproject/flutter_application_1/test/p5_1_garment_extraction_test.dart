@@ -1578,6 +1578,28 @@ void main() {
         expect(poppedItems![0].id, startsWith('local-'));
         expect(poppedItems![1].id, startsWith('local-'));
         expect(poppedItems![0].id, isNot(equals(poppedItems![1].id)));
+        expect(poppedItems![0].sourceRunId, 'ephem-1');
+        expect(poppedItems![0].candidateId, 'cand_1');
+        expect(poppedItems![0].extractionConfidence, 0.85);
+        expect(poppedItems![1].sourceRunId, 'ephem-1');
+        expect(poppedItems![1].candidateId, 'cand_2');
+        expect(poppedItems![1].extractionConfidence, 0.82);
+
+        final storedItems = LearningService.instance.wardrobe
+            .where((entry) => entry.isGuestLocal)
+            .toList();
+        expect(
+          storedItems
+              .singleWhere((entry) => entry.id == poppedItems![0].id)
+              .sourceRunId,
+          'ephem-1',
+        );
+        expect(
+          storedItems
+              .singleWhere((entry) => entry.id == poppedItems![1].id)
+              .candidateId,
+          'cand_2',
+        );
       },
     );
 

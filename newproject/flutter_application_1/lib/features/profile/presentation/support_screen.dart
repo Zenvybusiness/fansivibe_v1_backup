@@ -10,7 +10,9 @@ class SupportScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final topics = ProfileMockData.topics;
+    final topics = ProfileMockData.topics
+        .where((topic) => topic.title != 'Contact Us')
+        .toList();
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -50,7 +52,7 @@ class SupportScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Find answers and get in touch',
+                          'Help topics and support status',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: FansivibeColors.textSecondary,
                           ),
@@ -78,33 +80,41 @@ class SupportScreen extends StatelessWidget {
                         const SizedBox(height: 24),
                         FansivibeCard(
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: ListTile(
-                                leading: Icon(
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              children: [
+                                Icon(
                                   Icons.mail_rounded,
                                   color: FansivibeColors.accentGold,
                                 ),
-                                title: Text(
-                                  'Send us a message',
-                                  style: theme.textTheme.bodyLarge?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                    color: FansivibeColors.textPrimary,
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Direct support is not configured',
+                                        style: theme.textTheme.bodyLarge
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                              color:
+                                                  FansivibeColors.textPrimary,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'No support channel is connected in this build.',
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color:
+                                                  FansivibeColors.textSecondary,
+                                            ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                subtitle: Text(
-                                  'We typically respond within 24 hours',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: FansivibeColors.textSecondary,
-                                  ),
-                                ),
-                                trailing: Icon(
-                                  Icons.chevron_right_rounded,
-                                  color: FansivibeColors.textSecondary,
-                                ),
-                                onTap: () {},
-                              ),
+                              ],
                             ),
                           ),
                         ),
@@ -131,55 +141,46 @@ class _SupportTopicTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return InkWell(
-      onTap: () {},
-      borderRadius: FansivibeRadius.smdBorder,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: FansivibeColors.accentGold.withValues(alpha: 0.1),
-                borderRadius: FansivibeRadius.smdBorder,
-              ),
-              child: Icon(
-                _getIcon(topic.iconName),
-                size: 20,
-                color: FansivibeColors.accentGold,
-              ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: FansivibeColors.accentGold.withValues(alpha: 0.1),
+              borderRadius: FansivibeRadius.smdBorder,
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    topic.title,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: FansivibeColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    topic.description,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: FansivibeColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.chevron_right_rounded,
+            child: Icon(
+              _getIcon(topic.iconName),
               size: 20,
-              color: FansivibeColors.textSecondary,
+              color: FansivibeColors.accentGold,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  topic.title,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: FansivibeColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  topic.description,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: FansivibeColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

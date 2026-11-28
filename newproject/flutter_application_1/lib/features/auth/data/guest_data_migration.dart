@@ -276,12 +276,21 @@ class GuestDataMigration {
           }
         }
 
+        final provenanceRef = uploadedImageRef?.copyWith(
+          sourceRunId: uploadedImageRef.sourceRunId ?? entry.sourceRunId,
+          candidateId: uploadedImageRef.candidateId ?? entry.candidateId,
+          extractionConfidence:
+              uploadedImageRef.extractionConfidence ??
+              entry.extractionConfidence,
+        );
         final created = await _wardrobeRepo.createItem(
           name: entry.name,
           category: entry.category,
           color: entry.color,
           material: entry.material,
-          imageRef: uploadedImageRef,
+          imageRef: provenanceRef,
+          fit: entry.fit,
+          fitConfidence: entry.fitConfidence,
         );
         if (created == null) {
           failed.add(entry.name);

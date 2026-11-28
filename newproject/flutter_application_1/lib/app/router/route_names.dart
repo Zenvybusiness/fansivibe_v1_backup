@@ -46,6 +46,9 @@ abstract final class RouteNames {
   static const eventDetails = 'event-details';
   static const eventEdit = 'event-edit';
 
+  static const analysisHistory = 'analysis-history';
+  static const analysisHistoryDetail = 'analysis-history-detail';
+
   static const wardrobeAddCategory = 'wardrobe-add-category';
   static const wardrobeAddItem = 'wardrobe-add-item';
   static const wardrobeExtraction = 'wardrobe-extraction';

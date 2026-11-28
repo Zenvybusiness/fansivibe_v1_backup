@@ -26,7 +26,16 @@ class FaceData(BaseModel):
     faceShape: Optional[str] = None
     skinTone: Optional[str] = None
     bodyType: Optional[str] = None
+    hairType: Optional[str] = None
+    hairDensity: Optional[str] = None
     styleType: Optional[str] = None
+
+
+class ProfilePreferences(BaseModel):
+    appearanceGoals: Optional[str] = None
+    dislikes: Optional[str] = None
+    maintenancePreference: Optional[str] = None
+    maxBudget: Optional[float] = None
 
 
 class UserContext(BaseModel):
@@ -36,6 +45,7 @@ class UserContext(BaseModel):
     face: Optional[FaceData] = None
     savedLooks: List[str] = Field(default_factory=list)
     preferredOccasions: List[str] = Field(default_factory=list)
+    profilePreferences: Optional[ProfilePreferences] = None
 
 
 class ChatMessage(BaseModel):
@@ -89,6 +99,15 @@ class OutfitIntelligence(BaseModel):
     status: Optional[str] = None
 
 
+class LlmProvenance(BaseModel):
+    provider: str = "ollama"
+    model: Optional[str] = None
+    status: str = "not_requested"
+    reason: Optional[str] = None
+    errorType: Optional[str] = None
+    durationMs: Optional[int] = None
+
+
 class AssistantReply(BaseModel):
     intent: str
     text: str
@@ -96,3 +115,4 @@ class AssistantReply(BaseModel):
     clarifications: List[ClarificationOption] = Field(default_factory=list)
     navigation: Optional[NavigationRequest] = None
     outfitIntelligence: Optional[OutfitIntelligence] = None
+    llmProvenance: Optional[LlmProvenance] = None

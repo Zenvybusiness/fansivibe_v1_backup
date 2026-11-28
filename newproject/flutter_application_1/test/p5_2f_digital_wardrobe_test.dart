@@ -599,6 +599,9 @@ void main() {
             'category': 'accessories',
             'color': 'Cream',
             'isFavorite': false,
+            'sourceRunId': 'run-scarf-7',
+            'candidateId': 'cand-scarf-7',
+            'extractionConfidence': 0.77,
             'imageRef': {
               'objectKey': 'users/u1/wardrobe/old.webp',
               'mediaType': 'image/webp',
@@ -652,11 +655,26 @@ void main() {
       expect(media.putCalls, 1);
       expect(media.completeCalls, 1);
       expect(backend.patchPayloads.single['imageRef']['uploadId'], 'upl-new-1');
+      expect(
+        backend.patchPayloads.single['imageRef']['sourceRunId'],
+        'run-scarf-7',
+      );
+      expect(
+        backend.patchPayloads.single['imageRef']['candidateId'],
+        'cand-scarf-7',
+      );
+      expect(
+        backend.patchPayloads.single['imageRef']['extractionConfidence'],
+        0.77,
+      );
 
       final mirror = LearningService.instance.wardrobe.firstWhere(
         (e) => e.id == id,
       );
       expect(decodeWardrobePhoto(mirror.imageBase64), newBytes);
+      expect(mirror.sourceRunId, 'run-scarf-7');
+      expect(mirror.candidateId, 'cand-scarf-7');
+      expect(mirror.extractionConfidence, 0.77);
     },
   );
 

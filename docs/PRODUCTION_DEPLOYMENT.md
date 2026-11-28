@@ -30,10 +30,11 @@ The backend configuration is managed by the leaf settings module (`backend/app/c
 | `DATABASE_POOL_TIMEOUT_S` | — | `30.0` | Connection checkout timeout from pool. |
 | `FANSIVIBE_AUTH_SECRET` | — | `dev-only-...` | JWT signing secret. Production rejects dev default and requires >= 32 characters. |
 | `FANSIVIBE_ALLOW_DEV_TOKEN` | — | `false` | Must stay `false` in production (enforced by validator). |
-| `FANSIVIBE_OLLAMA_BASE_URL` | `FANSIVIBE_OLLAMA_HOST` | `http://localhost:11434` | Ollama HTTP host endpoint. |
-| `FANSIVIBE_OLLAMA_MODEL` | `FANSIVIBE_REASONING_MODEL` | `qwen2.5vl:3b` | Frozen reasoning model name. |
-| `FANSIVIBE_OLLAMA_TIMEOUT` | `FANSIVIBE_REASONING_TIMEOUT_S`| `60.0` | Ollama inference timeout (seconds). |
+| `FANSIVIBE_OLLAMA_HOST` | `FANSIVIBE_OLLAMA_BASE_URL` (reasoning alias) | `http://localhost:11434` | Ollama HTTP host endpoint used by reasoning and LLM enrichment. |
+| `FANSIVIBE_OLLAMA_MODEL` | `FANSIVIBE_REASONING_MODEL` (reasoning alias) | `qwen2.5vl:3b` in Settings; `qwen3-vl:4b-instruct` in LLM enrichment | Model name; set explicitly per subsystem in production. |
+| `FANSIVIBE_REASONING_TIMEOUT_S` | `FANSIVIBE_OLLAMA_TIMEOUT` | `60.0` | Fashion reasoning timeout (seconds); LLM enrichment uses a separate hardcoded `10.0s`. |
 | `FANSIVIBE_OLLAMA_CONNECT_TIMEOUT`| — | `5.0` | Ollama TCP connect timeout (seconds). |
+| `FANSIVIBE_DISABLE_LLM` | — | unset | Set `1` to disable LLM reply enrichment; replies remain deterministic/structured. |
 | `FANSIVIBE_REASONING_TEMPERATURE`| — | `0.0` | Model decoding temperature (0.0 for benchmark determinism). |
 | `FANSIVIBE_REASONING_MAX_RETRIES`| — | `1` | Max transport retries for transient HTTP/socket failures. |
 | `FANSIVIBE_REASONING_CONCURRENCY_LIMIT`| — | `2` | Max concurrent Ollama inference requests per backend instance. |
@@ -42,6 +43,8 @@ The backend configuration is managed by the leaf settings module (`backend/app/c
 | `FANSIVIBE_DISABLE_REASONING` | — | `false` | Typed kill-switch. When `true`, `/v1/reasoning` returns 503 and `/ready` reports reasoning as disabled. |
 | `FANSIVIBE_LOG_LEVEL` | — | `INFO` | Root logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 | `FANSIVIBE_CORS_ORIGINS` | — | `[]` | Allowed browser origins (comma-separated or JSON list). Production forbids `*` with credentials. |
+
+LLM reply enrichment reads `FANSIVIBE_OLLAMA_HOST`, `FANSIVIBE_OLLAMA_MODEL`, and `FANSIVIBE_DISABLE_LLM` directly in `backend/app/ai/llm_backend.py`; it ignores the reasoning-only `FANSIVIBE_OLLAMA_BASE_URL` / `FANSIVIBE_OLLAMA_TIMEOUT` aliases. Vision analyzers use `FANSIVIBE_VISION_*` and fail closed with `analyzer_unavailable` when disabled or unreachable.
 
 ---
 
@@ -101,7 +104,7 @@ The model lifecycle is managed via `OllamaLifecycleManager` (`backend/app/ai/lif
 To prevent orphaned backend processes, socket hangs, and premature client cancellations, timeouts strictly adhere to a cascading budget hierarchy:
 
 ```
-[Layer 1] Ollama LLM Inference:       60.0s (connect: 5.0s, read: 55.0s)
+[Layer 1] Ollama Fashion Reasoning:   60.0s (connect: 5.0s); LLM enrichment: 10.0s hardcoded
             ↓
 [Layer 2] Backend Handler Deadline:    65.0s (FastAPI usecase deadline -> 504 TIMEOUT)
             ↓
@@ -136,7 +139,8 @@ Rules:
 3. **Per-IP Rate Limiting**:
    - In-process sliding-window rate limit on `POST /v1/reasoning` (default: 30 requests/minute per IP).
    - Exceeding the rate limit returns HTTP 429 with truthful `retry_after`.
-   - *Architecture note*: This is single-process memory tracking. In multi-replica deployments with >1 backend container, edge enforcement (Cloudflare / Nginx WAF / Redis-backed limiter) should be provisioned.
+   - *Deployment note*: Production/staging use PostgreSQL `rate_limit_buckets` for distributed atomic counting across workers and replicas; edge limits may reinforce but are not the source of truth.
+
 
 ---
 
@@ -260,7 +264,7 @@ topology runs on any host with Docker + NVIDIA GPU for the Ollama node.
 `Flutter → HTTPS → nginx (80/443, canary split) → FastAPI primary/canary → Postgres 16 → Ollama (dedicated GPU node, `qwen2.5vl:3b`)`.
 Ollama is NOT published: no `ports:` on `ollama-prod`, reachable only over
 `fansivibe-prod-network` as `http://ollama-prod:11434`. Point
-`FANSIVIBE_OLLAMA_BASE_URL` and `FANSIVIBE_VISION_HOST` at that internal name
+`FANSIVIBE_OLLAMA_HOST` and `FANSIVIBE_VISION_HOST` at that internal name
 (never localhost, never public). GPU floor: 4 GB VRAM resident for
 `qwen2.5vl:3b` Q4 (`ollama ps` must list it; digest `fb90415c…`).
 
@@ -268,7 +272,8 @@ Ollama is NOT published: no `ports:` on `ollama-prod`, reachable only over
 
 - Create `backend/.env.production` ONLY on the deploy host (or inject via
   the platform secret manager: env vars, Docker secrets, or mounted volume).
-  Template: `backend/.env.production.example` (placeholders only).
+  Template: `backend/.env.example` (placeholders and dev-safe defaults only;
+  override production values before startup).
 - Postgres password: prefer `POSTGRES_PASSWORD_FILE: /run/secrets/db_password`
   (already wired) over env. JWT secret: ≥32 chars random, platform-managed.
 - Verified: no secrets in `Dockerfile`/images (source + requirements only,
@@ -291,10 +296,11 @@ Ollama is NOT published: no `ports:` on `ollama-prod`, reachable only over
 
 ### 13.4 Database
 
-- Startup runs `alembic upgrade head` (forward-only, non-destructive; all 21
-  revisions ship `downgrade()` for per-step retreat). Rehearsed on a
-  disposable DB in Phase 4A (clean through `0022` head). Pool defaults
-  10/20/30s; append `?sslmode=require` to `DATABASE_URL` for managed Postgres.
+- Startup runs `alembic upgrade head` (forward-only, non-destructive; each
+  revision ships `downgrade()` for per-step retreat). Current head is
+  `0041 (style_journey_weekly_snapshots)`; rehearsals must use a disposable DB, never
+  a dev/shared DB. Pool defaults 10/20/30s; append `?sslmode=require` to
+  `DATABASE_URL` for managed Postgres.
 - Backup: `pg_dump -Fc fansivibe_prod` on schedule; restore rehearsal:
   `pg_restore -d <fresh_db>` then `alembic current` must print the head.
 - App rollback: redeploy prior image tag (migrations are additive; a
@@ -322,7 +328,7 @@ Ollama is NOT published: no `ports:` on `ollama-prod`, reachable only over
 
 ### 14.1 Complete Production Environment-Variable Inventory & Validation Rules
 
-All variables are validated at startup in `backend/app/config/settings.py` (`Settings._validate_production_invariants`). No secret values are stored in the repository.
+Production invariants are enforced by `validate_production_startup()` in `backend/app/config/settings.py`, called from the FastAPI lifespan in `backend/app/main.py`. No secret values are stored in the repository.
 
 | Variable | Required in Prod | Validation Rule | Purpose |
 |---|---|---|---|
@@ -342,7 +348,7 @@ All variables are validated at startup in `backend/app/config/settings.py` (`Set
 | `R2_ACCOUNT_ID` / `R2_ENDPOINT_URL` / `R2_BUCKET_NAME` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | Yes | Non-empty; `R2_REGION` default `auto` | Cloudflare R2 S3-compatible credentials & private bucket. |
 | `MEDIA_UPLOAD_ACTIVE_KEY_ID` / `MEDIA_UPLOAD_HMAC_SECRET` | Yes | >= 32 chars; rejects `dev`/`insecure` | HMAC key ring for upload authorization & idempotency fingerprinting. |
 | `FANSIVIBE_TRYON_ENABLED` | Optional | Default `true` | Master Virtual Try-On kill switch. |
-| `FANSIVIBE_TRYON_PROVIDER` | Yes | Must be `genlook` (or `off` for maintenance); `catvton` rejected by `Settings`; `mock` rejected at runtime (`503`) | Prevents non-commercial `catvton` or `mock` in production. |
+| `FANSIVIBE_TRYON_PROVIDER` | Yes when Try-On enabled | Startup rejects any value other than `genlook` when `FANSIVIBE_TRYON_ENABLED=true`; use `off` only with Try-On disabled | Prevents mock/non-commercial providers in production. |
 | `FANSIVIBE_TRYON_CONSENT_VERSION` | Optional | Default `tryon-v1` | Explicit consent version enforced on submit and retry. |
 | `FANSIVIBE_TRYON_DAILY_QUOTA` / `FANSIVIBE_TRYON_MAX_CONCURRENT_JOBS` / `FANSIVIBE_TRYON_MAX_GLOBAL_CONCURRENT_JOBS` / `FANSIVIBE_TRYON_WORKER_CONCURRENCY` | Optional | `>= 1` (defaults `20` / `2` / `10` / `10`) | Per-user daily quota, per-user & global concurrency locks, worker semaphore. |
 | `FANSIVIBE_TRYON_STALE_JOB_TIMEOUT_S` | Optional | `>= 30` (default `300`) | Timeout before stale `queued`/`processing` jobs recover as `STALE_JOB_TIMEOUT`. |
@@ -365,10 +371,10 @@ All variables are validated at startup in `backend/app/config/settings.py` (`Set
 ### 14.3 Database Migration & Rollback Plan
 
 1. **Pre-migration**: Take a verified snapshot (`pg_dump -Fc --no-owner "$DATABASE_URL" > pre_deploy_$(date -u +%Y%m%dT%H%M%SZ).dump`) and confirm `alembic current`.
-2. **Migration**: Execute `alembic upgrade head` once before scaling up new containers (or via `entrypoint.sh` single-init job; current head is `0040`, adding `tryon_jobs` worker ownership & lease columns following `0039_rate_limit_buckets`).
-3. **Verification**: Confirm `alembic current` prints `0040 (head)` and `GET /ready` returns `200 {"status": "ready", "database": "connected"}`.
+2. **Migration**: Execute `alembic upgrade head` once before scaling up new containers (or via `entrypoint.sh` single-init job; current head is `0041`, following `0040_tryon_worker_leases`).
+3. **Verification**: Confirm `alembic current` prints `0041 (head)` and `GET /ready` returns `200 {"status": "ready", "database": "connected"}`.
 4. **Rollback**:
-   - Application rollback: deploy prior image tag immediately if schema changes are additive (`0037`–`0040` are backward-compatible with read-only old code, except `0039`–`0040` tables/columns unused by older code).
+   - Application rollback: deploy prior image tag immediately if schema changes are additive (`0037`–`0041` are additive; target revision must be chosen explicitly).
    - Schema retreat (only with explicit owner approval): `alembic downgrade <target_rev>` or restore from the pre-migration `pg_dump` snapshot.
 
 ### 14.4 Backend Startup, Health, Readiness & `/metrics` Restriction
@@ -461,4 +467,15 @@ All variables are validated at startup in `backend/app/config/settings.py` (`Set
 4. **Rollback**:
    - Backend: route 100% traffic to previous container image tag (`backend-primary`) and roll back `backend-canary`.
    - Mobile: halt staged Play Store / App Store rollout and promote previous known-good release build.
+
+---
+
+### 14.10 Provider & Try-On go-live checklist — [REPO + INFRA]
+
+1. **Config source**: inject production env from the platform secret manager; treat `backend/.env.example` as a placeholder template, not a deployable production file. Confirm `validate_production_startup()` passes.
+2. **AI honesty**: either provision `FANSIVIBE_VISION_HOST` / `FANSIVIBE_VISION_MODEL` with a real vision-capable Ollama model and set `FANSIVIBE_DISABLE_VISION=false`, or set `FANSIVIBE_DISABLE_VISION=true` and accept fail-closed `analyzer_unavailable` results. Never present mock/disabled analysis as real AI.
+3. **LLM enrichment**: set `FANSIVIBE_OLLAMA_HOST` and the intended `FANSIVIBE_OLLAMA_MODEL`; set `FANSIVIBE_DISABLE_LLM=1` to force deterministic replies. Remember reasoning and enrichment may use different model names and timeouts.
+4. **Try-On provider**: if enabled, production requires `FANSIVIBE_TRYON_PROVIDER=genlook`, real `GENLOOK_API_KEY`, `MEDIA_STORAGE_PROVIDER=r2`, R2 credentials, `FANSIVIBE_OPERATOR_API_KEY`, and an explicit `MEDIA_UPLOAD_HMAC_SECRET`. `mock`, `catvton`, and `commercial` are not production fallbacks; use `FANSIVIBE_TRYON_ENABLED=false` / `off` for outage mitigation.
+5. **Diagnostics**: verify `GET /ready?detailed=true`, `GET /metrics` includes `fansivibe_llm_enrichments_total`, `GET /v1/tryon/capabilities` reports `is_mock: false` and `ai_disclosure_required: true`, and `GET /v1/tryon/health` (operator key) is healthy. `GET /v1/tryon/health` does not check credits; use `GET /v1/tryon/health/credits` only when an authorized operator needs an external Genlook call.
+6. **No unapproved paid calls**: do not run Genlook smoke jobs or credit checks against a live account without owner approval; local verification stays with injected/mocked providers.
 

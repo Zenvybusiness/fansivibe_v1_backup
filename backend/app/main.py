@@ -81,6 +81,7 @@ from app.models.schemas import (
     AssistantReply,
     AssistantRequest,
     FaceData,
+    ProfilePreferences,
     UserContext,
     WardrobeItem,
 )
@@ -447,6 +448,8 @@ def _resolve_assistant_face(
     server_face = style.get("face_shape")
     server_skin = style.get("skin_tone")
     server_body = style.get("body_type")
+    server_hair_type = style.get("hair_type")
+    server_hair_density = style.get("hair_density")
     server_style = style.get("style_type")
 
     face_shape = (
@@ -464,21 +467,64 @@ def _resolve_assistant_face(
         if server_body and str(server_body).strip()
         else (client_face.bodyType if client_face else None)
     )
+    hair_type = (
+        str(server_hair_type).strip()
+        if server_hair_type and str(server_hair_type).strip()
+        else (client_face.hairType if client_face else None)
+    )
+    hair_density = (
+        str(server_hair_density).strip()
+        if server_hair_density and str(server_hair_density).strip()
+        else (client_face.hairDensity if client_face else None)
+    )
     style_type = (
         str(server_style).strip()
         if server_style and str(server_style).strip()
         else (client_face.styleType if client_face else None)
     )
 
-    if not any((face_shape, skin_tone, body_type, style_type)):
+    if not any((face_shape, skin_tone, body_type, hair_type, hair_density, style_type)):
         return None
 
     return FaceData(
         faceShape=face_shape or None,
         skinTone=skin_tone or None,
         bodyType=body_type or None,
+        hairType=hair_type or None,
+        hairDensity=hair_density or None,
         styleType=style_type or None,
     )
+
+
+def _resolve_assistant_profile_preferences(
+    record: Optional[UserProfileRecord],
+    client_preferences: Optional[ProfilePreferences],
+) -> Optional[ProfilePreferences]:
+    prefs = (
+        record.preferences
+        if record is not None and isinstance(record.preferences, dict)
+        else {}
+    )
+    client = client_preferences or ProfilePreferences()
+    resolved = ProfilePreferences(
+        appearanceGoals=prefs.get("appearance_goals") or client.appearanceGoals,
+        dislikes=prefs.get("dislikes") or client.dislikes,
+        maintenancePreference=prefs.get("maintenance_preference")
+        or client.maintenancePreference,
+        maxBudget=prefs.get("max_budget")
+        if prefs.get("max_budget") is not None
+        else client.maxBudget,
+    )
+    if not any(
+        (
+            resolved.appearanceGoals,
+            resolved.dislikes,
+            resolved.maintenancePreference,
+            resolved.maxBudget,
+        )
+    ):
+        return None
+    return resolved
 
 
 class _CachedSavedLooksWrapper:
@@ -607,6 +653,9 @@ async def assistant_chat(
     client_occasions = (
         list(request.user.preferredOccasions) if request.user else []
     )
+    client_preferences = (
+        request.user.profilePreferences if request.user is not None else None
+    )
 
     if user_id is None:
         # Guest request: zero DB access, preserve client context, zero persistence
@@ -659,6 +708,9 @@ async def assistant_chat(
         face=face,
         savedLooks=saved_looks,
         preferredOccasions=occasions,
+        profilePreferences=_resolve_assistant_profile_preferences(
+            record, client_preferences
+        ),
     )
     auth_request = AssistantRequest(
         messages=request.messages,

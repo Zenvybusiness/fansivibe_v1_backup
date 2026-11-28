@@ -1,6 +1,6 @@
 # Fansivibe — Phase 5F: Genlook Commercial VTON API Integration
 
-**Status:** Implemented & Preflight Verified (`GENLOOK_API_KEY` Configured Locally; Mocked Genlook HTTP Service Verified; Live API Smoke Test Gated on Server Startup & Operator Approval)  
+**Status:** Implemented & Preflight Verified (mocked Genlook HTTP service verified; a prior live smoke result is recorded in `CURRENT_STATE.md`; future live calls require operator approval)
 **Date:** 2026-11-25  
 **Base API:** `https://api.genlook.app/tryon/v1`  
 
@@ -18,7 +18,7 @@ Fansivibe retains its existing hexagonal / feature-first structure without modif
 | `CatVTONTryOnProvider` | [`tryon_provider.py`](backend/app/domain/ports/tryon_provider.py) | Unchanged local non-commercial research provider (`tryon_provider = "catvton"`). |
 | `CommercialTryOnProvider` | [`tryon_provider.py`](backend/app/domain/ports/tryon_provider.py) | Preserved for existing generic commercial contract compatibility (`tryon_provider = "commercial"`). |
 | Try-On Application Service | [`tryon.py`](backend/app/application/tryon.py) | Validates inputs, enforces single-garment + OW-1 wardrobe ownership, generates short-lived signed garment URLs, persists `imageId` / `pendingIdempotencyKey` / `generationId`, confirms result storage, records credit metadata. |
-| Try-On Router | [`tryon.py`](backend/app/api/routers/tryon.py) | Existing `/v1/tryon/jobs*` endpoints unchanged for Flutter; `/v1/tryon/health` reports Genlook provider health & credit balance. |
+| Try-On Router | [`tryon.py`](backend/app/api/routers/tryon.py) | Existing `/v1/tryon/jobs*` endpoints unchanged for Flutter; `/v1/tryon/health` reports local/storage/provider config without external credit calls, while `/v1/tryon/health/credits` queries credits separately. |
 | PostgreSQL Repository | [`repositories.py`](backend/app/infrastructure/db/repositories.py) | `TryOnJobRepositorySQL` (plus `InMemoryTryOnJobRepository`) adds `update_person_media_ref` and `find_reusable_genlook_image_id` using existing `tryon_jobs.person_media_ref` JSONB (zero DB migration). |
 | Private Object Storage | [`storage.py`](backend/app/infrastructure/external/storage.py) | `CloudflareR2StorageAdapter` / `FakeStorageAdapter` issues 300s presigned GET URLs for owned garment images and durably stores final try-on outputs under `users/{user_id}/tryon/{job_id}/result.{ext}`. |
 | Flutter Try-On Feature | [`try_on_screen.dart`](newproject/flutter_application_1/lib/features/try_on/presentation/try_on_screen.dart) | Unchanged UI; consumes `is_mock: false`, `queued`/`processing`/`completed`/`failed` states, `GET /image` bytes, and AI fit disclaimer. |

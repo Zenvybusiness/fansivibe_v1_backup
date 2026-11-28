@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fansivibe/app/router/route_names.dart';
+import 'package:fansivibe/features/knowledge/data/knowledge_api_models.dart';
+import 'package:fansivibe/features/knowledge/data/knowledge_repository.dart';
 import 'package:fansivibe/features/learning/data/models.dart';
 import 'package:fansivibe/features/learning/domain/learning_service.dart';
 import 'package:fansivibe/features/wardrobe/data/wardrobe_api_models.dart';
@@ -25,6 +27,8 @@ import 'package:fansivibe/shared/theme/fansivibe_radius.dart';
 /// helper — edits must not wipe the image).
 WardrobeEntry _toEntry(WardrobeItemData item) => wardrobeEntryFromItem(item);
 
+enum _WardrobeSort { none, nameAsc, nameDesc, newest }
+
 class WardrobeScreen extends StatefulWidget {
   /// Creates the wardrobe screen.
   ///
@@ -34,10 +38,16 @@ class WardrobeScreen extends StatefulWidget {
   /// control the list and insights without networking.
   /// [insightRepository] is retained for backward compatibility with tests
   /// that supply an insight repository.
-  const WardrobeScreen({super.key, this.insightRepository, this.repository});
+  const WardrobeScreen({
+    super.key,
+    this.insightRepository,
+    this.repository,
+    this.knowledgeRepository,
+  });
 
   final WardrobeRepository? insightRepository;
   final WardrobeRepository? repository;
+  final KnowledgeRepository? knowledgeRepository;
 
   @override
   State<WardrobeScreen> createState() => _WardrobeScreenState();
@@ -45,8 +55,13 @@ class WardrobeScreen extends StatefulWidget {
 
 class _WardrobeScreenState extends State<WardrobeScreen> {
   String _selectedCategory = 'all';
+  String? _selectedColor;
+  bool _favoritesOnly = false;
+  _WardrobeSort _sort = _WardrobeSort.none;
+  final TextEditingController _searchController = TextEditingController();
   late WardrobeRepository _repository;
   List<WardrobeItemData> _items = [];
+  List<KnowledgeVocabularyItem> _vocabularyCategories = [];
   bool _isLoading = true;
   String? _errorMessage;
   int _loadGeneration = 0;
@@ -81,6 +96,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         widget.repository != null || widget.insightRepository != null;
     if (isGuestUser || (!AuthSession.isAuthenticated && !hasInjectedRepo)) {
       _repository = LocalWardrobeRepository();
+      _vocabularyCategories = [];
       _insightFuture = Future.value(null);
       _wearSummaryFuture = Future.value(null);
       // Hydrate persisted on-device items, then render; live mutations
@@ -101,7 +117,19 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     // Independent from the insight: same seam, separate future, separate
     // slot — W-7 loading/error/204 behavior is unchanged by this fetch.
     _wearSummaryFuture = Future.sync(() => _repository.getWearSummary());
+    final knowledgeRepository = widget.knowledgeRepository;
+    if (knowledgeRepository != null) {
+      _loadVocabulary(knowledgeRepository);
+    } else if (!hasInjectedRepo) {
+      _loadVocabulary(KnowledgeRepositoryImpl());
+    }
     _loadItems();
+  }
+
+  Future<void> _loadVocabulary(KnowledgeRepository repository) async {
+    final vocabulary = await repository.listCategories(pageSize: 100);
+    if (!mounted || vocabulary == null) return;
+    setState(() => _vocabularyCategories = vocabulary.items);
   }
 
   void _onAuthChanged() {
@@ -115,6 +143,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     AuthSession.authVersion.removeListener(_onAuthChanged);
     LearningService.instance.removeListener(_onLocalChanged);
     UserSession.savedWardrobeItemNotifier.removeListener(_onLocalChanged);
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -181,11 +210,243 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     });
   }
 
-  List<WardrobeItemData> get _filteredItems {
-    if (_selectedCategory == 'all') {
-      return _items;
+  String _displayLabel(String code) => code
+      .split('_')
+      .map(
+        (word) =>
+            word.isEmpty ? word : word[0].toUpperCase() + word.substring(1),
+      )
+      .join(' ');
+
+  List<WardrobeCategory> get _categoryOptions {
+    final categories = <WardrobeCategory>[
+      const WardrobeCategory(
+        id: 'all',
+        name: 'All Items',
+        iconName: 'checkroom_outlined',
+      ),
+    ];
+    if (_vocabularyCategories.isEmpty) {
+      final codes = _items.map((item) => item.category).toSet().toList();
+      for (final code in codes) {
+        categories.add(
+          WardrobeCategory(
+            id: code,
+            name: _displayLabel(code),
+            iconName: 'checkroom_outlined',
+          ),
+        );
+      }
+      return categories;
     }
-    return _items.where((item) => item.category == _selectedCategory).toList();
+    for (final item in _vocabularyCategories) {
+      categories.add(
+        WardrobeCategory(
+          id: item.code,
+          name: item.label,
+          iconName: 'checkroom_outlined',
+        ),
+      );
+    }
+    return categories;
+  }
+
+  List<String> get _availableColors {
+    final colors =
+        _items
+            .map((item) => item.color)
+            .where((color) => color.trim().isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    return colors;
+  }
+
+  List<WardrobeItemData> get _filteredItems {
+    final query = _searchController.text.trim().toLowerCase();
+    final items = _items.where((item) {
+      if (_selectedCategory != 'all' && item.category != _selectedCategory) {
+        return false;
+      }
+      if (_selectedColor != null && item.color != _selectedColor) {
+        return false;
+      }
+      if (_favoritesOnly && !item.isFavorite) {
+        return false;
+      }
+      if (query.isEmpty) {
+        return true;
+      }
+      final searchable = [
+        item.name,
+        item.category,
+        item.color,
+        item.material ?? '',
+      ].join(' ').toLowerCase();
+      return searchable.contains(query);
+    }).toList();
+
+    switch (_sort) {
+      case _WardrobeSort.nameAsc:
+        items.sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        );
+      case _WardrobeSort.nameDesc:
+        items.sort(
+          (a, b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()),
+        );
+      case _WardrobeSort.newest:
+        int timestamp(WardrobeItemData item) =>
+            (item.createdAt ??
+                    item.updatedAt ??
+                    DateTime.fromMillisecondsSinceEpoch(0))
+                .millisecondsSinceEpoch;
+        items.sort((a, b) => timestamp(b).compareTo(timestamp(a)));
+      case _WardrobeSort.none:
+        break;
+    }
+    return items;
+  }
+
+  String _sortLabel(_WardrobeSort sort) {
+    switch (sort) {
+      case _WardrobeSort.none:
+        return 'Default order';
+      case _WardrobeSort.nameAsc:
+        return 'Name A-Z';
+      case _WardrobeSort.nameDesc:
+        return 'Name Z-A';
+      case _WardrobeSort.newest:
+        return 'Newest first';
+    }
+  }
+
+  Future<void> _openFilterSheet() {
+    return showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 420),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(FansivibeSpacing.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Filter wardrobe',
+                          style: FansivibeTypography.titleLargeWithFamily,
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _selectedCategory = 'all';
+                            _selectedColor = null;
+                            _favoritesOnly = false;
+                            _searchController.clear();
+                          });
+                          Navigator.of(sheetContext).pop();
+                        },
+                        icon: const Icon(Icons.close_rounded, size: 16),
+                        label: const Text('Clear all'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: FansivibeSpacing.sm),
+                  Text(
+                    'Category',
+                    style: FansivibeTypography.labelMediumWithFamily,
+                  ),
+                  Wrap(
+                    spacing: FansivibeSpacing.xs,
+                    children: [
+                      for (final category in _categoryOptions)
+                        FilterChip(
+                          label: Text(category.name),
+                          selected: _selectedCategory == category.id,
+                          onSelected: (_) {
+                            _selectCategory(category.id);
+                            Navigator.of(sheetContext).pop();
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: FansivibeSpacing.sm),
+                  Text(
+                    'Color',
+                    style: FansivibeTypography.labelMediumWithFamily,
+                  ),
+                  Wrap(
+                    spacing: FansivibeSpacing.xs,
+                    children: [
+                      for (final color in _availableColors)
+                        FilterChip(
+                          label: Text(color),
+                          selected: _selectedColor == color,
+                          onSelected: (_) {
+                            setState(() => _selectedColor = color);
+                            Navigator.of(sheetContext).pop();
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: FansivibeSpacing.sm),
+                  FilterChip(
+                    label: const Text('Favorites only'),
+                    selected: _favoritesOnly,
+                    onSelected: (selected) {
+                      setState(() => _favoritesOnly = selected);
+                      Navigator.of(sheetContext).pop();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openSortSheet() {
+    return showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(FansivibeSpacing.md),
+                child: Text(
+                  'Sort wardrobe',
+                  style: FansivibeTypography.titleLargeWithFamily,
+                ),
+              ),
+              for (final option in _WardrobeSort.values)
+                ListTile(
+                  title: Text(_sortLabel(option)),
+                  trailing: option == _sort
+                      ? Icon(
+                          Icons.check_rounded,
+                          color: FansivibeColors.primary,
+                        )
+                      : null,
+                  onTap: () {
+                    setState(() => _sort = option);
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   int get _favoritesCount => _items.where((item) => item.isFavorite).length;
@@ -278,8 +539,11 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                                 LearningService.instance.styleType ??
                                 'Style not set',
                             favoritesCount: _favoritesCount,
-                            categoryCount:
-                                WardrobeMockData.categories.length - 1,
+                            categoryCount: _categoryOptions.length - 1,
+                            searchController: _searchController,
+                            onSearchChanged: (_) => setState(() {}),
+                            onFilterTap: _openFilterSheet,
+                            onSortTap: _openSortSheet,
                           ),
                           const SizedBox(height: FansivibeSpacing.sm + 4),
                           _InsightSlot(future: _insightFuture),
@@ -291,11 +555,11 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                             child: ListView.separated(
                               scrollDirection: Axis.horizontal,
                               physics: const BouncingScrollPhysics(),
-                              itemCount: WardrobeMockData.categories.length,
+                              itemCount: _categoryOptions.length,
                               separatorBuilder: (_, __) =>
                                   const SizedBox(width: FansivibeSpacing.sm),
                               itemBuilder: (context, index) {
-                                final cat = WardrobeMockData.categories[index];
+                                final cat = _categoryOptions[index];
                                 final count = cat.id == 'all'
                                     ? totalItems
                                     : _items
@@ -320,9 +584,11 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                                 child: Text(
                                   _selectedCategory == 'all'
                                       ? 'All Items'
-                                      : WardrobeMockData.categories
+                                      : _categoryOptions
                                             .firstWhere(
                                               (c) => c.id == _selectedCategory,
+                                              orElse: () =>
+                                                  _categoryOptions.first,
                                             )
                                             .name,
                                   style: FansivibeTypography

@@ -52,12 +52,25 @@ abstract class UserProfileRepository {
   /// Persists to the canonical backend via `PATCH /v1/users/me` when authenticated.
   /// Returns the updated [UserProfile] on confirmed backend persistence, or null on failure.
   Future<UserProfile?> updatePreferredOccasions(List<String> occasions);
+
+  /// Applies a sparse appearance-profile patch. Null values clear a field.
+  Future<UserProfile?> updateStyleAttributes(
+    Map<String, dynamic> patch,
+  ) async => cachedProfile;
+
+  /// Applies a sparse preference patch. Null values clear a field.
+  Future<UserProfile?> updatePreferenceFields(
+    Map<String, dynamic> patch,
+  ) async => cachedProfile;
+
+  /// Erases the authenticated account. Returns true only on confirmed deletion.
+  Future<bool> deleteAccount() async => false;
 }
 
 /// Backend-authoritative implementation of [UserProfileRepository].
 class UserProfileRepositoryImpl implements UserProfileRepository {
   UserProfileRepositoryImpl({UserProfileClient? client})
-      : _client = client ?? UserProfileClient();
+    : _client = client ?? UserProfileClient();
 
   final UserProfileClient _client;
   UserProfile? _cachedProfile;
@@ -112,12 +125,15 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
         debugPrint(
           'UserProfileRepository: Discarding stale response (gen $generation < $_requestGeneration)',
         );
-        return _cachedProfile != null ? _applyPendingEdits(_cachedProfile!) : null;
+        return _cachedProfile != null
+            ? _applyPendingEdits(_cachedProfile!)
+            : null;
       }
 
       if (remoteProfile != null) {
         // Version protection: do not let an older profile version overwrite a newer one.
-        if (_cachedProfile != null && remoteProfile.version < _cachedProfile!.version) {
+        if (_cachedProfile != null &&
+            remoteProfile.version < _cachedProfile!.version) {
           debugPrint(
             'UserProfileRepository: Discarding older version (${remoteProfile.version} < ${_cachedProfile!.version})',
           );
@@ -146,6 +162,15 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
     return null;
   }
 
+  @override
+  Future<bool> deleteAccount() async {
+    if (!AuthSession.isAuthenticated || isGuestUser) return false;
+    final deleted = await _client.deleteAccount();
+    if (!deleted) return false;
+    clearCache();
+    return true;
+  }
+
   UserProfile _applyPendingEdits(UserProfile profile) {
     if (_pendingEdits.isEmpty) return profile;
 
@@ -168,10 +193,7 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
       style = style.copyWith(styleType: _pendingEdits['styleType'] as String?);
     }
 
-    return profile.copyWith(
-      displayName: name,
-      styleProfile: style,
-    );
+    return profile.copyWith(displayName: name, styleProfile: style);
   }
 
   @override
@@ -186,7 +208,9 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
       currentMap['styleType'] = cleanStyle;
       LocalStorage.userProfile = currentMap;
       if (_cachedProfile != null) {
-        final updatedStyle = _cachedProfile!.styleProfile.copyWith(styleType: cleanStyle);
+        final updatedStyle = _cachedProfile!.styleProfile.copyWith(
+          styleType: cleanStyle,
+        );
         _cachedProfile = _cachedProfile!.copyWith(styleProfile: updatedStyle);
         return _cachedProfile;
       }
@@ -211,7 +235,9 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
   }
 
   @override
-  Future<UserProfile?> updateSettings(Map<String, dynamic> settingsPatch) async {
+  Future<UserProfile?> updateSettings(
+    Map<String, dynamic> settingsPatch,
+  ) async {
     if (settingsPatch.isEmpty) return _cachedProfile;
 
     if (!AuthSession.isAuthenticated || isGuestUser) {
@@ -219,7 +245,9 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
       current.addAll(settingsPatch);
       LocalStorage.settings = current;
       if (_cachedProfile != null) {
-        final updatedSettings = Map<String, dynamic>.from(_cachedProfile!.settings)..addAll(settingsPatch);
+        final updatedSettings = Map<String, dynamic>.from(
+          _cachedProfile!.settings,
+        )..addAll(settingsPatch);
         _cachedProfile = _cachedProfile!.copyWith(settings: updatedSettings);
         return _cachedProfile;
       }
@@ -249,7 +277,9 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
     if (!AuthSession.isAuthenticated || isGuestUser) {
       LearningService.instance.replacePreferredOccasions(occasions);
       if (_cachedProfile != null) {
-        final updatedPrefs = Map<String, dynamic>.from(_cachedProfile!.preferences);
+        final updatedPrefs = Map<String, dynamic>.from(
+          _cachedProfile!.preferences,
+        );
         updatedPrefs['preferredOccasions'] = occasions;
         _cachedProfile = _cachedProfile!.copyWith(preferences: updatedPrefs);
         return _cachedProfile;
@@ -258,7 +288,9 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
     }
 
     try {
-      final updated = await _client.updateProfile(preferredOccasions: occasions);
+      final updated = await _client.updateProfile(
+        preferredOccasions: occasions,
+      );
       if (updated != null) {
         _cachedProfile = updated;
         _syncToLocalStorage(updated);
@@ -266,9 +298,118 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
         return updated;
       }
     } catch (e) {
-      debugPrint('UserProfileRepositoryImpl: updatePreferredOccasions error: $e');
+      debugPrint(
+        'UserProfileRepositoryImpl: updatePreferredOccasions error: $e',
+      );
     }
     return null;
+  }
+
+  @override
+  Future<UserProfile?> updateStyleAttributes(Map<String, dynamic> patch) async {
+    if (patch.isEmpty) return _cachedProfile;
+    final allowed = {
+      'faceShape',
+      'skinTone',
+      'bodyType',
+      'hairType',
+      'hairDensity',
+      'styleType',
+    };
+    final clean = {
+      for (final entry in patch.entries)
+        if (allowed.contains(entry.key)) entry.key: entry.value,
+    };
+    if (clean.isEmpty) return _cachedProfile;
+
+    if (!AuthSession.isAuthenticated || isGuestUser) {
+      _applyLocalProfilePatch(stylePatch: clean);
+      if (_cachedProfile != null) {
+        _cachedProfile = _cachedProfile!.copyWith(
+          styleProfile: _cachedProfile!.styleProfile.applyPatch(clean),
+        );
+        return _cachedProfile;
+      }
+      return null;
+    }
+
+    try {
+      final updated = await _client.updateProfile(styleProfile: clean);
+      if (updated != null) {
+        _cachedProfile = updated;
+        _syncToLocalStorage(updated);
+        return updated;
+      }
+    } catch (e) {
+      debugPrint('UserProfileRepositoryImpl: updateStyleAttributes error: $e');
+    }
+    return null;
+  }
+
+  @override
+  Future<UserProfile?> updatePreferenceFields(
+    Map<String, dynamic> patch,
+  ) async {
+    if (patch.isEmpty) return _cachedProfile;
+    final allowed = {
+      'appearanceGoals',
+      'dislikes',
+      'maintenancePreference',
+      'maxBudget',
+    };
+    final clean = {
+      for (final entry in patch.entries)
+        if (allowed.contains(entry.key)) entry.key: entry.value,
+    };
+    if (clean.isEmpty) return _cachedProfile;
+
+    if (!AuthSession.isAuthenticated || isGuestUser) {
+      _applyLocalProfilePatch(preferencePatch: clean);
+      if (_cachedProfile != null) {
+        _cachedProfile = _cachedProfile!.applyPreferencePatch(clean);
+        return _cachedProfile;
+      }
+      return null;
+    }
+
+    try {
+      final updated = await _client.updateProfile(preferences: clean);
+      if (updated != null) {
+        _cachedProfile = updated;
+        _syncToLocalStorage(updated);
+        return updated;
+      }
+    } catch (e) {
+      debugPrint('UserProfileRepositoryImpl: updatePreferenceFields error: $e');
+    }
+    return null;
+  }
+
+  void _applyLocalProfilePatch({
+    Map<String, dynamic>? stylePatch,
+    Map<String, dynamic>? preferencePatch,
+  }) {
+    final current = Map<String, dynamic>.from(LocalStorage.userProfile);
+    final preferences = current['profilePreferences'] is Map
+        ? Map<String, dynamic>.from(current['profilePreferences'] as Map)
+        : <String, dynamic>{};
+
+    stylePatch?.forEach((key, value) {
+      if (value == null) {
+        current.remove(key);
+      } else {
+        current[key] = value;
+      }
+    });
+    preferencePatch?.forEach((key, value) {
+      if (value == null) {
+        preferences.remove(key);
+      } else {
+        preferences[key] = value;
+      }
+    });
+    if (preferences.isNotEmpty) current['profilePreferences'] = preferences;
+    if (current.isNotEmpty) LocalStorage.userProfile = current;
   }
 
   void _syncToLocalStorage(UserProfile profile) {
@@ -279,15 +420,53 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
     final currentMap = Map<String, dynamic>.from(LocalStorage.userProfile);
 
     final style = profile.styleProfile;
-    if (style.faceShape != null) currentMap['faceShape'] = style.faceShape;
-    if (style.skinTone != null) currentMap['skinTone'] = style.skinTone;
-    if (style.bodyType != null) currentMap['bodyType'] = style.bodyType;
+    for (final entry in {
+      'faceShape': style.faceShape,
+      'skinTone': style.skinTone,
+      'bodyType': style.bodyType,
+      'hairType': style.hairType,
+      'hairDensity': style.hairDensity,
+    }.entries) {
+      if (entry.value != null) {
+        currentMap[entry.key] = entry.value;
+      } else {
+        currentMap.remove(entry.key);
+      }
+    }
     if (style.styleType != null && style.styleType!.isNotEmpty) {
       currentMap['styleType'] = style.styleType;
       LocalStorage.vibe = style.styleType;
       LearningService.instance.setStyleType(style.styleType!);
+    } else {
+      currentMap.remove('styleType');
     }
-    if (style.sourceRunId != null) currentMap['sourceRunId'] = style.sourceRunId;
+    if (style.sourceRunId != null) {
+      currentMap['sourceRunId'] = style.sourceRunId;
+    } else {
+      currentMap.remove('sourceRunId');
+    }
+
+    final storedPreferences = currentMap['profilePreferences'] is Map
+        ? Map<String, dynamic>.from(currentMap['profilePreferences'] as Map)
+        : <String, dynamic>{};
+    for (final key in const [
+      'appearanceGoals',
+      'dislikes',
+      'maintenancePreference',
+      'maxBudget',
+    ]) {
+      final value = profile.preferences[key];
+      if (value != null) {
+        storedPreferences[key] = value;
+      } else {
+        storedPreferences.remove(key);
+      }
+    }
+    if (storedPreferences.isNotEmpty) {
+      currentMap['profilePreferences'] = storedPreferences;
+    } else {
+      currentMap.remove('profilePreferences');
+    }
 
     // Preserve Batch 1A provenance keys.
     style.extra.forEach((k, v) {
@@ -306,7 +485,9 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
     }
 
     // Sync preferredOccasions if present
-    final occs = profile.preferences['preferredOccasions'] ?? profile.preferences['preferred_occasions'];
+    final occs =
+        profile.preferences['preferredOccasions'] ??
+        profile.preferences['preferred_occasions'];
     if (occs is List) {
       final parsed = occs.map((e) => e.toString()).toList();
       LearningService.instance.replacePreferredOccasions(parsed);
@@ -320,9 +501,13 @@ class UserProfileRepositoryImpl implements UserProfileRepository {
     if (map.isEmpty && name.isEmpty && localSettings.isEmpty) return null;
 
     final style = UserStyleProfile.fromJson(map);
+    final localPreferences = map['profilePreferences'] is Map
+        ? Map<String, dynamic>.from(map['profilePreferences'] as Map)
+        : <String, dynamic>{};
     return UserProfile(
       displayName: name,
       styleProfile: style,
+      preferences: localPreferences,
       settings: localSettings,
       version: 1,
     );

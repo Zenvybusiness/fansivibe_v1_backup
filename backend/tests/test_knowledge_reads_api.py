@@ -60,6 +60,25 @@ EXPECTED_COLORS = {
     "stone": "Stone",
 }
 
+EXPECTED_MATERIALS = {
+    "cotton": "Cotton",
+    "linen": "Linen",
+    "wool": "Wool",
+    "cashmere": "Cashmere",
+    "silk": "Silk",
+    "denim": "Denim",
+    "leather": "Leather",
+    "suede": "Suede",
+    "canvas": "Canvas",
+    "polyester": "Polyester",
+    "velvet": "Velvet",
+    "knit": "Knit",
+    "jersey": "Jersey",
+    "tweed": "Tweed",
+    "corduroy": "Corduroy",
+    "fleece": "Fleece",
+}
+
 EXPECTED_OCCASIONS = [
     ("casual", "Casual", 1),
     ("formal", "Formal", 2),
@@ -192,6 +211,28 @@ def test_colors_exact_catalog_order_envelope_version():
     for item in items:
         assert item["label"] == EXPECTED_COLORS[item["code"]]
     assert items == sorted(items, key=lambda i: (i["sortOrder"], i["code"]))
+
+
+# --- materials ----------------------------------------------------------------
+
+def test_materials_exact_catalog_order_envelope_version():
+    resp = client.get(f"{BASE}/materials")
+    assert resp.status_code == 200
+    _versioned(resp)
+    body = resp.json()
+    assert body["page"] == 1
+    assert body["page_size"] == 20
+    assert body["total"] == 16
+    items = body["items"]
+    assert {item["code"] for item in items} == set(EXPECTED_MATERIALS)
+    for item in items:
+        assert item["label"] == EXPECTED_MATERIALS[item["code"]]
+    assert items == sorted(items, key=lambda i: (i["sortOrder"], i["code"]))
+
+
+def test_materials_public_no_auth_and_bogus_token():
+    assert client.get(f"{BASE}/materials").status_code == 200
+    assert client.get(f"{BASE}/materials", headers=BOGUS).status_code == 200
 
 
 # --- #21 occasions -----------------------------------------------------------

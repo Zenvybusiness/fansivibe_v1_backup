@@ -11,13 +11,15 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StyleProfile(BaseModel):
     faceShape: Optional[str] = None
     skinTone: Optional[str] = None
     bodyType: Optional[str] = None
+    hairType: Optional[str] = None
+    hairDensity: Optional[str] = None
     styleType: Optional[str] = None
     sourceRunId: Optional[str] = None
 
@@ -40,4 +42,8 @@ class UpdatePreferencesRequest(BaseModel):
     preferredOccasions: Optional[list[str]] = None
     styleType: Optional[str] = None
     styleProfile: Optional[dict[str, Any]] = None
+    appearanceGoals: Optional[str] = Field(default=None, max_length=500)
+    dislikes: Optional[str] = Field(default=None, max_length=500)
+    maintenancePreference: Optional[str] = Field(default=None, max_length=40)
+    maxBudget: Optional[float] = Field(default=None, ge=0, le=1_000_000)
     settings: Optional[dict[str, Any]] = None

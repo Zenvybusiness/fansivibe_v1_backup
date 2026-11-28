@@ -603,9 +603,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Tap remove button
       await tester.ensureVisible(find.text('Remove from Saved Looks'));
       await tester.tap(find.text('Remove from Saved Looks'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete Saved Look'), findsOneWidget);
+      await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
 
       expect(savedLooksRepo.deleteCalls, 1);
@@ -652,6 +655,46 @@ void main() {
 
       // Restore session
       await AuthSession.saveSession('saved-looks-test-token');
+    });
+  });
+
+  group('Profile Group 3 saved-look reliability', () {
+    testWidgets('route loader hydrates detail by backend id', (tester) async {
+      final repo = FakeSavedLooksRepo([_buildSampleLook()]);
+      await tester.pumpWidget(
+        _wrap(
+          SavedLookDetailsLoader(savedLookId: 'look-uuid-1', repository: repo),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Summer Seaside'), findsOneWidget);
+      expect(find.text('Ensemble Pieces'), findsOneWidget);
+    });
+
+    testWidgets('detail delete asks for confirmation before delete', (
+      tester,
+    ) async {
+      final repo = FakeSavedLooksRepo([_buildSampleLook()]);
+      await tester.pumpWidget(
+        _wrap(
+          SavedLookDetailsScreen(
+            look: _buildSampleLook(),
+            savedLooksRepository: repo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.delete_outline_rounded));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete Saved Look'), findsOneWidget);
+      expect(repo.deleteCalls, 0);
+
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(repo.deleteCalls, 1);
+      expect(repo.lastDeletedId, 'look-uuid-1');
     });
   });
 }

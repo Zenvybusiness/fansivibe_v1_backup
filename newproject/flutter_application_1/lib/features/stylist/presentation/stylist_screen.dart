@@ -299,6 +299,9 @@ class _StylistScreenState extends State<StylistScreen> {
 
                         // 5. Plan for an Event Section
                         _buildPlanForEventSection(context),
+                        const SizedBox(height: 14),
+
+                        _buildAnalysisHistoryCard(context),
                         const SizedBox(height: 36),
                       ],
                     ),
@@ -307,6 +310,75 @@ class _StylistScreenState extends State<StylistScreen> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnalysisHistoryCard(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Analysis History',
+      child: InkWell(
+        onTap: () => context.pushNamed(RouteNames.analysisHistory),
+        borderRadius: FansivibeRadius.baseBorder,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+          decoration: BoxDecoration(
+            color: FansivibeColors.surfaceContainerLow,
+            borderRadius: FansivibeRadius.baseBorder,
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.08),
+              width: 1.0,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.06),
+                ),
+                child: const Icon(
+                  Icons.history_rounded,
+                  color: FansivibeColors.textPrimary,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Analysis History',
+                      style: FansivibeTypography.titleLargeWithFamily.copyWith(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: FansivibeColors.textPrimary,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Revisit your saved styling analyses',
+                      style: FansivibeTypography.bodyMediumWithFamily.copyWith(
+                        fontSize: 12.5,
+                        color: FansivibeColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: FansivibeColors.textSecondary,
+              ),
+            ],
+          ),
         ),
       ),
     );
